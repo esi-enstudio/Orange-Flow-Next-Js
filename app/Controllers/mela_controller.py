@@ -250,12 +250,12 @@ async def mela_mgmt_start(message: Message, state: FSMContext, permissions: list
         is_admin = (int(message.from_user.id) == int(SUPER_ADMIN_ID))
         logger.info(f"mela_mgmt_start: user_id={message.from_user.id}, SUPER_ADMIN_ID={SUPER_ADMIN_ID}, is_admin={is_admin}")
         if is_admin:
-            houses = (await session.execute(select(House))).scalars().all()
+            houses = (await session.execute(select(House).where(House.is_active == True, House.subscription_date >= datetime.now()))).scalars().all()
         else:
             user = (await session.execute(
                 select(User).options(selectinload(User.houses)).where(User.telegram_id == message.from_user.id)
             )).scalar_one_or_none()
-            houses = user.houses if user else []
+            houses = [h for h in (user.houses if user else []) if h.is_active and h.subscription_date and h.subscription_date >= datetime.now()]
         logger.info(f"houses count: {len(houses)}")
         if not houses: return await message.answer("❌ হাউজ পাওয়া যায়নি।")
         if len(houses) == 1: return await render_mela_dashboard(message, houses[0].id, permissions, edit_mode=False)
@@ -278,12 +278,12 @@ async def change_house_mela(callback: CallbackQuery, state: FSMContext, permissi
     async with async_session() as session:
         # সুপার এডমিন চেক
         if int(user_id) == int(SUPER_ADMIN_ID):
-            houses = (await session.execute(select(House))).scalars().all()
+            houses = (await session.execute(select(House).where(House.is_active == True, House.subscription_date >= datetime.now()))).scalars().all()
         else:
             user = (await session.execute(
                 select(User).options(selectinload(User.houses)).where(User.telegram_id == user_id)
             )).scalar_one_or_none()
-            houses = user.houses if user else []
+            houses = [h for h in (user.houses if user else []) if h.is_active and h.subscription_date and h.subscription_date >= datetime.now()]
 
         if not houses:
             return await callback.answer("❌ হাউজ পাওয়া যায়নি।", show_alert=True)

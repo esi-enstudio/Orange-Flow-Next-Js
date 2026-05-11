@@ -46,12 +46,12 @@ async def handle_ga_logic_core(message: Message, user_tg_id: int, edit: bool = F
     async with async_session() as session:
         target_houses = []
         if is_super_admin:
-            target_houses = (await session.execute(select(House))).scalars().all()
+            target_houses = (await session.execute(select(House).where(House.is_active == True, House.subscription_date >= datetime.now()))).scalars().all()
         else:
             user = (await session.execute(
                 select(User).options(selectinload(User.houses)).where(User.telegram_id == user_tg_id)
             )).scalar_one_or_none()
-            if user: target_houses = user.houses
+            if user: target_houses = [h for h in user.houses if h.is_active and h.subscription_date and h.subscription_date >= datetime.now()]
 
         if not target_houses:
             text = "❌ আপনার প্রোফাইলে কোনো হাউজ যুক্ত নেই।"
