@@ -14,6 +14,7 @@ from app.Core.automation_engine import engine
 
 # সিঙ্ক এবং রিসেট ফাংশনগুলো ইম্পোর্ট
 from app.Services.Automation.Reports.ga_live import run_ga_live_sync, reset_daily_activations
+from app.Services.Automation.dms_report_excel import cleanup_old_dms_reports
 
 # কন্ট্রোলার ইম্পোর্ট
 from app.Controllers import (
@@ -21,7 +22,7 @@ from app.Controllers import (
     role_controller, automation_controller, sim_status_controller,
     sim_return_controller, sim_issue_controller, ga_live_controller,
     field_force_controller, retailer_controller, ga_filter_controller,
-    bts_controller, mela_config_controller, mela_controller,
+    bts_controller, mela_config_controller, mela_controller, dms_report_controller
 )
 
 # --- ২. লগিং কনফিগারেশন (সাইলেন্ট মুড) ---
@@ -68,8 +69,9 @@ async def master_automation_scheduler():
 
             # --- ১. রাত ১২টায় ডাটা রিসেট (00:00 - 00:05) ---
             if hour == 0 and now.minute < 5:
-                logger.info("🧹 Midnight Reset: জিএ লাইভ টেবিল পরিষ্কার করা হচ্ছে...")
+                logger.info("🧹 Midnight Reset: ক্লিনিং এবং রিসেট শুরু হচ্ছে...")
                 await reset_daily_activations()
+                await cleanup_old_dms_reports() # ২ বছরের পুরনো ডাটা ডিলিট করবে
                 await asyncio.sleep(300) # ৫ মিনিট বিরতি
                 continue
 
@@ -126,7 +128,7 @@ async def main():
         ga_live_controller.router, field_force_controller.router,
         retailer_controller.router, ga_filter_controller.router,
         bts_controller.router, mela_config_controller.router,
-        activation_controller.router, mela_controller.router
+        activation_controller.router, mela_controller.router, dms_report_controller.router
     )
 
     # পেন্ডিং মেসেজ স্কিপ করা

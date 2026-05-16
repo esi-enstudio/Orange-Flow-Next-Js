@@ -101,8 +101,11 @@ def get_data_center_menu(permissions: list):
     
     # এখানে আপনার ৬টি টেবিলের বাটন আসবে। আপাতত 'এক্টিভেশন' শুরু করছি।
     if "manage_data_center" in permissions:
-        buttons.append([KeyboardButton(text="📈 এক্টিভেশন")])
-        # ভবিষ্যতে এখানে বাকি ৫টি বাটন যোগ হবে
+        buttons.append([
+            KeyboardButton(text="📈 এক্টিভেশন"),
+            KeyboardButton(text="📊 DMS রিপোর্ট")
+        ])
+        # ভবিষ্যতে এখানে বাকি ৪টি বাটন যোগ হবে
     
     buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)

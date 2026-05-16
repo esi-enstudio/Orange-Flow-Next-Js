@@ -12,6 +12,7 @@ import app.Models.ga_filter
 import app.Models.mela
 import app.Models.activation
 import app.Models.subscription
+import app.Models.dms_report
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False)

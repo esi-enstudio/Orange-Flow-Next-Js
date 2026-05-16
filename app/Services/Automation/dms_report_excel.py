@@ -1,0 +1,188 @@
+import pandas as pd
+import logging
+import re
+from datetime import datetime, timedelta
+from sqlalchemy import select, func, delete
+from sqlalchemy.dialects.postgresql import insert
+# ... rest of imports
+from app.Models.dms_report import DMSReport
+from app.Models.house import House
+from app.Models.retailer import Retailer
+from app.Services.db_service import async_session
+from app.Utils.helpers import bn_num
+
+logger = logging.getLogger(__name__)
+
+async def process_dms_report_excel(file_path, report_type, progress_callback=None):
+    """
+    DMS C2C, C2S, Balance রিপোর্ট প্রসেস করার প্রফেশনাল সার্ভিস।
+    .xlsx এবং .xls উভয় ফাইল সাপোর্ট করে।
+    """
+    try:
+        # ১. এক্সেল লোড করা (Resilient Loading)
+        df = None
+        file_ext = file_path.lower().split('.')[-1]
+        
+        try:
+            if file_ext == 'xls' or file_ext == 'xlsx':
+                try:
+                    # ১. চেষ্টা: স্ট্যান্ডার্ড এক্সেল (xlrd for xls, openpyxl for xlsx)
+                    engine = 'xlrd' if file_ext == 'xls' else 'openpyxl'
+                    df = pd.read_excel(file_path, dtype=str, engine=engine)
+                except Exception:
+                    try:
+                        # ২. চেষ্টা: DMS অনেক সময় HTML ফাইলকে .xls নামে সেভ করে
+                        dfs = pd.read_html(file_path)
+                        if dfs:
+                            df = dfs[0].astype(str)
+                    except Exception:
+                        # ৩. চেষ্টা: অনেক সময় ফাইলটি আসলে CSV বা Tab-Separated হতে পারে
+                        try:
+                            df = pd.read_csv(file_path, dtype=str)
+                            # যদি একটি কলামে সব ডাটা চলে আসে (ট্যাব এর কারণে), তবে ট্যাব দিয়ে ট্রাই করো
+                            if len(df.columns) <= 1:
+                                df = pd.read_csv(file_path, sep='\t', dtype=str)
+                        except Exception:
+                            raise Exception("Unsupported or corrupted Excel format")
+            else:
+                # অন্য কোনো এক্সটেনশন হলে (যেমন সরাসরি csv)
+                df = pd.read_excel(file_path, dtype=str)
+        except Exception as e:
+            logger.error(f"Excel Read Error: {str(e)}")
+            return 0, f"ফাইলটি পড়া সম্ভব হচ্ছে না। এটি সম্ভবত একটি সুরক্ষিত বা ভুল ফরম্যাটের ফাইল। (Error: {str(e)})"
+
+        if df is None or df.empty:
+            return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+        
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # ২. তারিখ কলামগুলো খুঁজে বের করা
+        date_cols = []
+        # বিভিন্ন সম্ভাব্য তারিখের প্যাটার্ন:
+        # ১. DD-MON-YY (01-MAY-26)
+        # ২. DD-MON-YYYY (01-JAN-2026) ✅
+        # ৩. DD-MM-YYYY (01-01-2026)
+        # ৪. DD-MM-YY (01-01-26)
+        patterns = [
+            re.compile(r'\d{2}-[A-Z]{3}-\d{2}', re.IGNORECASE),  # 01-MAY-26
+            re.compile(r'\d{2}-[A-Z]{3}-\d{4}', re.IGNORECASE), # 01-JAN-2026
+            re.compile(r'\d{2}-\d{2}-\d{4}'),                   # 01-01-2026
+            re.compile(r'\d{2}-\d{2}-\d{2}')                    # 01-01-26
+        ]
+
+        for col in df.columns:
+            for pattern in patterns:
+                if pattern.match(str(col)):
+                    date_cols.append(col)
+                    break
+        
+        if not date_cols:
+            logger.warning(f"No date columns found in {file_path}. Columns: {list(df.columns)}")
+            return 0, "ফাইলটিতে কোনো তারিখ কলাম (e.g., 01-01-2026) পাওয়া যায়নি।"
+
+        async with async_session() as session:
+            # ৩. হাউজ এবং রিটেইলার ম্যাপ তৈরি (পারফরম্যান্স অপ্টিমাইজেশন)
+            logger.info("⏳ হাউজ এবং রিটেইলার ডাটা লোড হচ্ছে...")
+            
+            # House Map: code -> id
+            house_res = await session.execute(select(House.code, House.id))
+            house_map = {h.code: h.id for h in house_res.all() if h.code}
+            
+            # Retailer Map: retailer_code -> id
+            retailer_res = await session.execute(select(Retailer.retailer_code, Retailer.id))
+            retailer_map = {r.retailer_code: r.id for r in retailer_res.all() if r.retailer_code}
+
+            total_rows = len(df)
+            processed_rows = 0
+            inserted_records = 0
+            batch_buffer = [] # বাল্ক ইনসার্টের জন্য বাফার
+            batch_size = 500  # প্রতি ৫০০ রেকর্ডে একবার ডাটাবেজে হিট করবে
+
+            # কুইক আপসার্ট স্টেটমেন্ট তৈরি
+            insert_stmt = insert(DMSReport)
+            upsert_stmt = insert_stmt.on_conflict_do_update(
+                constraint='uix_house_retailer_type_date',
+                set_={
+                    "daily_value": insert_stmt.excluded.daily_value, 
+                    "updated_at": func.now()
+                }
+            )
+
+            for _, row in df.iterrows():
+                dist_code = str(row.get('DISTRIBUTORCODE', '')).strip()
+                ret_code = str(row.get('RETAILER_CODE', '')).strip()
+                
+                house_id = house_map.get(dist_code)
+                if not house_id:
+                    processed_rows += 1
+                    continue
+
+                retailer_id = retailer_map.get(ret_code)
+                
+                for date_str in date_cols:
+                    try:
+                        raw_val = str(row.get(date_str, '0')).replace(',', '').strip()
+                        value = float(raw_val) if raw_val and raw_val.lower() != 'nan' else 0.0
+                    except ValueError:
+                        value = 0.0
+                    
+                    if value == 0:
+                        continue
+
+                    try:
+                        report_date = pd.to_datetime(date_str).date()
+                    except Exception:
+                        continue
+
+                    # বাফারে ডাটা যোগ করা
+                    batch_buffer.append({
+                        "house_id": house_id,
+                        "retailer_id": retailer_id,
+                        "report_type": report_type,
+                        "report_date": report_date,
+                        "daily_value": value
+                    })
+
+                    # বাফার পূর্ণ হলে বাল্ক এক্সিকিউট করা
+                    if len(batch_buffer) >= batch_size:
+                        await session.execute(upsert_stmt, batch_buffer)
+                        inserted_records += len(batch_buffer)
+                        batch_buffer = []
+
+                processed_rows += 1
+                
+                # প্রগ্রেস আপডেট
+                if progress_callback and (processed_rows % 50 == 0 or processed_rows == total_rows):
+                    percent = round((processed_rows / total_rows) * 100)
+                    await progress_callback(
+                        f"🚀 <b>DMS বাল্ক প্রসেসিং:</b> {bn_num(percent)}%\n"
+                        f"📂 টাইপ: <code>{report_type}</code>\n"
+                        f"📈 রো: <code>{bn_num(processed_rows)}</code> / <code>{bn_num(total_rows)}</code>\n"
+                        f"💾 মোট ডাটা সেভ: <code>{bn_num(inserted_records + len(batch_buffer))}</code> টি"
+                    )
+
+            # অবশিষ্টাংশ সেভ করা
+            if batch_buffer:
+                await session.execute(upsert_stmt, batch_buffer)
+                inserted_records += len(batch_buffer)
+
+            await session.commit()
+            logger.info(f"✅ DMS Report ({report_type}) processed: {inserted_records} records saved.")
+            return inserted_records, None
+
+    except Exception as e:
+        logger.error(f"❌ DMS Report Processing Error: {str(e)}")
+        return 0, f"প্রসেসিং এরর: {str(e)}"
+
+async def cleanup_old_dms_reports():
+    """২ বছরের বেশি পুরনো ডাটা মুছে ফেলার ফাংশন"""
+    two_years_ago = datetime.now() - timedelta(days=365 * 2)
+    async with async_session() as session:
+        try:
+            stmt = delete(DMSReport).where(DMSReport.report_date < two_years_ago.date())
+            result = await session.execute(stmt)
+            await session.commit()
+            if result.rowcount > 0:
+                logger.info(f"🧹 Cleanup: {result.rowcount} old DMS records deleted.")
+        except Exception as e:
+            logger.error(f"❌ DMS Cleanup Error: {str(e)}")
