@@ -4,6 +4,9 @@ import re
 from datetime import datetime, timedelta
 from sqlalchemy import select, func, delete
 from sqlalchemy.dialects.postgresql import insert
+from tqdm import tqdm
+from colorama import Fore, Style, init
+
 # ... rest of imports
 from app.Models.dms_report import DMSReport
 from app.Models.house import House
@@ -11,15 +14,21 @@ from app.Models.retailer import Retailer
 from app.Services.db_service import async_session
 from app.Utils.helpers import bn_num
 
+# Initialize colorama
+init(autoreset=True)
+
 logger = logging.getLogger(__name__)
 
-async def process_dms_report_excel(file_path, report_type, progress_callback=None):
+async def process_dms_report_excel(file_path, report_type, target_house_id=None, progress_callback=None):
     """
     DMS C2C, C2S, Balance রিপোর্ট প্রসেস করার প্রফেশনাল সার্ভিস।
     .xlsx এবং .xls উভয় ফাইল সাপোর্ট করে।
     """
     try:
         # ১. এক্সেল লোড করা (Resilient Loading)
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}🚀 DMS Report Processing Started...")
+        print(f"{Fore.YELLOW}📂 File: {file_path} | Type: {report_type}")
+        
         df = None
         file_ext = file_path.lower().split('.')[-1]
         
@@ -54,15 +63,13 @@ async def process_dms_report_excel(file_path, report_type, progress_callback=Non
         if df is None or df.empty:
             return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
         
+        # NaN হ্যান্ডেলিং
+        df = df.where(pd.notnull(df), None)
+        
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         # ২. তারিখ কলামগুলো খুঁজে বের করা
         date_cols = []
-        # বিভিন্ন সম্ভাব্য তারিখের প্যাটার্ন:
-        # ১. DD-MON-YY (01-MAY-26)
-        # ২. DD-MON-YYYY (01-JAN-2026) ✅
-        # ৩. DD-MM-YYYY (01-01-2026)
-        # ৪. DD-MM-YY (01-01-26)
         patterns = [
             re.compile(r'\d{2}-[A-Z]{3}-\d{2}', re.IGNORECASE),  # 01-MAY-26
             re.compile(r'\d{2}-[A-Z]{3}-\d{4}', re.IGNORECASE), # 01-JAN-2026
@@ -82,7 +89,7 @@ async def process_dms_report_excel(file_path, report_type, progress_callback=Non
 
         async with async_session() as session:
             # ৩. হাউজ এবং রিটেইলার ম্যাপ তৈরি (পারফরম্যান্স অপ্টিমাইজেশন)
-            logger.info("⏳ হাউজ এবং রিটেইলার ডাটা লোড হচ্ছে...")
+            print(f"{Fore.GREEN}{Style.BRIGHT}⏳ হাউজ এবং রিটেইলার ডাটা লোড হচ্ছে...")
             
             # House Map: code -> id
             house_res = await session.execute(select(House.code, House.id))
@@ -108,6 +115,9 @@ async def process_dms_report_excel(file_path, report_type, progress_callback=Non
                 }
             )
 
+            # Terminal Progress Bar
+            pbar = tqdm(total=total_rows, desc=f"{Fore.MAGENTA}{Style.BRIGHT}DMS Processing", unit="row")
+
             for _, row in df.iterrows():
                 dist_code = str(row.get('DISTRIBUTORCODE', '')).strip()
                 ret_code = str(row.get('RETAILER_CODE', '')).strip()
@@ -115,6 +125,13 @@ async def process_dms_report_excel(file_path, report_type, progress_callback=Non
                 house_id = house_map.get(dist_code)
                 if not house_id:
                     processed_rows += 1
+                    pbar.update(1)
+                    continue
+                
+                # যদি স্পেসিফিক হাউজ সিলেক্ট করা থাকে, তবে অন্য হাউজের ডাটা বাদ দিবে
+                if target_house_id and house_id != target_house_id:
+                    processed_rows += 1
+                    pbar.update(1)
                     continue
 
                 retailer_id = retailer_map.get(ret_code)
@@ -150,8 +167,9 @@ async def process_dms_report_excel(file_path, report_type, progress_callback=Non
                         batch_buffer = []
 
                 processed_rows += 1
+                pbar.update(1)
                 
-                # প্রগ্রেস আপডেট
+                # প্রগ্রেস আপডেট (Telegram)
                 if progress_callback and (processed_rows % 50 == 0 or processed_rows == total_rows):
                     percent = round((processed_rows / total_rows) * 100)
                     await progress_callback(
@@ -167,12 +185,18 @@ async def process_dms_report_excel(file_path, report_type, progress_callback=Non
                 inserted_records += len(batch_buffer)
 
             await session.commit()
+            pbar.close()
+            print(f"{Fore.GREEN}{Style.BRIGHT}✅ Success: {inserted_records} records processed successfully.\n")
+            
             logger.info(f"✅ DMS Report ({report_type}) processed: {inserted_records} records saved.")
             return inserted_records, None
 
     except Exception as e:
+        if 'pbar' in locals(): pbar.close()
+        print(f"\n{Fore.RED}{Style.BRIGHT}❌ Error: {str(e)}")
         logger.error(f"❌ DMS Report Processing Error: {str(e)}")
         return 0, f"প্রসেসিং এরর: {str(e)}"
+
 
 async def cleanup_old_dms_reports():
     """২ বছরের বেশি পুরনো ডাটা মুছে ফেলার ফাংশন"""

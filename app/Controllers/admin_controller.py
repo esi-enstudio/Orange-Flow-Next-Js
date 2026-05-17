@@ -93,7 +93,7 @@ async def settings_menu(message: Message, permissions: list):
     setting_perms = [
         "create_new_role", "create_new_permission", 
         "manage_role_and_permission_list", "manage_ga_filter", 
-        "manage_data_center", "manage_mela_settings"
+        "upload_activation", "manage_mela_settings"
     ]
     
     # যদি সুপার এডমিন হয় অথবা অন্তত একটি সেটিংস পারমিশন থাকে

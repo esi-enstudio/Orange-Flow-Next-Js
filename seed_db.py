@@ -51,7 +51,10 @@ async def seed_data():
             "create_new_permission",
             "manage_role_and_permission_list",
             "manage_ga_filter",
-            "manage_data_center",
+            "dms_report",
+            "upload_scratch_card",
+            "upload_sim_issue",
+            "upload_activation",
             "manage_mela_settings",
             "manage_settings",
         ]

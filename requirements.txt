@@ -4,3 +4,5 @@ asyncpg
 python-dotenv~=1.0.1
 psycopg2-binary
 playwright
+tqdm
+colorama

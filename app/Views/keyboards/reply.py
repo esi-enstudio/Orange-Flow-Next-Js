@@ -56,7 +56,7 @@ def get_admin_main_menu(permissions: list):
     setting_perms = [
         "create_new_role", "create_new_permission", 
         "manage_role_and_permission_list", "manage_ga_filter", 
-        "manage_data_center", "manage_mela_settings"
+        "upload_activation", "manage_mela_settings"
     ]
 
     if any(p in permissions for p in setting_perms):
@@ -87,7 +87,10 @@ def get_settings_menu(permissions: list):
 
     # রো ৩: ডাটা সেন্টার ও মেলা সেটিংস
     row3 = []
-    if "manage_data_center" in permissions: row3.append(KeyboardButton(text="💾 ডাটা সেন্টার"))
+    data_center_perms = ["dms_report", "upload_scratch_card", "upload_sim_issue", "upload_activation"]
+    if any(p in permissions for p in data_center_perms):
+        row3.append(KeyboardButton(text="💾 ডাটা সেন্টার"))
+    
     if "manage_mela_settings" in permissions: row3.append(KeyboardButton(text="⚙️ মেলার সেটিংস"))
     if row3: buttons.append(row3)
 
@@ -99,15 +102,25 @@ def get_data_center_menu(permissions: list):
     """ডাটা সেন্টার সাব-মেনু (এক্সেল আপলোডের জন্য) ✅"""
     buttons = []
     
-    # এখানে আপনার ৬টি টেবিলের বাটন আসবে। আপাতত 'এক্টিভেশন' শুরু করছি।
-    if "manage_data_center" in permissions:
-        buttons.append([
-            KeyboardButton(text="📈 এক্টিভেশন"),
-            KeyboardButton(text="📊 DMS রিপোর্ট")
-        ])
-        # ভবিষ্যতে এখানে বাকি ৪টি বাটন যোগ হবে
+    # রো ১: এক্টিভেশন ও DMS রিপোর্ট
+    row1 = []
+    if "upload_activation" in permissions: # Activation management
+         row1.append(KeyboardButton(text="📈 এক্টিভেশন"))
+         
+    if "dms_report" in permissions:
+         row1.append(KeyboardButton(text="📊 DMS Report"))
+    if row1: buttons.append(row1)
+
+    # রো ২: স্ক্র্যাচ কার্ড ও সিম ইস্যু
+    row2 = []
+    if "upload_scratch_card" in permissions:
+        row2.append(KeyboardButton(text="🎫 Scratch Card Issue"))
+    if "upload_sim_issue" in permissions:
+        row2.append(KeyboardButton(text="📲 SIM Issue"))
+    if row2: buttons.append(row2)
     
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
+    # ব্যাক বাটন
+    buttons.append([KeyboardButton(text="🔙 পিছনে")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
 

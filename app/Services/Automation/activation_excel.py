@@ -4,24 +4,69 @@ import os
 import asyncio
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
+from tqdm import tqdm
+from colorama import Fore, Style, init
+
 from app.Models.activation import Activation
 from app.Models.retailer import Retailer
 from app.Services.db_service import async_session
 from app.Utils.helpers import bn_num
 
+# Initialize colorama
+init(autoreset=True)
+
 logger = logging.getLogger(__name__)
+
+def resilient_read_excel(file_path):
+    """
+    বিভিন্ন ফরম্যাটের (xlsx, xls, html, csv) এক্সেল ফাইল পড়ার জন্য রেজিলিয়েন্ট ফাংশন।
+    """
+    df = None
+    file_ext = file_path.lower().split('.')[-1]
+    
+    try:
+        if file_ext in ['xls', 'xlsx']:
+            try:
+                engine = 'xlrd' if file_ext == 'xls' else 'openpyxl'
+                df = pd.read_excel(file_path, dtype=str, engine=engine)
+            except Exception:
+                try:
+                    dfs = pd.read_html(file_path)
+                    if dfs:
+                        df = dfs[0].astype(str)
+                except Exception:
+                    try:
+                        df = pd.read_csv(file_path, dtype=str)
+                        if len(df.columns) <= 1:
+                            df = pd.read_csv(file_path, sep='\t', dtype=str)
+                    except Exception:
+                        df = pd.read_excel(file_path, dtype=str)
+        else:
+            df = pd.read_excel(file_path, dtype=str)
+    except Exception as e:
+        logger.error(f"Resilient Excel Read Error: {str(e)}")
+        raise e
+    
+    # NaN হ্যান্ডেলিং
+    if df is not None:
+        df = df.where(pd.notnull(df), None)
+        
+    return df
 
 async def process_activation_excel(file_path, house_id, progress_callback):
     """উন্নত বাল্ক প্রসেসিং লজিক (৯,৫০০+ ডাটার জন্য অপ্টিমাইজড) ✅"""
     try:
-        # ১. ডাটা লোড (dtype=str ব্যবহার করা হয়েছে যাতে বড় সংখ্যা ঠিক থাকে)
-        df = pd.read_excel(file_path, dtype=str)
+        # ১. ডাটা লোড (Resilient)
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}🚀 Activation Processing Started...")
+        df = resilient_read_excel(file_path)
+        if df is None or df.empty:
+            return 0, "ফাইলটি খালি।"
+
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
-        
         total_rows = len(df)
-        if total_rows == 0: return 0, "ফাইলটি খালি।"
 
         def clean(val):
+            if val is None: return None
             v = str(val).strip()
             # Excel এ leading single quote থাকলে তা সরানো
             if v.startswith("'"):
@@ -38,30 +83,39 @@ async def process_activation_excel(file_path, house_id, progress_callback):
 
         async with async_session() as session:
             # ২. পারফরম্যান্স বুস্ট: সব রিটেইলারকে মেমরিতে নিয়ে আসা ✅
-            # এতে ৯,৫০০ বার আলাদা করে ডাটাবেজে সার্চ করতে হবে না
-            logger.info(f"⏳ হাউজ {house_id} এর রিটেইলার ম্যাপ তৈরি হচ্ছে...")
+            print(f"{Fore.YELLOW}⏳ হাউজ {house_id} এর রিটেইলার ম্যাপ তৈরি হচ্ছে...")
             ret_res = await session.execute(
                 select(Retailer.retailer_code, Retailer.id).where(Retailer.house_id == house_id)
             )
             retailer_map = {r.retailer_code: r.id for r in ret_res.all()}
 
-            count = 0
+            processed_count = 0
+            inserted_count = 0
+            batch_buffer = []
+            batch_size = 500  # ৫০০ রেকর্ডের ব্যাচ
+
+            # Terminal Progress Bar
+            pbar = tqdm(total=total_rows, desc=f"{Fore.MAGENTA}{Style.BRIGHT}GA Processing", unit="row")
+
             # ৩. ডাটা প্রসেসিং লুপ
-            for index, row in df.iterrows():
+            for _, row in df.iterrows():
                 sim_no = clean(row.get('SIM_NO'))
-                if not sim_no: continue
+                if not sim_no:
+                    processed_count += 1
+                    pbar.update(1)
+                    continue
                 
                 r_code = clean(row.get('RETAILER_CODE'))
-                # ডাটাবেজ হিটের বদলে মেমরি ম্যাপ থেকে আইডি নেওয়া (অত্যন্ত দ্রুত) ✅
                 target_retailer_id = retailer_map.get(r_code) if r_code else None
 
                 # তারিখ প্রসেসিং
                 try:
-                    act_date = pd.to_datetime(row.get('ACTIVATION_DATE')).date()
+                    raw_date = row.get('ACTIVATION_DATE')
+                    act_date = pd.to_datetime(raw_date).date() if raw_date else None
                 except:
                     act_date = None
 
-                # ডাটা ম্যাপ (সকল কলাম)
+                # ডাটা ম্যাপ
                 data_map = {
                     "house_id": house_id,
                     "retailer_id": target_retailer_id,
@@ -89,31 +143,54 @@ async def process_activation_excel(file_path, house_id, progress_callback):
                     "updated_at": func.now()
                 }
 
-                # ৪. PostgreSQL Upsert
-                stmt = insert(Activation).values(**data_map)
-                update_cols = {k: v for k, v in data_map.items() if k not in ['sim_no', 'house_id']}
-                
-                stmt = stmt.on_conflict_do_update(
+                batch_buffer.append(data_map)
+
+                if len(batch_buffer) >= batch_size:
+                    # ৪. PostgreSQL Bulk Upsert (Deduplication within batch is required)
+                    # একই ব্যাচে একই sim_no থাকলে CardinalityViolationError দেয়।
+                    # তাই ব্যাচটিকে ডিকশনারি ম্যাপ ব্যবহার করে ইউনিক করছি।
+                    unique_batch = {item['sim_no']: item for item in batch_buffer}.values()
+                    
+                    insert_stmt = insert(Activation).values(list(unique_batch))
+                    update_cols = {c.name: c for c in insert_stmt.excluded if c.name not in ['sim_no', 'house_id']}
+                    upsert_stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=['sim_no'],
+                        set_=update_cols
+                    )
+                    await session.execute(upsert_stmt)
+                    inserted_count += len(batch_buffer)
+                    batch_buffer = []
+
+                processed_count += 1
+                pbar.update(1)
+
+                # ৫. টেলিগ্রাম প্রগ্রেস আপডেট (থ্রোটলিং)
+                if processed_count % 200 == 0 or processed_count == total_rows:
+                    percent = round((processed_count / total_rows) * 100)
+                    await progress_callback(
+                        f"📊 <b>এক্টিভেশন আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
+                        f"📈 প্রসেস হয়েছে: <code>{bn_num(processed_count)}</code> / <code>{bn_num(total_rows)}</code>\n"
+                        f"💾 সেভ হয়েছে: <code>{bn_num(inserted_count + len(batch_buffer))}</code> টি"
+                    )
+            
+            # অবশিষ্টাংশ সেভ করা
+            if batch_buffer:
+                unique_batch = {item['sim_no']: item for item in batch_buffer}.values()
+                insert_stmt = insert(Activation).values(list(unique_batch))
+                update_cols = {c.name: c for c in insert_stmt.excluded if c.name not in ['sim_no', 'house_id']}
+                upsert_stmt = insert_stmt.on_conflict_do_update(
                     index_elements=['sim_no'],
                     set_=update_cols
                 )
-                
-                await session.execute(stmt)
-                count += 1
+                await session.execute(upsert_stmt)
+                inserted_count += len(batch_buffer)
 
-                # ৫. টেলিগ্রাম প্রগ্রেস আপডেট (থ্রোটলিং করা হয়েছে) ⚠️
-                # বড় ফাইলের জন্য প্রতি ২০০টিতে একবার আপডেট দিলে টেলিগ্রাম ব্লক করবে না
-                if count % 200 == 0 or count == total_rows:
-                    percent = round((count / total_rows) * 100)
-                    await progress_callback(
-                        f"📊 <b>এক্টিভেশন আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
-                        f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
-                    )
-            
-            # সব শেষে একবারই ডাটাবেজে পার্মানেন্ট সেভ হবে ✅
             await session.commit()
-            return count, None
+            pbar.close()
+            print(f"{Fore.GREEN}{Style.BRIGHT}✅ Success: {inserted_count} records processed successfully.\n")
+            return inserted_count, None
 
     except Exception as e:
+        if 'pbar' in locals(): pbar.close()
         logger.error(f"❌ Critical Sync Error: {str(e)}")
         return 0, f"{str(e)}"

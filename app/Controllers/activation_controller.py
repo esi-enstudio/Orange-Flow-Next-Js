@@ -28,10 +28,10 @@ class ActivationStates(StatesGroup):
 # ==========================================
 # ডাটা সেন্টার মেইন গেটওয়ে (Reply Keyboard) ✅
 # ==========================================
-@router.message(F.text == "💾 ডাটা সেন্টার", flags={"permission": "manage_data_center"})
-async def show_data_center(message: Message, permissions: list):
+@router.message(F.text == "💾 ডাটা সেন্টার", flags={"permission": "upload_activation"})
+async def show_data_center(message: Message, state: FSMContext, permissions: list):
     """ইউজার যখন কিবোর্ড থেকে '💾 ডাটা সেন্টার' চাপ দিবে"""
-
+    await state.clear()
     await message.answer(
         "💾 <b>ডাটা সেন্টার ম্যানেজমেন্ট</b>\n\n"
         "এখান থেকে আপনি হাউজ ভিত্তিক ডাটাবেজ আপডেট করতে পারবেন। "
@@ -40,11 +40,24 @@ async def show_data_center(message: Message, permissions: list):
         parse_mode="HTML"
     )
 
+@router.message(F.text == "🔙 পিছনে")
+async def handle_back_button(message: Message, state: FSMContext, permissions: list):
+    """পিছনে ফিরে যাওয়ার হ্যান্ডেলার (কন্টেক্সট অনুযায়ী)"""
+    # বর্তমানে আমরা যদি ডাটা সেন্টারে থাকি, তবে পিছনে মানে সেটিংস মেনু
+    # যেহেতু ডাটা সেন্টার সেটিংস এর ভেতর থেকে আসে
+    from app.Views.keyboards.reply import get_settings_menu
+    await state.clear()
+    await message.answer(
+        "⚙️ <b>সেটিংস মেনু</b>",
+        reply_markup=get_settings_menu(permissions),
+        parse_mode="HTML"
+    )
+
 
 # ==========================================
 # মডিউল এন্ট্রি (Reply Button: 📈এক্টিভেশন)
 # ==========================================
-@router.message(F.text == "📈 এক্টিভেশন", flags={"permission": "manage_data_center"})
+@router.message(F.text == "📈 এক্টিভেশন", flags={"permission": "upload_activation"})
 async def start_activation_upload_process(message: Message, state: FSMContext):
     await state.clear()
     user_tg_id = message.from_user.id
@@ -124,9 +137,11 @@ async def handle_activation_file(message: Message, state: FSMContext):
             except: pass
 
         count, err = await process_activation_excel(file_path, house_id, progress)
-        
+
         if err:
-            await wait_msg.edit_text(f"❌ <b>প্রসেসিং ব্যর্থ!</b>\nএরর: `{err}`", parse_mode="HTML")
+            # এরর মেসেজ ট্রানকেট করা (টেলিগ্রাম লিমিট এড়াতে)
+            truncated_err = (err[:1000] + '...') if len(str(err)) > 1000 else err
+            await wait_msg.edit_text(f"❌ <b>প্রসেসিং ব্যর্থ!</b>\nএরর: `{truncated_err}`", parse_mode="HTML")
         else:
             await wait_msg.edit_text(
                 f"✅ <b>সফলভাবে আপলোড সম্পন্ন!</b>\n\n"
@@ -135,7 +150,9 @@ async def handle_activation_file(message: Message, state: FSMContext):
                 parse_mode="HTML"
             )
     except Exception as e:
-        await wait_msg.edit_text(f"❌ এরর: {str(e)}")
+        err_msg = str(e)
+        if len(err_msg) > 3000: err_msg = err_msg[:3000] + "..."
+        await wait_msg.edit_text(f"❌ এরর: {err_msg}")
     finally:
         if os.path.exists(file_path): os.remove(file_path)
         await state.clear()
