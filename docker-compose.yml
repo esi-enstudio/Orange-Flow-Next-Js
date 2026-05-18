@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: orange_flow_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:-postgres}
+      POSTGRES_DB: ${DB_NAME:-orange_flow_dev_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    ports:
+      - "5433:5432"
+
+  bot:
+    build: .
+    container_name: orange_flow_bot
+    restart: always
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+    ports:
+      - "${WEBHOOK_PORT:-8090}:${WEBHOOK_PORT:-8090}"
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:
