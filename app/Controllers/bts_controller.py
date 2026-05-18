@@ -85,7 +85,7 @@ def get_bts_full_profile_text(b: BTS):
 # ==========================================
 # ২. এন্ট্রি এবং হাউজ সিলেকশন
 # ==========================================
-@router.message(F.text == "📡 বিটিএস লিস্ট", flags={"permission": "view_bts"})
+@router.message(F.text == "📡 BTS List", flags={"permission": "view_bts"})
 async def bts_main_entry(message: Message, state: FSMContext, permissions: list):
     await state.clear()
     user_id = message.from_user.id

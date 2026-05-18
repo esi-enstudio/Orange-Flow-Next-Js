@@ -25,7 +25,7 @@ router = Router()
 # ১. এন্ট্রি পয়েন্ট (রিপ্লাই কিবোর্ড থেকে)
 # ==========================================
 
-@router.message(F.text == "📊 রিপোর্টস", flags={"permission": "report_access"})
+@router.message(F.text == "📊 Reports", flags={"permission": "report_access"})
 async def show_reports_sub_menu(message: Message, permissions: list):
     await message.answer(
         "📊 **রিপোর্ট মডিউল**\nনিচের বাটন থেকে কাঙ্ক্ষিত রিপোর্টটি নির্বাচন করুন:",

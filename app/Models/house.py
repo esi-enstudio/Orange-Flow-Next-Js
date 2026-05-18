@@ -39,6 +39,5 @@ class House(Base):
 
     @property
     def display_name(self):
-        """হাউজের নাম (কোডের শেষ ৫ সংখ্যা) রিটার্ন করবে"""
-        code_suffix = self.code[-5:] if self.code and len(self.code) >= 5 else (self.code or "")
-        return f"{self.name} ({code_suffix})"
+        """হাউজের নাম এবং কোড রিটার্ন করবে (যেমন: Patwary Telecom (MYMVAI01))"""
+        return f"{self.name} ({self.code})"

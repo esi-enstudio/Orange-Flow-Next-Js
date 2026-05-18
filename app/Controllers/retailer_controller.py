@@ -47,7 +47,7 @@ def get_retailer_full_profile_text(r: Retailer):
     )
 
 # --- ২. মেইন এন্ট্রি ---
-@router.message(F.text == "🏪 রিটেইলারস", flags={"permission": "manage_retailers"})
+@router.message(F.text == "🏪 Retailers", flags={"permission": "manage_retailers"})
 async def retailer_main(event: types.Union[Message, CallbackQuery], state: FSMContext, permissions: list):
     user_id = event.from_user.id
     target = event if isinstance(event, Message) else event.message

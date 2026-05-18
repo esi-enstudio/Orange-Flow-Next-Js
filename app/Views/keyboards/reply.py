@@ -1,117 +1,107 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 def get_admin_main_menu(permissions: list):
-    """ইউজারের পারমিশন অনুযায়ী প্রধান মেনু জেনারেট করবে"""
+    """Generates the main menu based on user permissions."""
     buttons = []
     
-    # ১ম রো: হাউজ এবং ইউজার ম্যানেজমেন্ট
+    # Row 1: House and User Management
     row1 = []
     if "view_houses" in permissions:
-        row1.append(KeyboardButton(text="🏠 হাউজ ম্যানেজমেন্ট"))
+        row1.append(KeyboardButton(text="🏠 House Management"))
     if "view_users" in permissions:
-        row1.append(KeyboardButton(text="👤 ইউজার ম্যানেজমেন্ট"))
+        row1.append(KeyboardButton(text="👤 User Management"))
     if row1:
         buttons.append(row1)
 
-    # ২য় রো: DMS Tasks এবং রিপোর্টস
+    # Row 2: DMS Tasks and Reports
     row2 = []
     if "dms_access" in permissions: 
         row2.append(KeyboardButton(text="🤖 DMS Tasks"))
     if "report_access" in permissions: 
-        row2.append(KeyboardButton(text="📊 রিপোর্টস"))
+        row2.append(KeyboardButton(text="📊 Reports"))
     if row2: 
         buttons.append(row2)
     
-    # ৩য় রো: ফিল্ড ফোর্স এবং রিটেইলার
+    # Row 3: Field Force and Retailers
     row3 = []
-    ff_perms = ["create_field_force","view_field_force","edit_field_force","delete_field_force",]
+    ff_perms = ["create_field_force","view_field_force","edit_field_force","delete_field_force", "manage_field_force"]
     if any(p in permissions for p in ff_perms):
-        row3.append(KeyboardButton(text="👥 ফিল্ড ফোর্স"))
+        row3.append(KeyboardButton(text="👥 Field Force"))
     
-    ret_perms = ["create_retailers","view_retailers","edit_retailers","delete_retailers",]
+    ret_perms = ["create_retailers","view_retailers","edit_retailers","delete_retailers", "manage_retailers"]
     if any(p in permissions for p in ret_perms):
-        row3.append(KeyboardButton(text="🏪 রিটেইলারস"))
+        row3.append(KeyboardButton(text="🏪 Retailers"))
     
     if row3:
         buttons.append(row3)
     
-    # ৪র্থ রো: মেলা এবং বিটিএস (আপডেটেড লজিক) ✅
+    # Row 4: Mela and BTS
     row4 = []
-    
-    # মেলা ম্যানেজমেন্ট চেক
     mela_perms = ["create_mela", "view_mela", "edit_mela", "delete_mela"]
     if any(p in permissions for p in mela_perms):
-        row4.append(KeyboardButton(text="🎪 মেলা ম্যানেজমেন্ট"))
+        row4.append(KeyboardButton(text="🎪 Mela Management"))
     
-    # বিটিএস লিস্ট চেক (যেকোনো একটি পারমিশন থাকলে বাটন আসবে) ✅
     bts_perms = ["create_bts", "view_bts", "edit_bts", "delete_bts"]
     if any(p in permissions for p in bts_perms):
-        row4.append(KeyboardButton(text="📡 বিটিএস লিস্ট"))
+        row4.append(KeyboardButton(text="📡 BTS List"))
         
     if row4: 
         buttons.append(row4)
     
-    # ৫তম রো: সেটিংস (যদি পারমিশন থাকে) ✅
-    # যদি নিচের যেকোনো একটি পারমিশন থাকে তবেই সেটিংস বাটন দেখাবে
+    # Row 5: Settings
     setting_perms = [
         "create_new_role", "create_new_permission", 
         "manage_role_and_permission_list", "manage_ga_filter", 
-        "upload_activation", "manage_mela_settings"
+        "upload_activation", "manage_mela_settings", "manage_settings"
     ]
 
     if any(p in permissions for p in setting_perms):
-        buttons.append([KeyboardButton(text="⚙️ সেটিংস")])
+        buttons.append([KeyboardButton(text="⚙️ Settings")])
         
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-
-
-
-
-
 def get_settings_menu(permissions: list):
-    """সেটিংস সাব-মেনু (নির্দিষ্ট পারমিশন ভিত্তিক)"""
+    """Settings sub-menu based on permissions."""
     buttons = []
 
-    # রো ১: নতুন রোল ও পারমিশন
+    # Row 1: Roles and Permissions
     row1 = []
-    if "create_new_role" in permissions: row1.append(KeyboardButton(text="➕ নতুন রোল"))
-    if "create_new_permission" in permissions: row1.append(KeyboardButton(text="➕ নতুন পারমিশন"))
+    if "create_new_role" in permissions: row1.append(KeyboardButton(text="➕ New Role"))
+    if "create_new_permission" in permissions: row1.append(KeyboardButton(text="➕ New Permission"))
     if row1: buttons.append(row1)
 
-    # রো ২: লিস্ট ও জিএ ফিল্টার
+    # Row 2: Lists and GA Filter
     row2 = []
-    if "manage_role_and_permission_list" in permissions: row2.append(KeyboardButton(text="📋 রোল ও পারমিশন লিস্ট"))
-    if "manage_ga_filter" in permissions: row2.append(KeyboardButton(text="⚙️ জিএ ফিল্টার"))
+    if "manage_role_and_permission_list" in permissions: row2.append(KeyboardButton(text="📋 Role & Permission"))
+    if "manage_ga_filter" in permissions: row2.append(KeyboardButton(text="⚙️ GA Filter"))
     if row2: buttons.append(row2)
 
-    # রো ৩: ডাটা সেন্টার ও মেলা সেটিংস
+    # Row 3: Data Center and Mela Settings
     row3 = []
     data_center_perms = ["dms_report", "upload_scratch_card", "upload_sim_issue", "upload_activation"]
     if any(p in permissions for p in data_center_perms):
-        row3.append(KeyboardButton(text="💾 ডাটা সেন্টার"))
+        row3.append(KeyboardButton(text="💾 Data Center"))
     
-    if "manage_mela_settings" in permissions: row3.append(KeyboardButton(text="⚙️ মেলার সেটিংস"))
+    if "manage_mela_settings" in permissions: row3.append(KeyboardButton(text="⚙️ Mela Settings"))
     if row3: buttons.append(row3)
 
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
+    buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-
 def get_data_center_menu(permissions: list):
-    """ডাটা সেন্টার সাব-মেনু (এক্সেল আপলোডের জন্য) ✅"""
+    """Data Center sub-menu for excel uploads."""
     buttons = []
     
-    # রো ১: এক্টিভেশন ও DMS রিপোর্ট
+    # Row 1: Activation and DMS Report
     row1 = []
-    if "upload_activation" in permissions: # Activation management
-         row1.append(KeyboardButton(text="📈 এক্টিভেশন"))
+    if "upload_activation" in permissions:
+         row1.append(KeyboardButton(text="📈 Activation"))
          
     if "dms_report" in permissions:
          row1.append(KeyboardButton(text="📊 DMS Report"))
     if row1: buttons.append(row1)
 
-    # রো ২: স্ক্র্যাচ কার্ড ও সিম ইস্যু
+    # Row 2: Scratch Card and SIM Issue
     row2 = []
     if "upload_scratch_card" in permissions:
         row2.append(KeyboardButton(text="🎫 Scratch Card Issue"))
@@ -119,145 +109,79 @@ def get_data_center_menu(permissions: list):
         row2.append(KeyboardButton(text="📲 SIM Issue"))
     if row2: buttons.append(row2)
     
-    # ব্যাক বাটন
-    buttons.append([KeyboardButton(text="🔙 পিছনে")])
+    # Back button
+    buttons.append([KeyboardButton(text="🔙 Back")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-
-
 
 def get_reports_mgmt_menu(permissions: list):
-    """রিপোর্টস সাব-মেনু (Reply Keyboard)"""
+    """Reports sub-menu."""
     buttons = []
     row = []
-    
-    # জিএ লাইভ বাটনটি এখানে আসবে
     if "view_ga_live" in permissions:
-        row.append(KeyboardButton(text="📡 জিএ লাইভ"))
-    
-    # ভবিষ্যতে আরও রিপোর্ট (যেমন সেলস রিপোর্ট) এখানে যোগ করা যাবে
-    
+        row.append(KeyboardButton(text="📡 GA Live"))
     if row:
         buttons.append(row)
-
-    # সব সময় প্রধান মেনুতে ফেরার বাটন থাকবে
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
-    
+    buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-
-
-
-
-def get_field_force_menu(permissions: list):
-    """ফিল্ড ফোর্স সাব-মেনু (পারমিশন ফিল্টারসহ)"""
-    buttons = []
-    row1 = []
-
-    if "create_field_force" in permissions:
-        row1.append(KeyboardButton(text="➕ নতুন মেম্বার"))
-    
-    if "view_field_force" in permissions:
-        row1.append(KeyboardButton(text="📋 মেম্বার লিস্ট") )
-
-    if row1:
-        buttons.append(row1)
-
-    # নেভিগেশন বাটন সবসময় থাকবে যদি সাব-মেনুতে ঢোকার অনুমতি থাকে
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
-    
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-
-    
-
-
 
 def get_house_mgmt_menu(permissions: list):
-    """হাউজ ম্যানেজমেন্টের ভেতরকার বাটনসমূহ (এখানে ব্যাক বাটন থাকবে)"""
+    """House Management sub-menu."""
     buttons = []
     row1 = []
     if "create_house" in permissions:
-        row1.append(KeyboardButton(text="➕ নতুন হাউজ তৈরি"))
+        row1.append(KeyboardButton(text="➕ Create House"))
     if "view_houses" in permissions:
-        row1.append(KeyboardButton(text="📋 হাউজ লিস্ট দেখুন"))
-    
+        row1.append(KeyboardButton(text="📋 House List"))
     if row1: buttons.append(row1)
-    
-    # সাব-মেনুতে সবসময় "🔙 প্রধান মেনু" বাটনটি থাকবে
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
+    buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-
-
-
-
-
 def get_user_mgmt_menu(permissions: list):
-    """ইউজার ম্যানেজমেন্টের ভেতরকার বাটনসমূহ (এখানে ব্যাক বাটন থাকবে)"""
+    """User Management sub-menu."""
     buttons = []
     row1 = []
     if "create_user" in permissions:
-        row1.append(KeyboardButton(text="➕ নতুন ইউজার তৈরি"))
+        row1.append(KeyboardButton(text="➕ Create User"))
     if "view_users" in permissions:
-        row1.append(KeyboardButton(text="📋 ইউজার লিস্ট দেখুন"))
-    
+        row1.append(KeyboardButton(text="📋 User List"))
     if row1: buttons.append(row1)
-    
-    # সাব-মেনুতে সবসময় "🔙 প্রধান মেনু" বাটনটি থাকবে
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
+    buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-
-
-
 def get_ff_mgmt_menu(permissions: list):
-    """ফিল্ড ফোর্স ম্যানেজমেন্ট সাব-মেনু (নতুন)"""
+    """Field Force management sub-menu."""
     buttons = []
     row = []
     if "create_field_force" in permissions:
-        row.append(KeyboardButton(text="➕ নতুন মেম্বার"))
+        row.append(KeyboardButton(text="➕ New Member"))
     if "view_field_force" in permissions:
-        row.append(KeyboardButton(text="📋 মেম্বার লিস্ট"))
-
+        row.append(KeyboardButton(text="📋 Member List"))
     if row: buttons.append(row)
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
+    buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-
-
-
-
 def get_retailer_mgmt_menu(permissions: list):
-    """রিটেইলার ম্যানেজমেন্ট সাব-মেনু (নতুন)"""
+    """Retailer management sub-menu."""
     buttons = []
     row = []
     if "find_retailers" in permissions:
-        row.append(KeyboardButton(text="🔍 রিটেইলার সার্চ"))
+        row.append(KeyboardButton(text="🔍 Retailer Search"))
     if "view_retailers" in permissions:
-        row.append(KeyboardButton(text="📋 রিটেইলার লিস্ট"))
-
+        row.append(KeyboardButton(text="📋 Retailer List"))
     if row: buttons.append(row)
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
+    buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-
-
-
 def get_mela_settings_menu(permissions: list):
-    """মেলার সেটিংস সাব-মেনু (Reply Keyboard) ✅"""
+    """Mela settings sub-menu."""
     buttons = []
-    
     if "manage_mela_settings" in permissions:
-        # ১ম রো: ধরণ এবং এক্টিভিটি
         buttons.append([
-            KeyboardButton(text="➕ নতুন মেলার ধরণ"),
-            KeyboardButton(text="➕ নতুন এক্টিভিটি")
+            KeyboardButton(text="➕ New Mela Type"),
+            KeyboardButton(text="➕ New Activity")
         ])
-        
-        # ২য় রো: এলিজিবল বিটিএস
         buttons.append([
-            KeyboardButton(text="📤 এলিজিবল বিটিএস আপলোড")
+            KeyboardButton(text="📤 Upload Eligible BTS")
         ])
-    
-    # সব সময় প্রধান মেনুতে ফেরার বাটন থাকবে
-    buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
-    
+    buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)

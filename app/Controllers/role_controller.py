@@ -29,7 +29,7 @@ class PermCreateForm(StatesGroup):
 
 
 # --- ১. পারমিশন তৈরি ---
-@router.message(F.text == "➕ নতুন পারমিশন", flags={"permission": "create_new_permission"})
+@router.message(F.text == "➕ New Permission", flags={"permission": "create_new_permission"})
 async def start_perm_creation(message: Message, state: FSMContext):
     await state.clear()
     if int(message.from_user.id) == SUPER_ADMIN_ID:
@@ -48,7 +48,7 @@ async def save_permission(message: Message, state: FSMContext):
 
 
 # --- ২. রোল তৈরি ও পারমিশন সিলেকশন কিবোর্ড ---
-@router.message(F.text == "➕ নতুন রোল", flags={"permission": "create_new_role"})
+@router.message(F.text == "➕ New Role", flags={"permission": "create_new_role"})
 async def start_role_creation(message: Message, state: FSMContext):
     # চেক করা হচ্ছে কোনো ফ্ল্যাগ আছে কি না
     data = await state.get_data()
@@ -162,7 +162,7 @@ async def save_role_final(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 # --- ১. রোল ও পারমিশন লিস্ট (আপডেটেড উইথ ইনলাইন বাটন) ---
-@router.message(F.text == "📋 রোল ও পারমিশন লিস্ট", flags={"permission": "manage_role_and_permission_list"})
+@router.message(F.text == "📋 Role & Permission", flags={"permission": "manage_role_and_permission_list"})
 async def show_roles_and_permissions(message: Message):
     async with async_session() as session:
         roles = (await session.execute(select(Role).options(selectinload(Role.permissions)))).scalars().all()

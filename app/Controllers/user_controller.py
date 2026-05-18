@@ -89,10 +89,10 @@ async def render_user_details(message: Message, user_id: int):
 # 3. USER MANAGEMENT UI
 # ==========================================
 
-@router.message(F.text == "👤 ইউজার ম্যানেজমেন্ট", flags={"permission": "view_users"})
+@router.message(F.text == "👤 User Management", flags={"permission": "view_users"})
 async def user_mgmt_menu(message: Message, permissions: list):
     await message.answer(
-        "👤 ইউজার ম্যানেজমেন্ট অপশনসমূহ:", 
+        "👤 User Management অপশনসমূহ:", 
         reply_markup=get_user_mgmt_menu(permissions) # এখানে permissions পাস করুন ✅
     )
 
@@ -141,7 +141,7 @@ async def show_user_list(message: Message, offset: int = 0, limit: int = 5):
         
         await message.answer(f"👥 নিবন্ধিত ইউজার তালিকা (পৃষ্ঠা {offset//limit + 1}):", reply_markup=builder.as_markup())
 
-@router.message(F.text == "📋 ইউজার লিস্ট দেখুন", flags={"permission": "view_users"})
+@router.message(F.text == "📋 User List", flags={"permission": "view_users"})
 async def handle_user_list(message: Message):
     await show_user_list(message, offset=0)
 
@@ -169,7 +169,7 @@ async def back_to_user_list(callback: CallbackQuery, state: FSMContext):
 # 4. USER CREATION FLOW (MULTI-HOUSE SUPPORT)
 # ==========================================
 
-@router.message(F.text == "➕ নতুন ইউজার তৈরি", flags={"permission": "create_user"})
+@router.message(F.text == "➕ Create User", flags={"permission": "create_user"})
 async def start_user_creation(message: Message, state: FSMContext):
     await state.clear()
     async with async_session() as session:

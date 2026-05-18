@@ -42,7 +42,7 @@ class FFStates(StatesGroup):
 # ==========================================
 # ১. মেইন এন্ট্রি (হাউজ চেক)
 # ==========================================
-@router.message(F.text == "👥 ফিল্ড ফোর্স", flags={"permission": "manage_field_force"})
+@router.message(F.text == "👥 Field Force", flags={"permission": "manage_field_force"})
 async def field_force_start(message: Message, state: FSMContext):
     await state.clear()
     await handle_ff_house_logic(message, state, message.from_user.id)
@@ -397,7 +397,7 @@ async def final_delete(callback: CallbackQuery):
 # # ==========================================
 # # ১. মেইন এন্ট্রি (হাউজ চেক)
 # # ==========================================
-# @router.message(F.text == "👥 ফিল্ড ফোর্স", flags={"permission": "manage_field_force"})
+# @router.message(F.text == "👥 Field Force", flags={"permission": "manage_field_force"})
 # async def field_force_start(message: Message, state: FSMContext):
 #     await state.clear()
 #     await handle_ff_house_logic(message, state, message.from_user.id)

@@ -23,7 +23,7 @@ class HouseUpdateState(StatesGroup): house_id, field, value = State(), State(), 
 
 
 # --- ১. হাউজ ম্যানেজমেন্ট মেইন মেনু ---
-@router.message(F.text == "🏠 হাউজ ম্যানেজমেন্ট", flags={"permission": "view_houses"})
+@router.message(F.text == "🏠 House Management", flags={"permission": "view_houses"})
 async def house_mgmt_menu(message: Message, permissions: list):
     await message.answer(
         "🏢 হাউজ ম্যানেজমেন্ট অপশন:",
@@ -31,7 +31,7 @@ async def house_mgmt_menu(message: Message, permissions: list):
     )
 
 # --- ২. নতুন হাউজ তৈরি (FSM Flow) ---
-@router.message(F.text == "➕ নতুন হাউজ তৈরি", flags={"permission": "create_house"})
+@router.message(F.text == "➕ Create House", flags={"permission": "create_house"})
 async def start_house_creation(message: Message, state: FSMContext):
     await message.answer("হাউজের নাম লিখুন:")
     await state.set_state(HouseCreateForm.name)
@@ -121,7 +121,7 @@ async def save_house_final(message: Message, state: FSMContext, permissions: lis
     await state.clear()
 
 # --- ৩. হাউজ লিস্ট (Pagination) ---
-@router.message(F.text == "📋 হাউজ লিস্ট দেখুন", flags={"permission": "view_houses"})
+@router.message(F.text == "📋 House List", flags={"permission": "view_houses"})
 async def show_house_list(message: Message, page: int = 1):
     limit = 5
     offset = (page - 1) * limit

@@ -81,7 +81,7 @@ async def cmd_start(message: Message, state: FSMContext, permissions: list = Non
         parse_mode="Markdown"
     )
 
-@router.message(F.text == "⚙️ সেটিংস") # এখান থেকে flags={"permission": "..."} সরিয়ে ফেলুন
+@router.message(F.text == "⚙️ Settings") # এখান থেকে flags={"permission": "..."} সরিয়ে ফেলুন
 async def settings_menu(message: Message, permissions: list):
     """
     ইউজার যখন সেটিংস বাটনে ক্লিক করবে। 
@@ -106,7 +106,7 @@ async def settings_menu(message: Message, permissions: list):
     else:
         await message.answer("🚫 দুঃখিত, এই মেনুতে আপনার প্রবেশের অনুমতি নেই।")
 
-@router.message(F.text == "🔙 প্রধান মেনু")
+@router.message(F.text == "🔙 Main Menu")
 async def back_to_main(message: Message, state: FSMContext, permissions: list):
     """প্রধান মেনুতে ফিরে যাওয়া (পারমিশন অনুযায়ী বাটনসহ)"""
     await state.clear()

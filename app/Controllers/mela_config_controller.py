@@ -30,7 +30,7 @@ class MelaConfigStates(StatesGroup):
 # ==========================================
 # ১. মেলার সেটিংস মেইন মেনু (Reply Keyboard) ✅
 # ==========================================
-@router.message(F.text == "⚙️ মেলার সেটিংস", flags={"permission": "manage_mela_settings"})
+@router.message(F.text == "⚙️ Mela Settings", flags={"permission": "manage_mela_settings"})
 async def show_mela_settings_sub_menu(message: Message, permissions: list):
     """ইউজারকে মেলার সেটিংস সাব-মেনু দেখাবে"""
     await message.answer(
@@ -43,7 +43,7 @@ async def show_mela_settings_sub_menu(message: Message, permissions: list):
 # ==========================================
 # ২. মেলার ধরণ যোগ করা (Reply Button) ✅
 # ==========================================
-@router.message(F.text == "➕ নতুন মেলার ধরণ", flags={"permission": "manage_mela_settings"})
+@router.message(F.text == "➕ New Mela Type", flags={"permission": "manage_mela_settings"})
 async def add_mela_type_start(message: Message, state: FSMContext):
     await message.answer("📝 মেলার ধরণের নাম লিখুন (উদা: Zoom In):")
     await state.set_state(MelaConfigStates.waiting_for_type)
@@ -60,7 +60,7 @@ async def save_mela_type(message: Message, state: FSMContext):
 # ==========================================
 # ৩. নতুন এক্টিভিটি যোগ করা (Reply Button) ✅
 # ==========================================
-@router.message(F.text == "➕ নতুন এক্টিভিটি", flags={"permission": "manage_mela_settings"})
+@router.message(F.text == "➕ New Activity", flags={"permission": "manage_mela_settings"})
 async def add_mela_activity_start(message: Message, state: FSMContext):
     await message.answer("🎯 এক্টিভিটির নাম লিখুন (উদা: Local Games):")
     await state.set_state(MelaConfigStates.waiting_for_activity)
@@ -77,7 +77,7 @@ async def save_mela_activity(message: Message, state: FSMContext):
 # ==========================================
 # ৪. এলিজিবল বিটিএস আপলোড (হাউজ সিলেকশন লজিকসহ) ✅
 # ==========================================
-@router.message(F.text == "📤 এলিজিবল বিটিএস আপলোড", flags={"permission": "manage_mela_settings"})
+@router.message(F.text == "📤 Upload Eligible BTS", flags={"permission": "manage_mela_settings"})
 async def upload_eligible_bts_start(message: Message, state: FSMContext):
     """চেক করবে ইউজারের কয়টি হাউজ আছে"""
     user_tg_id = message.from_user.id

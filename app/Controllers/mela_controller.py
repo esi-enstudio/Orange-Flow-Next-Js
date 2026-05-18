@@ -244,7 +244,7 @@ async def render_mela_dashboard(message: Message, house_id: int, permissions: li
     else:
         await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
-@router.message(F.text == "🎪 মেলা ম্যানেজমেন্ট")
+@router.message(F.text == "🎪 Mela Management")
 async def mela_mgmt_start(message: Message, state: FSMContext, permissions: list):
     await state.clear()
     async with async_session() as session:

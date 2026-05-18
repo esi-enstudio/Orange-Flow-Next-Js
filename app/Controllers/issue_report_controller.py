@@ -122,7 +122,7 @@ async def show_upload_prompt(message: Message, house_name: str, entry_type: str,
     else:
         await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
-@router.message(F.text == "🔙 পিছনে")
+@router.message(F.text == "🔙 Back")
 async def back_to_data_center(message: Message, state: FSMContext, permissions: list):
     """ডাটা সেন্টার মেনুতে ফিরে যাওয়া"""
     await state.clear()

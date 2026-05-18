@@ -166,15 +166,19 @@ def get_house_pagination_kb(houses, page, total_pages):
     builder = InlineKeyboardBuilder()
     for h in houses:
         status = "✅" if h.is_active else "❌"
-        builder.button(text=f"{h.display_name} ({h.code}) {status}", callback_data=f"view_h_{h.id}")
+        # House display format is now handled by House.display_name
+        builder.button(text=f"{h.display_name} {status}", callback_data=f"view_h_{h.id}")
     
+    # Houses are shown vertically
+    builder.adjust(1)
+    
+    # Pagination buttons are horizontal
     nav_btns = []
     if page > 1: nav_btns.append(InlineKeyboardButton(text="⬅️", callback_data=f"hlist_page_{page-1}"))
     if page < total_pages: nav_btns.append(InlineKeyboardButton(text="➡️", callback_data=f"hlist_page_{page+1}"))
     if nav_btns: builder.row(*nav_btns)
     
-    builder.button(text="🔍 হাউজ সার্চ করুন", callback_data="search_house_start")
-    builder.adjust(1)
+    builder.row(InlineKeyboardButton(text="🔍 হাউজ সার্চ করুন", callback_data="search_house_start"))
     return builder.as_markup()
 
 def get_house_action_kb(house_id, is_active):

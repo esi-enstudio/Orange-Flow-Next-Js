@@ -28,7 +28,7 @@ class ActivationStates(StatesGroup):
 # ==========================================
 # ডাটা সেন্টার মেইন গেটওয়ে (Reply Keyboard) ✅
 # ==========================================
-@router.message(F.text == "💾 ডাটা সেন্টার", flags={"permission": "upload_activation"})
+@router.message(F.text == "💾 Data Center", flags={"permission": "upload_activation"})
 async def show_data_center(message: Message, state: FSMContext, permissions: list):
     """ইউজার যখন কিবোর্ড থেকে '💾 ডাটা সেন্টার' চাপ দিবে"""
     await state.clear()
@@ -40,7 +40,7 @@ async def show_data_center(message: Message, state: FSMContext, permissions: lis
         parse_mode="HTML"
     )
 
-@router.message(F.text == "🔙 পিছনে")
+@router.message(F.text == "🔙 Back")
 async def handle_back_button(message: Message, state: FSMContext, permissions: list):
     """পিছনে ফিরে যাওয়ার হ্যান্ডেলার (কন্টেক্সট অনুযায়ী)"""
     # বর্তমানে আমরা যদি ডাটা সেন্টারে থাকি, তবে পিছনে মানে সেটিংস মেনু
@@ -57,7 +57,7 @@ async def handle_back_button(message: Message, state: FSMContext, permissions: l
 # ==========================================
 # মডিউল এন্ট্রি (Reply Button: 📈এক্টিভেশন)
 # ==========================================
-@router.message(F.text == "📈 এক্টিভেশন", flags={"permission": "upload_activation"})
+@router.message(F.text == "📈 Activation", flags={"permission": "upload_activation"})
 async def start_activation_upload_process(message: Message, state: FSMContext):
     await state.clear()
     user_tg_id = message.from_user.id
