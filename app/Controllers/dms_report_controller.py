@@ -23,6 +23,7 @@ class DMSReportStates(StatesGroup):
     waiting_for_house = State()
     waiting_for_type = State()
     waiting_for_file = State()
+    waiting_for_sync_toggle = State()
 
 # ==========================================
 # ১. হাউজ সিলেকশন (মেইন এন্ট্রি)
@@ -57,6 +58,9 @@ async def show_house_selection(message_or_callback, state: FSMContext):
         builder.button(text=house.display_name, callback_data=f"dms_house_{house.id}")
     builder.adjust(2)
     
+    # অটো-সিঙ্ক সেটিংস বাটন যোগ করা
+    builder.row(InlineKeyboardButton(text="⚙️ অটো-সিঙ্ক সেটিংস", callback_data="dms_sync_settings"))
+    
     text = (
         "🏘️ <b>হাউজ নির্বাচন করুন</b>\n\n"
         "কোন হাউজের জন্য DMS রিপোর্ট আপলোড করতে চান? নিচে থেকে সিলেক্ট করুন:"
@@ -68,6 +72,54 @@ async def show_house_selection(message_or_callback, state: FSMContext):
         await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     
     await state.set_state(DMSReportStates.waiting_for_house)
+
+# ==========================================
+# ১.১ অটো-সিঙ্ক সেটিংস হ্যান্ডেলার
+# ==========================================
+@router.callback_query(F.data == "dms_sync_settings")
+async def show_sync_settings(callback: CallbackQuery, state: FSMContext):
+    """অটো-সিঙ্ক সেটআপের জন্য হাউজ লিস্ট দেখাবে"""
+    async with async_session() as session:
+        stmt = select(House).where(House.is_active == True)
+        result = await session.execute(stmt)
+        houses = result.scalars().all()
+
+    if not houses:
+        return await callback.answer("❌ কোনো হাউজ পাওয়া যায়নি।", show_alert=True)
+
+    builder = InlineKeyboardBuilder()
+    for house in houses:
+        status = "✅" if house.is_sync_enabled else "❌"
+        builder.button(text=f"{status} {house.display_name}", callback_data=f"toggle_sync_{house.id}")
+    
+    builder.adjust(1)
+    builder.row(InlineKeyboardButton(text="🔙 পিছনে", callback_data="dms_change_house"))
+
+    text = (
+        "⚙️ <b>অটো-সিঙ্ক সেটিংস</b>\n\n"
+        "নিচের লিস্ট থেকে হাউজের নামের ওপর ক্লিক করে অটো-সিঙ্ক চালু বা বন্ধ করুন।\n"
+        "✅ = সিঙ্ক চালু\n"
+        "❌ = সিঙ্ক বন্ধ"
+    )
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await state.set_state(DMSReportStates.waiting_for_sync_toggle)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("toggle_sync_"), DMSReportStates.waiting_for_sync_toggle)
+async def handle_toggle_sync(callback: CallbackQuery, state: FSMContext):
+    house_id = int(callback.data.split("_")[2])
+    
+    async with async_session() as session:
+        house = await session.get(House, house_id)
+        if house:
+            house.is_sync_enabled = not house.is_sync_enabled
+            await session.commit()
+            await callback.answer(f"✅ {house.name} এর জন্য সিঙ্ক {'চালু' if house.is_sync_enabled else 'বন্ধ'} হয়েছে।")
+        else:
+            await callback.answer("❌ হাউজ পাওয়া যায়নি।")
+    
+    # লিস্ট আপডেট করা
+    await show_sync_settings(callback, state)
 
 @router.callback_query(F.data == "dms_change_house")
 async def handle_change_house(callback: CallbackQuery, state: FSMContext):

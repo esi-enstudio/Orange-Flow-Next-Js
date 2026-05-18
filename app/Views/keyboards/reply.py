@@ -261,13 +261,3 @@ def get_mela_settings_menu(permissions: list):
     buttons.append([KeyboardButton(text="🔙 প্রধান মেনু")])
     
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-
-
-
-
-
-
-
-
-
-

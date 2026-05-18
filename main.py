@@ -11,10 +11,12 @@ from config import settings
 
 # --- কোর ইঞ্জিন ইম্পোর্ট ---
 from app.Core.automation_engine import engine
-
 # সিঙ্ক এবং রিসেট ফাংশনগুলো ইম্পোর্ট
 from app.Services.Automation.Reports.ga_live import run_ga_live_sync, reset_daily_activations
 from app.Services.Automation.dms_report_excel import cleanup_old_dms_reports
+from app.Services.Automation.dms_sync_service import run_daily_auto_sync
+
+# ... rest of imports
 
 # কন্ট্রোলার ইম্পোর্ট
 from app.Controllers import (
@@ -50,9 +52,9 @@ async def master_automation_scheduler():
     """
     ১. রাত ১২টায় ডাটাবেজ রিসেট করবে।
     ২. সকাল ৮টা থেকে রাত ১২টা পর্যন্ত ৫ মিনিট অন্তর GA সিঙ্ক করবে।
+    ৩. সকাল ৮টায় GA সিঙ্ক শেষ হওয়ার পর অটো-সিঙ্ক (ডাউনলোড) রান করবে।
     """
 
-    # ডেভ বটে যদি আপনি অটো-সিঙ্ক না চান, তবে .env তে এটি কন্ট্রোল করতে পারেন
     if getattr(settings, "DISABLE_SCHEDULER", False):
         logger.info("ℹ️ [Scheduler] Disabled by configuration.")
         return
@@ -62,10 +64,13 @@ async def master_automation_scheduler():
     
     # সিস্টেম স্ট্যাবল হওয়ার জন্য কিছুক্ষণ অপেক্ষা
     await asyncio.sleep(20)
+    
+    last_auto_sync_date = None
 
     while True:
         try:
             now = datetime.now()
+            today_date = now.date()
             hour = now.hour
 
             # --- ১. রাত ১২টায় ডাটা রিসেট (00:00 - 00:05) ---
@@ -80,10 +85,16 @@ async def master_automation_scheduler():
             if 8 <= hour < 24:
                 logger.info(f"🕒 [Job Started] সময়: {now.strftime('%I:%M %p')}")
                 
-                # সিঙ্ক রান করা (এটি প্রোফাইল ব্যবহার করবে এবং সেশন সচল রাখবে)
-                # আলাদা ওয়াচার বা পিঙ্গারের প্রয়োজন নেই ✅
+                # ২.১ জিএ লাইভ সিঙ্ক (৫ মিনিট পর পর)
                 await run_ga_live_sync()
                 
+                # ২.২ ডেইলি অটো-সিঙ্ক (সকাল ৮টার পর একবার)
+                if last_auto_sync_date != today_date:
+                    logger.info("📅 [Daily Sync] আজকের প্রথম সিঙ্ক, অটো-ডাউনলোড শুরু হচ্ছে...")
+                    await run_daily_auto_sync()
+                    last_auto_sync_date = today_date
+                    logger.info("✅ [Daily Sync] অটো-ডাউনলোড সম্পন্ন।")
+
                 logger.info("✅ [Job Finished] পরবর্তী রান ৫ মিনিট পর।")
                 await asyncio.sleep(300) # ৫ মিনিট বিরতি
             else:
