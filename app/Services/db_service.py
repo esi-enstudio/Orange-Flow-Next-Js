@@ -16,6 +16,9 @@ import app.Models.dms_report
 import app.Models.scratch_card_issue
 import app.Models.sim_issue
 import app.Models.sync_history
+import app.Models.house_target
+import app.Models.supervisor_target
+import app.Models.rso_target
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False)

@@ -78,7 +78,7 @@ def get_settings_menu(permissions: list):
 
     # Row 3: Data Center and Mela Settings
     row3 = []
-    data_center_perms = ["dms_report", "upload_scratch_card", "upload_sim_issue", "upload_activation"]
+    data_center_perms = ["dms_report", "upload_scratch_card", "upload_sim_issue", "upload_activation", "upload_targets"]
     if any(p in permissions for p in data_center_perms):
         row3.append(KeyboardButton(text="💾 Data Center"))
     
@@ -108,6 +108,10 @@ def get_data_center_menu(permissions: list):
     if "upload_sim_issue" in permissions:
         row2.append(KeyboardButton(text="📲 SIM Issue"))
     if row2: buttons.append(row2)
+
+    # Row 3: Target Management
+    if "upload_targets" in permissions:
+        buttons.append([KeyboardButton(text="🎯 Target Management")])
     
     # Back button
     buttons.append([KeyboardButton(text="🔙 Back")])

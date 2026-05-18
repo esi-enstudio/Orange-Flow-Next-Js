@@ -25,7 +25,7 @@ from app.Controllers import (
     sim_return_controller, sim_issue_controller, ga_live_controller,
     field_force_controller, retailer_controller, ga_filter_controller,
     bts_controller, mela_config_controller, mela_controller, dms_report_controller,
-    issue_report_controller
+    issue_report_controller, target_controller
 )
 
 # --- ২. লগিং কনফিগারেশন (সাইলেন্ট মুড) ---
@@ -141,7 +141,7 @@ async def main():
         retailer_controller.router, ga_filter_controller.router,
         bts_controller.router, mela_config_controller.router,
         activation_controller.router, mela_controller.router, dms_report_controller.router,
-        issue_report_controller.router
+        issue_report_controller.router, target_controller.router
     )
 
     # পেন্ডিং মেসেজ স্কিপ করা
