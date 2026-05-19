@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 
 from app.Models.retailer import Retailer
 from app.Models.field_force import FieldForce # অটো-লিঙ্কিং এর জন্য জরুরি
+from app.Models.house import House
 from app.Services.db_service import async_session
 from app.Utils.helpers import bn_num
 
@@ -54,8 +55,12 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
             return v
 
         async with async_session() as session:
+            # হাউজ কোড খুঁজে বের করা
+            house_res = await session.execute(select(House.code).where(House.id == house_id))
+            house_code = house_res.scalar() or str(house_id)
+
             # ২. পারফরম্যান্স অপ্টিমাইজেশন: ওই হাউজের সকল আরএসও মেমরিতে লোড করা ✅
-            logger.info(f"⏳ হাউজ {house_id} এর আরএসও ম্যাপ তৈরি হচ্ছে...")
+            logger.info(f"⏳ হাউজ {house_code} এর আরএসও ম্যাপ তৈরি হচ্ছে...")
             ff_res = await session.execute(
                 select(FieldForce.itop_number, FieldForce.id).where(FieldForce.house_id == house_id)
             )
@@ -104,7 +109,7 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
 
             # সব শেষে একবারই কমিট ✅
             await session.commit()
-            logger.info(f"✅ House {house_id}: {count} retailers processed successfully.")
+            logger.info(f"✅ House {house_code}: {count} retailers processed successfully.")
             return count, None
 
     except Exception as e:

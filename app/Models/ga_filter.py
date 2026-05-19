@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.Models.base import Base
@@ -14,13 +14,28 @@ class GAProductFilter(Base):
     created_at = Column(DateTime, server_default=func.now())
     house = relationship("House")
 
-class GARetailerFilter(Base):
-    """মার্কেট জিএ থেকে যে ধরণের রিটেইলার বাদ যাবে (উদা: DRC, BP)"""
-    __tablename__ = "ga_retailer_filters"
+class FilterTag(Base):
+    """ফিল্টারের জন্য ক্যাটাগরি বা ট্যাগ (উদা: DRC, BP, Staff)"""
+    __tablename__ = "filter_tags"
+    __table_args__ = (UniqueConstraint('house_id', 'name', name='uix_house_tag_name'),)
 
     id = Column(Integer, primary_key=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
-    keyword = Column(String, nullable=False) # উদা: DRC বা BP_CODE এর অংশ
+    name = Column(String, nullable=False)
     
     created_at = Column(DateTime, server_default=func.now())
     house = relationship("House")
+
+class RetailerFilter(Base):
+    """রিপোর্ট থেকে যে রিটেইলারগুলো বাদ যাবে"""
+    __tablename__ = "retailer_filters"
+    __table_args__ = (UniqueConstraint('house_id', 'retailer_id', name='uix_house_retailer_filter'),)
+
+    id = Column(Integer, primary_key=True)
+    house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
+    retailer_id = Column(Integer, ForeignKey('retailers.id', ondelete='CASCADE'), nullable=False)
+    tag = Column(String, nullable=True) # ফিল্টার ক্যাটাগরি (DRC, BP, ইত্যাদি)
+    
+    created_at = Column(DateTime, server_default=func.now())
+    house = relationship("House")
+    retailer = relationship("Retailer")

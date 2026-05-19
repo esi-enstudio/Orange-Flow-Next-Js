@@ -9,6 +9,7 @@ from colorama import Fore, Style, init
 
 from app.Models.activation import Activation
 from app.Models.retailer import Retailer
+from app.Models.house import House
 from app.Services.db_service import async_session
 from app.Utils.helpers import bn_num
 
@@ -82,8 +83,12 @@ async def process_activation_excel(file_path, house_id, progress_callback):
             return v if v else None
 
         async with async_session() as session:
+            # হাউজ কোড খুঁজে বের করা
+            house_res = await session.execute(select(House.code).where(House.id == house_id))
+            house_code = house_res.scalar() or str(house_id)
+
             # ২. পারফরম্যান্স বুস্ট: সব রিটেইলারকে মেমরিতে নিয়ে আসা ✅
-            print(f"{Fore.YELLOW}⏳ হাউজ {house_id} এর রিটেইলার ম্যাপ তৈরি হচ্ছে...")
+            print(f"{Fore.YELLOW}⏳ হাউজ {house_code} এর রিটেইলার ম্যাপ তৈরি হচ্ছে...")
             ret_res = await session.execute(
                 select(Retailer.retailer_code, Retailer.id).where(Retailer.house_id == house_id)
             )
@@ -95,7 +100,7 @@ async def process_activation_excel(file_path, house_id, progress_callback):
             batch_size = 500  # ৫০০ রেকর্ডের ব্যাচ
 
             # Terminal Progress Bar
-            pbar = tqdm(total=total_rows, desc=f"{Fore.MAGENTA}{Style.BRIGHT}GA Processing", unit="row")
+            pbar = tqdm(total=total_rows, desc=f"{Fore.GREEN}{Style.BRIGHT}GA Processing", unit="row", colour='green')
 
             # ৩. ডাটা প্রসেসিং লুপ
             for _, row in df.iterrows():

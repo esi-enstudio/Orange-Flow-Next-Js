@@ -116,7 +116,7 @@ async def process_dms_report_excel(file_path, report_type, target_house_id=None,
             )
 
             # Terminal Progress Bar
-            pbar = tqdm(total=total_rows, desc=f"{Fore.MAGENTA}{Style.BRIGHT}DMS Processing", unit="row")
+            pbar = tqdm(total=total_rows, desc=f"{Fore.GREEN}{Style.BRIGHT}DMS Processing", unit="row", colour='green')
 
             for _, row in df.iterrows():
                 dist_code = str(row.get('DISTRIBUTORCODE', '')).strip()

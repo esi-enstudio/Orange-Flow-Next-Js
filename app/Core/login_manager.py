@@ -58,7 +58,7 @@ class DMSLoginManager:
                 try:
                     await page.wait_for_selector(target_option, state="attached", timeout=20000)
                 except:
-                    logger.error(f"❌ [Error] নির্ধারিত সময়ে ড্রপডাউনে হাউজ {house_id} আসেনি।")
+                    logger.error(f"❌ [Error] নির্ধারিত সময়ে ড্রপডাউনে হাউজ {h_code} (ID: {house_id}) আসেনি।")
                     return False
 
                 await asyncio.sleep(1) 

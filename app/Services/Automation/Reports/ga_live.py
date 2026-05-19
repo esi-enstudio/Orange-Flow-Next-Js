@@ -124,6 +124,10 @@ async def process_and_save_data(file_path, house_id):
         df = df.replace({pd.NA: "", "nan": "", "NaN": ""})
 
         async with async_session() as session:
+            # হাউজ কোড খুঁজে বের করা
+            house_res = await session.execute(select(House.code).where(House.id == house_id))
+            house_code = house_res.scalar() or str(house_id)
+
             # ৩. ফাস্ট পারফরম্যান্সের জন্য ওই হাউজের সকল রিটেইলারের কোড এবং আইডি ম্যাপ তৈরি করা ✅
             ret_res = await session.execute(
                 select(Retailer.retailer_code, Retailer.id).where(Retailer.house_id == house_id)
@@ -189,9 +193,9 @@ async def process_and_save_data(file_path, house_id):
             if new_records:
                 session.add_all(new_records)
                 await session.commit()
-                logger.info(f"📊 [Sync] হাউজ আইডি {house_id}: {len(new_records)}টি নতুন ডাটা যুক্ত হয়েছে।")
+                logger.info(f"📊 [Sync] হাউজ {house_code}: {len(new_records)}টি নতুন ডাটা যুক্ত হয়েছে।")
             else:
-                logger.info(f"ℹ️ হাউজ আইডি {house_id}: নতুন কোনো ডাটা পাওয়ার যায়নি।")
+                logger.info(f"ℹ️ হাউজ {house_code}: নতুন কোনো ডাটা পাওয়ার যায়নি।")
 
     except Exception as e:
         logger.error(f"❌ [Process Error] ডাটা প্রসেসিং সমস্যা: {str(e)}", exc_info=True)

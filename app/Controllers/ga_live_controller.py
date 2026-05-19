@@ -10,7 +10,7 @@ from app.Models.user import User
 from app.Models.house import House
 from app.Models.live_activation import LiveActivation
 from app.Models.field_force import FieldForce
-from app.Models.ga_filter import GAProductFilter, GARetailerFilter
+from app.Models.ga_filter import GAProductFilter, RetailerFilter
 from app.Models.retailer import Retailer
 from app.Models.mela import Mela, MelaAssignment
 from app.Services.db_service import async_session
@@ -109,8 +109,8 @@ async def send_ga_detailed_report(message: Message, house: House, user_id: int, 
 
         # ১. ফিল্টার ও ডাটা লোড
         p_filters = (await session.execute(select(GAProductFilter.product_code).where(GAProductFilter.house_id == house.id))).scalars().all()
-        r_filters = (await session.execute(select(GARetailerFilter.keyword).where(GARetailerFilter.house_id == house.id))).scalars().all()
-        excluded_keywords = [k.upper() for k in r_filters]
+        r_filters_res = await session.execute(select(RetailerFilter.retailer_id).where(RetailerFilter.house_id == house.id))
+        excluded_retailer_ids = set(r_filters_res.scalars().all())
 
         act_query = select(LiveActivation).where(
             LiveActivation.house_id == house.id,
@@ -163,8 +163,8 @@ async def send_ga_detailed_report(message: Message, house: House, user_id: int, 
                         # খ. চেক ২: এটি কি কোনো বিপি (BP) এর ব্যক্তিগত কোড? (অটো-ম্যাচিং)
                         is_bp_code = (r_code in all_bp_codes)
 
-                        # গ. চেক ৩: এটি কি এডমিনের দেওয়া কাস্টম ফিল্টার কিওয়ার্ড/কোড এর সাথে মিলে?
-                        is_manual_excluded = any(kw in r_code or kw in str(r.name).upper() for kw in excluded_keywords)
+                        # গ. চেক ৩: এটি কি এডমিনের দেওয়া কাস্টম ফিল্টার এর সাথে মিলে? (এখন আইডি দিয়ে চেক হয়) ✅
+                        is_manual_excluded = (r.id in excluded_retailer_ids)
 
                         # কোনো শর্ত মিললে সেটি মার্কেটে কাউন্ট হবে না
                         if not is_own_code and not is_bp_code and not is_manual_excluded:

@@ -202,7 +202,7 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
             batch_buffer = []
             batch_size = 500
 
-            pbar = tqdm(total=total_rows, desc=f"{Fore.MAGENTA}{Style.BRIGHT}SIM Processing", unit="row")
+            pbar = tqdm(total=total_rows, desc=f"{Fore.GREEN}{Style.BRIGHT}SIM Processing", unit="row", colour='green')
 
             for _, row in df.iterrows():
                 dist_code = clean_val(row.get('DISTRIBUTORCODE'), '')
