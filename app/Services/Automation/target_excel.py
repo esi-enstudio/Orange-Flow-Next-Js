@@ -109,13 +109,9 @@ RSO_COLUMN_MAP = {
 }
 
 async def process_target_excel(file_path, target_type, month, year, target_house_code=None, progress_callback=None):
-    """
-    target_type: 'house', 'supervisor', 'rso'
-    target_house_code: Optional, if provided, only data for this house will be processed
-    """
+    """উন্নত বাল্ক প্রসেসিং লজিক ✅"""
     try:
         df = pd.read_excel(file_path)
-        # Normalize columns: strip, upper, replace spaces and newlines with underscores
         df.columns = [str(c).strip().upper().replace(" ", "_").replace("\n", "_") for c in df.columns]
         
         total_rows = len(df)
@@ -139,6 +135,9 @@ async def process_target_excel(file_path, target_type, month, year, target_house
 
         async with async_session() as session:
             count = 0
+            batch_size = 100
+            batch_data = []
+
             for index, row in df.iterrows():
                 values = {"month": month, "year": year}
                 
@@ -149,35 +148,29 @@ async def process_target_excel(file_path, target_type, month, year, target_house
                     else:
                         values[db_field] = clean_val(row.get(excel_header))
 
-                # Skip if essential info is missing
                 h_code = values.get('house_code')
                 if not h_code: continue
                 
-                # House filtering logic ✅
                 if target_house_code and str(h_code).strip().upper() != str(target_house_code).strip().upper():
                     continue
 
                 if target_type == 'supervisor' and not values.get('supervisor_msisdn'): continue
                 if target_type == 'rso' and not values.get('rso_code'): continue
 
-                stmt = insert(model).values(values)
-                update_dict = {k: v for k, v in values.items() if k not in conflict_elements}
-                update_dict['updated_at'] = func.now()
-                
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=conflict_elements,
-                    set_=update_dict
-                )
-                
-                await session.execute(stmt)
-                count += 1
-                
-                if progress_callback and (count % 100 == 0 or count == total_rows):
-                    percent = round((count / total_rows) * 100)
-                    await progress_callback(
-                        f"📊 <b>টার্গেট আপলোড ({target_type}):</b> {bn_num(percent)}%\n"
-                        f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
-                    )
+                batch_data.append(values)
+
+                if len(batch_data) >= batch_size:
+                    await do_bulk_upsert_target(session, model, batch_data, conflict_elements)
+                    count += len(batch_data)
+                    batch_data = []
+                    if progress_callback:
+                        await update_progress_target(count, total_rows, target_type, progress_callback)
+
+            if batch_data:
+                await do_bulk_upsert_target(session, model, batch_data, conflict_elements)
+                count += len(batch_data)
+                if progress_callback:
+                    await update_progress_target(count, total_rows, target_type, progress_callback)
 
             await session.commit()
             return count, None
@@ -185,3 +178,28 @@ async def process_target_excel(file_path, target_type, month, year, target_house
     except Exception as e:
         logger.error(f"Error processing {target_type} target excel: {str(e)}")
         return 0, f"Error: {str(e)}"
+
+async def do_bulk_upsert_target(session, model, batch_data, conflict_elements):
+    """টার্গেটের জন্য বাল্ক আপসার্ট লজিক"""
+    stmt = insert(model).values(batch_data)
+    excluded = stmt.excluded
+    update_dict = {
+        k: getattr(excluded, k) 
+        for k in batch_data[0].keys() 
+        if k not in conflict_elements
+    }
+    update_dict['updated_at'] = func.now()
+    
+    stmt = stmt.on_conflict_do_update(
+        index_elements=conflict_elements,
+        set_=update_dict
+    )
+    await session.execute(stmt)
+
+async def update_progress_target(count, total_rows, target_type, progress_callback):
+    """টার্গেট প্রগ্রেস আপডেট হেল্পার"""
+    percent = round((count / total_rows) * 100)
+    await progress_callback(
+        f"📊 <b>টার্গেট আপলোড ({target_type}):</b> {bn_num(percent)}%\n"
+        f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
+    )

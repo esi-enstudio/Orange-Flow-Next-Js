@@ -8,6 +8,7 @@ from sqlalchemy import select, func
 from app.Models.field_force import FieldForce
 from app.Models.user import User         
 from app.Services.db_service import async_session
+from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +25,13 @@ FF_COLUMNS = [
 ]
 
 async def generate_ff_sample(file_path):
-    """স্যাম্পল এক্সել ফাইল তৈরি"""
+    """স্যাম্পল এক্সেল ফাইল তৈরি"""
     df = pd.DataFrame(columns=FF_COLUMNS)
     df.to_excel(file_path, index=False)
     return file_path
 
 async def process_field_force_excel(file_path, house_id, progress_callback=None):
-    """এক্সেল ফাইল থেকে ডাটা নিয়ে ডাটাবেজে Upsert করবে"""
+    """উন্নত বাল্ক প্রসেসিং এবং ইউজার ম্যাপিং লজিক ✅"""
     try:
         # ১. ডাটা লোড
         df = pd.read_excel(file_path, dtype=str)
@@ -55,8 +56,14 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
             return v
 
         async with async_session() as session:
-            # এখানে count ইনিশিয়ালাইজ করা হয়েছে ✅
+            # পারফরম্যান্স অপ্টিমাইজেশন: সকল ইউজার মেমরিতে লোড করা ✅
+            logger.info("⏳ ইউজার ফোন ম্যাপ তৈরি হচ্ছে...")
+            user_res = await session.execute(select(User.phone_number, User.id))
+            user_map = {u.phone_number: u.id for u in user_res.all() if u.phone_number}
+
             count = 0
+            batch_size = 50
+            batch_data = []
             
             for index, row in df.iterrows():
                 dms_code_val = clean_val(row.get('DMS_CODE'))
@@ -64,15 +71,14 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
                 
                 if not dms_code_val or not name_val: continue
 
-                # ৩. User ID বের করা
+                # ৩. মেমরি ম্যাপ থেকে User ID বের করা (খুবই দ্রুত) ✅
                 p_phone_raw = clean_val(row.get('PERSONAL_NUMBER'))
                 target_user_id = None
                 if p_phone_raw:
                     clean_p_phone = p_phone_raw if p_phone_raw.startswith('0') else f"0{p_phone_raw}"
-                    u_res = await session.execute(select(User.id).where(User.phone_number == clean_p_phone))
-                    target_user_id = u_res.scalar_one_or_none()
+                    target_user_id = user_map.get(clean_p_phone)
 
-                # ৪. ডাটাবেজ ম্যাপ
+                # ৪. ডাটাবেজ ম্যাপ তৈরি
                 data_map = {
                     "house_id": house_id,
                     "user_id": target_user_id,
@@ -114,19 +120,22 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
                     "salary": clean_val(row.get('SALARY')),
                 }
 
-                # ৫. SQL Upsert
-                stmt = insert(FieldForce).values(**data_map)
-                update_cols = {k: v for k, v in data_map.items() if k not in ['dms_code', 'house_id']}
-                update_cols['updated_at'] = func.now()
+                batch_data.append(data_map)
 
-                stmt = stmt.on_conflict_do_update(index_elements=['dms_code'], set_=update_cols)
-                await session.execute(stmt)
-                count += 1
+                # ৫. ব্যাচ আপসার্ট ✅
+                if len(batch_data) >= batch_size:
+                    await do_bulk_upsert_ff(session, batch_data)
+                    count += len(batch_data)
+                    batch_data = []
+                    if progress_callback:
+                        await update_progress_ff(count, total_rows, progress_callback)
 
-                # ৬. প্রগ্রেস আপডেট
-                if progress_callback and (count % 10 == 0 or count == total_rows):
-                    percent = round((count / total_rows) * 100)
-                    await progress_callback(f"⏳ **আপলোড প্রগ্রেস:** {percent}%\n📈 প্রসেস হয়েছে: `{count}` / `{total_rows}`")
+            # অবশিষ্ট ডাটা
+            if batch_data:
+                await do_bulk_upsert_ff(session, batch_data)
+                count += len(batch_data)
+                if progress_callback:
+                    await update_progress_ff(count, total_rows, progress_callback)
 
             await session.commit()
             return count, None
@@ -134,3 +143,31 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
     except Exception as e:
         logger.error(f"❌ Excel Processing Error: {str(e)}")
         return 0, f"প্রসেসিং এরর: {str(e)}"
+
+async def do_bulk_upsert_ff(session, batch_data):
+    """ফিল্ড ফোর্সের জন্য বাল্ক আপসার্ট লজিক"""
+    stmt = insert(FieldForce).values(batch_data)
+    
+    # কনফ্লিক্ট হলে কি কি আপডেট হবে
+    excluded = stmt.excluded
+    # dms_code এবং house_id বাদে বাকি সব আপডেট হবে
+    update_cols = {
+        col: getattr(excluded, col) 
+        for col in batch_data[0].keys() 
+        if col not in ['dms_code', 'house_id']
+    }
+    update_cols['updated_at'] = func.now()
+
+    stmt = stmt.on_conflict_do_update(
+        index_elements=['dms_code'],
+        set_=update_cols
+    )
+    await session.execute(stmt)
+
+async def update_progress_ff(count, total_rows, progress_callback):
+    """ফিল্ড ফোর্স প্রগ্রেস আপডেট হেল্পার"""
+    percent = round((count / total_rows) * 100)
+    await progress_callback(
+        f"📊 <b>ফিল্ড ফোর্স আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
+        f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
+    )

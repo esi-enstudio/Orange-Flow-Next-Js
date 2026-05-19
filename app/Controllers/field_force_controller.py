@@ -313,7 +313,7 @@ async def handle_excel_upload(message: Message, state: FSMContext):
     await message.bot.download(message.document, destination=file_path)
 
     async def progress_cb(text):
-        try: await wait_msg.edit_text(f"{text}\n🏢 হাউজ: **{h_name}**", parse_mode="Markdown")
+        try: await wait_msg.edit_text(f"{text}\n🏢 হাউজ: <b>{h_name}</b>", parse_mode="HTML")
         except: pass
 
     count, err = await process_field_force_excel(file_path, house_id, progress_cb)

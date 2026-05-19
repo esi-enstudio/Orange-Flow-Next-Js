@@ -392,7 +392,7 @@ async def handle_retailer_file(message: Message, state: FSMContext):
 
         # লাইভ প্রগ্রেস আপডেট ফাংশন ✅
         async def update_telegram_progress(text):
-            try: await wait_msg.edit_text(text, parse_mode="Markdown")
+            try: await wait_msg.edit_text(text, parse_mode="HTML")
             except: pass
 
         # সার্ভিস কল (প্রগ্রেস কলব্যাক সহ) ✅
