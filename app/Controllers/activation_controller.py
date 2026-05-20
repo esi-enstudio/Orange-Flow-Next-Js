@@ -54,6 +54,8 @@ async def handle_back_button(message: Message, state: FSMContext, permissions: l
     )
 
 
+from app.Utils.access_control import AccessControl
+
 # ==========================================
 # মডিউল এন্ট্রি (Reply Button: 📈এক্টিভেশন)
 # ==========================================
@@ -63,23 +65,32 @@ async def start_activation_upload_process(message: Message, state: FSMContext):
     user_tg_id = message.from_user.id
     
     async with async_session() as session:
+        # Load user with roles for access control
+        u_res = await session.execute(
+            select(User).options(
+                selectinload(User.roles),
+                selectinload(User.houses),
+                selectinload(User.field_force_profile)
+            ).where(User.telegram_id == user_tg_id)
+        )
+        user = u_res.scalar_one_or_none()
+        
+        if not user:
+            return await message.answer("❌ ইউজার প্রোফাইল পাওয়া যায়নি।")
+
         is_super_admin = (int(user_tg_id) == int(SUPER_ADMIN_ID))
         target_houses = []
 
         if is_super_admin:
             # সুপার এডমিন সব হাউজ দেখবে
-            res = await session.execute(select(House).where(House.is_active == True, House.subscription_date >= datetime.now()))
+            res = await session.execute(select(House).where(House.is_active == True))
             target_houses = res.scalars().all()
         else:
-            # সাধারণ ইউজার তার লিঙ্ক করা হাউজগুলো দেখবে
-            u_res = await session.execute(
-                select(User).options(selectinload(User.houses)).where(User.telegram_id == user_tg_id)
-            )
-            user = u_res.scalar_one_or_none()
-            if user: target_houses = [h for h in user.houses if h.is_active and h.subscription_date and h.subscription_date >= datetime.now()]
+            # সাধারণ ইউজার তার লিঙ্ক করা হাউজগুলো দেখবে (এক্সেস কন্ট্রোল অনুযায়ী)
+            target_houses = [h for h in user.houses if h.is_active]
 
         if not target_houses:
-            return await message.answer("❌ আপনার প্রোফাইলে কোনো হাউজ যুক্ত নেই।")
+            return await message.answer("❌ আপনার প্রোফাইলে কোনো সক্রিয় হাউজ যুক্ত নেই।")
 
         # ১টি হাউজ থাকলে সরাসরি ফাইল চাবে
         if len(target_houses) == 1:

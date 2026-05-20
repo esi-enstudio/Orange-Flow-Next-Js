@@ -1,7 +1,9 @@
 import logging
 import sys
 import asyncio
+import os
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from aiogram import Bot, Dispatcher
 from config.settings import BOT_TOKEN
 from app.Services.db_service import init_db
@@ -16,8 +18,6 @@ from app.Services.Automation.Reports.ga_live import run_ga_live_sync, reset_dail
 from app.Services.Automation.dms_report_excel import cleanup_old_dms_reports
 from app.Services.Automation.dms_sync_service import run_daily_auto_sync
 
-# ... rest of imports
-
 # কন্ট্রোলার ইম্পোর্ট
 from app.Controllers import (
     activation_controller, admin_controller, house_controller, user_controller,
@@ -28,11 +28,26 @@ from app.Controllers import (
     issue_report_controller, target_controller
 )
 
-# --- ২. লগিং কনফিগারেশন (সাইলেন্ট মুড) ---
+# --- ২. লগিং কনফিগারেশন (প্রফেশনাল লেভেল) ---
+if not os.path.exists('logs'):
+    os.makedirs('logs')
+
+log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_file = 'logs/orange_flow.log'
+
+# ফাইল হ্যান্ডলার (১০ মেগাবাইট হলে নতুন ফাইল তৈরি করবে, সর্বোচ্চ ৫টি ফাইল রাখবে)
+file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
+file_handler.setFormatter(log_formatter)
+file_handler.setLevel(logging.INFO)
+
+# কনসোল হ্যান্ডলার
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(log_formatter)
+console_handler.setLevel(logging.INFO)
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[file_handler, console_handler]
 )
 
 # অপ্রয়োজনীয় লগ বন্ধ রাখা

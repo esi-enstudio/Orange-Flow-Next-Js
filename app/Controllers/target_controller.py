@@ -122,6 +122,10 @@ async def select_house(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("🏘️ **হাউজ নির্বাচন করুন:**", reply_markup=builder.as_markup(), parse_mode="Markdown")
     await state.set_state(TargetStates.waiting_for_house)
 
+from app.Models.user import User
+from app.Utils.access_control import AccessControl
+from sqlalchemy.orm import selectinload
+
 @router.callback_query(F.data.startswith("target_house_"))
 async def handle_house_selection(callback: CallbackQuery, state: FSMContext):
     house_code = callback.data.split("_")[2]
@@ -145,17 +149,37 @@ async def handle_house_selection(callback: CallbackQuery, state: FSMContext):
         # View Mode
         wait_msg = await callback.message.edit_text("⏳ ডাটা লোড হচ্ছে...")
         
-        summary_func = {
-            'house': get_house_target_summary,
-            'supervisor': get_supervisor_target_summary,
-            'rso': get_rso_target_summary
-        }.get(t_type)
-        
-        targets, text = await summary_func(month, year, house_code=house_code)
+        async with async_session() as session:
+            # Load user with roles and profile for access control
+            user_res = await session.execute(
+                select(User).options(
+                    selectinload(User.roles),
+                    selectinload(User.houses),
+                    selectinload(User.field_force_profile)
+                ).where(User.telegram_id == callback.from_user.id)
+            )
+            user = user_res.scalar_one_or_none()
+            
+            if not user:
+                return await wait_msg.edit_text("❌ ইউজার প্রোফাইল পাওয়া যায়নি।")
+
+            ac = AccessControl(user, session)
+            
+            summary_func = {
+                'house': get_house_target_summary,
+                'supervisor': get_supervisor_target_summary,
+                'rso': get_rso_target_summary
+            }.get(t_type)
+            
+            # Additional filtering for Supervisor and RSO
+            supervisor_msisdn = None
+            if t_type == 'rso' and user.field_force_profile and user.field_force_profile.type == 'Supervisor':
+                supervisor_msisdn = user.field_force_profile.itop_number
+
+            targets, text = await summary_func(month, year, house_code=house_code, supervisor_msisdn=supervisor_msisdn)
         
         if not targets:
             await wait_msg.edit_text(f"❌ {text}")
-            # await state.clear()
             return
 
         builder = InlineKeyboardBuilder()

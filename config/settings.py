@@ -1,29 +1,60 @@
 import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import computed_field
 from urllib.parse import quote_plus
+from typing import Optional
 
-load_dotenv()
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-SUPER_ADMIN_ID = int(os.getenv("SUPER_ADMIN_ID"))
-NGROK_AUTH_TOKEN = os.getenv("NGROK_AUTH_TOKEN")
-WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", 8080))
-FORWARD_OTPS_TO = os.getenv("FORWARD_OTPS_TO")
-START_NGROK = os.getenv("START_NGROK", "False") == "True"
-STATIC_DOMAIN = os.getenv("STATIC_DOMAIN")
-DISABLE_SCHEDULER = os.getenv("DISABLE_SCHEDULER", "False") == "True"
-ENABLE_GA_SYNC = os.getenv("ENABLE_GA_SYNC", "False").lower() in ("true", "1", "t")
+    # Telegram Bot
+    BOT_TOKEN: str
+    SUPER_ADMIN_ID: int
 
+    # Database
+    DB_USER: str
+    DB_PASS: str
+    DB_HOST: str
+    DB_PORT: str = "5432"
+    DB_NAME: str
 
+    # Ngrok & Webhook
+    NGROK_AUTH_TOKEN: Optional[str] = None
+    WEBHOOK_PORT: int = 8080
+    START_NGROK: bool = False
+    STATIC_DOMAIN: Optional[str] = None
+    FORWARD_OTPS_TO: Optional[str] = None
 
-# excel_wa_sync.py হেডলেস মুড কন্ট্রোল (স্ট্রিং থেকে বুলিয়ান এ রূপান্তর)
-HEADLESS = os.getenv("HEADLESS_MODE", "True").lower() == "true"
+    # Automation & Scheduler
+    DISABLE_SCHEDULER: bool = False
+    ENABLE_GA_SYNC: bool = True
+    HEADLESS_MODE: bool = True
 
-# পাসওয়ার্ড এনকোড করা (স্পেশাল ক্যারেক্টার হ্যান্ডেল করার জন্য)
-user = os.getenv("DB_USER")
-password = quote_plus(os.getenv("DB_PASS")) # এখানে @# এনকোড হবে
-host = os.getenv("DB_HOST")
-port = os.getenv("DB_PORT")
-db_name = os.getenv("DB_NAME")
+    @computed_field
+    @property
+    def DATABASE_URL(self) -> str:
+        password = quote_plus(self.DB_PASS)
+        return f"postgresql+asyncpg://{self.DB_USER}:{password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
-DATABASE_URL = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db_name}"
+    @computed_field
+    @property
+    def SYNC_DATABASE_URL(self) -> str:
+        """Used for Alembic migrations which need a sync driver"""
+        password = quote_plus(self.DB_PASS)
+        return f"postgresql://{self.DB_USER}:{password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+
+# Instantiate settings
+settings = Settings()
+
+# Export for backward compatibility with existing code
+BOT_TOKEN = settings.BOT_TOKEN
+SUPER_ADMIN_ID = settings.SUPER_ADMIN_ID
+NGROK_AUTH_TOKEN = settings.NGROK_AUTH_TOKEN
+WEBHOOK_PORT = settings.WEBHOOK_PORT
+FORWARD_OTPS_TO = settings.FORWARD_OTPS_TO
+START_NGROK = settings.START_NGROK
+STATIC_DOMAIN = settings.STATIC_DOMAIN
+DISABLE_SCHEDULER = settings.DISABLE_SCHEDULER
+ENABLE_GA_SYNC = settings.ENABLE_GA_SYNC
+HEADLESS = settings.HEADLESS_MODE
+DATABASE_URL = settings.DATABASE_URL

@@ -108,6 +108,9 @@ RSO_COLUMN_MAP = {
     'DAILY_DSO_TARGET_(RS0_APP)': ('daily_dso_target_app', clean_int)
 }
 
+from app.Models.house import House
+from app.Models.field_force import FieldForce
+
 async def process_target_excel(file_path, target_type, month, year, target_house_code=None, progress_callback=None):
     """
     target_type: 'house', 'supervisor', 'rso'
@@ -122,43 +125,82 @@ async def process_target_excel(file_path, target_type, month, year, target_house
         if total_rows == 0:
             return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
 
-        if target_type == 'house':
-            model = HouseTarget
-            col_map = HOUSE_COLUMN_MAP
-            conflict_elements = ['house_code', 'month', 'year']
-        elif target_type == 'supervisor':
-            model = SupervisorTarget
-            col_map = SUPERVISOR_COLUMN_MAP
-            conflict_elements = ['supervisor_msisdn', 'month', 'year']
-        elif target_type == 'rso':
-            model = RSOTarget
-            col_map = RSO_COLUMN_MAP
-            conflict_elements = ['rso_code', 'month', 'year']
-        else:
-            return 0, "Invalid target type"
-
         async with async_session() as session:
+            # Pre-fetch houses and field forces for lookup
+            houses_res = await session.execute(select(House))
+            house_map = {h.code: h.id for h in houses_res.scalars().all()}
+            
+            ff_map = {}
+            if target_type == 'rso':
+                ff_res = await session.execute(select(FieldForce))
+                ff_map = {f.dms_code: f.id for f in ff_res.scalars().all()}
+
+            if target_type == 'house':
+                model = HouseTarget
+                col_map = HOUSE_COLUMN_MAP
+                conflict_elements = ['house_id', 'month', 'year']
+            elif target_type == 'supervisor':
+                model = SupervisorTarget
+                col_map = SUPERVISOR_COLUMN_MAP
+                conflict_elements = ['supervisor_msisdn', 'month', 'year']
+            elif target_type == 'rso':
+                model = RSOTarget
+                col_map = RSO_COLUMN_MAP
+                conflict_elements = ['field_force_id', 'month', 'year']
+            else:
+                return 0, "Invalid target type"
+
             count = 0
             for index, row in df.iterrows():
                 values = {"month": month, "year": year}
                 
+                excel_values = {}
                 for excel_header, db_field in col_map.items():
                     if isinstance(db_field, tuple):
                         field_name, cleaner = db_field
-                        values[field_name] = cleaner(row.get(excel_header))
+                        excel_values[field_name] = cleaner(row.get(excel_header))
                     else:
-                        values[db_field] = clean_val(row.get(excel_header))
+                        excel_values[db_field] = clean_val(row.get(excel_header))
 
-                # Skip if essential info is missing
-                h_code = values.get('house_code')
+                # ID Lookups
+                h_code = excel_values.get('house_code')
                 if not h_code: continue
                 
                 # House filtering logic ✅
                 if target_house_code and str(h_code).strip().upper() != str(target_house_code).strip().upper():
                     continue
 
-                if target_type == 'supervisor' and not values.get('supervisor_msisdn'): continue
-                if target_type == 'rso' and not values.get('rso_code'): continue
+                house_id = house_map.get(h_code)
+                if not house_id: continue
+                values['house_id'] = house_id
+
+                if target_type == 'house':
+                    # Add all other fields
+                    for k, v in excel_values.items():
+                        if k not in ['house_code', 'house_name', 'cluster', 'region']:
+                            values[k] = v
+                
+                elif target_type == 'supervisor':
+                    if not excel_values.get('supervisor_msisdn'): continue
+                    # Add all fields
+                    for k, v in excel_values.items():
+                        if k not in ['house_code', 'house_name', 'cluster', 'region']:
+                            values[k] = v
+
+                elif target_type == 'rso':
+                    rso_code = excel_values.get('rso_code')
+                    if not rso_code: continue
+                    
+                    ff_id = ff_map.get(rso_code)
+                    if not ff_id: continue
+                    values['field_force_id'] = ff_id
+                    
+                    # Add all other fields
+                    for k, v in excel_values.items():
+                        if k not in ['house_code', 'house_name', 'cluster', 'region', 
+                                   'rso_code', 'rso_msisdn', 'rso_name', 
+                                   'new_market_type', 'archetype', 'type_of_thana']:
+                            values[k] = v
 
                 stmt = insert(model).values(values)
                 update_dict = {k: v for k, v in values.items() if k not in conflict_elements}

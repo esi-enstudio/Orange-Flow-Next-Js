@@ -57,11 +57,15 @@ class FieldForce(Base):
     market_type = Column(String) # Rural/Urban
     salary = Column(String)
     
+    # Hierarchy
+    supervisor_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True)
+    
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
     # রিলেশনশিপসমূহ
     house = relationship("House")
+    supervisor = relationship("FieldForce", remote_side=[id], backref="subordinates")
 
     # রিলেশন: এক আরএসও-র আন্ডারে অনেক রিটেইলার থাকতে পারে
     retailers = relationship("Retailer", back_populates="field_force")

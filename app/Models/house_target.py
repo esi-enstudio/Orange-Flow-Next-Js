@@ -1,15 +1,13 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint, ForeignKey
+from sqlalchemy.orm import relationship
 from app.Models.base import Base
 
 class HouseTarget(Base):
     __tablename__ = "house_targets"
 
     id = Column(Integer, primary_key=True, index=True)
-    cluster = Column(String)
-    region = Column(String)
-    house_code = Column(String, index=True)
-    house_name = Column(String)
-    
+    house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
+
     ev_c2c_target = Column(Float, default=0.0)
     sc_primary_target = Column(Float, default=0.0)
     total_recharge_target = Column(Float, default=0.0)
@@ -25,13 +23,16 @@ class HouseTarget(Base):
     bso = Column(Integer, default=0)
     ddso = Column(Integer, default=0)
     ga_productivity = Column(Float, default=0.0)
-    
+
     month = Column(Integer, nullable=False)
     year = Column(Integer, nullable=False)
-    
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
+    # Relationship
+    house = relationship("House")
+
     __table_args__ = (
-        UniqueConstraint('house_code', 'month', 'year', name='_house_month_year_uc'),
+        UniqueConstraint('house_id', 'month', 'year', name='_house_month_year_uc'),
     )
