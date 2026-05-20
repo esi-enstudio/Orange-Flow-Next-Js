@@ -21,8 +21,8 @@ class FieldForce(Base):
     itop_number = Column(String, index=True)  # unique=True removed
     personal_number = Column(String)  # unique=True removed
     pool_number = Column(String)  # unique=False removed (default is False)
-    type = Column(String) # 'SR' or 'BP'
-    status = Column(String, default="Active") # 'Active' or 'Resigned'
+    type = Column(String) # 'SR' or 'BP' or 'Supervisor'
+    status = Column(String, default="Active") # 'Active', 'Resigned', 'Suspended'
     
     # ব্যাংক ইনফো
     bank_name = Column(String)

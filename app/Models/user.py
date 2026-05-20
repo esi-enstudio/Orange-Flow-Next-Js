@@ -29,6 +29,9 @@ class User(Base):
     phone_number = Column(String, nullable=True)
     status = Column(String, default="Active", nullable=False) # Active অথবা Inactive
 
+    # রিপোর্টিং লাইন (Self-referencing Foreign Key) ✅
+    parent_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+
     # মেনি-টু-মেনি রিলেশনশিপ (রোল টেবিলের সাথে)
     roles = relationship("Role", secondary=user_roles, back_populates="users", lazy="selectin")
 
@@ -38,6 +41,9 @@ class User(Base):
     # ফিল্ড ফোর্স এর সাথে রিলেশনশিপ
     field_force_profile = relationship("FieldForce", back_populates="user", uselist=False)
 
-    # টাইমস্ট্যাম্প কলাম (যেখানে ভুলটি হচ্ছিল)
+    # রিপোর্টিং লাইন রিলেশনশিপ
+    parent = relationship("User", remote_side=[id], backref="subordinates")
+
+    # টাইমস্ট্যাম্প কলাম
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

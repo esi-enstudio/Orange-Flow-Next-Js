@@ -28,6 +28,9 @@ def get_admin_main_menu(permissions: list):
     if any(p in permissions for p in ff_perms):
         row3.append(KeyboardButton(text="👥 Field Force"))
     
+    if "manage_leaves" in permissions or "apply_leave" in permissions:
+        row3.append(KeyboardButton(text="📅 Leave Management"))
+    
     ret_perms = ["create_retailers","view_retailers","edit_retailers","delete_retailers", "manage_retailers"]
     if any(p in permissions for p in ret_perms):
         row3.append(KeyboardButton(text="🏪 Retailers"))

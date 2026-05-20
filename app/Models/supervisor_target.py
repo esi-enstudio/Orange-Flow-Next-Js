@@ -1,10 +1,14 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint, ForeignKey
+from sqlalchemy.orm import relationship
 from app.Models.base import Base
 
 class SupervisorTarget(Base):
     __tablename__ = "supervisor_targets"
 
     id = Column(Integer, primary_key=True, index=True)
+    house_id = Column(Integer, ForeignKey('houses.id'), nullable=True) # House link
+    field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True) # Supervisor link
+    
     cluster = Column(String)
     region = Column(String)
     house_code = Column(String, index=True)
@@ -30,6 +34,10 @@ class SupervisorTarget(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
+    # Relationships
+    house = relationship("House")
+    field_force = relationship("FieldForce")
+
     __table_args__ = (
-        UniqueConstraint('supervisor_msisdn', 'month', 'year', name='_supervisor_month_year_uc'),
+        UniqueConstraint('field_force_id', 'month', 'year', name='_supervisor_target_uc'),
     )
