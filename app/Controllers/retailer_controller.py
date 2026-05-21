@@ -289,7 +289,7 @@ async def save_retailer_edit(message: Message, state: FSMContext, permissions: l
 
 async def view_retailer_details_manual(message: Message, r: Retailer, permissions: list):
     builder = InlineKeyboardBuilder()
-    if "edit_retailer" in permissions: builder.button(text="✏️ এডিট", callback_data=f"ret_edit_menu_{r.id}")
+    if "edit_retailers" in permissions: builder.button(text="✏️ এডিট", callback_data=f"ret_edit_menu_{r.id}")
     builder.button(text="📋 লিস্ট", callback_data="ret_list_0")
     await message.answer(get_retailer_full_profile_text(r), reply_markup=builder.adjust(2).as_markup(), parse_mode="HTML")
 

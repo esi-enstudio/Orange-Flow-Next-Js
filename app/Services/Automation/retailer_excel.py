@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import asyncio
 import logging
+from tqdm import tqdm
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
 
@@ -13,8 +14,9 @@ from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
-# এক্সেল হেডার এবং ডাটাবেজ কলামের ম্যাপিং
+# এক্সেল হেডার এবং ডাটাবেজ কলামের ম্যাপিং (DD_CODE যুক্ত করা হলো)
 COLUMN_MAP = {
+    'DD_CODE': 'dd_code',
     'RETAILER_CODE': 'retailer_code',
     'RETAILER_NAME': 'name',
     'RETAILER_TYPE': 'type',
@@ -55,48 +57,55 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
             return v
 
         async with async_session() as session:
-            # হাউজ কোড খুঁজে বের করা
-            house_res = await session.execute(select(House.code).where(House.id == house_id))
-            house_code = house_res.scalar() or str(house_id)
-
-            # ২. পারফরম্যান্স অপ্টিমাইজেশন: ওই হাউজের সকল আরএসও মেমরিতে লোড করা ✅
-            logger.info(f"⏳ হাউজ {house_code} এর আরএসও ম্যাপ তৈরি হচ্ছে...")
-            ff_res = await session.execute(
-                select(FieldForce.itop_number, FieldForce.id).where(FieldForce.house_id == house_id)
-            )
-            # iTop Number -> FieldForce ID ম্যাপ
+            # ২. পারফরম্যান্স অপ্টিমাইজেশন: সকল হাউজ এবং আরএসও মেমরিতে লোড করা ✅
+            houses_res = await session.execute(select(House.code, House.id))
+            house_map = {h.code.upper(): h.id for h in houses_res.all() if h.code}
+            
+            ff_res = await session.execute(select(FieldForce.itop_number, FieldForce.id))
             rso_map = {f.itop_number: f.id for f in ff_res.all() if f.itop_number}
 
             count = 0
             batch_size = 100
             batch_data = []
 
+            pbar = tqdm(total=total_rows, desc="🏪 Retailer Uploading", unit="row")
+
             for index, row in df.iterrows():
                 r_code = clean(row.get('RETAILER_CODE'))
                 if not r_code:
+                    pbar.update(1)
                     continue
 
-                # ৩. মেমরি ম্যাপ থেকে আরএসও আইডি খুঁজে বের করা (খুবই দ্রুত) ✅
+                # ৩. মেমরি ম্যাপ থেকে আরএসও আইডি খুঁজে বের করা
                 itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
                 linked_ff_id = rso_map.get(itop_sr_no) if itop_sr_no else None
+                
+                # ৪. হাউজ আইডি নির্ধারণ (DD_CODE দিয়ে) ✅
+                dd_code = clean(row.get('DD_CODE'))
+                target_house_id = house_map.get(dd_code.upper()) if dd_code else house_id
 
-                # ৪. ইনসার্ট ডাটা ডিকশনারি তৈরি
+                if not target_house_id:
+                    pbar.update(1)
+                    continue
+
+                # ৫. ইনসার্ট ডাটা ডিকশনারি তৈরি
                 values_to_insert = {
-                    "house_id": house_id,
+                    "house_id": target_house_id,
                     "field_force_id": linked_ff_id,
                     "retailer_code": r_code
                 }
                 
                 for excel_header, db_col in COLUMN_MAP.items():
-                    if db_col != 'retailer_code':
+                    if db_col not in ['retailer_code', 'dd_code']:
                         values_to_insert[db_col] = clean(row.get(excel_header))
 
                 batch_data.append(values_to_insert)
 
-                # ৫. ব্যাচ প্রসেসিং এবং প্রগ্রেস আপডেট ✅
+                # ৬. ব্যাচ প্রসেসিং এবং প্রগ্রেস আপডেট
                 if len(batch_data) >= batch_size:
                     await do_bulk_upsert(session, batch_data)
                     count += len(batch_data)
+                    pbar.update(len(batch_data))
                     batch_data = []
                     if progress_callback:
                         await update_progress(count, total_rows, progress_callback)
@@ -105,12 +114,14 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
             if batch_data:
                 await do_bulk_upsert(session, batch_data)
                 count += len(batch_data)
+                pbar.update(len(batch_data))
                 if progress_callback:
                     await update_progress(count, total_rows, progress_callback)
 
+            pbar.close()
             # সব শেষে একবারই কমিট ✅
             await session.commit()
-            logger.info(f"✅ House {house_code}: {count} retailers processed successfully.")
+            logger.info(f"✅ {count} retailers processed successfully for house_id: {house_id}")
             return count, None
 
     except Exception as e:
@@ -126,7 +137,7 @@ async def do_bulk_upsert(session, batch_data):
     update_cols = {
         col: excluded[col] 
         for col in COLUMN_MAP.values() 
-        if col != 'retailer_code'
+        if col not in ['retailer_code', 'dd_code']
     }
     # house_id আপডেট করার প্রয়োজন নেই, তবে field_force_id আপডেট হতে পারে
     update_cols['field_force_id'] = excluded.field_force_id

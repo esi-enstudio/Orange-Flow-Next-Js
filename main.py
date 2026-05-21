@@ -25,7 +25,7 @@ from app.Controllers import (
     sim_return_controller, sim_issue_controller, ga_live_controller,
     field_force_controller, retailer_controller, ga_filter_controller,
     bts_controller, mela_config_controller, mela_controller, dms_report_controller,
-    issue_report_controller, target_controller, leave_controller
+    issue_report_controller, target_controller, leave_controller, setup_wizard_controller
 )
 
 # --- ২. লগিং কনফিগারেশন (প্রফেশনাল লেভেল) ---
@@ -148,7 +148,7 @@ async def main():
 
     # ৪. রাউটারগুলো রেজিস্টার করা
     dp.include_routers(
-        admin_controller.router, house_controller.router,
+        admin_controller.router, setup_wizard_controller.router, house_controller.router,
         user_controller.router, role_controller.router,
         automation_controller.router, sim_status_controller.router,
         sim_return_controller.router, sim_issue_controller.router,

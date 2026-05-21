@@ -2,19 +2,21 @@ import pandas as pd
 import os
 import asyncio
 import logging
+from tqdm import tqdm
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
 
 from app.Models.field_force import FieldForce
 from app.Models.user import User         
+from app.Models.house import House
 from app.Services.db_service import async_session
 from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
-# ৩৮টি কলামের হেডার লিস্ট
+# কলাম লিস্ট (DD_CODE যুক্ত করা হলো)
 FF_COLUMNS = [
-    'DMS_CODE', 'AGENCY_ID', 'NAME', 'TYPE', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
+    'DD_CODE', 'DMS_CODE', 'AGENCY_ID', 'NAME', 'TYPE', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
     'POOL_NUMBER', 'ASSISTED_RETAILER_CODE', 'SALARY', 'MARKET_TYPE', 
     'JOINING_DATE', 'RESIGNED_DATE', 'RELIGION', 'DOB', 'NID',
     'BANK_NAME', 'BANK_ACCOUNT', 'BRANCH_NAME', 'ROUTING_NUMBER', 'HOME_TOWN',
@@ -56,31 +58,58 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
             return v
 
         async with async_session() as session:
-            # পারফরম্যান্স অপ্টিমাইজেশন: সকল ইউজার মেমরিতে লোড করা ✅
-            logger.info("⏳ ইউজার ফোন ম্যাপ তৈরি হচ্ছে...")
+            # পারফরম্যান্স অপ্টিমাইজেশন: সকল ইউজার এবং হাউজ মেমরিতে লোড করা ✅
+            logger.info("⏳ ম্যাপ তৈরি হচ্ছে...")
             user_res = await session.execute(select(User.phone_number, User.id))
             user_map = {u.phone_number: u.id for u in user_res.all() if u.phone_number}
+            
+            houses_res = await session.execute(select(House.code, House.id))
+            house_map = {h.code.upper(): h.id for h in houses_res.all() if h.code}
 
             count = 0
             batch_size = 50
             batch_data = []
             
+            # tqdm বার শুরু (টার্মিনাল প্রগ্রেসের জন্য)
+            pbar = tqdm(total=total_rows, desc="📤 Field Force Uploading", unit="row")
+
             for index, row in df.iterrows():
                 dms_code_val = clean_val(row.get('DMS_CODE'))
                 name_val = clean_val(row.get('NAME'))
                 
-                if not dms_code_val or not name_val: continue
+                if not dms_code_val or not name_val:
+                    pbar.update(1)
+                    continue
 
-                # ৩. মেমরি ম্যাপ থেকে User ID বের করা (খুবই দ্রুত) ✅
+                # ৩. মেমরি ম্যাপ থেকে User ID বের করা ✅ (ফোন এবং নামের মাধ্যমে)
                 p_phone_raw = clean_val(row.get('PERSONAL_NUMBER'))
                 target_user_id = None
+                
                 if p_phone_raw:
-                    clean_p_phone = p_phone_raw if p_phone_raw.startswith('0') else f"0{p_phone_raw}"
-                    target_user_id = user_map.get(clean_p_phone)
+                    # ফোন নাম্বারের শেষ ১০টি ডিজিট দিয়ে ম্যাচ করা (সবচেয়ে নিরাপদ)
+                    clean_p_phone = str(p_phone_raw).replace(".0", "")[-10:]
+                    for u_phone, u_id in user_map.items():
+                        if u_phone and u_phone[-10:] == clean_p_phone:
+                            target_user_id = u_id
+                            break
+                
+                # যদি ফোন নাম্বার না থাকে বা না মিলে, তবে নাম দিয়ে চেষ্টা (ঐচ্ছিক কিন্তু সহায়ক)
+                if not target_user_id and name_val:
+                    # নামের মাধ্যমে ম্যাপ করার জন্য একটি টেম্পোরারি ম্যাপ ব্যবহার করা যেতে পারে
+                    # তবে এখানে আমরা শুধু ডাটাবেজ ম্যাপ থেকে চেক করছি
+                    pass # (অতিরিক্ত লজিক চাইলে এখানে যোগ করা যায়)
+                
+                # ৪. হাউজ আইডি নির্ধারণ (DD_CODE দিয়ে) ✅
+                dd_code = clean_val(row.get('DD_CODE'))
+                target_house_id = house_map.get(dd_code.upper()) if dd_code else house_id
 
-                # ৪. ডাটাবেজ ম্যাপ তৈরি
+                if not target_house_id:
+                    pbar.update(1)
+                    continue
+
+                # ৫. ডাটাবেজ ম্যাপ তৈরি
                 data_map = {
-                    "house_id": house_id,
+                    "house_id": target_house_id,
                     "user_id": target_user_id,
                     "dms_code": dms_code_val,
                     "assisted_retailer_code": clean_val(row.get('ASSISTED_RETAILER_CODE')),
@@ -126,6 +155,7 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
                 if len(batch_data) >= batch_size:
                     await do_bulk_upsert_ff(session, batch_data)
                     count += len(batch_data)
+                    pbar.update(len(batch_data)) # টার্মিনাল আপডেট
                     batch_data = []
                     if progress_callback:
                         await update_progress_ff(count, total_rows, progress_callback)
@@ -134,9 +164,11 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
             if batch_data:
                 await do_bulk_upsert_ff(session, batch_data)
                 count += len(batch_data)
+                pbar.update(len(batch_data)) # টার্মিনাল আপডেট
                 if progress_callback:
                     await update_progress_ff(count, total_rows, progress_callback)
 
+            pbar.close() # প্রগ্রেস বার বন্ধ করা
             await session.commit()
             return count, None
 

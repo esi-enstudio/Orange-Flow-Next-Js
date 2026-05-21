@@ -20,12 +20,74 @@ router = Router()
 # 1. FSM STATES
 # ==========================================
 
+from app.Services.Automation.user_excel import process_user_excel, update_progress_user
+from app.Utils.helpers import bn_num
+import os
+
 class UserCreateForm(StatesGroup):
     telegram_id = State()
     name = State()
     phone = State()
     role_ids = State()   # মাল্টি-রোল
     house_ids = State()  # মাল্টি-হাউজ
+    waiting_for_excel = State() # এক্সেল আপলোড স্টেট ✅
+
+# ... (বাকি কোড আগের মতো থাকবে)
+
+@router.message(F.text == "📤 Excel Upload", flags={"permission": "create_user"})
+async def start_user_excel_upload(message: Message, state: FSMContext):
+    await state.clear()
+    async with async_session() as session:
+        houses = (await session.execute(select(House))).scalars().all()
+        if not houses:
+            return await message.answer("❌ কোনো হাউজ নেই! আগে হাউজ তৈরি করুন।")
+        
+        builder = InlineKeyboardBuilder()
+        for h in houses:
+            builder.button(text=f"🏢 {h.name}", callback_data=f"u_xl_hsel_{h.id}")
+        builder.adjust(1)
+        await message.answer("🎯 ইউজার লিস্ট আপলোড করার জন্য **হাউজ নির্বাচন করুন:**", reply_markup=builder.as_markup())
+        await state.set_state(UserCreateForm.waiting_for_excel)
+
+@router.callback_query(F.data.startswith("u_xl_hsel_"), UserCreateForm.waiting_for_excel)
+async def handle_user_xl_house_selection(callback: CallbackQuery, state: FSMContext):
+    house_id = int(callback.data.split("_")[3])
+    await state.update_data(selected_house_id=house_id)
+    await callback.message.edit_text("📁 এখন **User List** এর Excel ফাইলটি পাঠান।")
+    await callback.answer()
+
+@router.message(UserCreateForm.waiting_for_excel, F.document)
+async def process_user_excel_upload(message: Message, state: FSMContext):
+    if not message.document.file_name.endswith('.xlsx'):
+        return await message.answer("❌ ভুল ফাইল! শুধু .xlsx এক্সেল ফাইল পাঠান।")
+    
+    data = await state.get_data()
+    house_id = data.get('selected_house_id')
+    
+    file_path = f"temp_user_{message.from_user.id}.xlsx"
+    wait_msg = await message.answer("⏳ ফাইলটি ডাউনলোড ও প্রসেসিং শুরু হচ্ছে...")
+
+    try:
+        await message.bot.download(message.document, destination=file_path)
+
+        async def progress_update(text):
+            try: await wait_msg.edit_text(text, parse_mode="HTML")
+            except: pass
+
+        count, err = await process_user_excel(file_path, house_id, progress_update)
+        
+        if err:
+            await wait_msg.edit_text(f"❌ <b>প্রসেসিং এরর:</b> {err}\n\nদয়া করে ফাইলটি চেক করে আবার পাঠান।", parse_mode="HTML")
+            # স্টেট ক্লিয়ার করা হচ্ছে না, যাতে ইউজার আবার ফাইল পাঠাতে পারে ✅
+        else:
+            await wait_msg.edit_text(f"✅ সফল! মোট <b>{bn_num(count)}</b> জন ইউজার আপডেট/যুক্ত করা হয়েছে।", parse_mode="HTML")
+            await state.clear() # শুধু সফল হলেই স্টেট ক্লিয়ার হবে ✅
+            
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ এরর: {str(e)}\n\nআবার চেষ্টা করুন।")
+        # স্টেট এখানেও রাখা হলো যাতে ইউজার পুনরায় ফাইল দিতে পারে
+    finally:
+        if os.path.exists(file_path): os.remove(file_path)
 
 class UserUpdateForm(StatesGroup):
     user_id = State()

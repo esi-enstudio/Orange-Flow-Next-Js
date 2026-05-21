@@ -152,6 +152,13 @@ def get_user_mgmt_menu(permissions: list):
     if "view_users" in permissions:
         row1.append(KeyboardButton(text="📋 User List"))
     if row1: buttons.append(row1)
+
+    # Row 2: Excel Upload
+    row2 = []
+    if "create_user" in permissions: # একই পারমিশন ব্যবহার করছি
+        row2.append(KeyboardButton(text="📤 Excel Upload"))
+    if row2: buttons.append(row2)
+
     buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
@@ -171,7 +178,7 @@ def get_retailer_mgmt_menu(permissions: list):
     """Retailer management sub-menu."""
     buttons = []
     row = []
-    if "find_retailers" in permissions:
+    if "search_retailer" in permissions:
         row.append(KeyboardButton(text="🔍 Retailer Search"))
     if "view_retailers" in permissions:
         row.append(KeyboardButton(text="📋 Retailer List"))

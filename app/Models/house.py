@@ -10,13 +10,23 @@ class House(Base):
     id = Column(Integer, primary_key=True, index=True)
     cluster = Column(String)
     region = Column(String)
-    name = Column(String)
-    code = Column(String, unique=True)
-    email = Column(String)
-    address = Column(String)
-    contact = Column(String)
+    wh_region = Column(String) # WH Region
+    code = Column(String, unique=True) # Distributor_Code
+    name = Column(String) # Distributor_Name
+    district = Column(String) # District
+    email = Column(String) # Email Address
+    address_reg = Column(String) # Distributor Address as per Registration/Trade License
+    address = Column(String) # Present Address of The Distribution House
+    proprietor_name = Column(String) # Proprietor Name
+    proprietor_contact = Column(String) # Proprietor Contact Number
+    poc_name = Column(String) # POC Name
+    poc_mobile = Column(String) # POC Mobile Number
+    lifting_date = Column(String) # Lifting date
+    latitude = Column(String) # Latitude
+    longitude = Column(String) # Longitude
+    bts_id = Column(String) # BTS ID
 
-    # DMS Credentials
+    # DMS Credentials (নিজেদের প্রয়োজনের জন্য রাখা হলো)
     dms_user = Column(String, nullable=True)
     dms_pass = Column(String, nullable=True)
     dms_house_id = Column(String, nullable=True)

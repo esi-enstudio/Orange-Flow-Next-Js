@@ -35,21 +35,47 @@ async def process_bts_excel(file_path, house_id, progress_callback):
         df = pd.read_excel(file_path, dtype=str).fillna("N/A")
         df.columns = [c.strip().upper() for c in df.columns]
         total = len(df)
+        
+        batch_size = 100
+        batch_data = []
 
         async with async_session() as session:
             for index, row in df.iterrows():
                 data = {"house_id": house_id}
                 for excel_key, db_key in BTS_MAP.items():
                     data[db_key] = str(row.get(excel_key, 'N/A')).strip()
+                
+                batch_data.append(data)
 
-                stmt = insert(BTS).values(**data)
-                stmt = stmt.on_conflict_do_update(index_elements=['bts_code'], set_=data)
-                await session.execute(stmt)
+                if len(batch_data) >= batch_size:
+                    await do_bulk_upsert_bts(session, batch_data)
+                    batch_data = []
                 
                 if (index + 1) % 10 == 0 or (index + 1) == total:
                     await progress_callback(f"⏳ বিটিএস আপলোড: {round(((index+1)/total)*100)}% ({index+1}/{total})")
             
+            if batch_data:
+                await do_bulk_upsert_bts(session, batch_data)
+                
             await session.commit()
         return total, None
     except Exception as e:
         return 0, str(e)
+
+async def do_bulk_upsert_bts(session, batch_data):
+    """বিটিএস-এর জন্য বাল্ক আপসার্ট লজিক"""
+    stmt = insert(BTS).values(batch_data)
+    
+    # কনফ্লিক্ট হলে কি কি আপডেট হবে
+    excluded = stmt.excluded
+    update_cols = {
+        col: getattr(excluded, col) 
+        for col in batch_data[0].keys() 
+        if col not in ['bts_code', 'house_id']
+    }
+
+    stmt = stmt.on_conflict_do_update(
+        index_elements=['bts_code'],
+        set_=update_cols
+    )
+    await session.execute(stmt)

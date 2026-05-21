@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from sqlalchemy import select
 from app.Models.user import User
+from app.Models.house import House
 from app.Services.db_service import async_session
 from app.Views.keyboards.reply import get_admin_main_menu, get_settings_menu
 from config.settings import SUPER_ADMIN_ID
@@ -42,6 +43,22 @@ async def cmd_start(message: Message, state: FSMContext, permissions: list = Non
 
     # ১. সুপার এডমিন চেক
     if int(user_id) == int(SUPER_ADMIN_ID):
+        # সিস্টেমে কোনো হাউজ আছে কিনা চেক করা (ফার্স্ট টাইম সেটআপ)
+        async with async_session() as session:
+            house_count = await session.execute(select(House))
+            if not house_count.scalars().first():
+                from aiogram.utils.keyboard import InlineKeyboardBuilder
+                builder = InlineKeyboardBuilder()
+                builder.button(text="🚀 Start Setup Wizard", callback_data="start_setup_wizard")
+                
+                return await message.answer(
+                    "👋 **স্বাগতম সুপার এডমিন!**\n\n"
+                    "সিস্টেমে এখনও কোনো হাউজ বা কনফিগারেশন সেটআপ করা হয়নি। "
+                    "বটটি সচল করার জন্য নিচের উইজার্ডটি সম্পন্ন করুন।",
+                    reply_markup=builder.as_markup(),
+                    parse_mode="Markdown"
+                )
+
         return await message.answer(
             "👋 স্বাগতম সুপার এডমিন! ❤️", 
             reply_markup=get_admin_main_menu(user_perms)

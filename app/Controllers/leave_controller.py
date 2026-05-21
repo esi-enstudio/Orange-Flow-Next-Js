@@ -28,6 +28,30 @@ class LeaveActionForm(StatesGroup):
     remarks = State()
 
 # ==========================================
+# 0. MAIN GATEWAY
+# ==========================================
+
+@router.message(F.text == "📅 Leave Management")
+async def show_leave_main_menu(message: Message, permissions: list):
+    """লিভ ম্যানেজমেন্টের মেইন মেনু (পারমিশন অনুযায়ী)"""
+    if not any(p in permissions for p in ["apply_leave", "manage_leaves"]):
+        return await message.answer("🚫 আপনার এই মেনুতে প্রবেশের অনুমতি নেই।")
+        
+    await message.answer(
+        "📅 <b>লিভ ম্যানেজমেন্ট মেনু</b>\n\nনিচের অপশনগুলো থেকে নির্বাচন করুন:",
+        reply_markup=get_leave_mgmt_menu(permissions),
+        parse_mode="HTML"
+    )
+
+@router.message(F.text == "🔙 প্রধান মেনু")
+async def back_from_leave(message: Message, permissions: list):
+    """প্রধান মেনুতে ফিরে যাওয়া"""
+    await message.answer(
+        "আপনি প্রধান মেনুতে ফিরে এসেছেন।",
+        reply_markup=get_admin_main_menu(permissions)
+    )
+
+# ==========================================
 # 1. LEAVE APPLICATION (For Field Force/Admin)
 # ==========================================
 
@@ -180,17 +204,6 @@ async def finalize_reject_leave(message: Message, state: FSMContext):
     async with async_session() as session:
         res = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
         admin = res.scalar_one_or_none()
-        
-        leave = await session.get(LeaveRequest, leave_id)
-        if leave:
-            leave.status = "Rejected"
-            leave.admin_remarks = message.text
-            leave.approved_by = admin.id if admin else None
-            await session.commit()
-            
-    await state.clear()
-    await message.answer("❌ আবেদনটি রিজেক্ট করা হয়েছে।")
-none()
         
         leave = await session.get(LeaveRequest, leave_id)
         if leave:

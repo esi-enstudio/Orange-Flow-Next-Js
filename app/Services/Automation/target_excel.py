@@ -1,7 +1,7 @@
 import pandas as pd
 import logging
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import func
+from sqlalchemy import func, select
 from app.Models.house_target import HouseTarget
 from app.Models.supervisor_target import SupervisorTarget
 from app.Models.rso_target import RSOTarget
@@ -22,7 +22,9 @@ def clean_float(val):
     if pd.isna(val):
         return 0.0
     try:
-        return float(val)
+        # কমা বা অন্য ক্যারেক্টার থাকলে রিমুভ করা
+        v = str(val).replace(",", "").strip()
+        return float(v)
     except:
         return 0.0
 
@@ -30,7 +32,8 @@ def clean_int(val):
     if pd.isna(val):
         return 0
     try:
-        return int(float(val))
+        v = str(val).replace(",", "").strip()
+        return int(float(v))
     except:
         return 0
 
@@ -41,7 +44,8 @@ HOUSE_COLUMN_MAP = {
     'D_NAME': 'house_name',
     'EV_C2C_TARGET': ('ev_c2c_target', clean_float),
     'SC_PRIMARY_TARGET': ('sc_primary_target', clean_float),
-    'TOTAL_RECHARGE_TARGET_(EV_C2C+_SC_PRIMARY)': ('total_recharge_target', clean_float),
+    'TOTAL_RECHARGE_TARGET': ('total_recharge_target', clean_float), 
+    'TOTAL_RECHARGE_TARGET_(EV_C2C+_SC_PRIMARY)': ('total_recharge_target', clean_float), # লং ভ্যারিয়েন্ট
     'TOTAL_GA_TARGET': ('total_ga_target', clean_int),
     'BP_GA': ('bp_ga', clean_int),
     'RSO_GA': ('rso_ga', clean_int),

@@ -28,9 +28,15 @@ class ActivationStates(StatesGroup):
 # ==========================================
 # ডাটা সেন্টার মেইন গেটওয়ে (Reply Keyboard) ✅
 # ==========================================
-@router.message(F.text == "💾 Data Center", flags={"permission": "upload_activation"})
+@router.message(F.text == "💾 Data Center")
 async def show_data_center(message: Message, state: FSMContext, permissions: list):
     """ইউজার যখন কিবোর্ড থেকে '💾 ডাটা সেন্টার' চাপ দিবে"""
+    # বাটনটি তখনই দেখা যাবে যদি নিচের যেকোনো একটি পারমিশন থাকে (reply.py অনুযায়ী)
+    data_center_perms = ["dms_report", "upload_scratch_card", "upload_sim_issue", "upload_activation", "upload_targets"]
+    
+    if not any(p in permissions for p in data_center_perms):
+        return await message.answer("🚫 আপনার এই মেনুতে প্রবেশের অনুমতি নেই।")
+
     await state.clear()
     await message.answer(
         "💾 <b>ডাটা সেন্টার ম্যানেজমেন্ট</b>\n\n"
