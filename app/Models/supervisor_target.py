@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from app.Models.base import Base
 
@@ -9,27 +9,22 @@ class SupervisorTarget(Base):
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=True) # House link
     field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True) # Supervisor link
     
-    cluster = Column(String)
-    region = Column(String)
-    house_code = Column(String, index=True)
-    house_name = Column(String)
-    
-    supervisor_name = Column(String)
-    supervisor_msisdn = Column(String, index=True)
-    
+    # Fixed Columns
     ev_secondary = Column(Float, default=0.0)
     sc_secondary = Column(Float, default=0.0)
     total_recharge = Column(Float, default=0.0)
     total_ga = Column(Integer, default=0)
     bp_ga = Column(Integer, default=0)
-    ga_rso = Column(Integer, default=0)
-    asso = Column(Integer, default=0)
-    also = Column(Integer, default=0)
+    rso_ga = Column(Integer, default=0)
+    sso = Column(Integer, default=0)
+    lso = Column(Integer, default=0)
     bso = Column(Integer, default=0)
     ddso = Column(Integer, default=0)
     
-    month = Column(Integer, nullable=False)
-    year = Column(Integer, nullable=False)
+    # Dynamic JSONB Column for any other targets
+    extra_targets = Column(JSON, default={})
+    
+    target_date = Column(DateTime, nullable=False, index=True) # Always 1st of the month
     
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
@@ -39,5 +34,5 @@ class SupervisorTarget(Base):
     field_force = relationship("FieldForce")
 
     __table_args__ = (
-        UniqueConstraint('field_force_id', 'month', 'year', name='_supervisor_target_uc'),
+        UniqueConstraint('field_force_id', 'target_date', name='_supervisor_target_date_uc'),
     )

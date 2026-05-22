@@ -10,10 +10,28 @@ from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
+def normalize_code(code):
+    if not code: return None
+    # Remove leading zeros and spaces for flexible matching
+    c = str(code).strip().upper()
+    while c.startswith('0') and len(c) > 1:
+        c = c[1:]
+    return c
+
+def normalize_msisdn(msisdn):
+    if not msisdn: return None
+    s = str(msisdn).strip()
+    if s.endswith('.0'): s = s[:-2]
+    if s.startswith('880'): s = s[3:]
+    if s.startswith('0'): s = s[1:]
+    return s
+
 def clean_val(val):
     if pd.isna(val):
         return None
-    v = str(val).strip().replace("'", "")
+    v = str(val).strip()
+    if v.startswith("'"): v = v[1:]
+    if v.endswith("'"): v = v[:-1]
     if v == "" or v.lower() in ["nan", "none", "null"]:
         return None
     return v
@@ -22,8 +40,8 @@ def clean_float(val):
     if pd.isna(val):
         return 0.0
     try:
-        # কমা বা অন্য ক্যারেক্টার থাকলে রিমুভ করা
         v = str(val).replace(",", "").strip()
+        if v.startswith("'"): v = v[1:]
         return float(v)
     except:
         return 0.0
@@ -33,197 +51,286 @@ def clean_int(val):
         return 0
     try:
         v = str(val).replace(",", "").strip()
+        if v.startswith("'"): v = v[1:]
         return int(float(v))
     except:
         return 0
 
 HOUSE_COLUMN_MAP = {
-    'CLUSTER': 'cluster',
-    'REGION': 'region',
+    'DD_CODE': 'house_code',
     'D_CODE': 'house_code',
-    'D_NAME': 'house_name',
+    'HOUSE_CODE': 'house_code',
     'EV_C2C_TARGET': ('ev_c2c_target', clean_float),
     'SC_PRIMARY_TARGET': ('sc_primary_target', clean_float),
-    'TOTAL_RECHARGE_TARGET': ('total_recharge_target', clean_float), 
-    'TOTAL_RECHARGE_TARGET_(EV_C2C+_SC_PRIMARY)': ('total_recharge_target', clean_float), # লং ভ্যারিয়েন্ট
+    'TOTAL_RECHARGE_TARGET': ('total_recharge_target', clean_float),
+    'TOTAL_RECHAGE_TARGET_(EV_C2C+_SC_PRIMARY)': ('total_recharge_target', clean_float),
+    'TOTAL_RECHARGE_TARGET_(EV_C2C+_SC_PRIMARY)': ('total_recharge_target', clean_float),
     'TOTAL_GA_TARGET': ('total_ga_target', clean_int),
     'BP_GA': ('bp_ga', clean_int),
     'RSO_GA': ('rso_ga', clean_int),
-    'M2_SURVIVAL': ('m2_survival', clean_int),
     'EV_SCR': ('ev_scr', clean_float),
-    'DEVICE_TARGET': ('device_target', clean_int),
-    'FWA_TARGET': ('fwa_target', clean_int),
     'SSO': ('sso', clean_int),
-    'ALSO': ('also', clean_int),
-    'BSO': ('bso', clean_int),
-    'DDSO': ('ddso', clean_int),
-    'GA_PRODUCTIVITY': ('ga_productivity', clean_float)
-}
-
-SUPERVISOR_COLUMN_MAP = {
-    'CLUSTER': 'cluster',
-    'REGION': 'region',
-    'DD_CODE': 'house_code',
-    'DD_NAME': 'house_name',
-    'RS0_SUPERVISOR_NAME': 'supervisor_name',
-    'RS0_SUPERVISOR_MSISDN': 'supervisor_msisdn',
-    'EV_SECONDARY': ('ev_secondary', clean_float),
-    'SC_SECONDARY': ('sc_secondary', clean_float),
-    'TOTAL_RECHAGE_(EV_SECONDARY+SC_SECONDARY)': ('total_recharge', clean_float),
-    'TOTAL_GA': ('total_ga', clean_int),
-    'BP_GA': ('bp_ga', clean_int),
-    'GA_(RSO)': ('ga_rso', clean_int),
-    'ASSO': ('asso', clean_int),
-    'ALSO': ('also', clean_int),
+    'LSO': ('lso', clean_int),
+    'ALSO': ('lso', clean_int),
     'BSO': ('bso', clean_int),
     'DDSO': ('ddso', clean_int)
 }
 
-RSO_COLUMN_MAP = {
-    'CLUSTER': 'cluster',
-    'REGION': 'region',
+# Metadata columns to exclude from extra_targets
+HOUSE_META_COLUMNS = [
+    'CLUSTER', 'REGION', 'D_CODE', 'D_NAME', 'DD_CODE', 'DD_NAME', 
+    'MONTH', 'YEAR', 'HOUSE_CODE', 'HOUSE_NAME'
+]
+
+SUPERVISOR_COLUMN_MAP = {
     'DD_CODE': 'house_code',
-    'NEW_MARKET_TYPE': 'new_market_type',
-    'ARCHETYPE': 'archetype',
-    'TYPE_OF_THANA': 'type_of_thana',
-    'DD_NAME': 'house_name',
-    'RS0_CODE': 'rso_code',
-    "RS0_MSISDN_[I'TOP-UP_NUMBER]": 'rso_msisdn',
-    'RS0_NAME': 'rso_name',
-    'RS0_SUPERVISOR_NAME': 'supervisor_name',
+    'HOUSE_CODE': 'house_code',
+    'SUPERVISOR_MSISDN': 'supervisor_msisdn',
     'RS0_SUPERVISOR_MSISDN': 'supervisor_msisdn',
-    'DD_MANAGER_NAME': 'manager_name',
-    'DD_MANAGER_CONTACT_NUMBER': 'manager_contact',
+    'RSO_SUPERVISOR_MSISDN': 'supervisor_msisdn',
     'EV_SECONDARY': ('ev_secondary', clean_float),
     'SC_SECONDARY': ('sc_secondary', clean_float),
+    'TOTAL_RECHARGE': ('total_recharge', clean_float),
+    'TOTAL_RECHAGE': ('total_recharge', clean_float),
     'TOTAL_RECHAGE_(EV_SECONDARY+SC_SECONDARY)': ('total_recharge', clean_float),
-    'GA_(RSO)': ('ga_rso', clean_int),
-    'ASSO': ('asso', clean_int),
-    'ALSO': ('also', clean_int),
+    'TOTAL_GA': ('total_ga', clean_int),
+    'BP_GA': ('bp_ga', clean_int),
+    'RSO_GA': ('rso_ga', clean_int),
+    'GA_(RSO)': ('rso_ga', clean_int),
+    'SSO': ('sso', clean_int),
+    'ASSO': ('sso', clean_int),
+    'LSO': ('lso', clean_int),
+    'ALSO': ('lso', clean_int),
+    'BSO': ('bso', clean_int),
+    'DDSO': ('ddso', clean_int)
+}
+
+SUPERVISOR_META_COLUMNS = [
+    'CLUSTER', 'REGION', 'DD_CODE', 'DD_NAME', 'RS0_SUPERVISOR_NAME', 
+    'RS0_SUPERVISOR_MSISDN', 'RSO_SUPERVISOR_NAME', 'RSO_SUPERVISOR_MSISDN',
+    'SUPERVISOR_MSISDN', 'HOUSE_CODE', 'HOUSE_NAME', 'SUPERVISOR_NAME'
+]
+
+RSO_COLUMN_MAP = {
+    'DD_CODE': 'house_code',
+    'HOUSE_CODE': 'house_code',
+    'RS0_CODE': 'rso_code',
+    'RSO_CODE': 'rso_code',
+    'SUPERVISOR_MSISDN': 'supervisor_msisdn',
+    'RS0_SUPERVISOR_MSISDN': 'supervisor_msisdn',
+    'RSO_SUPERVISOR_MSISDN': 'supervisor_msisdn',
+    'EV_SECONDARY': ('ev_secondary', clean_float),
+    'SC_SECONDARY': ('sc_secondary', clean_float),
+    'TOTAL_RECHARGE': ('total_recharge', clean_float),
+    'TOTAL_RECHAGE': ('total_recharge', clean_float),
+    'TOTAL_RECHAGE_(EV_SECONDARY+SC_SECONDARY)': ('total_recharge', clean_float),
+    'GA': ('ga', clean_int),
+    'GA_(RSO)': ('ga', clean_int),
+    'SSO': ('sso', clean_int),
+    'ASSO': ('sso', clean_int),
+    'LSO': ('lso', clean_int),
+    'ALSO': ('lso', clean_int),
     'BSO': ('bso', clean_int),
     'DDSO': ('ddso', clean_int),
+    'SERVICE_ROUTE': 'service_route',
     'MAIN_HOUSE/OSDO/RESIDENTIAL_RSO': 'market_type',
+    'MARKET_TYPE': 'market_type',
     'THANA_NAME_(ONLY_FOR_OSDO)': 'thana_name',
-    'GA_TARGET_(RS0_APP)': ('ga_target_app', clean_int),
-    'RS0_RECHARGE_TARGET_(RS0_APP)': ('recharge_target_app', clean_float),
-    'ACTIVE_LSO_TARGET_(RSO_APP)': ('active_lso_target_app', clean_int),
-    'SSO_TARGET_(RS0_APP)': ('sso_target_app', clean_int),
-    'BSO_TARGET_(RS0_APP)': ('bso_target_app', clean_int),
-    'DAILY_DSO_TARGET_(RS0_APP)': ('daily_dso_target_app', clean_int)
+    'THANA_NAME': 'thana_name',
+    'GA_TARGET_(MODIFIED)': ('ga_target_modified', clean_int),
+    'EV_SECONDARY_(MODIFIED)': ('ev_secondary_modified', clean_float),
+    'SC_SECONDARY_(MODIFIED)': ('sc_secondary_modified', clean_float),
+    'RECHARGE_TARGET_(MODIFIED)': ('recharge_target_modified', clean_float),
+    'LSO_TARGET_(MODIFIED)': ('lso_target_modified', clean_int),
+    'SSO_TARGET_(MODIFIED)': ('sso_target_modified', clean_int),
+    'BSO_TARGET_(MODIFIED)': ('bso_target_modified', clean_int),
+    'DAILY_DSO_TARGET_(MODIFIED)': ('daily_dso_target_modified', clean_int)
 }
+
+RSO_META_COLUMNS = [
+    'CLUSTER', 'REGION', 'DD_CODE', 'DD_NAME', 'RS0_CODE', 'RSO_CODE',
+    "RS0_MSISDN_[I'TOP-UP_NUMBER]", 'RS0_MSISDN', 'RS0_NAME', 'RSO_NAME',
+    'RS0_SUPERVISOR_NAME', 'RS0_SUPERVISOR_MSISDN', 'RSO_SUPERVISOR_NAME', 'RSO_SUPERVISOR_MSISDN',
+    'SUPERVISOR_MSISDN', 'HOUSE_CODE', 'HOUSE_NAME', 'DD_MANAGER_NAME', 'DD_MANAGER_CONTACT_NUMBER',
+    'NEW_MARKET_TYPE', 'ARCHETYPE', 'TYPE_OF_THANA'
+]
 
 from app.Models.house import House
 from app.Models.field_force import FieldForce
 
-async def process_target_excel(file_path, target_type, month, year, target_house_code=None, progress_callback=None):
-    """উন্নত বাল্ক প্রসেসিং লজিক ✅"""
+async def process_target_excel_unified(file_path, target_date, progress_callback=None):
+    """Excel ফাইলের প্রতিটি শিট চেক করে অটোমেটিক প্রসেস করার লজিক ✅"""
     try:
-        df = pd.read_excel(file_path)
-        df.columns = [str(c).strip().upper().replace(" ", "_").replace("\n", "_") for c in df.columns]
+        xl = pd.ExcelFile(file_path)
+        sheet_names = xl.sheet_names
         
-        total_rows = len(df)
-        if total_rows == 0:
-            return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+        results = []
+        total_processed = 0
 
         async with async_session() as session:
-            # Pre-fetch houses and field forces for lookup
-            houses_res = await session.execute(select(House))
-            house_map = {h.code: h.id for h in houses_res.scalars().all()}
+            # Pre-fetch ONLY ACTIVE houses
+            houses_res = await session.execute(select(House).where(House.is_active == True))
+            all_houses = houses_res.scalars().all()
+            house_map = {normalize_code(h.code): h.id for h in all_houses}
             
-            ff_map = {}
-            if target_type == 'rso':
-                ff_res = await session.execute(select(FieldForce))
-                ff_map = {f.dms_code: f.id for f in ff_res.scalars().all()}
+            # Fetch ALL field forces for mapping
+            ff_res = await session.execute(select(FieldForce))
+            all_ff = ff_res.scalars().all()
+            
+            # Active Field Forces for TARGET UPLOAD
+            active_ff = [f for f in all_ff if f.status == 'Active']
+            
+            # RSO map for TARGET UPLOAD (Strictly Type='RSO')
+            rso_map_active = {}
+            for f in active_ff:
+                f_type_upper = (f.type or "").upper()
+                if f.dms_code and f_type_upper == 'RSO':
+                    rso_map_active[normalize_code(f.dms_code)] = f.id
+            
+            # Supervisor map for RSO linkage (Historical/All)
+            sup_map_all = {}
+            for f in all_ff:
+                if f.pool_number:
+                    sup_map_all[normalize_msisdn(f.pool_number)] = f.id
+                elif f.itop_number:
+                    sup_map_all[normalize_msisdn(f.itop_number)] = f.id
 
-            if target_type == 'house':
-                model = HouseTarget
-                col_map = HOUSE_COLUMN_MAP
-                conflict_elements = ['house_id', 'month', 'year']
-            elif target_type == 'supervisor':
-                model = SupervisorTarget
-                col_map = SUPERVISOR_COLUMN_MAP
-                conflict_elements = ['supervisor_msisdn', 'month', 'year']
-            elif target_type == 'rso':
-                model = RSOTarget
-                col_map = RSO_COLUMN_MAP
-                conflict_elements = ['field_force_id', 'month', 'year']
-            else:
-                return 0, "Invalid target type"
+            # Supervisor map for TARGET UPLOAD (Strictly ACTIVE, POOL_NUMBER, and Type='Supervisor')
+            sup_map_active_pool = {}
+            for f in active_ff:
+                f_type_upper = (f.type or "").upper()
+                if f.pool_number and f_type_upper == 'SUPERVISOR':
+                    sup_map_active_pool[normalize_msisdn(f.pool_number)] = f.id
+            
+            debug_info = (
+                f"🔍 DB Status (Active Only):\n"
+                f"🏠 Houses: {len(house_map)}\n"
+                f"👤 RSOs: {len(rso_map_active)}\n"
+                f"👨‍💼 Supervisors: {len(sup_map_active_pool)}\n\n"
+            )
 
-            count = 0
-            batch_size = 100
-            batch_data = []
+            for sheet_name in sheet_names:
+                name_upper = sheet_name.upper()
+                df = pd.read_excel(xl, sheet_name=sheet_name)
+                if df.empty: continue
 
-            for index, row in df.iterrows():
-                values = {"month": month, "year": year}
+                # Clean columns for detection
+                orig_cols = df.columns.tolist()
+                clean_cols = [str(c).strip().upper().replace(" ", "_").replace("\n", "_") for c in orig_cols]
+                df.columns = clean_cols
+                col_name_map = dict(zip(clean_cols, orig_cols))
+
+                # টার্গেট টাইপ ডিটেকশন (Refined)
+                target_type = None
+                if sheet_name == "Supervisor Target":
+                    target_type = 'supervisor'
+                    model = SupervisorTarget
+                    col_map = SUPERVISOR_COLUMN_MAP
+                    meta_cols = SUPERVISOR_META_COLUMNS
+                    conflict_elements = ['field_force_id', 'target_date']
+                elif 'HOUSE' in name_upper or 'DD' in name_upper or 'TOTAL_GA_TARGET' in clean_cols:
+                    target_type = 'house'
+                    model = HouseTarget
+                    col_map = HOUSE_COLUMN_MAP
+                    meta_cols = HOUSE_META_COLUMNS
+                    conflict_elements = ['house_id', 'target_date']
+                elif 'RSO' in name_upper or 'RSO_CODE' in clean_cols or 'RS0_CODE' in clean_cols:
+                    target_type = 'rso'
+                    model = RSOTarget
+                    col_map = RSO_COLUMN_MAP
+                    meta_cols = RSO_META_COLUMNS
+                    conflict_elements = ['field_force_id', 'target_date']
                 
-                excel_values = {}
-                for excel_header, db_field in col_map.items():
-                    if isinstance(db_field, tuple):
-                        field_name, cleaner = db_field
-                        excel_values[field_name] = cleaner(row.get(excel_header))
-                    else:
-                        excel_values[db_field] = clean_val(row.get(excel_header))
-
-                # ID Lookups
-                h_code = excel_values.get('house_code')
-                if not h_code: continue
-                
-                if target_house_code and str(h_code).strip().upper() != str(target_house_code).strip().upper():
+                if not target_type:
+                    logger.warning(f"Skipping unknown sheet: {sheet_name}")
                     continue
 
-                house_id = house_map.get(h_code)
-                if not house_id: continue
-                values['house_id'] = house_id
+                if progress_callback:
+                    await progress_callback(f"⏳ প্রসেস হচ্ছে: <b>{sheet_name}</b> ({target_type})...")
 
-                if target_type == 'house':
-                    # Add all other fields
-                    for k, v in excel_values.items():
-                        if k not in ['house_code', 'house_name', 'cluster', 'region']:
-                            values[k] = v
-                
-                elif target_type == 'supervisor':
-                    if not excel_values.get('supervisor_msisdn'): continue
-                    # Add all fields
-                    for k, v in excel_values.items():
-                        if k not in ['house_code', 'house_name', 'cluster', 'region']:
-                            values[k] = v
+                count = 0
+                batch_data = []
 
-                elif target_type == 'rso':
-                    rso_code = excel_values.get('rso_code')
-                    if not rso_code: continue
+                for index, row in df.iterrows():
+                    values = {"target_date": target_date}
+                    excel_values = {}
+                    extra_targets = {}
                     
-                    ff_id = ff_map.get(rso_code)
-                    if not ff_id: continue
-                    values['field_force_id'] = ff_id
+                    # ১. ম্যাপিং অনুযায়ী ভ্যালু সংগ্রহ
+                    mapped_excel_cols = set()
+                    for excel_header, db_field in col_map.items():
+                        if excel_header in clean_cols:
+                            mapped_excel_cols.add(excel_header)
+                            if isinstance(db_field, tuple):
+                                field_name, cleaner = db_field
+                                excel_values[field_name] = cleaner(row.get(excel_header))
+                            else:
+                                excel_values[db_field] = clean_val(row.get(excel_header))
+
+                    # ২. এক্সট্রা কলাম প্রসেসিং
+                    for col in clean_cols:
+                        if col not in mapped_excel_cols and col not in meta_cols:
+                            val = row.get(col)
+                            if pd.notna(val):
+                                extra_targets[col_name_map[col]] = val
+                    values['extra_targets'] = extra_targets
+
+                    # ৩. আইডি লুকআপ এবং ভ্যালিডেশন
+                    h_code_raw = excel_values.get('house_code')
+                    h_id = house_map.get(normalize_code(h_code_raw))
+                    if not h_id: continue # House না পাওয়া গেলে স্কিপ
+                    values['house_id'] = h_id
+
+                    if target_type == 'house':
+                        for k, v in excel_values.items():
+                            if k != 'house_code': values[k] = v
                     
-                    # Add all other fields
-                    for k, v in excel_values.items():
-                        if k not in ['house_code', 'house_name', 'cluster', 'region', 
-                                   'rso_code', 'rso_msisdn', 'rso_name', 
-                                   'new_market_type', 'archetype', 'type_of_thana']:
-                            values[k] = v
+                    elif target_type == 'supervisor':
+                        s_msisdn = normalize_msisdn(excel_values.get('supervisor_msisdn'))
+                        ff_id = sup_map_active_pool.get(s_msisdn)
+                        if not ff_id: continue # Active এবং Pool Number ম্যাচ না করলে স্কিপ
+                        values['field_force_id'] = ff_id
+                        for k, v in excel_values.items():
+                            if k not in ['house_code', 'supervisor_msisdn']:
+                                values[k] = v
 
-                batch_data.append(values)
+                    elif target_type == 'rso':
+                        r_code = normalize_code(excel_values.get('rso_code'))
+                        ff_id = rso_map_active.get(r_code)
+                        if not ff_id: continue 
+                        values['field_force_id'] = ff_id
+                        
+                        # Ensure supervisor_id exists in dict even if None
+                        values['supervisor_id'] = None
+                        s_msisdn = normalize_msisdn(excel_values.get('supervisor_msisdn'))
+                        if s_msisdn:
+                            sid = sup_map_all.get(s_msisdn)
+                            if sid: values['supervisor_id'] = sid
 
-                if len(batch_data) >= batch_size:
+                        for k, v in excel_values.items():
+                            if k not in ['house_code', 'rso_code', 'supervisor_msisdn']:
+                                values[k] = v
+
+                    batch_data.append(values)
+
+                    if len(batch_data) >= 100:
+                        await do_bulk_upsert_target(session, model, batch_data, conflict_elements)
+                        count += len(batch_data)
+                        batch_data = []
+
+                if batch_data:
                     await do_bulk_upsert_target(session, model, batch_data, conflict_elements)
                     count += len(batch_data)
-                    batch_data = []
-                    if progress_callback:
-                        await update_progress_target(count, total_rows, target_type, progress_callback)
-
-            if batch_data:
-                await do_bulk_upsert_target(session, model, batch_data, conflict_elements)
-                count += len(batch_data)
-                if progress_callback:
-                    await update_progress_target(count, total_rows, target_type, progress_callback)
+                
+                results.append(f"✅ {sheet_name}: {bn_num(count)} টি")
+                total_processed += count
 
             await session.commit()
-            return count, None
+            summary = debug_info + "\n".join(results)
+            return total_processed, summary
 
     except Exception as e:
-        logger.error(f"Error processing {target_type} target excel: {str(e)}")
+        logger.error(f"Error in unified target excel: {str(e)}", exc_info=True)
         return 0, f"Error: {str(e)}"
 
 async def do_bulk_upsert_target(session, model, batch_data, conflict_elements):

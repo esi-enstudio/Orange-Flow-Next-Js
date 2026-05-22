@@ -65,7 +65,7 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
             rso_map = {f.itop_number: f.id for f in ff_res.all() if f.itop_number}
 
             count = 0
-            batch_size = 100
+            batch_size = 500
             batch_data = []
 
             pbar = tqdm(total=total_rows, desc="🏪 Retailer Uploading", unit="row")

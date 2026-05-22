@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from app.Models.base import Base
 
@@ -7,43 +7,46 @@ class RSOTarget(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
-    field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=False)
+    field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=False) # RSO ID
+    supervisor_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True) # Supervisor ID
 
-    supervisor_name = Column(String)
-    supervisor_msisdn = Column(String)
-
-    manager_name = Column(String)
-    manager_contact = Column(String)
-
+    # Fixed Columns
     ev_secondary = Column(Float, default=0.0)
     sc_secondary = Column(Float, default=0.0)
     total_recharge = Column(Float, default=0.0)
-    ga_rso = Column(Integer, default=0)
-    asso = Column(Integer, default=0)
-    also = Column(Integer, default=0)
+    ga = Column(Integer, default=0)
+    sso = Column(Integer, default=0)
+    lso = Column(Integer, default=0)
     bso = Column(Integer, default=0)
     ddso = Column(Integer, default=0)
 
+    service_route = Column(String) # Service Route
     market_type = Column(String) # Main House/OSDO/Residential RSO
     thana_name = Column(String)
 
-    ga_target_app = Column(Integer, default=0)
-    recharge_target_app = Column(Float, default=0.0)
-    active_lso_target_app = Column(Integer, default=0)
-    sso_target_app = Column(Integer, default=0)
-    bso_target_app = Column(Integer, default=0)
-    daily_dso_target_app = Column(Integer, default=0)
+    # Modified Targets (App Targets)
+    ga_target_modified = Column(Integer, default=0)
+    ev_secondary_modified = Column(Float, default=0.0)
+    sc_secondary_modified = Column(Float, default=0.0)
+    recharge_target_modified = Column(Float, default=0.0)
+    lso_target_modified = Column(Integer, default=0)
+    sso_target_modified = Column(Integer, default=0)
+    bso_target_modified = Column(Integer, default=0)
+    daily_dso_target_modified = Column(Integer, default=0)
 
-    month = Column(Integer, nullable=False)
-    year = Column(Integer, nullable=False)
+    # Dynamic JSONB Column for any other targets
+    extra_targets = Column(JSON, default={})
+
+    target_date = Column(DateTime, nullable=False, index=True) # Always 1st of the month
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
     # Relationships
     house = relationship("House")
-    field_force = relationship("FieldForce")
+    field_force = relationship("FieldForce", foreign_keys=[field_force_id])
+    supervisor = relationship("FieldForce", foreign_keys=[supervisor_id])
 
     __table_args__ = (
-        UniqueConstraint('field_force_id', 'month', 'year', name='_rso_month_year_uc'),
+        UniqueConstraint('field_force_id', 'target_date', name='_rso_target_date_uc'),
     )

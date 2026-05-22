@@ -1,67 +1,57 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 def get_admin_main_menu(permissions: list):
-    """Generates the main menu based on user permissions."""
-    buttons = []
+    """Generates the main menu based on user permissions with 2 buttons per row."""
+    all_buttons = []
     
-    # Row 1: House and User Management
-    row1 = []
+    # 1. House and User Management
     if "view_houses" in permissions:
-        row1.append(KeyboardButton(text="🏠 House Management"))
+        all_buttons.append(KeyboardButton(text="🏠 House Management"))
     if "view_users" in permissions:
-        row1.append(KeyboardButton(text="👤 User Management"))
-    if row1:
-        buttons.append(row1)
+        all_buttons.append(KeyboardButton(text="👤 User Management"))
 
-    # Row 2: DMS Tasks and Reports
-    row2 = []
+    # 2. DMS Tasks and Reports
     if "dms_access" in permissions: 
-        row2.append(KeyboardButton(text="🤖 DMS Tasks"))
+        all_buttons.append(KeyboardButton(text="🤖 DMS Tasks"))
     if "report_access" in permissions: 
-        row2.append(KeyboardButton(text="📊 Reports"))
-    if row2: 
-        buttons.append(row2)
+        all_buttons.append(KeyboardButton(text="📊 Reports"))
     
-    # Row 3: Field Force and Retailers
-    row3 = []
+    # 3. Field Force, Leave and Retailers
     ff_perms = ["create_field_force","view_field_force","edit_field_force","delete_field_force", "manage_field_force"]
     if any(p in permissions for p in ff_perms):
-        row3.append(KeyboardButton(text="👥 Field Force"))
+        all_buttons.append(KeyboardButton(text="👥 Field Force"))
     
     if "manage_leaves" in permissions or "apply_leave" in permissions:
-        row3.append(KeyboardButton(text="📅 Leave Management"))
+        all_buttons.append(KeyboardButton(text="📅 Leave Management"))
     
     ret_perms = ["create_retailers","view_retailers","edit_retailers","delete_retailers", "manage_retailers"]
     if any(p in permissions for p in ret_perms):
-        row3.append(KeyboardButton(text="🏪 Retailers"))
+        all_buttons.append(KeyboardButton(text="🏪 Retailers"))
     
-    if row3:
-        buttons.append(row3)
-    
-    # Row 4: Mela and BTS
-    row4 = []
+    # 4. Mela and BTS
     mela_perms = ["create_mela", "view_mela", "edit_mela", "delete_mela"]
     if any(p in permissions for p in mela_perms):
-        row4.append(KeyboardButton(text="🎪 Mela Management"))
+        all_buttons.append(KeyboardButton(text="🎪 Mela Management"))
     
     bts_perms = ["create_bts", "view_bts", "edit_bts", "delete_bts"]
     if any(p in permissions for p in bts_perms):
-        row4.append(KeyboardButton(text="📡 BTS List"))
-        
-    if row4: 
-        buttons.append(row4)
+        all_buttons.append(KeyboardButton(text="📡 BTS List"))
     
-    # Row 5: Settings
+    # 5. Settings
     setting_perms = [
         "create_new_role", "create_new_permission", 
         "manage_role_and_permission_list", "manage_ga_filter", 
         "upload_activation", "manage_mela_settings", "manage_settings"
     ]
-
     if any(p in permissions for p in setting_perms):
-        buttons.append([KeyboardButton(text="⚙️ Settings")])
+        all_buttons.append(KeyboardButton(text="⚙️ Settings"))
         
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+    # Chunk buttons into rows of 2
+    keyboard = []
+    for i in range(0, len(all_buttons), 2):
+        keyboard.append(all_buttons[i:i+2])
+        
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 def get_settings_menu(permissions: list):
     """Settings sub-menu based on permissions."""
@@ -88,6 +78,10 @@ def get_settings_menu(permissions: list):
     if "manage_mela_settings" in permissions: row3.append(KeyboardButton(text="⚙️ Mela Settings"))
     if row3: buttons.append(row3)
 
+    # Row 4: Target Management (Directly in Settings)
+    if "upload_targets" in permissions:
+        buttons.append([KeyboardButton(text="🎯 Target Management")])
+
     buttons.append([KeyboardButton(text="🔙 Main Menu")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
@@ -102,6 +96,7 @@ def get_data_center_menu(permissions: list):
          
     if "dms_report" in permissions:
          row1.append(KeyboardButton(text="📊 DMS Report"))
+
     if row1: buttons.append(row1)
 
     # Row 2: Scratch Card and SIM Issue
@@ -112,10 +107,6 @@ def get_data_center_menu(permissions: list):
         row2.append(KeyboardButton(text="📲 SIM Issue"))
     if row2: buttons.append(row2)
 
-    # Row 3: Target Management
-    if "upload_targets" in permissions:
-        buttons.append([KeyboardButton(text="🎯 Target Management")])
-    
     # Back button
     buttons.append([KeyboardButton(text="🔙 Back")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
