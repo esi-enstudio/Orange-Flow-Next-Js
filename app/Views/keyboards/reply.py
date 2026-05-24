@@ -1,9 +1,14 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 
 def get_admin_main_menu(permissions: list):
     """Generates the main menu based on user permissions with 2 buttons per row."""
     all_buttons = []
     
+    # --- Telegram Mini App Button ---
+    # এখানে আপনার ngrok বা প্রোডাকশন URL টি দিতে হবে
+    MINI_APP_URL = "https://your-ngrok-url.ngrok-free.app" 
+    all_buttons.append(KeyboardButton(text="🚀 OrangeFlow App", web_app=WebAppInfo(url=MINI_APP_URL)))
+
     # 1. House and User Management
     if "view_houses" in permissions:
         all_buttons.append(KeyboardButton(text="🏠 House Management"))
@@ -27,6 +32,9 @@ def get_admin_main_menu(permissions: list):
     ret_perms = ["create_retailers","view_retailers","edit_retailers","delete_retailers", "manage_retailers"]
     if any(p in permissions for p in ret_perms):
         all_buttons.append(KeyboardButton(text="🏪 Retailers"))
+    
+    if "view_product" in permissions:
+        all_buttons.append(KeyboardButton(text="📦 Products"))
     
     # 4. Mela and BTS
     mela_perms = ["create_mela", "view_mela", "edit_mela", "delete_mela"]

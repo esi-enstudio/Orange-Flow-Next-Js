@@ -30,6 +30,9 @@ from app.Models.scratch_card_issue import ScratchCardIssue
 from app.Models.sim_issue import SimIssue
 from app.Models.subscription import HouseSubscription
 from app.Models.sync_history import SyncHistory
+from app.Models.mela import Mela, MelaActivity, MelaType, MelaEligibleBTS, MelaAssignment
+from app.Models.leave_management import LeaveRequest
+from app.Models.product import Product
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -32,6 +32,7 @@ async def seed_system_data(session=None):
             "manage_ga_filter", "dms_report", "upload_scratch_card",
             "upload_sim_issue", "upload_activation", "upload_targets",
             "manage_mela_settings", "manage_settings", "apply_leave", "manage_leaves",
+            "create_product", "view_product", "update_product", "delete_product",
         ]
         
         db_perms = {}
