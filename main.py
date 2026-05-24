@@ -5,11 +5,48 @@ import os
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from aiogram import Bot, Dispatcher
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+from pydantic import BaseModel
+from typing import List, Optional
+from sqlalchemy import select
+
 from config.settings import BOT_TOKEN
-from app.Services.db_service import init_db
+from app.Services.db_service import init_db, async_session
 from app.Middleware.access_control import ACLMiddleware
 from app.Core.webhook_server import start_webhook_server
 from config import settings
+from app.Models.retailer import Retailer
+
+# --- FastAPI Setup ---
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class RetailerSchema(BaseModel):
+    id: int
+    name: str
+    retailer_code: Optional[str]
+    itop_number: Optional[str]
+    thana: Optional[str]
+    contact_no: Optional[str]
+    class Config: from_attributes = True
+
+@app.get("/api/retailers", response_model=List[RetailerSchema])
+async def get_retailers(search: Optional[str] = None):
+    async with async_session() as session:
+        query = select(Retailer)
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.where((Retailer.name.ilike(search_pattern)) | (Retailer.retailer_code.ilike(search_pattern)))
+        result = await session.execute(query.limit(20))
+        return result.scalars().all()
 
 # --- কোর ইঞ্জিন ইম্পোর্ট ---
 from app.Core.automation_engine import engine
@@ -166,6 +203,12 @@ async def main():
 
     background_tasks = []
     try:
+        # FastAPI এপিআই সার্ভার চালু করা (পোর্ট ৮০০০ এ) ✅
+        config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="error")
+        server = uvicorn.Server(config)
+        api_task = asyncio.create_task(server.serve())
+        background_tasks.append(api_task)
+
         # ওটিপি রিসিভার সার্ভার (এটি সবসময় চালু থাকবে)
         webhook_task = asyncio.create_task(start_webhook_server(settings.WEBHOOK_PORT))
         background_tasks.append(webhook_task)
