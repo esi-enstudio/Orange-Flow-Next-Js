@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: orangeflow-api
+    env: python
+    buildCommand: pip install -r requirements.txt && pip install uvicorn gunicorn
+    startCommand: uvicorn api_main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DB_USER
+        sync: false
+      - key: DB_PASS
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: SUPER_ADMIN_ID
+        sync: false

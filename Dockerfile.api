@@ -1,0 +1,25 @@
+# Python 3.11 ইমেজ ব্যবহার করা হচ্ছে
+FROM python:3.11-slim
+
+# কাজের ডিরেক্টরি সেট করা
+WORKDIR /app
+
+# সিস্টেম ডিপেন্ডেন্সি ইনস্টল (PostgreSQL এর জন্য প্রয়োজন হতে পারে)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# প্রয়োজনীয় ফাইল কপি করা
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install uvicorn gunicorn
+
+# পুরো প্রজেক্ট কপি করা
+COPY . .
+
+# এপিআই পোর্ট এক্সপোজ করা
+EXPOSE 8000
+
+# অ্যাপ চালু করার কমান্ড
+CMD ["uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8000"]
