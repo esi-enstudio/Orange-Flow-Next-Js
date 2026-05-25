@@ -1,7 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import WebApp from "@twa-dev/sdk";
+import axios from "axios";
+import { 
+  Store, 
+  MapPin, 
+  Users, 
+  TrendingUp, 
+  ArrowUpRight, 
+  ArrowDownRight,
+  MoreVertical,
+  ChevronRight,
+  Activity
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface Stats {
+  total_retailers: number;
+  total_houses: number;
+  total_bts: number;
+  total_field_force: number;
+  active_users: number;
+  today_activations: number;
+}
 
 interface Retailer {
   id: number;
@@ -9,148 +30,202 @@ interface Retailer {
   retailer_code: string;
   itop_number: string;
   thana: string;
-  contact_no: string;
 }
 
-export default function Home() {
-  const [retailers, setRetailers] = useState<Retailer[]>([]);
-  const [search, setSearch] = useState("");
+export default function Dashboard() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [recentRetailers, setRecentRetailers] = useState<Retailer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Initialize Telegram Web App
-    if (typeof window !== "undefined") {
-      WebApp.ready();
-      WebApp.expand();
-      
-      // Set theme-based colors if available
-      document.documentElement.style.setProperty('--tg-theme-bg-color', WebApp.backgroundColor || '#ffffff');
-      document.documentElement.style.setProperty('--tg-theme-text-color', WebApp.textColor || '#000000');
-      document.documentElement.style.setProperty('--tg-theme-hint-color', WebApp.hintColor || '#999999');
-      document.documentElement.style.setProperty('--tg-theme-link-color', WebApp.linkColor || '#2481cc');
-      document.documentElement.style.setProperty('--tg-theme-button-color', WebApp.buttonColor || '#2481cc');
-      document.documentElement.style.setProperty('--tg-theme-button-text-color', WebApp.buttonTextColor || '#ffffff');
-    }
-
-    fetchRetailers();
+    const fetchData = async () => {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+        const [statsRes, retailersRes] = await Promise.all([
+          axios.get(`${baseUrl}/stats`),
+          axios.get(`${baseUrl}/retailers?limit=5`)
+        ]);
+        setStats(statsRes.data);
+        setRecentRetailers(retailersRes.data);
+      } catch (err) {
+        console.error("Failed to fetch dashboard data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
   }, []);
 
-  const fetchRetailers = async (query = "") => {
-    setLoading(true);
-    try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-      const url = query 
-        ? `${baseUrl}/retailers?search=${encodeURIComponent(query)}` 
-        : `${baseUrl}/retailers`;
-      
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("Failed to fetch retailers");
-      const data = await response.json();
-      setRetailers(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const statCards = [
+    { 
+      title: "Total Retailers", 
+      value: stats?.total_retailers || 0, 
+      icon: Store, 
+      color: "bg-blue-500", 
+      trend: "+12%", 
+      isUp: true 
+    },
+    { 
+      title: "Active BTS", 
+      value: stats?.total_bts || 0, 
+      icon: MapPin, 
+      color: "bg-green-500", 
+      trend: "+5%", 
+      isUp: true 
+    },
+    { 
+      title: "Field Force", 
+      value: stats?.total_field_force || 0, 
+      icon: Users, 
+      color: "bg-purple-500", 
+      trend: "stable", 
+      isUp: true 
+    },
+    { 
+      title: "Today's GA", 
+      value: stats?.today_activations || 0, 
+      icon: TrendingUp, 
+      color: "bg-orange-500", 
+      trend: "-3%", 
+      isUp: false 
+    },
+  ];
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchRetailers(search);
-  };
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500"></div>
+      </div>
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-[var(--tg-theme-secondary-bg-color,#f4f4f5)] text-[var(--tg-theme-text-color,#000000)] p-4 font-sans">
-      {/* Header */}
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-[var(--tg-theme-text-color,#000000)]">
-          OrangeFlow <span className="text-orange-500 text-sm font-normal">Management</span>
-        </h1>
-        <p className="text-sm text-[var(--tg-theme-hint-color,#71717a)] mt-1">
-          Retailer Database Dashboard
-        </p>
-      </header>
-
-      {/* Search Bar */}
-      <form onSubmit={handleSearch} className="mb-6">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Search by name or code..."
-            className="w-full p-3 pl-4 rounded-xl border-none bg-[var(--tg-theme-bg-color,#ffffff)] shadow-sm focus:ring-2 focus:ring-orange-500 transition-all text-sm"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <button 
-            type="submit"
-            className="absolute right-2 top-1.5 bg-orange-500 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors"
-          >
-            Search
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Welcome Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 transition-colors">Dashboard Overview</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">Welcome back, John! Here's what's happening today.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm">
+            Download Report
+          </button>
+          <button className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors shadow-sm shadow-orange-100 dark:shadow-none">
+            Add New Retailer
           </button>
         </div>
-      </form>
+      </div>
 
-      {/* Retailer List */}
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--tg-theme-hint-color,#71717a)] px-1">
-          Retailers ({retailers.length})
-        </h2>
-
-        {loading ? (
-          <div className="flex justify-center py-10">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-          </div>
-        ) : error ? (
-          <div className="bg-red-50 text-red-600 p-4 rounded-xl text-center text-sm">
-            {error}
-          </div>
-        ) : retailers.length === 0 ? (
-          <div className="bg-[var(--tg-theme-bg-color,#ffffff)] p-8 rounded-xl text-center shadow-sm">
-            <p className="text-[var(--tg-theme-hint-color,#71717a)] text-sm">No retailers found.</p>
-          </div>
-        ) : (
-          retailers.map((retailer) => (
-            <div 
-              key={retailer.id} 
-              className="bg-[var(--tg-theme-bg-color,#ffffff)] p-4 rounded-xl shadow-sm border border-transparent hover:border-orange-200 transition-all group"
-            >
-              <div className="flex justify-between items-start mb-2">
-                <h3 className="font-bold text-base group-hover:text-orange-600 transition-colors">
-                  {retailer.name}
-                </h3>
-                <span className="bg-orange-100 text-orange-700 text-[10px] px-2 py-0.5 rounded-full font-bold">
-                  {retailer.retailer_code}
-                </span>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {statCards.map((card, i) => (
+          <div key={i} className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all duration-300">
+            <div className="flex justify-between items-start mb-4">
+              <div className={cn("p-3 rounded-xl text-white shadow-lg", card.color)}>
+                <card.icon className="w-6 h-6" />
               </div>
-              
-              <div className="grid grid-cols-2 gap-y-2 text-xs text-[var(--tg-theme-hint-color,#71717a)]">
-                <div className="flex items-center gap-1.5">
-                  <span className="opacity-60">iTop:</span>
-                  <span className="font-medium text-[var(--tg-theme-text-color,#000000)]">
-                    {retailer.itop_number || "N/A"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="opacity-60">Phone:</span>
-                  <span className="font-medium text-[var(--tg-theme-text-color,#000000)]">
-                    {retailer.contact_no || "N/A"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 col-span-2 border-t border-gray-50 pt-2 mt-1">
-                  <span className="opacity-60">Thana:</span>
-                  <span className="font-medium text-[var(--tg-theme-text-color,#000000)]">
-                    {retailer.thana || "N/A"}
-                  </span>
-                </div>
+              <div className={cn(
+                "flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full",
+                card.isUp ? "bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400" : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400"
+              )}>
+                {card.trend !== "stable" && (card.isUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />)}
+                {card.trend}
               </div>
             </div>
-          ))
-        )}
-      </section>
+            <div>
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400 transition-colors">{card.title}</p>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1 transition-colors">{card.value.toLocaleString()}</h3>
+            </div>
+          </div>
+        ))}
+      </div>
 
-      {/* Bottom Padding for Telegram UI */}
-      <div className="h-10"></div>
-    </main>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Recent Retailers Table */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
+          <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between">
+            <h2 className="font-bold text-lg dark:text-gray-100">Recent Retailers</h2>
+            <button className="text-orange-600 dark:text-orange-400 text-sm font-semibold flex items-center gap-1 hover:underline">
+              View all <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  <th className="px-6 py-4">Retailer Name</th>
+                  <th className="px-6 py-4">Code</th>
+                  <th className="px-6 py-4">Thana</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
+                {recentRetailers.map((retailer) => (
+                  <tr key={retailer.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors group">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-700 dark:text-orange-400 font-bold text-xs transition-colors">
+                          {retailer.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
+                            {retailer.name}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 transition-colors">{retailer.itop_number}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <code className="bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded text-xs font-mono dark:text-gray-300 transition-colors">{retailer.retailer_code}</code>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 transition-colors">{retailer.thana}</td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 transition-colors">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                        Active
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg text-gray-400 transition-colors">
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Activity Feed */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col transition-colors duration-300">
+          <div className="p-6 border-b border-gray-50 dark:border-slate-800">
+            <h2 className="font-bold text-lg flex items-center gap-2 dark:text-gray-100 transition-colors">
+              <Activity className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+              Activity Feed
+            </h2>
+          </div>
+          <div className="p-6 space-y-6 flex-1">
+            {[1, 2, 3, 4].map((item) => (
+              <div key={item} className="flex gap-4 relative last:after:hidden after:absolute after:left-[11px] after:top-[26px] after:bottom-[-26px] after:w-[2px] after:bg-gray-50 dark:after:bg-slate-800 transition-colors">
+                <div className="w-[22px] h-[22px] rounded-full border-2 border-orange-500 bg-white dark:bg-slate-900 z-10 transition-colors"></div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-none mb-1 transition-colors">Stock Updated</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 transition-colors">RSO Sazzad added 500 SIMs to Retailer A102</p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1 font-medium transition-colors">10 minutes ago</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="p-4 border-t border-gray-50 dark:border-slate-800">
+            <button className="w-full py-2 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 transition-colors">
+              See all activity
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

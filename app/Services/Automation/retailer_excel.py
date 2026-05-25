@@ -54,6 +54,8 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
             v = str(val).strip().replace("'", "")
             if v == "" or v.lower() in ["nan", "none", "null", "0"]:
                 return None
+            if v.upper() == 'Y': return 'Yes'
+            if v.upper() == 'N': return 'No'
             return v
 
         async with async_session() as session:
@@ -139,7 +141,8 @@ async def do_bulk_upsert(session, batch_data):
         for col in COLUMN_MAP.values() 
         if col not in ['retailer_code', 'dd_code']
     }
-    # house_id আপডেট করার প্রয়োজন নেই, তবে field_force_id আপডেট হতে পারে
+    # house_id এবং field_force_id আপডেট হবে ✅
+    update_cols['house_id'] = excluded.house_id
     update_cols['field_force_id'] = excluded.field_force_id
     update_cols['updated_at'] = func.now()
 

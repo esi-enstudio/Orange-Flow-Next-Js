@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     ENABLE_GA_SYNC: bool = True
     HEADLESS_MODE: bool = True
 
+    # JWT Authentication
+    SECRET_KEY: str = "your-secret-key-change-it-in-env"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200 # 30 days
+
     @computed_field
     @property
     def DATABASE_URL(self) -> str:
@@ -58,3 +63,6 @@ DISABLE_SCHEDULER = settings.DISABLE_SCHEDULER
 ENABLE_GA_SYNC = settings.ENABLE_GA_SYNC
 HEADLESS = settings.HEADLESS_MODE
 DATABASE_URL = settings.DATABASE_URL
+SECRET_KEY = settings.SECRET_KEY
+ALGORITHM = settings.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES

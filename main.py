@@ -2,60 +2,42 @@ import logging
 import sys
 import asyncio
 import os
-from datetime import datetime
+import shutil
+import uuid
+from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
-from aiogram import Bot, Dispatcher
-from fastapi import FastAPI, Depends
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-from pydantic import BaseModel
 from typing import List, Optional
-from sqlalchemy import select
 
-from config.settings import BOT_TOKEN
+from aiogram import Bot, Dispatcher
+from fastapi import FastAPI, Depends, HTTPException, Query, status, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+import uvicorn
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+
+# Project Imports
+from config.settings import BOT_TOKEN, settings
 from app.Services.db_service import init_db, async_session
+from app.Models.retailer import Retailer
+from app.Models.house import House
+from app.Models.bts import BTS
+from app.Models.field_force import FieldForce
+from app.Models.user import User
+from app.Models.role import Role, Permission
 from app.Middleware.access_control import ACLMiddleware
 from app.Core.webhook_server import start_webhook_server
-from config import settings
-from app.Models.retailer import Retailer
-
-# --- FastAPI Setup ---
-app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class RetailerSchema(BaseModel):
-    id: int
-    name: str
-    retailer_code: Optional[str]
-    itop_number: Optional[str]
-    thana: Optional[str]
-    contact_no: Optional[str]
-    class Config: from_attributes = True
-
-@app.get("/api/retailers", response_model=List[RetailerSchema])
-async def get_retailers(search: Optional[str] = None):
-    async with async_session() as session:
-        query = select(Retailer)
-        if search:
-            search_pattern = f"%{search}%"
-            query = query.where((Retailer.name.ilike(search_pattern)) | (Retailer.retailer_code.ilike(search_pattern)))
-        result = await session.execute(query.limit(20))
-        return result.scalars().all()
-
-# --- কোর ইঞ্জিন ইম্পোর্ট ---
 from app.Core.automation_engine import engine
-# সিঙ্ক এবং রিসেট ফাংশনগুলো ইম্পোর্ট
+
+# Service & Controller Imports
 from app.Services.Automation.Reports.ga_live import run_ga_live_sync, reset_daily_activations
 from app.Services.Automation.dms_report_excel import cleanup_old_dms_reports
 from app.Services.Automation.dms_sync_service import run_daily_auto_sync
-
-# কন্ট্রোলার ইম্পোর্ট
+from app.Services.Automation.retailer_excel import process_retailer_excel
 from app.Controllers import (
     activation_controller, admin_controller, house_controller, user_controller,
     role_controller, automation_controller, sim_status_controller,
@@ -66,192 +48,552 @@ from app.Controllers import (
     product_controller
 )
 
-# --- ২. লগিং কনফিগারেশন (প্রফেশনাল লেভেল) ---
-if not os.path.exists('logs'):
-    os.makedirs('logs')
+# ==========================================
+# 1. FASTAPI SETUP & SCHEMAS
+# ==========================================
 
-log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-log_file = 'logs/orange_flow.log'
-
-# ফাইল হ্যান্ডলার (১০ মেগাবাইট হলে নতুন ফাইল তৈরি করবে, সর্বোচ্চ ৫টি ফাইল রাখবে)
-file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
-file_handler.setFormatter(log_formatter)
-file_handler.setLevel(logging.INFO)
-
-# কনসোল হ্যান্ডলার
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(log_formatter)
-console_handler.setLevel(logging.INFO)
-
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[file_handler, console_handler]
+app = FastAPI(title="OrangeFlow Management API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# অপ্রয়োজনীয় লগ বন্ধ রাখা
-logging.getLogger("aiogram").setLevel(logging.ERROR)
-logging.getLogger("pyngrok").setLevel(logging.ERROR)
-logging.getLogger("aiohttp").setLevel(logging.ERROR)
-logging.getLogger("playwright").setLevel(logging.ERROR)
-logging.getLogger("aiogram.dispatcher").setLevel(logging.CRITICAL)
+class PermissionSchema(BaseModel):
+    id: int
+    name: str
+    class Config: from_attributes = True
 
+class RoleSchema(BaseModel):
+    id: int
+    name: str
+    permissions: List[PermissionSchema] = []
+    class Config: from_attributes = True
+
+class RoleCreate(BaseModel):
+    name: str
+    permissions: List[int] = []
+
+class UserSchema(BaseModel):
+    id: int
+    username: Optional[str]
+    name: Optional[str]
+    email: Optional[str]
+    status: str
+    class Config: from_attributes = True
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    name: str
+    email: Optional[EmailStr] = None
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class BTSSchema(BaseModel):
+    id: int
+    bts_code: str
+    site_id: str
+    thana: Optional[str]
+    site_type: Optional[str]
+    class Config: from_attributes = True
+
+class HouseSchema(BaseModel):
+    id: int
+    name: str
+    code: str
+    cluster: Optional[str]
+    region: Optional[str]
+    wh_region: Optional[str]
+    district: Optional[str]
+    email: Optional[str]
+    address: Optional[str]
+    proprietor_name: Optional[str]
+    proprietor_contact: Optional[str]
+    poc_name: Optional[str]
+    poc_mobile: Optional[str]
+    lifting_date: Optional[str]
+    latitude: Optional[str]
+    longitude: Optional[str]
+    bts_id: Optional[str]
+    dms_user: Optional[str]
+    dms_pass: Optional[str]
+    dms_house_id: Optional[str]
+    is_active: bool
+    class Config: from_attributes = True
+
+class RetailerSchema(BaseModel):
+    id: int
+    house_id: int
+    retailer_code: Optional[str]
+    name: str
+    type: Optional[str]
+    enabled: Optional[str]
+    sim_seller: Optional[str]
+    tran_mobile_no: Optional[str]
+    itop_sr_number: Optional[str]
+    itop_number: Optional[str]
+    service_point: Optional[str]
+    category: Optional[str]
+    owner_name: Optional[str]
+    contact_no: Optional[str]
+    district: Optional[str]
+    thana: Optional[str]
+    address: Optional[str]
+    nid: Optional[str]
+    bp_code: Optional[str]
+    bp_number: Optional[str]
+    dob: Optional[str]
+    route: Optional[str]
+    house: Optional[HouseSchema] = None
+    field_force: Optional[dict] = None
+    class Config: from_attributes = True
+
+class RetailerCreate(BaseModel):
+    house_id: int
+    retailer_code: str
+    name: str
+    type: Optional[str] = None
+    enabled: Optional[str] = "Yes"
+    sim_seller: Optional[str] = None
+    tran_mobile_no: Optional[str] = None
+    itop_sr_number: Optional[str] = None
+    itop_number: Optional[str] = None
+    service_point: Optional[str] = None
+    category: Optional[str] = None
+    owner_name: Optional[str] = None
+    contact_no: Optional[str] = None
+    district: Optional[str] = None
+    thana: Optional[str] = None
+    address: Optional[str] = None
+    nid: Optional[str] = None
+    bp_code: Optional[str] = None
+    bp_number: Optional[str] = None
+    dob: Optional[str] = None
+    route: Optional[str] = None
+
+class HouseCreate(BaseModel):
+    name: str
+    code: str
+    cluster: Optional[str] = None
+    region: Optional[str] = None
+    wh_region: Optional[str] = None
+    district: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    proprietor_name: Optional[str] = None
+    proprietor_contact: Optional[str] = None
+    poc_name: Optional[str] = None
+    poc_mobile: Optional[str] = None
+    lifting_date: Optional[str] = None
+    latitude: Optional[str] = None
+    longitude: Optional[str] = None
+    bts_id: Optional[str] = None
+    dms_user: Optional[str] = None
+    dms_pass: Optional[str] = None
+    dms_house_id: Optional[str] = None
+    is_active: bool = True
+
+# ==========================================
+# 2. AUTH HELPERS & DEPENDENCIES
+# ==========================================
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+async def get_db():
+    async with async_session() as session:
+        yield session
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise credentials_exception
+    return user
+
+# ==========================================
+# 3. API ENDPOINTS
+# ==========================================
+
+@app.get("/")
+async def root():
+    return {"message": "OrangeFlow Bot & API is running"}
+
+# --- Auth ---
+@app.post("/api/auth/register", response_model=UserSchema)
+async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
+    existing_user = (await db.execute(select(User).where((User.username == user_data.username) | (User.email == user_data.email)))).scalar_one_or_none()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username or Email already registered")
+    
+    new_user = User(
+        username=user_data.username,
+        hashed_password=get_password_hash(user_data.password),
+        name=user_data.name,
+        email=user_data.email,
+        status="Active"
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    return new_user
+
+@app.post("/api/auth/login", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.username == form_data.username))
+    user = result.scalar_one_or_none()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
+    
+    access_token = create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/auth/me", response_model=UserSchema)
+async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+# --- Houses ---
+@app.get("/api/houses", response_model=List[HouseSchema])
+async def list_houses(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(House).order_by(House.name))
+    return result.scalars().all()
+
+@app.post("/api/houses", response_model=HouseSchema)
+async def create_house(house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    existing = (await db.execute(select(House).where(House.code == house_data.code))).scalar_one_or_none()
+    if existing: raise HTTPException(status_code=400, detail="House with this code already exists")
+    new_house = House(**house_data.model_dump())
+    db.add(new_house)
+    await db.commit()
+    await db.refresh(new_house)
+    return new_house
+
+@app.put("/api/houses/{house_id}", response_model=HouseSchema)
+async def update_house(house_id: int, house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(House).where(House.id == house_id))
+    house = result.scalar_one_or_none()
+    if not house: raise HTTPException(status_code=404, detail="House not found")
+    for key, value in house_data.model_dump().items():
+        setattr(house, key, value)
+    await db.commit()
+    await db.refresh(house)
+    return house
+
+@app.delete("/api/houses/{house_id}")
+async def delete_house(house_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(House).where(House.id == house_id))
+    house = result.scalar_one_or_none()
+    if not house: raise HTTPException(status_code=404, detail="House not found")
+    await db.delete(house)
+    await db.commit()
+    return {"message": "House deleted successfully"}
+
+# --- Users ---
+@app.get("/api/users", response_model=List[UserSchema])
+async def list_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(User).order_by(User.id.desc()))
+    return result.scalars().all()
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    await db.delete(user)
+    await db.commit()
+    return {"message": "User deleted successfully"}
+
+# --- Roles & Permissions ---
+@app.get("/api/permissions", response_model=List[PermissionSchema])
+async def list_permissions(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Permission).order_by(Permission.name))
+    return result.scalars().all()
+
+@app.get("/api/roles", response_model=List[RoleSchema])
+async def list_roles(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Role).order_by(Role.id))
+    return result.scalars().all()
+
+@app.post("/api/roles", response_model=RoleSchema)
+async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_db)):
+    existing = (await db.execute(select(Role).where(Role.name == role_data.name))).scalar_one_or_none()
+    if existing: raise HTTPException(status_code=400, detail="Role already exists")
+    new_role = Role(name=role_data.name)
+    if role_data.permissions:
+        perms = await db.execute(select(Permission).where(Permission.id.in_(role_data.permissions)))
+        new_role.permissions = perms.scalars().all()
+    db.add(new_role)
+    await db.commit()
+    await db.refresh(new_role)
+    return new_role
+
+@app.put("/api/roles/{role_id}", response_model=RoleSchema)
+async def update_role(role_id: int, role_data: RoleCreate, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Role).where(Role.id == role_id))
+    role = result.scalar_one_or_none()
+    if not role: raise HTTPException(status_code=404, detail="Role not found")
+    role.name = role_data.name
+    perms = await db.execute(select(Permission).where(Permission.id.in_(role_data.permissions)))
+    role.permissions = perms.scalars().all()
+    await db.commit()
+    await db.refresh(role)
+    return role
+
+# --- Stats, Retailers & BTS ---
+@app.get("/api/stats")
+async def get_stats(db: AsyncSession = Depends(get_db)):
+    retailer_count = (await db.execute(select(func.count()).select_from(Retailer))).scalar()
+    house_count = (await db.execute(select(func.count()).select_from(House))).scalar()
+    bts_count = (await db.execute(select(func.count()).select_from(BTS))).scalar()
+    ff_count = (await db.execute(select(func.count()).select_from(FieldForce))).scalar()
+    return {
+        "total_retailers": retailer_count,
+        "total_houses": house_count,
+        "total_bts": bts_count,
+        "total_field_force": ff_count,
+        "active_users": 12,
+        "today_activations": 45,
+    }
+
+@app.get("/api/retailers")
+async def get_retailers(search: Optional[str] = None, skip: int = 0, limit: int = 5000, db: AsyncSession = Depends(get_db)):
+    # Fetch retailers with relations
+    query = select(Retailer).options(
+        joinedload(Retailer.house), 
+        joinedload(Retailer.field_force)
+    )
+    
+    # Search by Name, Retailer Code, or iTop Number
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            (Retailer.name.ilike(search_pattern)) | 
+            (Retailer.retailer_code.ilike(search_pattern)) | 
+            (Retailer.itop_number.ilike(search_pattern))
+        )
+    
+    result = await db.execute(query.offset(skip).limit(limit).order_by(Retailer.id.desc()))
+    retailers = result.scalars().unique().all()
+    
+    output = []
+    for r in retailers:
+        # Convert to dictionary for precise control
+        item = {
+            "id": r.id,
+            "house_id": r.house_id,
+            "retailer_code": r.retailer_code,
+            "name": r.name,
+            "type": r.type,
+            "enabled": r.enabled,
+            "sim_seller": r.sim_seller,
+            "tran_mobile_no": r.tran_mobile_no,
+            "itop_sr_number": r.itop_sr_number,
+            "itop_number": r.itop_number,
+            "service_point": r.service_point,
+            "category": r.category,
+            "owner_name": r.owner_name,
+            "contact_no": r.contact_no,
+            "district": r.district,
+            "thana": r.thana,
+            "address": r.address,
+            "nid": r.nid,
+            "bp_code": r.bp_code,
+            "bp_number": r.bp_number,
+            "dob": r.dob,
+            "route": r.route,
+            "house": None,
+            "field_force": None
+        }
+        
+        # Link House
+        if r.house:
+            item["house"] = {
+                "id": r.house.id,
+                "name": r.house.name,
+                "code": r.house.code
+            }
+            
+        # Link Field Force (RSO)
+        if r.field_force:
+            item["field_force"] = {
+                "id": r.field_force.id,
+                "name": r.field_force.name,
+                "itop_number": r.field_force.itop_number
+            }
+            
+        output.append(item)
+    return output
+
+@app.post("/api/retailers", response_model=RetailerSchema)
+async def create_retailer(retailer_data: RetailerCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    existing = (await db.execute(select(Retailer).where(Retailer.retailer_code == retailer_data.retailer_code))).scalar_one_or_none()
+    if existing: raise HTTPException(status_code=400, detail="Retailer with this code already exists")
+    new_retailer = Retailer(**retailer_data.model_dump())
+    db.add(new_retailer)
+    await db.commit()
+    await db.refresh(new_retailer)
+    return new_retailer
+
+@app.put("/api/retailers/{retailer_id}", response_model=RetailerSchema)
+async def update_retailer(retailer_id: int, retailer_data: RetailerCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(Retailer).where(Retailer.id == retailer_id))
+    retailer = result.scalar_one_or_none()
+    if not retailer: raise HTTPException(status_code=404, detail="Retailer not found")
+    for key, value in retailer_data.model_dump().items():
+        setattr(retailer, key, value)
+    await db.commit()
+    await db.refresh(retailer)
+    return retailer
+
+@app.delete("/api/retailers/{retailer_id}")
+async def delete_retailer(retailer_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(Retailer).where(Retailer.id == retailer_id))
+    retailer = result.scalar_one_or_none()
+    if not retailer: raise HTTPException(status_code=404, detail="Retailer not found")
+    await db.delete(retailer)
+    await db.commit()
+    return {"message": "Retailer deleted successfully"}
+
+@app.post("/api/retailers/import")
+async def import_retailers(file: UploadFile = File(...), house_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+    if not os.path.exists("temp_downloads"): os.makedirs("temp_downloads")
+    file_path = f"temp_downloads/{uuid.uuid4()}_{file.filename}"
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        count, error = await process_retailer_excel(file_path, house_id)
+        if error: raise HTTPException(status_code=400, detail=error)
+        return {"message": f"Successfully imported {count} retailers", "count": count}
+    finally:
+        if os.path.exists(file_path): os.remove(file_path)
+
+@app.get("/api/bts", response_model=List[BTSSchema])
+async def get_bts(search: Optional[str] = None, skip: int = 0, limit: int = 20, db: AsyncSession = Depends(get_db)):
+    query = select(BTS)
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where((BTS.site_id.ilike(search_pattern)) | (BTS.bts_code.ilike(search_pattern)))
+    result = await db.execute(query.offset(skip).limit(limit).order_by(BTS.site_id))
+    return result.scalars().all()
+
+# ==========================================
+# 4. LOGGING & SCHEDULER
+# ==========================================
+
+if not os.path.exists('logs'): os.makedirs('logs')
+log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler = RotatingFileHandler('logs/orange_flow.log', maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
+file_handler.setFormatter(log_formatter)
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(log_formatter)
+logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
+logging.getLogger("aiogram").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
-# ==========================================
-# MASTER AUTOMATION SCHEDULER
-# ==========================================
-
 async def master_automation_scheduler():
-    """
-    ১. রাত ১২টায় ডাটাবেজ রিসেট করবে।
-    ২. সকাল ৮টা থেকে রাত ১২টা পর্যন্ত ৫ মিনিট অন্তর GA সিঙ্ক করবে।
-    ৩. সকাল ৮টায় GA সিঙ্ক শেষ হওয়ার পর অটো-সিঙ্ক (ডাউনলোড) রান করবে।
-    """
-
-    if getattr(settings, "DISABLE_SCHEDULER", False):
-        logger.info("ℹ️ [Scheduler] Disabled by configuration.")
-        return
-    
-
+    if getattr(settings, "DISABLE_SCHEDULER", False): return
     logger.info("🚀 Master Automation Scheduler শুরু হয়েছে...")
-    
-    # সিস্টেম স্ট্যাবল হওয়ার জন্য কিছুক্ষণ অপেক্ষা
     await asyncio.sleep(20)
-    
     last_auto_sync_date = None
-
     while True:
         try:
             now = datetime.now()
             today_date = now.date()
             hour = now.hour
-
-            # --- ১. রাত ১২টায় ডাটা রিসেট (00:00 - 00:05) ---
             if hour == 0 and now.minute < 5:
-                logger.info("🧹 Midnight Reset: ক্লিনিং এবং রিসেট শুরু হচ্ছে...")
                 await reset_daily_activations()
-                await cleanup_old_dms_reports() # ২ বছরের পুরনো ডাটা ডিলিট করবে
-                await asyncio.sleep(300) # ৫ মিনিট বিরতি
+                await cleanup_old_dms_reports()
+                await asyncio.sleep(300)
                 continue
-
-            # --- ২. সিঙ্কিং টাইম (সকাল ৮টা থেকে রাত ১২টা) ---
             if 8 <= hour < 24:
-                logger.info(f"🕒 [Job Started] সময়: {now.strftime('%I:%M %p')}")
-                
-                # ২.১ জিএ লাইভ সিঙ্ক (৫ মিনিট পর পর)
                 await run_ga_live_sync()
-                
-                # ২.২ ডেইলি অটো-সিঙ্ক (সকাল ৮টার পর একবার)
                 if last_auto_sync_date != today_date:
-                    logger.info("📅 [Daily Sync] আজকের প্রথম সিঙ্ক, অটো-ডাউনলোড শুরু হচ্ছে...")
                     await run_daily_auto_sync()
                     last_auto_sync_date = today_date
-                    logger.info("✅ [Daily Sync] অটো-ডাউনলোড সম্পন্ন।")
-
-                logger.info("✅ [Job Finished] পরবর্তী রান ৫ মিনিট পর।")
-                await asyncio.sleep(300) # ৫ মিনিট বিরতি
+                await asyncio.sleep(300)
             else:
-                # রাত ১২টা থেকে সকাল ৮টা পর্যন্ত বিরতি
-                logger.info(f"😴 Idle Time: এখন রাত {hour}টা। সকাল ৮টা পর্যন্ত বিরতি...")
-                await asyncio.sleep(600) # ১০ মিনিট পর পর চেক করবে
-                continue
-
+                await asyncio.sleep(600)
         except Exception as e:
-            logger.error(f"❌ [Master Scheduler Error] {str(e)}")
+            logger.error(f"❌ [Scheduler Error] {str(e)}")
             await asyncio.sleep(60)
 
 # ==========================================
-# MAIN ENTRY POINT
+# 5. MAIN ENTRY POINT
 # ==========================================
 
 async def main():
-    # ১. ডাটাবেজ ইনিশিয়ালাইজেশন
     try:
         await init_db()
         print("✅ DB Connected Successfully!")
     except Exception as e:
-        print(f"❌ DB Connection Error: {e}")
-        return
+        print(f"❌ DB Connection Error: {e}"); return
 
-    # ২. ব্রাউজার ইঞ্জিন স্টার্ট
     await engine.start()
-
-    # ৩. বট এবং ডিসপ্যাচার সেটআপ
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
-
-    # মিডলওয়্যার রেজিস্ট্রেশন (Message & Callback)
     dp.message.middleware(ACLMiddleware())
     dp.callback_query.middleware(ACLMiddleware())
-
-    # ৪. রাউটারগুলো রেজিস্টার করা
     dp.include_routers(
         admin_controller.router, setup_wizard_controller.router, house_controller.router,
-        user_controller.router, role_controller.router,
-        automation_controller.router, sim_status_controller.router,
-        sim_return_controller.router, sim_issue_controller.router,
-        ga_live_controller.router, field_force_controller.router,
-        retailer_controller.router, ga_filter_controller.router,
-        bts_controller.router, mela_config_controller.router,
+        user_controller.router, role_controller.router, automation_controller.router, 
+        sim_status_controller.router, sim_return_controller.router, sim_issue_controller.router,
+        ga_live_controller.router, field_force_controller.router, retailer_controller.router, 
+        ga_filter_controller.router, bts_controller.router, mela_config_controller.router,
         activation_controller.router, mela_controller.router, dms_report_controller.router,
         issue_report_controller.router, target_controller.router, leave_controller.router,
         product_controller.router
     )
-
-    # পেন্ডিং মেসেজ স্কিপ করা
     await bot.delete_webhook(drop_pending_updates=True)
-
     background_tasks = []
     try:
-        # FastAPI এপিআই সার্ভার চালু করা (পোর্ট ৮০০০ এ) ✅
         config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="error")
         server = uvicorn.Server(config)
-        api_task = asyncio.create_task(server.serve())
-        background_tasks.append(api_task)
-
-        # ওটিপি রিসিভার সার্ভার (এটি সবসময় চালু থাকবে)
-        webhook_task = asyncio.create_task(start_webhook_server(settings.WEBHOOK_PORT))
-        background_tasks.append(webhook_task)
-
-        # জিএ লাইভ সিঙ্ক সিডিউলার (.env থেকে কন্ট্রোল হবে) ✅
+        background_tasks.append(asyncio.create_task(server.serve()))
+        background_tasks.append(asyncio.create_task(start_webhook_server(settings.WEBHOOK_PORT)))
         if settings.ENABLE_GA_SYNC:
-            scheduler_task = asyncio.create_task(master_automation_scheduler())
-            background_tasks.append(scheduler_task)
-            logger.info("📡 [System] GA Live Sync সিডিউলার চালু হয়েছে।")
-        else:
-            logger.warning("🚫 [System] GA Live Sync বর্তমানে .env থেকে বন্ধ রাখা হয়েছে।")
-
-        logger.info(f"🤖 Bot is Live! Mode: {'Master (Ngrok ON)' if settings.START_NGROK else 'Slave (Local Only)'}")
-
-        # টেলিগ্রাম পোলিং শুরু
+            background_tasks.append(asyncio.create_task(master_automation_scheduler()))
+        logger.info(f"🤖 Bot is Live! API on port 8000")
         await dp.start_polling(bot)
-
-
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
-    except Exception as e:
-        logger.error(f"❌ Critical runtime error: {e}")
+    except (KeyboardInterrupt, asyncio.CancelledError): pass
     finally:
-        logger.info("👋 Shutdown initiated. Cleaning up...")
-
-
-
-        # ১. সব ব্যাকগ্রাউন্ড টাস্ক (Webhook, Scheduler) বন্ধ করা
         for task in background_tasks:
-            if not task.done():
-                task.cancel()
-        
-        if background_tasks:
-            await asyncio.gather(*background_tasks, return_exceptions=True)
-
-        # প্লে-রাইট ইঞ্জিন এবং বট সেশন বন্ধ করা
+            if not task.done(): task.cancel()
         await engine.stop()
         await bot.session.close()
-        
         logger.info("✅ System closed successfully.")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        sys.exit(0)
+    except (KeyboardInterrupt, SystemExit): sys.exit(0)

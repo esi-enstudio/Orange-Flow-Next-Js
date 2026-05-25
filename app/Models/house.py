@@ -15,7 +15,6 @@ class House(Base):
     name = Column(String) # Distributor_Name
     district = Column(String) # District
     email = Column(String) # Email Address
-    address_reg = Column(String) # Distributor Address as per Registration/Trade License
     address = Column(String) # Present Address of The Distribution House
     proprietor_name = Column(String) # Proprietor Name
     proprietor_contact = Column(String) # Proprietor Contact Number

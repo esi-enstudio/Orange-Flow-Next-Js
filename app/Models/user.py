@@ -24,10 +24,13 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(BigInteger, unique=True, nullable=False)
+    telegram_id = Column(BigInteger, unique=True, nullable=True) # Web users might not have Telegram
+    username = Column(String, unique=True, index=True, nullable=True)
+    hashed_password = Column(String, nullable=True)
     name = Column(String, nullable=True)
+    email = Column(String, unique=True, index=True, nullable=True)
     phone_number = Column(String, nullable=True)
-    status = Column(String, default="Active", nullable=False) # Active অথবা Inactive
+    status = Column(String, default="Active", nullable=False)
 
     # রিপোর্টিং লাইন (Self-referencing Foreign Key) ✅
     parent_id = Column(Integer, ForeignKey('users.id'), nullable=True)
