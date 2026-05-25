@@ -14,9 +14,9 @@ from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
-# কলাম লিস্ট (DD_CODE যুক্ত করা হলো)
+# কলাম লিস্ট (DISTRIBUTOR_CODE যুক্ত করা হলো)
 FF_COLUMNS = [
-    'DD_CODE', 'DMS_CODE', 'AGENCY_ID', 'NAME', 'TYPE', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
+    'DISTRIBUTOR_CODE', 'DMS_CODE', 'AGENCY_ID', 'NAME', 'TYPE', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
     'POOL_NUMBER', 'ASSISTED_RETAILER_CODE', 'SALARY', 'MARKET_TYPE', 
     'JOINING_DATE', 'RESIGNED_DATE', 'RELIGION', 'DOB', 'NID',
     'BANK_NAME', 'BANK_ACCOUNT', 'BRANCH_NAME', 'ROUTING_NUMBER', 'HOME_TOWN',
@@ -99,9 +99,19 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
                     # তবে এখানে আমরা শুধু ডাটাবেজ ম্যাপ থেকে চেক করছি
                     pass # (অতিরিক্ত লজিক চাইলে এখানে যোগ করা যায়)
                 
-                # ৪. হাউজ আইডি নির্ধারণ (DD_CODE দিয়ে) ✅
-                dd_code = clean_val(row.get('DD_CODE'))
-                target_house_id = house_map.get(dd_code.upper()) if dd_code else house_id
+                # ৪. হাউজ আইডি নির্ধারণ (DISTRIBUTOR_CODE দিয়ে) ✅
+                # লজিক: যদি ফাইলে DISTRIBUTOR_CODE থাকে, তবে সেটি ডাটাবেসের হাউজ কোডের সাথে অবশ্যই মিলতে হবে।
+                # যদি ডাটাবেসে ওই কোডের কোনো হাউজ না থাকে, তবে ওই ফিল্ড ফোর্স ইমপোর্ট হবে না।
+                distributor_code_val = clean_val(row.get('DISTRIBUTOR_CODE'))
+                if distributor_code_val:
+                    target_house_id = house_map.get(distributor_code_val.upper())
+                    # যদি DISTRIBUTOR_CODE আছে কিন্তু আমাদের ডাটাবেসে নেই, তবে এটি স্কিপ হবে
+                    if not target_house_id:
+                        pbar.update(1)
+                        continue
+                else:
+                    # যদি ফাইলে DISTRIBUTOR_CODE না থাকে, তবে যে হাউজ থেকে আপলোড হচ্ছে (house_id) সেটি ব্যবহার হবে
+                    target_house_id = house_id
 
                 if not target_house_id:
                     pbar.update(1)

@@ -16,6 +16,7 @@ import {
   Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "react-hot-toast";
 
 interface Permission {
   id: number;
@@ -79,13 +80,15 @@ export default function RolesPage() {
       const data = { name: roleName, permissions: selectedPermissions };
       if (editingRole) {
         await apiClient.put(`/roles/${editingRole.id}`, data);
+        toast.success("Role updated successfully!");
       } else {
         await apiClient.post("/roles", data);
+        toast.success("Role created successfully!");
       }
       setIsModalOpen(false);
       fetchData();
-    } catch (err) {
-      alert("Failed to save role");
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Failed to save role");
     } finally {
       setFormLoading(false);
     }

@@ -40,11 +40,12 @@ export const navItems: NavItem[] = [
     color: "text-blue-500",
   },
   {
-    title: "Network Hub",
+    title: "Data Management",
     icon: Network,
     color: "text-orange-500",
     children: [
       { title: "Houses", href: "/houses" },
+      { title: "Field Force", href: "/field-force" },
       { title: "Retailers", href: "/retailers" },
       { title: "BTS Management", href: "/bts" },
     ]
@@ -81,12 +82,20 @@ export const navItems: NavItem[] = [
     ]
   },
   {
+    title: "Roles & Permissions",
+    icon: Shield,
+    color: "text-red-500",
+    children: [
+      { title: "Roles", href: "/roles" },
+      { title: "Permissions", href: "/permissions" },
+    ]
+  },
+  {
     title: "Administration",
     icon: ShieldCheck,
     color: "text-cyan-500",
     children: [
       { title: "User Management", href: "/users" },
-      { title: "Roles & Permissions", href: "/roles" },
       { title: "System Settings", href: "/settings" },
     ]
   },

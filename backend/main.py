@@ -82,6 +82,7 @@ class UserSchema(BaseModel):
     name: Optional[str]
     email: Optional[str]
     status: str
+    roles: List[RoleSchema] = []
     class Config: from_attributes = True
 
 class UserCreate(BaseModel):
@@ -101,6 +102,90 @@ class BTSSchema(BaseModel):
     thana: Optional[str]
     site_type: Optional[str]
     class Config: from_attributes = True
+
+class FieldForceSchema(BaseModel):
+    id: int
+    house_id: int
+    user_id: Optional[int] = None
+    assisted_retailer_code: Optional[str] = None
+    agency_id: Optional[str] = None
+    dms_code: Optional[str] = None
+    name: str
+    itop_number: Optional[str] = None
+    personal_number: Optional[str] = None
+    pool_number: Optional[str] = None
+    type: Optional[str] = None
+    status: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account: Optional[str] = None
+    branch_name: Optional[str] = None
+    routing_number: Optional[str] = None
+    home_town: Optional[str] = None
+    emergency_contact_person_name: Optional[str] = None
+    emergency_contact_person_number: Optional[str] = None
+    emergency_person_relationship: Optional[str] = None
+    last_education: Optional[str] = None
+    institution_name: Optional[str] = None
+    blood_group: Optional[str] = None
+    present_address: Optional[str] = None
+    permanent_address: Optional[str] = None
+    fathers_name: Optional[str] = None
+    mothers_name: Optional[str] = None
+    religion: Optional[str] = None
+    dob: Optional[str] = None
+    nid: Optional[str] = None
+    previous_company_name: Optional[str] = None
+    previous_company_salary: Optional[str] = None
+    motor_bike: Optional[str] = None
+    bicyle: Optional[str] = None
+    driving_license: Optional[str] = None
+    joining_date: Optional[str] = None
+    resigned_date: Optional[str] = None
+    market_type: Optional[str] = None
+    salary: Optional[str] = None
+    supervisor_id: Optional[int] = None
+    class Config: from_attributes = True
+
+class FieldForceCreate(BaseModel):
+    house_id: int
+    user_id: Optional[int] = None
+    assisted_retailer_code: Optional[str] = None
+    agency_id: Optional[str] = None
+    dms_code: Optional[str] = None
+    name: str
+    itop_number: Optional[str] = None
+    personal_number: Optional[str] = None
+    pool_number: Optional[str] = None
+    type: Optional[str] = None
+    status: Optional[str] = "Active"
+    bank_name: Optional[str] = None
+    bank_account: Optional[str] = None
+    branch_name: Optional[str] = None
+    routing_number: Optional[str] = None
+    home_town: Optional[str] = None
+    emergency_contact_person_name: Optional[str] = None
+    emergency_contact_person_number: Optional[str] = None
+    emergency_person_relationship: Optional[str] = None
+    last_education: Optional[str] = None
+    institution_name: Optional[str] = None
+    blood_group: Optional[str] = None
+    present_address: Optional[str] = None
+    permanent_address: Optional[str] = None
+    fathers_name: Optional[str] = None
+    mothers_name: Optional[str] = None
+    religion: Optional[str] = None
+    dob: Optional[str] = None
+    nid: Optional[str] = None
+    previous_company_name: Optional[str] = None
+    previous_company_salary: Optional[str] = None
+    motor_bike: Optional[str] = None
+    bicyle: Optional[str] = None
+    driving_license: Optional[str] = None
+    joining_date: Optional[str] = None
+    resigned_date: Optional[str] = None
+    market_type: Optional[str] = None
+    salary: Optional[str] = None
+    supervisor_id: Optional[int] = None
 
 class HouseSchema(BaseModel):
     id: int
@@ -241,6 +326,25 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         raise credentials_exception
     return user
 
+def has_permission(required_permission: str):
+    async def permission_dependency(current_user: User = Depends(get_current_user)):
+        # ১. সুপার এডমিন চেক (যদি 'Admin' বা 'Super Admin' রোল থাকে তবে সব এলাউড)
+        user_permissions = set()
+        for role in current_user.roles:
+            if role.name.lower() in ["admin", "super admin", "super_admin"]:
+                return current_user 
+            for perm in role.permissions:
+                user_permissions.add(perm.name)
+        
+        # ২. নির্দিষ্ট পারমিশন চেক
+        if required_permission not in user_permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"আপনার এই কাজটি করার অনুমতি নেই: {required_permission}"
+            )
+        return current_user
+    return permission_dependency
+
 # ==========================================
 # 3. API ENDPOINTS
 # ==========================================
@@ -284,12 +388,12 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 # --- Houses ---
 @app.get("/api/houses", response_model=List[HouseSchema])
-async def list_houses(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def list_houses(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("view_houses"))):
     result = await db.execute(select(House).order_by(House.name))
     return result.scalars().all()
 
 @app.post("/api/houses", response_model=HouseSchema)
-async def create_house(house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_house(house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_houses"))):
     existing = (await db.execute(select(House).where(House.code == house_data.code))).scalar_one_or_none()
     if existing: raise HTTPException(status_code=400, detail="House with this code already exists")
     new_house = House(**house_data.model_dump())
@@ -299,7 +403,7 @@ async def create_house(house_data: HouseCreate, db: AsyncSession = Depends(get_d
     return new_house
 
 @app.put("/api/houses/{house_id}", response_model=HouseSchema)
-async def update_house(house_id: int, house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def update_house(house_id: int, house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("edit_houses"))):
     result = await db.execute(select(House).where(House.id == house_id))
     house = result.scalar_one_or_none()
     if not house: raise HTTPException(status_code=404, detail="House not found")
@@ -310,7 +414,7 @@ async def update_house(house_id: int, house_data: HouseCreate, db: AsyncSession 
     return house
 
 @app.delete("/api/houses/{house_id}")
-async def delete_house(house_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_house(house_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_houses"))):
     result = await db.execute(select(House).where(House.id == house_id))
     house = result.scalar_one_or_none()
     if not house: raise HTTPException(status_code=404, detail="House not found")
@@ -318,14 +422,59 @@ async def delete_house(house_id: int, db: AsyncSession = Depends(get_db), curren
     await db.commit()
     return {"message": "House deleted successfully"}
 
+# --- Field Force ---
+@app.get("/api/field-force", response_model=List[FieldForceSchema])
+async def list_field_force(search: Optional[str] = None, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("view_field_force"))):
+    query = select(FieldForce)
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            (FieldForce.name.ilike(search_pattern)) | 
+            (FieldForce.dms_code.ilike(search_pattern)) | 
+            (FieldForce.itop_number.ilike(search_pattern))
+        )
+    result = await db.execute(query.order_by(FieldForce.id.desc()))
+    return result.scalars().all()
+
+@app.post("/api/field-force", response_model=FieldForceSchema)
+async def create_field_force(ff_data: FieldForceCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_field_force"))):
+    if ff_data.dms_code:
+        existing = (await db.execute(select(FieldForce).where(FieldForce.dms_code == ff_data.dms_code))).scalar_one_or_none()
+        if existing: raise HTTPException(status_code=400, detail="Member with this DMS code already exists")
+    new_ff = FieldForce(**ff_data.model_dump())
+    db.add(new_ff)
+    await db.commit()
+    await db.refresh(new_ff)
+    return new_ff
+
+@app.put("/api/field-force/{ff_id}", response_model=FieldForceSchema)
+async def update_field_force(ff_id: int, ff_data: FieldForceCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("edit_field_force"))):
+    result = await db.execute(select(FieldForce).where(FieldForce.id == ff_id))
+    ff = result.scalar_one_or_none()
+    if not ff: raise HTTPException(status_code=404, detail="Field force member not found")
+    for key, value in ff_data.model_dump().items():
+        setattr(ff, key, value)
+    await db.commit()
+    await db.refresh(ff)
+    return ff
+
+@app.delete("/api/field-force/{ff_id}")
+async def delete_field_force(ff_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_field_force"))):
+    result = await db.execute(select(FieldForce).where(FieldForce.id == ff_id))
+    ff = result.scalar_one_or_none()
+    if not ff: raise HTTPException(status_code=404, detail="Field force member not found")
+    await db.delete(ff)
+    await db.commit()
+    return {"message": "Field force member deleted successfully"}
+
 # --- Users ---
 @app.get("/api/users", response_model=List[UserSchema])
-async def list_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def list_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("view_users"))):
     result = await db.execute(select(User).order_by(User.id.desc()))
     return result.scalars().all()
 
 @app.delete("/api/users/{user_id}")
-async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_users"))):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user: raise HTTPException(status_code=404, detail="User not found")
@@ -335,17 +484,36 @@ async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_
 
 # --- Roles & Permissions ---
 @app.get("/api/permissions", response_model=List[PermissionSchema])
-async def list_permissions(db: AsyncSession = Depends(get_db)):
+async def list_permissions(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("view_permissions"))):
     result = await db.execute(select(Permission).order_by(Permission.name))
     return result.scalars().all()
 
+@app.post("/api/permissions", response_model=PermissionSchema)
+async def create_permission(perm_data: PermissionCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_permissions"))):
+    existing = (await db.execute(select(Permission).where(Permission.name == perm_data.name))).scalar_one_or_none()
+    if existing: raise HTTPException(status_code=400, detail="Permission already exists")
+    new_perm = Permission(name=perm_data.name)
+    db.add(new_perm)
+    await db.commit()
+    await db.refresh(new_perm)
+    return new_perm
+
+@app.delete("/api/permissions/{perm_id}")
+async def delete_permission(perm_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_permissions"))):
+    result = await db.execute(select(Permission).where(Permission.id == perm_id))
+    perm = result.scalar_one_or_none()
+    if not perm: raise HTTPException(status_code=404, detail="Permission not found")
+    await db.delete(perm)
+    await db.commit()
+    return {"message": "Permission deleted successfully"}
+
 @app.get("/api/roles", response_model=List[RoleSchema])
-async def list_roles(db: AsyncSession = Depends(get_db)):
+async def list_roles(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("view_roles"))):
     result = await db.execute(select(Role).order_by(Role.id))
     return result.scalars().all()
 
 @app.post("/api/roles", response_model=RoleSchema)
-async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_db)):
+async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_roles"))):
     existing = (await db.execute(select(Role).where(Role.name == role_data.name))).scalar_one_or_none()
     if existing: raise HTTPException(status_code=400, detail="Role already exists")
     new_role = Role(name=role_data.name)
@@ -358,7 +526,7 @@ async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_db))
     return new_role
 
 @app.put("/api/roles/{role_id}", response_model=RoleSchema)
-async def update_role(role_id: int, role_data: RoleCreate, db: AsyncSession = Depends(get_db)):
+async def update_role(role_id: int, role_data: RoleCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("edit_roles"))):
     result = await db.execute(select(Role).where(Role.id == role_id))
     role = result.scalar_one_or_none()
     if not role: raise HTTPException(status_code=404, detail="Role not found")
@@ -386,7 +554,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     }
 
 @app.get("/api/retailers")
-async def get_retailers(search: Optional[str] = None, skip: int = 0, limit: int = 5000, db: AsyncSession = Depends(get_db)):
+async def get_retailers(search: Optional[str] = None, skip: int = 0, limit: int = 5000, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("view_retailers"))):
     # Fetch retailers with relations
     query = select(Retailer).options(
         joinedload(Retailer.house), 
@@ -455,7 +623,7 @@ async def get_retailers(search: Optional[str] = None, skip: int = 0, limit: int 
     return output
 
 @app.post("/api/retailers", response_model=RetailerSchema)
-async def create_retailer(retailer_data: RetailerCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_retailer(retailer_data: RetailerCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_retailers"))):
     existing = (await db.execute(select(Retailer).where(Retailer.retailer_code == retailer_data.retailer_code))).scalar_one_or_none()
     if existing: raise HTTPException(status_code=400, detail="Retailer with this code already exists")
     new_retailer = Retailer(**retailer_data.model_dump())
@@ -465,7 +633,7 @@ async def create_retailer(retailer_data: RetailerCreate, db: AsyncSession = Depe
     return new_retailer
 
 @app.put("/api/retailers/{retailer_id}", response_model=RetailerSchema)
-async def update_retailer(retailer_id: int, retailer_data: RetailerCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def update_retailer(retailer_id: int, retailer_data: RetailerCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("edit_retailers"))):
     result = await db.execute(select(Retailer).where(Retailer.id == retailer_id))
     retailer = result.scalar_one_or_none()
     if not retailer: raise HTTPException(status_code=404, detail="Retailer not found")
@@ -476,7 +644,7 @@ async def update_retailer(retailer_id: int, retailer_data: RetailerCreate, db: A
     return retailer
 
 @app.delete("/api/retailers/{retailer_id}")
-async def delete_retailer(retailer_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_retailer(retailer_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_retailers"))):
     result = await db.execute(select(Retailer).where(Retailer.id == retailer_id))
     retailer = result.scalar_one_or_none()
     if not retailer: raise HTTPException(status_code=404, detail="Retailer not found")
@@ -485,7 +653,7 @@ async def delete_retailer(retailer_id: int, db: AsyncSession = Depends(get_db), 
     return {"message": "Retailer deleted successfully"}
 
 @app.post("/api/retailers/import")
-async def import_retailers(file: UploadFile = File(...), house_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+async def import_retailers(file: UploadFile = File(...), house_id: int = Query(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("import_retailers"))):
     if not os.path.exists("temp_downloads"): os.makedirs("temp_downloads")
     file_path = f"temp_downloads/{uuid.uuid4()}_{file.filename}"
     try:
@@ -499,7 +667,7 @@ async def import_retailers(file: UploadFile = File(...), house_id: int = Query(.
         if os.path.exists(file_path): os.remove(file_path)
 
 @app.get("/api/bts", response_model=List[BTSSchema])
-async def get_bts(search: Optional[str] = None, skip: int = 0, limit: int = 20, db: AsyncSession = Depends(get_db)):
+async def get_bts(search: Optional[str] = None, skip: int = 0, limit: int = 20, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("view_bts"))):
     query = select(BTS)
     if search:
         search_pattern = f"%{search}%"

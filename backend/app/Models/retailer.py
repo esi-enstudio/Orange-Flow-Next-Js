@@ -11,6 +11,8 @@ class Retailer(Base):
     field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True)
 
     # আপনার দেওয়া নির্দিষ্ট কলামসমূহ
+    cluster = Column(String)                       # CLUSTERNAME
+    region = Column(String)                        # REGION
     retailer_code = Column(String, unique=True, index=True) # RETAILER_CODE
     name = Column(String, nullable=False)          # RETAILER_NAME
     type = Column(String)                          # RETAILER_TYPE

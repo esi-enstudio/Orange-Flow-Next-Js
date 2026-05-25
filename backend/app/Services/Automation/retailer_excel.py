@@ -14,9 +14,11 @@ from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
-# এক্সেল হেডার এবং ডাটাবেজ কলামের ম্যাপিং (DD_CODE যুক্ত করা হলো)
+# এক্সেল হেডার এবং ডাটাবেজ কলামের ম্যাপিং (সকল কলাম অন্তর্ভুক্ত করা হলো)
 COLUMN_MAP = {
-    'DD_CODE': 'dd_code',
+    'CLUSTERNAME': 'cluster',
+    'REGION': 'region',
+    'DISTRIBUTOR_CODE': 'dd_code',
     'RETAILER_CODE': 'retailer_code',
     'RETAILER_NAME': 'name',
     'RETAILER_TYPE': 'type',
@@ -45,6 +47,7 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
         # ১. ডাটা লোড
         df = pd.read_excel(file_path, dtype=str)
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
+        logger.info(f"📊 Excel Columns found: {df.columns.tolist()}")
         
         total_rows = len(df)
         if total_rows == 0:
@@ -60,13 +63,19 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
 
         async with async_session() as session:
             # ২. পারফরম্যান্স অপ্টিমাইজেশন: সকল হাউজ এবং আরএসও মেমরিতে লোড করা ✅
-            houses_res = await session.execute(select(House.code, House.id))
-            house_map = {h.code.upper(): h.id for h in houses_res.all() if h.code}
+            house_res = await session.execute(select(House).where(House.id == house_id))
+            current_house = house_res.scalar_one_or_none()
+            if not current_house:
+                return 0, f"হাউজ আইডি {house_id} পাওয়া যায়নি।"
+            
+            target_house_code = current_house.code.upper()
+            logger.info(f"🎯 Target House: {current_house.name} ({target_house_code})")
             
             ff_res = await session.execute(select(FieldForce.itop_number, FieldForce.id))
             rso_map = {f.itop_number: f.id for f in ff_res.all() if f.itop_number}
 
             count = 0
+            skipped_count = 0
             batch_size = 500
             batch_data = []
 
@@ -82,17 +91,27 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
                 itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
                 linked_ff_id = rso_map.get(itop_sr_no) if itop_sr_no else None
                 
-                # ৪. হাউজ আইডি নির্ধারণ (DD_CODE দিয়ে) ✅
-                dd_code = clean(row.get('DD_CODE'))
-                target_house_id = house_map.get(dd_code.upper()) if dd_code else house_id
-
-                if not target_house_id:
+                # ৪. হাউজ ফিল্টারিং লজিক (DISTRIBUTOR_CODE দিয়ে) ✅
+                # লজিক: শুধুমাত্র যে হাউজটি সিলেক্ট করা হয়েছে, সেই হাউজের রিটেইলার ইমপোর্ট হবে।
+                # যদি ফাইলে অন্য কোনো হাউজ কোড থাকে, তবে সেটি বাদ যাবে।
+                distributor_code_val = clean(row.get('DISTRIBUTOR_CODE'))
+                
+                if distributor_code_val:
+                    # যদি ফাইলের কোড এবং আমাদের টার্গেট হাউজ কোড না মিলে, তবে স্কিপ
+                    if distributor_code_val.upper() != target_house_code:
+                        skipped_count += 1
+                        pbar.update(1)
+                        continue
+                else:
+                    # যদি কোড না থাকে, আমরা রিস্ক নেব না, স্কিপ করে দেব (অথবা আপনি চাইলে এখানে ডিফল্ট এলাউ করতে পারেন)
+                    # তবে সেফটির জন্য স্কিপ করাই ভালো যেহেতু আপনি বলছেন ৩২৩০ টি হওয়ার কথা।
+                    skipped_count += 1
                     pbar.update(1)
                     continue
 
                 # ৫. ইনসার্ট ডাটা ডিকশনারি তৈরি
                 values_to_insert = {
-                    "house_id": target_house_id,
+                    "house_id": house_id,
                     "field_force_id": linked_ff_id,
                     "retailer_code": r_code
                 }
@@ -123,7 +142,7 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
             pbar.close()
             # সব শেষে একবারই কমিট ✅
             await session.commit()
-            logger.info(f"✅ {count} retailers processed successfully for house_id: {house_id}")
+            logger.info(f"✅ {count} retailers processed successfully. Skipped: {skipped_count}")
             return count, None
 
     except Exception as e:

@@ -17,3 +17,11 @@ httpx
 pydantic~=2.9.2
 pydantic-settings~=2.5.2
 alembic~=1.13.3
+fastapi
+uvicorn
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt==4.0.1
+python-multipart
+python-slugify
+email-validator
