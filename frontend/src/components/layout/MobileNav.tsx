@@ -11,16 +11,19 @@ import {
   Menu 
 } from "lucide-react";
 
+import { useAuth } from "@/context/AuthContext";
+
 export function MobileNav() {
   const pathname = usePathname();
+  const { hasPermission } = useAuth();
 
   const mobileItems = [
     { title: "Home", href: "/", icon: LayoutDashboard },
-    { title: "Retailers", href: "/retailers", icon: Store },
-    { title: "BTS", href: "/bts", icon: MapPin },
-    { title: "Field", href: "/field-force", icon: Users },
+    { title: "Retailers", href: "/retailers", icon: Store, permission: "view_retailers" },
+    { title: "BTS", href: "/bts", icon: MapPin, permission: "view_bts" },
+    { title: "Employees", href: "/employees", icon: Users, permission: "view_employees" },
     { title: "More", href: "/more", icon: Menu },
-  ];
+  ].filter(item => !item.permission || hasPermission(item.permission));
 
   return (
     <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 px-6 py-3 z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.03)] transition-colors duration-300">

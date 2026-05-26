@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
 
 from app.Models.retailer import Retailer
-from app.Models.field_force import FieldForce # অটো-লিঙ্কিং এর জন্য জরুরি
+from app.Models.employee import Employee # অটো-লিঙ্কিং এর জন্য জরুরি
 from app.Models.house import House
 from app.Services.db_service import async_session
 from app.Utils.helpers import bn_num
@@ -71,8 +71,8 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
             target_house_code = current_house.code.upper()
             logger.info(f"🎯 Target House: {current_house.name} ({target_house_code})")
             
-            ff_res = await session.execute(select(FieldForce.itop_number, FieldForce.id))
-            rso_map = {f.itop_number: f.id for f in ff_res.all() if f.itop_number}
+            emp_res = await session.execute(select(Employee.itop_number, Employee.id))
+            rso_map = {f.itop_number: f.id for f in emp_res.all() if f.itop_number}
 
             count = 0
             skipped_count = 0
@@ -89,7 +89,7 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
 
                 # ৩. মেমরি ম্যাপ থেকে আরএসও আইডি খুঁজে বের করা
                 itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
-                linked_ff_id = rso_map.get(itop_sr_no) if itop_sr_no else None
+                linked_emp_id = rso_map.get(itop_sr_no) if itop_sr_no else None
                 
                 # ৪. হাউজ ফিল্টারিং লজিক (DISTRIBUTOR_CODE দিয়ে) ✅
                 # লজিক: শুধুমাত্র যে হাউজটি সিলেক্ট করা হয়েছে, সেই হাউজের রিটেইলার ইমপোর্ট হবে।
@@ -112,7 +112,7 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
                 # ৫. ইনসার্ট ডাটা ডিকশনারি তৈরি
                 values_to_insert = {
                     "house_id": house_id,
-                    "field_force_id": linked_ff_id,
+                    "employee_id": linked_emp_id,
                     "retailer_code": r_code
                 }
                 
@@ -160,9 +160,9 @@ async def do_bulk_upsert(session, batch_data):
         for col in COLUMN_MAP.values() 
         if col not in ['retailer_code', 'dd_code']
     }
-    # house_id এবং field_force_id আপডেট হবে ✅
+    # house_id এবং employee_id আপডেট হবে ✅
     update_cols['house_id'] = excluded.house_id
-    update_cols['field_force_id'] = excluded.field_force_id
+    update_cols['employee_id'] = excluded.employee_id
     update_cols['updated_at'] = func.now()
 
     stmt = stmt.on_conflict_do_update(

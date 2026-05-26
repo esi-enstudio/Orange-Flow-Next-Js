@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import axios from "axios";
+import apiClient from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { 
   Store, 
   MapPin, 
@@ -19,7 +20,7 @@ interface Stats {
   total_retailers: number;
   total_houses: number;
   total_bts: number;
-  total_field_force: number;
+  total_employees: number;
   active_users: number;
   today_activations: number;
 }
@@ -36,17 +37,28 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentRetailers, setRecentRetailers] = useState<Retailer[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user, loading: authLoading, hasPermission } = useAuth();
 
   useEffect(() => {
+    if (authLoading) return;
+
     const fetchData = async () => {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-        const [statsRes, retailersRes] = await Promise.all([
-          axios.get(`${baseUrl}/stats`),
-          axios.get(`${baseUrl}/retailers?limit=5`)
+        const statsPromise = hasPermission("view_reports")
+          ? apiClient.get("/stats").then(res => res.data).catch(() => null)
+          : Promise.resolve(null);
+
+        const retailersPromise = hasPermission("view_retailers")
+          ? apiClient.get("/retailers?limit=5").then(res => res.data).catch(() => [])
+          : Promise.resolve([]);
+
+        const [statsData, retailersData] = await Promise.all([
+          statsPromise,
+          retailersPromise
         ]);
-        setStats(statsRes.data);
-        setRecentRetailers(retailersRes.data);
+
+        setStats(statsData);
+        setRecentRetailers(retailersData);
       } catch (err) {
         console.error("Failed to fetch dashboard data", err);
       } finally {
@@ -54,7 +66,7 @@ export default function Dashboard() {
       }
     };
     fetchData();
-  }, []);
+  }, [authLoading, hasPermission]);
 
   const statCards = [
     { 
@@ -74,8 +86,8 @@ export default function Dashboard() {
       isUp: true 
     },
     { 
-      title: "Field Force", 
-      value: stats?.total_field_force || 0, 
+      title: "Employees", 
+      value: stats?.total_employees || 0, 
       icon: Users, 
       color: "bg-purple-500", 
       trend: "stable", 

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.Models.user import User
-from app.Models.field_force import FieldForce
+from app.Models.employee import Employee
 from app.Models.retailer import Retailer
 from app.Models.house import House
 
@@ -14,7 +14,7 @@ class AccessControl:
     async def get_data_filters(self, model):
         """
         Returns a list of SQLAlchemy filter conditions based on user role and profile.
-        Supports models that have house_id, field_force_id, or retailer_id/retailer_code.
+        Supports models that have house_id, employee_id, or retailer_id/retailer_code.
         """
         filters = []
         
@@ -26,31 +26,31 @@ class AccessControl:
             return filters
 
         # 2. Supervisor / Field Manager
-        # Note: We check if the user has a field_force_profile and its type
-        ff_profile = self.user.field_force_profile
-        if ff_profile and ff_profile.type == 'Supervisor':
+        # Note: We check if the user has a employee_profile and its type
+        emp_profile = self.user.employee_profile
+        if emp_profile and emp_profile.type == 'Supervisor':
             # Get all RSOs under this supervisor
             sub_res = await self.session.execute(
-                select(FieldForce.id).where(FieldForce.supervisor_id == ff_profile.id)
+                select(Employee.id).where(Employee.supervisor_id == emp_profile.id)
             )
             rso_ids = [r[0] for r in sub_res.all()]
             # Include the supervisor's own ID just in case they have personal targets/activations
-            rso_ids.append(ff_profile.id)
+            rso_ids.append(emp_profile.id)
             
-            if hasattr(model, 'field_force_id'):
-                filters.append(model.field_force_id.in_(rso_ids))
+            if hasattr(model, 'employee_id'):
+                filters.append(model.employee_id.in_(rso_ids))
             elif hasattr(model, 'house_id'):
-                filters.append(model.house_id == ff_profile.house_id)
+                filters.append(model.house_id == emp_profile.house_id)
             return filters
 
-        # 3. RSO (Field Force - SR/BP)
-        if ff_profile and ff_profile.type in ['SR', 'BP', 'RSO']:
-            if hasattr(model, 'field_force_id'):
-                filters.append(model.field_force_id == ff_profile.id)
+        # 3. RSO (Employee - SR/BP)
+        if emp_profile and emp_profile.type in ['SR', 'BP', 'RSO']:
+            if hasattr(model, 'employee_id'):
+                filters.append(model.employee_id == emp_profile.id)
             elif hasattr(model, 'retailer_code'):
                 # For models that link by retailer code
                 ret_res = await self.session.execute(
-                    select(Retailer.retailer_code).where(Retailer.field_force_id == ff_profile.id)
+                    select(Retailer.retailer_code).where(Retailer.employee_id == emp_profile.id)
                 )
                 ret_codes = [r[0] for r in ret_res.all()]
                 filters.append(model.retailer_code.in_(ret_codes))

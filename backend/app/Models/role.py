@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Table, ForeignKey
+from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime
+from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.Models.base import Base
 
@@ -30,3 +31,4 @@ class Permission(Base):
     __tablename__ = "permissions"
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True)
+    created_at = Column(DateTime, server_default=func.now())

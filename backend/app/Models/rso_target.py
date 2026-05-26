@@ -7,8 +7,8 @@ class RSOTarget(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
-    field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=False) # RSO ID
-    supervisor_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True) # Supervisor ID
+    employee_id = Column(Integer, ForeignKey('employees.id'), nullable=False) # RSO ID
+    supervisor_id = Column(Integer, ForeignKey('employees.id'), nullable=True) # Supervisor ID
 
     # Fixed Columns
     ev_secondary = Column(Float, default=0.0)
@@ -44,9 +44,9 @@ class RSOTarget(Base):
 
     # Relationships
     house = relationship("House")
-    field_force = relationship("FieldForce", foreign_keys=[field_force_id])
-    supervisor = relationship("FieldForce", foreign_keys=[supervisor_id])
+    employee = relationship("Employee", foreign_keys=[employee_id])
+    supervisor = relationship("Employee", foreign_keys=[supervisor_id])
 
     __table_args__ = (
-        UniqueConstraint('field_force_id', 'target_date', name='_rso_target_date_uc'),
+        UniqueConstraint('employee_id', 'target_date', name='_rso_target_date_uc'),
     )

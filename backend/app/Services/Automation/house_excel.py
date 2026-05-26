@@ -61,7 +61,6 @@ async def process_house_excel(file_path, progress_callback=None):
                     "name": name,
                     "district": clean(row.get('DISTRICT')),
                     "email": clean(row.get('EMAIL')) or clean(row.get('EMAIL_ADDRESS')) or clean(row.get('EMAIL_ID')),
-                    "address_reg": clean(row.get('ADDRESS_REG')) or clean(row.get('DISTRIBUTOR_ADDRESS_AS_PER_REGISTRATION/TRADE_LICENSE')) or clean(row.get('REGISTRATION_ADDRESS')),
                     "address": clean(row.get('ADDRESS_PRESENT')) or clean(row.get('PRESENT_ADDRESS_OF_THE_DISTRIBUTION_HOUSE')) or clean(row.get('PRESENT_ADDRESS')),
                     "proprietor_name": clean(row.get('PROPRIETOR_NAME')) or clean(row.get('OWNER_NAME')),
                     "proprietor_contact": clean(row.get('PROPRIETOR_CONTACT')) or clean(row.get('PROPRIETOR_CONTACT_NUMBER')) or clean(row.get('OWNER_CONTACT')),

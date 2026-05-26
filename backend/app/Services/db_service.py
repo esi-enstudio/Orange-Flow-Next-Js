@@ -6,7 +6,7 @@ import app.Models.house
 import app.Models.role
 import app.Models.live_activation
 import app.Models.retailer
-import app.Models.field_force
+import app.Models.employee
 import app.Models.bts
 import app.Models.ga_filter
 import app.Models.mela

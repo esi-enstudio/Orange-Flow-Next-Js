@@ -7,7 +7,7 @@ class SupervisorTarget(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=True) # House link
-    field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True) # Supervisor link
+    employee_id = Column(Integer, ForeignKey('employees.id'), nullable=True) # Supervisor link
     
     # Fixed Columns
     ev_secondary = Column(Float, default=0.0)
@@ -31,8 +31,8 @@ class SupervisorTarget(Base):
 
     # Relationships
     house = relationship("House")
-    field_force = relationship("FieldForce")
+    employee = relationship("Employee")
 
     __table_args__ = (
-        UniqueConstraint('field_force_id', 'target_date', name='_supervisor_target_date_uc'),
+        UniqueConstraint('employee_id', 'target_date', name='_supervisor_target_date_uc'),
     )

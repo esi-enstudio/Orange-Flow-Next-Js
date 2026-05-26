@@ -1,0 +1,97 @@
+{
+    "modules": [
+        {
+            "name": "houses",
+            "display_name": "Houses",
+            "actions": ["view", "create", "edit", "delete", "import", "export"]
+        },
+        {
+            "name": "users",
+            "display_name": "Users",
+            "actions": ["view", "create", "edit", "delete", "import", "export"]
+        },
+        {
+            "name": "roles",
+            "display_name": "Roles",
+            "actions": ["view", "create", "edit", "delete"]
+        },
+        {
+            "name": "permissions",
+            "display_name": "Permissions",
+            "actions": ["view", "create", "edit", "delete"]
+        },
+        {
+            "name": "retailers",
+            "display_name": "Retailers",
+            "actions": ["view", "create", "edit", "delete", "import", "export"]
+        },
+        {
+            "name": "employees",
+            "display_name": "Employees",
+            "actions": ["view", "create", "edit", "delete", "import", "export"]
+        },
+        {
+            "name": "bts",
+            "display_name": "BTS",
+            "actions": ["view", "create", "edit", "delete", "import", "export"]
+        },
+        {
+            "name": "mela",
+            "display_name": "Mela",
+            "actions": ["view", "create", "edit", "delete", "settings", "import", "export"]
+        },
+        {
+            "name": "lifting",
+            "display_name": "Lifting",
+            "actions": ["view", "create", "edit", "delete", "approve", "import", "export"]
+        },
+        {
+            "name": "reports",
+            "display_name": "Reports",
+            "actions": ["view", "download", "dms_access"]
+        },
+        {
+            "name": "automation",
+            "display_name": "Automation",
+            "actions": ["ga_sync", "dms_sync", "settings"]
+        },
+        {
+            "name": "leaves",
+            "display_name": "Leaves",
+            "actions": ["view", "create", "edit", "delete", "import", "export"]
+        },
+        {
+            "name": "products",
+            "display_name": "Products",
+            "actions": ["view", "create", "edit", "delete", "import", "export"]
+        }
+    ],
+    "default_roles": [
+        {
+            "name": "Admin",
+            "is_admin": true
+        },
+        {
+            "name": "Manager",
+            "is_admin": true
+        },
+        {
+            "name": "Supervisor",
+            "permissions": [
+                "view_houses", "view_users", "view_retailers", "view_employees", "view_bts", "view_reports"
+            ]
+        },
+        {
+            "name": "RSO",
+            "permissions": [
+                "view_retailers", "view_reports"
+            ]
+        },
+        {
+            "name": "BP",
+            "permissions": [
+                "view_reports"
+            ]
+        }
+    ]
+}

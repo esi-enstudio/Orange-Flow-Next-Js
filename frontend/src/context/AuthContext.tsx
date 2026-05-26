@@ -5,19 +5,43 @@ import { useRouter, usePathname } from "next/navigation";
 import Cookies from "js-cookie";
 import apiClient from "@/lib/api";
 
+interface Permission {
+  id: number;
+  name: string;
+}
+
+interface Role {
+  id: number;
+  name: string;
+  permissions: Permission[];
+}
+
+interface House {
+  id: number;
+  name: string;
+  code: string;
+}
+
 interface User {
   id: number;
   username: string;
   name: string;
   email: string;
   status: string;
+  houses?: House[];
+  roles?: Role[];
 }
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  initialized: boolean | null;
+  selectedHouse: House | null;
+  setSelectedHouse: (house: House | null) => void;
   login: (token: string) => Promise<void>;
   logout: () => void;
+  refreshStatus: () => Promise<void>;
+  hasPermission: (permission: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,8 +49,36 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState<boolean | null>(null);
+  const [selectedHouse, setSelectedHouseState] = useState<House | null>(null);
   const router = useRouter();
   const pathname = usePathname();
+
+  const setSelectedHouse = (house: House | null) => {
+    setSelectedHouseState(house);
+    if (house) {
+      localStorage.setItem("selectedHouseId", house.id.toString());
+      // Optionally update API headers here if needed, 
+      // but usually better to let components/hooks handle it per request
+    } else {
+      localStorage.removeItem("selectedHouseId");
+    }
+  };
+
+  const checkSystemStatus = async () => {
+    try {
+      const response = await apiClient.get("/admin/setup/status");
+      setInitialized(response.data.initialized);
+      return response.data.initialized;
+    } catch (error) {
+      console.error("Failed to check system status", error);
+      return true; // Default to true to avoid infinite loops if API fails
+    }
+  };
+
+  const refreshStatus = async () => {
+    await checkSystemStatus();
+  };
 
   const fetchUser = async () => {
     const token = Cookies.get("token");
@@ -39,7 +91,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       apiClient.defaults.headers.common["Authorization"] = `Bearer ${token}`;
       const response = await apiClient.get("/auth/me");
-      setUser(response.data);
+      const userData = response.data;
+      setUser(userData);
+
+      // Handle multi-tenant house selection
+      const savedHouseId = localStorage.getItem("selectedHouseId");
+      if (userData.houses && userData.houses.length > 0) {
+        const foundHouse = savedHouseId 
+          ? userData.houses.find((h: House) => h.id.toString() === savedHouseId)
+          : userData.houses[0];
+        
+        setSelectedHouseState(foundHouse || userData.houses[0]);
+      }
     } catch (error) {
       console.error("Failed to fetch user", error);
       logout();
@@ -49,7 +112,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    fetchUser();
+    const init = async () => {
+      const isInitialized = await checkSystemStatus();
+      if (isInitialized) {
+        await fetchUser();
+      } else {
+        setLoading(false);
+      }
+    };
+    init();
   }, []);
 
   const login = async (token: string) => {
@@ -68,18 +139,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Protected route logic
   useEffect(() => {
-    if (!loading) {
-      const isPublicPage = pathname === "/login" || pathname === "/register";
+    if (!loading && initialized !== null) {
+      if (!initialized && pathname !== "/setup") {
+        router.push("/setup");
+        return;
+      }
+
+      if (initialized && pathname === "/setup") {
+        router.push("/login");
+        return;
+      }
+
+      const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup";
       if (!user && !isPublicPage) {
         router.push("/login");
       } else if (user && isPublicPage) {
         router.push("/");
       }
     }
-  }, [user, loading, pathname]);
+  }, [user, loading, initialized, pathname]);
+
+  const hasPermission = (permission: string): boolean => {
+    if (!user || !user.roles) return false;
+    
+    // Admin and Super Admin roles bypass permission checks
+    const isAdmin = user.roles.some(role => 
+      role.name.toLowerCase() === "admin" || 
+      role.name.toLowerCase() === "super admin" ||
+      role.name.toLowerCase() === "super_admin"
+    );
+    
+    if (isAdmin) return true;
+    
+    // Check if any role contains the required permission
+    return user.roles.some(role => 
+      role.permissions.some(p => p.name === permission)
+    );
+  };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      initialized, 
+      selectedHouse, 
+      setSelectedHouse, 
+      login, 
+      logout, 
+      refreshStatus,
+      hasPermission
+    }}>
       {children}
     </AuthContext.Provider>
   );

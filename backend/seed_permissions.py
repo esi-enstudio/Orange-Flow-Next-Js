@@ -15,8 +15,8 @@ async def seed_permissions():
         "view_retailers", "create_retailers", "edit_retailers", "delete_retailers",
         # BTS Management
         "view_bts", "create_bts", "edit_bts", "delete_bts",
-        # Field Force
-        "view_field_force", "manage_field_force",
+        # Employees
+        "view_employees", "create_employees", "edit_employees", "delete_employees", "import_employees", "export_employees",
         # Reports
         "view_reports", "download_reports",
     ]

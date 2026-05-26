@@ -6,7 +6,7 @@ from tqdm import tqdm
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
 
-from app.Models.field_force import FieldForce
+from app.Models.employee import Employee
 from app.Models.user import User         
 from app.Models.house import House
 from app.Services.db_service import async_session
@@ -15,7 +15,7 @@ from app.Utils.helpers import bn_num
 logger = logging.getLogger(__name__)
 
 # কলাম লিস্ট (DISTRIBUTOR_CODE যুক্ত করা হলো)
-FF_COLUMNS = [
+EMP_COLUMNS = [
     'DISTRIBUTOR_CODE', 'DMS_CODE', 'AGENCY_ID', 'NAME', 'TYPE', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
     'POOL_NUMBER', 'ASSISTED_RETAILER_CODE', 'SALARY', 'MARKET_TYPE', 
     'JOINING_DATE', 'RESIGNED_DATE', 'RELIGION', 'DOB', 'NID',
@@ -26,13 +26,13 @@ FF_COLUMNS = [
     'PREVIOUS_COMPANY_SALARY', 'MOTOR_BIKE', 'BICYCLE', 'DRIVING_LICENSE', 'STATUS'
 ]
 
-async def generate_ff_sample(file_path):
+async def generate_emp_sample(file_path):
     """স্যাম্পল এক্সেল ফাইল তৈরি"""
-    df = pd.DataFrame(columns=FF_COLUMNS)
+    df = pd.DataFrame(columns=EMP_COLUMNS)
     df.to_excel(file_path, index=False)
     return file_path
 
-async def process_field_force_excel(file_path, house_id, progress_callback=None):
+async def process_employee_excel(file_path, house_id, progress_callback=None):
     """উন্নত বাল্ক প্রসেসিং এবং ইউজার ম্যাপিং লজিক ✅"""
     try:
         # ১. ডাটা লোড
@@ -71,7 +71,7 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
             batch_data = []
             
             # tqdm বার শুরু (টার্মিনাল প্রগ্রেসের জন্য)
-            pbar = tqdm(total=total_rows, desc="📤 Field Force Uploading", unit="row")
+            pbar = tqdm(total=total_rows, desc="📤 Employee Uploading", unit="row")
 
             for index, row in df.iterrows():
                 dms_code_val = clean_val(row.get('DMS_CODE'))
@@ -99,10 +99,8 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
                     # তবে এখানে আমরা শুধু ডাটাবেজ ম্যাপ থেকে চেক করছি
                     pass # (অতিরিক্ত লজিক চাইলে এখানে যোগ করা যায়)
                 
-                # ৪. হাউজ আইডি নির্ধারণ (DISTRIBUTOR_CODE দিয়ে) ✅
-                # লজিক: যদি ফাইলে DISTRIBUTOR_CODE থাকে, তবে সেটি ডাটাবেসের হাউজ কোডের সাথে অবশ্যই মিলতে হবে।
-                # যদি ডাটাবেসে ওই কোডের কোনো হাউজ না থাকে, তবে ওই ফিল্ড ফোর্স ইমপোর্ট হবে না।
-                distributor_code_val = clean_val(row.get('DISTRIBUTOR_CODE'))
+                # ৪. হাউজ আইডি নির্ধারণ (DISTRIBUTOR_CODE বা DD_CODE দিয়ে) ✅
+                distributor_code_val = clean_val(row.get('DISTRIBUTOR_CODE')) or clean_val(row.get('DD_CODE'))
                 if distributor_code_val:
                     target_house_id = house_map.get(distributor_code_val.upper())
                     # যদি DISTRIBUTOR_CODE আছে কিন্তু আমাদের ডাটাবেসে নেই, তবে এটি স্কিপ হবে
@@ -163,20 +161,20 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
 
                 # ৫. ব্যাচ আপসার্ট ✅
                 if len(batch_data) >= batch_size:
-                    await do_bulk_upsert_ff(session, batch_data)
+                    await do_bulk_upsert_emp(session, batch_data)
                     count += len(batch_data)
                     pbar.update(len(batch_data)) # টার্মিনাল আপডেট
                     batch_data = []
                     if progress_callback:
-                        await update_progress_ff(count, total_rows, progress_callback)
+                        await update_progress_emp(count, total_rows, progress_callback)
 
             # অবশিষ্ট ডাটা
             if batch_data:
-                await do_bulk_upsert_ff(session, batch_data)
+                await do_bulk_upsert_emp(session, batch_data)
                 count += len(batch_data)
                 pbar.update(len(batch_data)) # টার্মিনাল আপডেট
                 if progress_callback:
-                    await update_progress_ff(count, total_rows, progress_callback)
+                    await update_progress_emp(count, total_rows, progress_callback)
 
             pbar.close() # প্রগ্রেস বার বন্ধ করা
             await session.commit()
@@ -186,9 +184,9 @@ async def process_field_force_excel(file_path, house_id, progress_callback=None)
         logger.error(f"❌ Excel Processing Error: {str(e)}")
         return 0, f"প্রসেসিং এরর: {str(e)}"
 
-async def do_bulk_upsert_ff(session, batch_data):
-    """ফিল্ড ফোর্সের জন্য বাল্ক আপসার্ট লজিক"""
-    stmt = insert(FieldForce).values(batch_data)
+async def do_bulk_upsert_emp(session, batch_data):
+    """এমপ্লয়ীর জন্য বাল্ক আপসার্ট লজিক"""
+    stmt = insert(Employee).values(batch_data)
     
     # কনফ্লিক্ট হলে কি কি আপডেট হবে
     excluded = stmt.excluded
@@ -206,10 +204,10 @@ async def do_bulk_upsert_ff(session, batch_data):
     )
     await session.execute(stmt)
 
-async def update_progress_ff(count, total_rows, progress_callback):
-    """ফিল্ড ফোর্স প্রগ্রেস আপডেট হেল্পার"""
+async def update_progress_emp(count, total_rows, progress_callback):
+    """এমপ্লয়ী প্রগ্রেস আপডেট হেল্পার"""
     percent = round((count / total_rows) * 100)
     await progress_callback(
-        f"📊 <b>ফিল্ড ফোর্স আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
+        f"📊 <b>এমপ্লয়ী আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
         f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
     )

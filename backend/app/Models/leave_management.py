@@ -15,7 +15,7 @@ class LeaveRequest(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
-    field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=False)
+    employee_id = Column(Integer, ForeignKey('employees.id'), nullable=False)
     
     # ছুটির বিস্তারিত
     leave_type = Column(String, nullable=False) # e.g., 'Sick', 'Casual', 'Emergency'
@@ -34,7 +34,7 @@ class LeaveRequest(Base):
 
     # Relationships
     house = relationship("House")
-    field_force = relationship("FieldForce", backref="leave_history")
+    employee = relationship("Employee", backref="leave_history")
     approver = relationship("User")
 
     @property

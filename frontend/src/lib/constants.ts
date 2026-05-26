@@ -25,10 +25,12 @@ export interface NavItem {
   href?: string;
   icon: LucideIcon;
   color?: string;
+  permission?: string;
   children?: {
     title: string;
     href: string;
     icon?: LucideIcon;
+    permission?: string;
   }[];
 }
 
@@ -44,20 +46,20 @@ export const navItems: NavItem[] = [
     icon: Network,
     color: "text-orange-500",
     children: [
-      { title: "Houses", href: "/houses" },
-      { title: "Field Force", href: "/field-force" },
-      { title: "Retailers", href: "/retailers" },
-      { title: "BTS Management", href: "/bts" },
+      { title: "Houses", href: "/houses", permission: "view_houses" },
+      { title: "Employees", href: "/employees", permission: "view_employees" },
+      { title: "Retailers", href: "/retailers", permission: "view_retailers" },
+      { title: "BTS Management", href: "/bts", permission: "view_bts" },
     ]
   },
   {
-    title: "Field Force Hub",
+    title: "Employee Hub",
     icon: Users2,
     color: "text-purple-500",
     children: [
-      { title: "Team Profiles", href: "/field-force" },
-      { title: "KPI Reports (GA/C2C)", href: "/reports/kpi" },
-      { title: "Attendance", href: "/attendance" },
+      { title: "Team Profiles", href: "/employees", permission: "view_employees" },
+      { title: "KPI Reports (GA/C2C)", href: "/reports/kpi", permission: "view_reports" },
+      { title: "Attendance", href: "/attendance", permission: "view_attendance" },
     ]
   },
   {
@@ -65,9 +67,9 @@ export const navItems: NavItem[] = [
     icon: Banknote,
     color: "text-green-500",
     children: [
-      { title: "GA Live Report", href: "/reports/ga-live" },
-      { title: "Lifting & Commission", href: "/commercial/lifting" },
-      { title: "Daily Expenses", href: "/commercial/expenses" },
+      { title: "GA Live Report", href: "/reports/ga-live", permission: "view_reports" },
+      { title: "Lifting & Commission", href: "/commercial/lifting", permission: "view_lifting" },
+      { title: "Daily Expenses", href: "/commercial/expenses", permission: "view_expenses" },
     ]
   },
   {
@@ -75,10 +77,10 @@ export const navItems: NavItem[] = [
     icon: Zap,
     color: "text-yellow-500",
     children: [
-      { title: "SIM Issue", href: "/dms/sim-issue" },
-      { title: "SIM Status Check", href: "/dms/sim-status" },
-      { title: "SIM Return", href: "/dms/sim-return" },
-      { title: "Scratch Card Issue", href: "/dms/scratch-card" },
+      { title: "SIM Issue", href: "/dms/sim-issue", permission: "view_sim_issue" },
+      { title: "SIM Status Check", href: "/dms/sim-status", permission: "view_sim_status" },
+      { title: "SIM Return", href: "/dms/sim-return", permission: "view_sim_return" },
+      { title: "Scratch Card Issue", href: "/dms/scratch-card", permission: "view_scratch_card" },
     ]
   },
   {
@@ -86,8 +88,8 @@ export const navItems: NavItem[] = [
     icon: Shield,
     color: "text-red-500",
     children: [
-      { title: "Roles", href: "/roles" },
-      { title: "Permissions", href: "/permissions" },
+      { title: "Roles", href: "/roles", permission: "view_roles" },
+      { title: "Permissions", href: "/permissions", permission: "view_permissions" },
     ]
   },
   {
@@ -95,8 +97,8 @@ export const navItems: NavItem[] = [
     icon: ShieldCheck,
     color: "text-cyan-500",
     children: [
-      { title: "User Management", href: "/users" },
-      { title: "System Settings", href: "/settings" },
+      { title: "User Management", href: "/users", permission: "view_users" },
+      { title: "System Settings", href: "/settings", permission: "view_settings" },
     ]
   },
 ];

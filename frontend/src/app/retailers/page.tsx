@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { 
   Home, 
   Plus, 
@@ -64,16 +66,25 @@ interface Retailer {
   dob: string;
   route: string;
   house?: { name: string, code: string };
-  field_force?: { name: string, itop_number: string };
+  employee?: { name: string, itop_number: string };
 }
 
 export default function RetailersPage() {
+  const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [retailers, setRetailers] = useState<Retailer[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const limit = 5; 
+
+  // Permission Check
+  useEffect(() => {
+    if (!authLoading && !hasPermission("view_retailers")) {
+      router.push("/");
+    }
+  }, [authLoading, hasPermission, router]);
 
   // Modal States
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
@@ -88,7 +99,7 @@ export default function RetailersPage() {
 
   // Form State
   const [formData, setFormData] = useState({
-    house_id: 0,
+    house_id: selectedHouse?.id || 0,
     retailer_code: "",
     name: "",
     type: "",
@@ -110,6 +121,7 @@ export default function RetailersPage() {
     dob: "",
     route: ""
   });
+
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -123,9 +135,6 @@ export default function RetailersPage() {
       ]);
       setRetailers(retRes.data);
       setHouses(houseRes.data);
-      if (houseRes.data.length > 0 && formData.house_id === 0) {
-        setFormData(prev => ({ ...prev, house_id: houseRes.data[0].id }));
-      }
     } catch (err) {
       console.error("Failed to fetch data", err);
       toast.error("Failed to load retailers");
@@ -136,12 +145,12 @@ export default function RetailersPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedHouse]); // Refetch when house changes
 
   const openAddModal = () => {
     setEditingRetailer(null);
     setFormData({
-      house_id: houses[0]?.id || 0,
+      house_id: selectedHouse?.id || houses[0]?.id || 0,
       retailer_code: "",
       name: "",
       type: "",
@@ -331,11 +340,11 @@ export default function RetailersPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Retailer List</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">Manage retailers, iTop numbers and locations.</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
             <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
             <button 
                 onClick={handleImportClick}
-                disabled={isImporting}
+                disabled={isImporting || !selectedHouse}
                 className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
             >
                 {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
@@ -434,11 +443,11 @@ export default function RetailersPage() {
                       <td className="px-6 py-4">
                         <div className="space-y-1">
                           <p className="text-xs font-bold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                            <User className="w-3 h-3 text-purple-500" /> {r.field_force?.name || "No RSO"}
+                            <User className="w-3 h-3 text-purple-500" /> {r.employee?.name || "No RSO"}
                           </p>
-                          {r.field_force?.itop_number && (
+                          {r.employee?.itop_number && (
                             <p className="text-[10px] text-gray-500 dark:text-gray-400 font-mono flex items-center gap-1">
-                                <Smartphone className="w-2.5 h-2.5 text-blue-500" /> {r.field_force.itop_number}
+                                <Smartphone className="w-2.5 h-2.5 text-blue-500" /> {r.employee.itop_number}
                             </p>
                           )}
                         </div>

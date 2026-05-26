@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { 
   Users2, 
   Plus, 
@@ -27,7 +29,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
-interface FieldForce {
+interface Employee {
   id: number;
   house_id: number;
   user_id?: number;
@@ -50,23 +52,32 @@ interface House {
   name: string;
 }
 
-export default function FieldForcePage() {
-  const [members, setMembers] = useState<FieldForce[]>([]);
+export default function EmployeesPage() {
+  const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const [members, setMembers] = useState<Employee[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const limit = 8;
 
+  // Permission Check
+  useEffect(() => {
+    if (!authLoading && !hasPermission("view_employees")) {
+      router.push("/");
+    }
+  }, [authLoading, hasPermission, router]);
+
   // Modal States
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [editingMember, setEditingMember] = useState<FieldForce | null>(null);
+  const [editingMember, setEditingMember] = useState<Employee | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   
   // Form State
   const [formData, setFormData] = useState({
-    house_id: 0,
+    house_id: selectedHouse?.id || 0,
     name: "",
     dms_code: "",
     itop_number: "",
@@ -85,15 +96,12 @@ export default function FieldForcePage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [ffRes, housesRes] = await Promise.all([
-        apiClient.get("/field-force"),
+      const [empRes, housesRes] = await Promise.all([
+        apiClient.get("/employees"),
         apiClient.get("/houses")
       ]);
-      setMembers(ffRes.data);
+      setMembers(empRes.data);
       setHouses(housesRes.data);
-      if (housesRes.data.length > 0 && !formData.house_id) {
-        setFormData(prev => ({ ...prev, house_id: housesRes.data[0].id }));
-      }
     } catch (err) {
       toast.error("Failed to fetch data");
     } finally {
@@ -103,12 +111,12 @@ export default function FieldForcePage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedHouse]);
 
   const openAddModal = () => {
     setEditingMember(null);
     setFormData({
-      house_id: houses[0]?.id || 0,
+      house_id: selectedHouse?.id || houses[0]?.id || 0,
       name: "",
       dms_code: "",
       itop_number: "",
@@ -125,7 +133,7 @@ export default function FieldForcePage() {
     setIsFormModalOpen(true);
   };
 
-  const openEditModal = (m: FieldForce) => {
+  const openEditModal = (m: Employee) => {
     setEditingMember(m);
     setFormData({
       house_id: m.house_id,
@@ -150,11 +158,11 @@ export default function FieldForcePage() {
     setFormLoading(true);
     try {
       if (editingMember) {
-        await apiClient.put(`/field-force/${editingMember.id}`, formData);
-        toast.success("Member updated successfully");
+        await apiClient.put(`/employees/${editingMember.id}`, formData);
+        toast.success("Employee updated successfully");
       } else {
-        await apiClient.post("/field-force", formData);
-        toast.success("Member added successfully");
+        await apiClient.post("/employees", formData);
+        toast.success("Employee added successfully");
       }
       setIsFormModalOpen(false);
       fetchData();
@@ -169,8 +177,8 @@ export default function FieldForcePage() {
     if (!deletingId) return;
     setFormLoading(true);
     try {
-      await apiClient.delete(`/field-force/${deletingId}`);
-      toast.success("Member deleted successfully");
+      await apiClient.delete(`/employees/${deletingId}`);
+      toast.success("Employee deleted successfully");
       setIsConfirmOpen(false);
       fetchData();
     } catch (err) {
@@ -194,11 +202,11 @@ export default function FieldForcePage() {
     <div className="space-y-6 animate-in fade-in duration-500 p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Field Force Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Employee Management</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage SRs, BPs, and Supervisors across all houses.</p>
         </div>
         <button onClick={openAddModal} className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-bold hover:bg-orange-700 transition-colors shadow-lg">
-          <Plus className="w-4 h-4" /> Add New Member
+          <Plus className="w-4 h-4" /> Add New Employee
         </button>
       </div>
 
@@ -219,14 +227,14 @@ export default function FieldForcePage() {
         {loading ? (
           <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-orange-500"/></div>
         ) : filteredMembers.length === 0 ? (
-          <div className="py-20 text-center text-gray-500">No members found</div>
+          <div className="py-20 text-center text-gray-500">No employees found</div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-800 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b dark:border-slate-800">
-                    <th className="px-6 py-4">Member Info</th>
+                    <th className="px-6 py-4">Employee Info</th>
                     <th className="px-6 py-4">DMS & iTop</th>
                     <th className="px-6 py-4">Role & House</th>
                     <th className="px-6 py-4">Status</th>
@@ -295,7 +303,7 @@ export default function FieldForcePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b dark:border-slate-800 flex items-center justify-between">
-              <h3 className="text-lg font-bold dark:text-gray-100">{editingMember ? "Edit Member" : "New Member"}</h3>
+              <h3 className="text-lg font-bold dark:text-gray-100">{editingMember ? "Edit Employee" : "New Employee"}</h3>
               <button onClick={() => setIsFormModalOpen(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleFormSubmit} className="p-6 overflow-y-auto space-y-4">
@@ -343,7 +351,7 @@ export default function FieldForcePage() {
                 <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-2 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl">Cancel</button>
                 <button type="submit" disabled={formLoading} className="flex-[2] py-2 bg-orange-600 text-white rounded-xl text-sm font-bold hover:bg-orange-700 disabled:opacity-50 flex items-center justify-center gap-2">
                   {formLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>}
-                  {editingMember ? "Save Changes" : "Register Member"}
+                  {editingMember ? "Save Changes" : "Register Employee"}
                 </button>
               </div>
             </form>
@@ -355,8 +363,8 @@ export default function FieldForcePage() {
         isOpen={isConfirmOpen}
         onClose={() => setIsConfirmOpen(false)}
         onConfirm={handleConfirmDelete}
-        title="Delete Member?"
-        message="Permanently remove this member from the field force list?"
+        title="Delete Employee?"
+        message="Permanently remove this employee from the list?"
         type="danger"
         loading={formLoading}
       />

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { 
   Home, 
   Plus, 
@@ -56,11 +58,20 @@ interface House {
 }
 
 export default function HousesPage() {
+  const { hasPermission, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [houses, setHouses] = useState<House[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const limit = 5;
+
+  // Permission Check
+  useEffect(() => {
+    if (!authLoading && !hasPermission("view_houses")) {
+      router.push("/");
+    }
+  }, [authLoading, hasPermission, router]);
 
   // Modal States
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);

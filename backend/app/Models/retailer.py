@@ -8,7 +8,7 @@ class Retailer(Base):
 
     id = Column(Integer, primary_key=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
-    field_force_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True)
+    employee_id = Column(Integer, ForeignKey('employees.id'), nullable=True)
 
     # আপনার দেওয়া নির্দিষ্ট কলামসমূহ
     cluster = Column(String)                       # CLUSTERNAME
@@ -43,4 +43,4 @@ class Retailer(Base):
     # রিলেশন:
     activations = relationship("Activation", back_populates="retailer")
     live_activations = relationship("LiveActivation", back_populates="retailer")
-    field_force = relationship("FieldForce", back_populates="retailers")
+    employee = relationship("Employee", back_populates="retailers")

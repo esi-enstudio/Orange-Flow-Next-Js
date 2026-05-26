@@ -156,7 +156,7 @@ RSO_META_COLUMNS = [
 ]
 
 from app.Models.house import House
-from app.Models.field_force import FieldForce
+from app.Models.employee import Employee
 
 async def process_target_excel_unified(file_path, target_date, progress_callback=None):
     """Excel ফাইলের প্রতিটি শিট চেক করে অটোমেটিক প্রসেস করার লজিক ✅"""
@@ -173,23 +173,23 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
             all_houses = houses_res.scalars().all()
             house_map = {normalize_code(h.code): h.id for h in all_houses}
             
-            # Fetch ALL field forces for mapping
-            ff_res = await session.execute(select(FieldForce))
-            all_ff = ff_res.scalars().all()
+            # Fetch ALL employees for mapping
+            emp_res = await session.execute(select(Employee))
+            all_emp = emp_res.scalars().all()
             
-            # Active Field Forces for TARGET UPLOAD
-            active_ff = [f for f in all_ff if f.status == 'Active']
+            # Active Employees for TARGET UPLOAD
+            active_emp = [f for f in all_emp if f.status == 'Active']
             
             # RSO map for TARGET UPLOAD (Strictly Type='RSO')
             rso_map_active = {}
-            for f in active_ff:
+            for f in active_emp:
                 f_type_upper = (f.type or "").upper()
                 if f.dms_code and f_type_upper == 'RSO':
                     rso_map_active[normalize_code(f.dms_code)] = f.id
             
             # Supervisor map for RSO linkage (Historical/All)
             sup_map_all = {}
-            for f in all_ff:
+            for f in all_emp:
                 if f.pool_number:
                     sup_map_all[normalize_msisdn(f.pool_number)] = f.id
                 elif f.itop_number:
@@ -197,7 +197,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
 
             # Supervisor map for TARGET UPLOAD (Strictly ACTIVE, POOL_NUMBER, and Type='Supervisor')
             sup_map_active_pool = {}
-            for f in active_ff:
+            for f in active_emp:
                 f_type_upper = (f.type or "").upper()
                 if f.pool_number and f_type_upper == 'SUPERVISOR':
                     sup_map_active_pool[normalize_msisdn(f.pool_number)] = f.id
@@ -227,7 +227,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     model = SupervisorTarget
                     col_map = SUPERVISOR_COLUMN_MAP
                     meta_cols = SUPERVISOR_META_COLUMNS
-                    conflict_elements = ['field_force_id', 'target_date']
+                    conflict_elements = ['employee_id', 'target_date']
                 elif 'HOUSE' in name_upper or 'DD' in name_upper or 'TOTAL_GA_TARGET' in clean_cols:
                     target_type = 'house'
                     model = HouseTarget
@@ -239,7 +239,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     model = RSOTarget
                     col_map = RSO_COLUMN_MAP
                     meta_cols = RSO_META_COLUMNS
-                    conflict_elements = ['field_force_id', 'target_date']
+                    conflict_elements = ['employee_id', 'target_date']
                 
                 if not target_type:
                     logger.warning(f"Skipping unknown sheet: {sheet_name}")
@@ -287,18 +287,18 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     
                     elif target_type == 'supervisor':
                         s_msisdn = normalize_msisdn(excel_values.get('supervisor_msisdn'))
-                        ff_id = sup_map_active_pool.get(s_msisdn)
-                        if not ff_id: continue # Active এবং Pool Number ম্যাচ না করলে স্কিপ
-                        values['field_force_id'] = ff_id
+                        emp_id = sup_map_active_pool.get(s_msisdn)
+                        if not emp_id: continue # Active এবং Pool Number ম্যাচ না করলে স্কিপ
+                        values['employee_id'] = emp_id
                         for k, v in excel_values.items():
                             if k not in ['house_code', 'supervisor_msisdn']:
                                 values[k] = v
 
                     elif target_type == 'rso':
                         r_code = normalize_code(excel_values.get('rso_code'))
-                        ff_id = rso_map_active.get(r_code)
-                        if not ff_id: continue 
-                        values['field_force_id'] = ff_id
+                        emp_id = rso_map_active.get(r_code)
+                        if not emp_id: continue 
+                        values['employee_id'] = emp_id
                         
                         # Ensure supervisor_id exists in dict even if None
                         values['supervisor_id'] = None

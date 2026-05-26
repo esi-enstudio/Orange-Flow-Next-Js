@@ -41,8 +41,8 @@ class User(Base):
     # হাউজের সাথে রিলেশনশিপ
     houses = relationship("House", secondary=user_houses, back_populates="users", lazy="selectin")
 
-    # ফিল্ড ফোর্স এর সাথে রিলেশনশিপ
-    field_force_profile = relationship("FieldForce", back_populates="user", uselist=False)
+    # এমপ্লয়ী এর সাথে রিলেশনশিপ
+    employee_profile = relationship("Employee", back_populates="user", uselist=False)
 
     # রিপোর্টিং লাইন রিলেশনশিপ
     parent = relationship("User", remote_side=[id], backref="subordinates")

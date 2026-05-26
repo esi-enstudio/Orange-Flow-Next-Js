@@ -7,9 +7,9 @@ from typing import Optional
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
-    # Telegram Bot
-    BOT_TOKEN: str
-    SUPER_ADMIN_ID: int
+    # Note: Telegram Bot settings are deprecated for web-only mode
+    # BOT_TOKEN: str
+    # SUPER_ADMIN_ID: int
 
     # Database
     DB_USER: str
@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     DB_PORT: str = "5432"
     DB_NAME: str
 
-    # Ngrok & Webhook
+    # Ngrok & Webhook (Mostly legacy, but kept for potential OTP services)
     NGROK_AUTH_TOKEN: Optional[str] = None
     WEBHOOK_PORT: int = 8080
     START_NGROK: bool = False
@@ -51,14 +51,7 @@ class Settings(BaseSettings):
 # Instantiate settings
 settings = Settings()
 
-# Export for backward compatibility with existing code
-BOT_TOKEN = settings.BOT_TOKEN
-SUPER_ADMIN_ID = settings.SUPER_ADMIN_ID
-NGROK_AUTH_TOKEN = settings.NGROK_AUTH_TOKEN
-WEBHOOK_PORT = settings.WEBHOOK_PORT
-FORWARD_OTPS_TO = settings.FORWARD_OTPS_TO
-START_NGROK = settings.START_NGROK
-STATIC_DOMAIN = settings.STATIC_DOMAIN
+# Export for backward compatibility
 DISABLE_SCHEDULER = settings.DISABLE_SCHEDULER
 ENABLE_GA_SYNC = settings.ENABLE_GA_SYNC
 HEADLESS = settings.HEADLESS_MODE

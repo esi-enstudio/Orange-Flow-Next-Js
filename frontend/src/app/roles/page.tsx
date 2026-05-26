@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { 
   Shield, 
   Plus, 
@@ -30,6 +32,8 @@ interface Role {
 }
 
 export default function RolesPage() {
+  const { hasPermission, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [roles, setRoles] = useState<Role[]>([]);
   const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +42,15 @@ export default function RolesPage() {
   const [roleName, setRoleName] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<number[]>([]);
   const [formLoading, setFormLoading] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
+
+  // Permission Check
+  useEffect(() => {
+    if (!authLoading && !hasPermission("view_roles")) {
+      router.push("/");
+    }
+  }, [authLoading, hasPermission, router]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -71,6 +84,27 @@ export default function RolesPage() {
     setRoleName(role.name);
     setSelectedPermissions(role.permissions.map(p => p.id));
     setIsModalOpen(true);
+  };
+
+  const openDeleteModal = (role: Role) => {
+    setRoleToDelete(role);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!roleToDelete) return;
+    setFormLoading(true);
+    try {
+      await apiClient.delete(`/roles/${roleToDelete.id}`);
+      toast.success("Role deleted successfully!");
+      setIsDeleteModalOpen(false);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Failed to delete role");
+    } finally {
+      setFormLoading(false);
+      setRoleToDelete(null);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -147,9 +181,14 @@ export default function RolesPage() {
                     >
                       <Settings2 className="w-4 h-4" />
                     </button>
-                    <button className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {role.name.toLowerCase() !== "super admin" && (
+                      <button 
+                        onClick={() => openDeleteModal(role)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 
@@ -173,6 +212,40 @@ export default function RolesPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-red-50 dark:bg-red-500/10 rounded-2xl flex items-center justify-center text-red-600 mx-auto mb-6">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">Delete Role?</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Are you sure you want to delete the role <span className="font-bold text-gray-900 dark:text-gray-100">"{roleToDelete?.name}"</span>? 
+                This action cannot be undone and may affect users assigned to this role.
+              </p>
+            </div>
+            <div className="p-6 bg-gray-50/50 dark:bg-slate-800/50 border-t border-gray-100 dark:border-slate-800 flex gap-3">
+              <button 
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="flex-1 py-3 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleDelete}
+                disabled={formLoading}
+                className="flex-1 py-3 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-200 dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete Role
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -216,53 +289,87 @@ export default function RolesPage() {
                   <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">Permissions</h4>
                   <button 
                     type="button"
-                    onClick={() => setSelectedPermissions(allPermissions.map(p => p.id))}
-                    className="text-xs font-bold text-orange-600 hover:underline"
+                    onClick={() => {
+                      if (selectedPermissions.length === allPermissions.length) {
+                        setSelectedPermissions([]);
+                      } else {
+                        setSelectedPermissions(allPermissions.map(p => p.id));
+                      }
+                    }}
+                    className="text-xs font-bold text-orange-600 hover:text-orange-700 transition-colors bg-orange-50 dark:bg-orange-500/10 px-3 py-1.5 rounded-lg"
                   >
-                    Select All
+                    {selectedPermissions.length === allPermissions.length ? "Deselect All" : "Select All"}
                   </button>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {Object.entries(groupedPermissions).map(([module, perms]) => (
-                    <div key={module} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 overflow-hidden shadow-sm">
-                      <div className="px-4 py-3 bg-gray-50/50 dark:bg-slate-800/50 border-b border-gray-50 dark:border-slate-800">
-                        <h5 className="text-xs font-bold text-gray-600 dark:text-gray-400 capitalize">{module}</h5>
-                      </div>
-                      <div className="p-4 space-y-2">
-                        {perms.map(perm => {
-                          const isActive = selectedPermissions.includes(perm.id);
-                          return (
-                            <div 
-                              key={perm.id}
-                              onClick={() => togglePermission(perm.id)}
-                              className={cn(
-                                "flex items-center justify-between p-2 rounded-xl cursor-pointer transition-all border",
-                                isActive 
-                                  ? "bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/20" 
-                                  : "bg-white dark:bg-slate-900 border-transparent hover:border-gray-200 dark:hover:border-slate-700"
-                              )}
-                            >
-                              <span className={cn(
-                                "text-xs font-medium",
-                                isActive ? "text-orange-700 dark:text-orange-400" : "text-gray-600 dark:text-gray-400"
-                              )}>
-                                {perm.name.split('_')[0].toUpperCase()}
-                              </span>
-                              <div className={cn(
-                                "w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all",
-                                isActive 
-                                  ? "bg-orange-600 border-orange-600 text-white" 
-                                  : "border-gray-300 dark:border-slate-700"
-                              )}>
-                                {isActive && <Check className="w-3 h-3 stroke-[4]" />}
+                  {Object.entries(groupedPermissions).map(([module, perms]) => {
+                    const modulePermIds = perms.map(p => p.id);
+                    const isModuleFullySelected = modulePermIds.every(id => selectedPermissions.includes(id));
+                    const isModulePartiallySelected = modulePermIds.some(id => selectedPermissions.includes(id)) && !isModuleFullySelected;
+
+                    const toggleModule = () => {
+                      if (isModuleFullySelected) {
+                        setSelectedPermissions(prev => prev.filter(id => !modulePermIds.includes(id)));
+                      } else {
+                        setSelectedPermissions(prev => [...new Set([...prev, ...modulePermIds])]);
+                      }
+                    };
+
+                    return (
+                      <div key={module} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 overflow-hidden shadow-sm hover:border-orange-100 dark:hover:border-orange-900/30 transition-colors">
+                        <div 
+                          onClick={toggleModule}
+                          className="px-4 py-3 bg-gray-50/50 dark:bg-slate-800/50 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between cursor-pointer group"
+                        >
+                          <h5 className="text-xs font-bold text-gray-600 dark:text-gray-400 capitalize group-hover:text-orange-600 transition-colors">{module}</h5>
+                          <div className={cn(
+                            "w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all",
+                            isModuleFullySelected 
+                              ? "bg-orange-600 border-orange-600 text-white" 
+                              : isModulePartiallySelected
+                                ? "bg-orange-100 dark:bg-orange-900/30 border-orange-400 text-orange-600"
+                                : "border-gray-300 dark:border-slate-700 group-hover:border-orange-300"
+                          )}>
+                            {isModuleFullySelected && <Check className="w-3 h-3 stroke-[4]" />}
+                            {isModulePartiallySelected && <div className="w-2 h-0.5 bg-orange-600 rounded-full" />}
+                          </div>
+                        </div>
+                        <div className="p-4 space-y-2">
+                          {perms.map(perm => {
+                            const isActive = selectedPermissions.includes(perm.id);
+                            return (
+                              <div 
+                                key={perm.id}
+                                onClick={() => togglePermission(perm.id)}
+                                className={cn(
+                                  "flex items-center justify-between p-2 rounded-xl cursor-pointer transition-all border",
+                                  isActive 
+                                    ? "bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/20" 
+                                    : "bg-white dark:bg-slate-900 border-transparent hover:border-gray-200 dark:hover:border-slate-700"
+                                )}
+                              >
+                                <span className={cn(
+                                  "text-xs font-medium",
+                                  isActive ? "text-orange-700 dark:text-orange-400" : "text-gray-600 dark:text-gray-400"
+                                )}>
+                                  {perm.name.split('_')[0].toUpperCase()}
+                                </span>
+                                <div className={cn(
+                                  "w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all",
+                                  isActive 
+                                    ? "bg-orange-600 border-orange-600 text-white" 
+                                    : "border-gray-300 dark:border-slate-700"
+                                )}>
+                                  {isActive && <Check className="w-3 h-3 stroke-[4]" />}
+                                </div>
                               </div>
-                            </div>
-                          )
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

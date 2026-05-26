@@ -3,8 +3,8 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.Models.base import Base
 
-class FieldForce(Base):
-    __tablename__ = "field_forces"
+class Employee(Base):
+    __tablename__ = "employees"
 
     id = Column(Integer, primary_key=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
@@ -58,16 +58,16 @@ class FieldForce(Base):
     salary = Column(String)
     
     # Hierarchy
-    supervisor_id = Column(Integer, ForeignKey('field_forces.id'), nullable=True)
+    supervisor_id = Column(Integer, ForeignKey('employees.id'), nullable=True)
     
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
     # রিলেশনশিপসমূহ
     house = relationship("House")
-    supervisor = relationship("FieldForce", remote_side=[id], backref="subordinates")
+    supervisor = relationship("Employee", remote_side=[id], backref="subordinates")
 
-    # রিলেশন: এক আরএসও-র আন্ডারে অনেক রিটেইলার থাকতে পারে
-    retailers = relationship("Retailer", back_populates="field_force")
+    # রিলেশন: এক এমপ্লয়ীর আন্ডারে অনেক রিটেইলার থাকতে পারে
+    retailers = relationship("Retailer", back_populates="employee")
 
-    user = relationship("User", back_populates="field_force_profile") # ইউজারের সাথে লিঙ্ক
+    user = relationship("User", back_populates="employee_profile") # ইউজারের সাথে লিঙ্ক

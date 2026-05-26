@@ -7,6 +7,18 @@ const apiClient = axios.create({
   },
 });
 
+// Request interceptor to add house context
+apiClient.interceptors.request.use(
+  (config) => {
+    const houseId = localStorage.getItem("selectedHouseId");
+    if (houseId) {
+      config.headers["X-House-ID"] = houseId;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 // Response interceptor for consistent error handling
 apiClient.interceptors.response.use(
   (response) => response,

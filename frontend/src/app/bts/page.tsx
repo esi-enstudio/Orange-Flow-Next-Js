@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import axios from "axios";
-import { 
-  Search, 
+import { useRouter } from "next/navigation";
+import apiClient from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import {
+  Search,
+ 
   MapPin, 
   Wifi, 
   Signal, 
@@ -24,17 +27,25 @@ interface BTS {
 }
 
 export default function BTSPage() {
+  const { hasPermission, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [btsList, setBtsList] = useState<BTS[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const limit = 12;
 
+  // Permission Check
+  useEffect(() => {
+    if (!authLoading && !hasPermission("view_bts")) {
+      router.push("/");
+    }
+  }, [authLoading, hasPermission, router]);
+
   const fetchBTS = async () => {
     setLoading(true);
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-      const response = await axios.get(`${baseUrl}/bts`, {
+      const response = await apiClient.get("/bts", {
         params: {
           search,
           skip: page * limit,

@@ -5,43 +5,88 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { navItems } from "@/lib/constants";
-import { ChevronRight, ChevronDown, LogOut } from "lucide-react";
+import { ChevronRight, ChevronDown, LogOut, Bell, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { HouseSelector } from "./HouseSelector";
+import { ThemeToggle } from "./ThemeToggle";
 import { motion, AnimatePresence } from "framer-motion";
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+
+  // Filter items based on permissions - use memo to prevent mutation of constant
+  const filteredNavItems = React.useMemo(() => {
+    return navItems
+      .map(item => ({ ...item })) // Shallow clone parent
+      .filter(item => {
+        // 1. If it has a direct permission, check it
+        if (item.permission && !hasPermission(item.permission)) return false;
+
+        // 2. If it has children, check if any child is visible
+        if (item.children) {
+          const visibleChildren = item.children.filter(child => 
+            !child.permission || hasPermission(child.permission)
+          );
+          // If no children are visible, hide the parent
+          if (visibleChildren.length === 0) return false;
+          
+          // Assign cloned children
+          item.children = visibleChildren;
+        }
+
+        return true;
+      });
+  }, [hasPermission]);
 
   // Auto-open parent menu if a child is active
   React.useEffect(() => {
-    const activeParent = navItems.find(item => 
+    const activeParent = filteredNavItems.find(item => 
       item.children?.some(child => child.href === pathname)
     );
     if (activeParent) {
       setOpenMenu(activeParent.title);
     }
-  }, [pathname]);
+  }, [pathname, filteredNavItems]);
 
   const toggleMenu = (title: string) => {
     setOpenMenu(prev => prev === title ? null : title);
   };
 
-  return (
-    <aside className="hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 h-screen sticky top-0 overflow-y-auto transition-colors duration-300 scrollbar-hide">
+  const sidebarContent = (
+    <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
       <div className="p-6">
-        <div className="flex items-center gap-2 mb-8">
-          <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-200 dark:shadow-none">
-            <span className="text-white font-bold text-lg">O</span>
+        <div className="flex items-center justify-between gap-2 mb-8">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-200 dark:shadow-none">
+              <span className="text-white font-bold text-lg">O</span>
+            </div>
+            <span className="font-bold text-xl tracking-tight dark:text-gray-100">OrangeFlow</span>
           </div>
-          <span className="font-bold text-xl tracking-tight dark:text-gray-100">OrangeFlow</span>
+          {/* Mobile Close Button */}
+          <button 
+            onClick={onClose}
+            className="md:hidden p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl bg-gray-50 dark:bg-slate-800"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Global House Selector */}
+        <div className="mb-6 px-1">
+          <HouseSelector />
         </div>
 
         <nav className="space-y-1">
-          {navItems.map((item) => {
+          {filteredNavItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
-            const isOpen = openMenu === item.title;
+            const isOpenMenu = openMenu === item.title;
             const isParentActive = item.children?.some(c => c.href === pathname);
             const isDirectActive = item.href === pathname;
 
@@ -67,12 +112,13 @@ export function Sidebar() {
                     </div>
                     <ChevronDown className={cn(
                       "w-4 h-4 opacity-40 transition-transform duration-200",
-                      isOpen && "rotate-180"
+                      isOpenMenu && "rotate-180"
                     )} />
                   </button>
                 ) : (
                   <Link
                     href={item.href || "#"}
+                    onClick={() => { if (window.innerWidth < 768 && onClose) onClose(); }}
                     className={cn(
                       "flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 group",
                       isDirectActive
@@ -92,7 +138,7 @@ export function Sidebar() {
                 )}
 
                 <AnimatePresence>
-                  {hasChildren && isOpen && (
+                  {hasChildren && isOpenMenu && (
                     <motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
@@ -108,6 +154,7 @@ export function Sidebar() {
                             <Link
                               key={child.href}
                               href={child.href}
+                              onClick={() => { if (window.innerWidth < 768 && onClose) onClose(); }}
                               className={cn(
                                 "flex items-center gap-4 px-3 py-2 rounded-lg text-xs transition-all group/item",
                                 isChildActive
@@ -115,14 +162,12 @@ export function Sidebar() {
                                   : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
                               )}
                             >
-                              {/* Simple Bullet Point */}
                               <div className={cn(
                                 "w-1.5 h-1.5 rounded-full transition-all duration-300",
                                 isChildActive 
                                   ? "bg-orange-500 scale-125" 
                                   : "bg-gray-300 dark:bg-slate-700 group-hover/item:bg-orange-300"
                               )} />
-                              
                               <span className="flex-1">{child.title}</span>
                             </Link>
                           );
@@ -138,6 +183,15 @@ export function Sidebar() {
       </div>
 
       <div className="mt-auto p-6 space-y-4">
+        {/* Theme and Notifications */}
+        <div className="flex items-center justify-between gap-2 mb-2 p-1.5 bg-gray-50 dark:bg-slate-800/50 rounded-2xl border border-gray-100 dark:border-slate-800/50">
+            <ThemeToggle />
+            <button className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10 rounded-xl transition-all relative">
+              <Bell className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"></span>
+            </button>
+        </div>
+
         <div className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-slate-800 rounded-xl">
           <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-600 dark:text-orange-400 font-bold text-xs">
             {user?.name?.charAt(0) || "U"}
@@ -155,6 +209,39 @@ export function Sidebar() {
           </button>
         </div>
       </div>
-    </aside>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 h-screen sticky top-0 transition-colors duration-300 scrollbar-hide">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Drawer */}
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={onClose}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] md:hidden"
+            />
+            <motion.aside
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 w-72 bg-white dark:bg-slate-900 z-[101] md:hidden shadow-2xl transition-colors duration-300"
+            >
+              {sidebarContent}
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

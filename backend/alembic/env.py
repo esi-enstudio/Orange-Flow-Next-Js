@@ -16,7 +16,7 @@ from app.Models.base import Base
 from app.Models.user import User
 from app.Models.role import Role, Permission
 from app.Models.house import House
-from app.Models.field_force import FieldForce
+from app.Models.employee import Employee
 from app.Models.retailer import Retailer
 from app.Models.activation import Activation
 from app.Models.live_activation import LiveActivation

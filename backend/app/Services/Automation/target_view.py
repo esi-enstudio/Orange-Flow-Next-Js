@@ -1,10 +1,10 @@
 import pandas as pd
 import os
 from datetime import datetime
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload, joinedload
 from app.Models.house import House
-from app.Models.field_force import FieldForce
+from app.Models.employee import Employee
 from app.Models.house_target import HouseTarget
 from app.Models.supervisor_target import SupervisorTarget
 from app.Models.rso_target import RSOTarget
@@ -81,7 +81,7 @@ async def get_supervisor_target_full_info(month, year, page=1, total_count=None)
 
         stmt = select(SupervisorTarget).options(
             joinedload(SupervisorTarget.house),
-            joinedload(SupervisorTarget.field_force)
+            joinedload(SupervisorTarget.employee)
         ).where(SupervisorTarget.target_date == target_date)\
         .order_by(SupervisorTarget.id)\
         .offset(page - 1).limit(1)
@@ -93,15 +93,15 @@ async def get_supervisor_target_full_info(month, year, page=1, total_count=None)
         return None, total_count, "Target not found."
 
     h_name = t.house.name if t.house else "Unknown"
-    ff_name = t.field_force.name if t.field_force else "Unknown"
-    ff_msisdn = t.field_force.pool_number if t.field_force else "Unknown"
+    emp_name = t.employee.name if t.employee else "Unknown"
+    emp_msisdn = t.employee.pool_number if t.employee else "Unknown"
 
     text = (
         f"👨‍💼 **Supervisor Target Detail ({month}/{year})**\n"
         f"Page: {page}/{total_count}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **{ff_name}**\n"
-        f"📱 MSISDN: {ff_msisdn}\n"
+        f"👤 **{emp_name}**\n"
+        f"📱 MSISDN: {emp_msisdn}\n"
         f"🏘️ House: {h_name}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📈 **Target Details**\n"
@@ -136,7 +136,7 @@ async def get_rso_target_full_info(month, year, page=1, total_count=None):
 
         stmt = select(RSOTarget).options(
             joinedload(RSOTarget.house),
-            joinedload(RSOTarget.field_force)
+            joinedload(RSOTarget.employee)
         ).where(RSOTarget.target_date == target_date)\
         .order_by(RSOTarget.id)\
         .offset(page - 1).limit(1)
@@ -148,16 +148,16 @@ async def get_rso_target_full_info(month, year, page=1, total_count=None):
         return None, total_count, "Target not found."
 
     h_name = t.house.name if t.house else "Unknown"
-    ff_name = t.field_force.name if t.field_force else "Unknown"
-    ff_msisdn = t.field_force.itop_number if t.field_force else "Unknown"
-    ff_code = t.field_force.dms_code if t.field_force else "Unknown"
+    emp_name = t.employee.name if t.employee else "Unknown"
+    emp_msisdn = t.employee.itop_number if t.employee else "Unknown"
+    emp_code = t.employee.dms_code if t.employee else "Unknown"
 
     text = (
         f"👤 **RSO Target Detail ({month}/{year})**\n"
         f"Page: {page}/{total_count}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📱 **{ff_name}** ({ff_code})\n"
-        f"📞 MSISDN: {ff_msisdn}\n"
+        f"📱 **{emp_name}** ({emp_code})\n"
+        f"📞 MSISDN: {emp_msisdn}\n"
         f"🏘️ House: {h_name}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 **Original Targets**\n"
@@ -190,49 +190,49 @@ async def get_rso_target_full_info(month, year, page=1, total_count=None):
 async def get_rso_target_by_query(month, year, query):
     target_date = datetime(year, month, 1)
     async with async_session() as session:
-        # Search for FF first
-        ff_stmt = select(FieldForce).where(
-            (FieldForce.dms_code == query) | 
-            (FieldForce.itop_number == query) | 
-            (FieldForce.pool_number == query) |
-            (FieldForce.personal_number == query)
+        # Search for Employee first
+        emp_stmt = select(Employee).where(
+            (Employee.dms_code == query) | 
+            (Employee.itop_number == query) | 
+            (Employee.pool_number == query) |
+            (Employee.personal_number == query)
         )
-        ff_res = await session.execute(ff_stmt)
-        ff = ff_res.scalar_one_or_none()
+        emp_res = await session.execute(emp_stmt)
+        emp = emp_res.scalar_one_or_none()
         
-        if not ff:
-            return None, "RSO not found with this Code/MSISDN."
+        if not emp:
+            return None, "Employee not found with this Code/MSISDN."
             
         # Get target
         stmt = select(RSOTarget).options(
             joinedload(RSOTarget.house),
-            joinedload(RSOTarget.field_force)
+            joinedload(RSOTarget.employee)
         ).where(
             (RSOTarget.target_date == target_date) & 
-            (RSOTarget.field_force_id == ff.id)
+            (RSOTarget.employee_id == emp.id)
         )
         
         result = await session.execute(stmt)
         t = result.scalar_one_or_none()
         
     if not t:
-        return None, f"No targets found for {ff.name} in {month}/{year}."
+        return None, f"No targets found for {emp.name} in {month}/{year}."
         
     # We use page=1 and total_count=1 as it's a specific search
     return await format_rso_target_text(t, month, year, 1, 1)
 
 async def format_rso_target_text(t, month, year, page, total_count):
     h_name = t.house.name if t.house else "Unknown"
-    ff_name = t.field_force.name if t.field_force else "Unknown"
-    ff_msisdn = t.field_force.itop_number if t.field_force else "Unknown"
-    ff_code = t.field_force.dms_code if t.field_force else "Unknown"
+    emp_name = t.employee.name if t.employee else "Unknown"
+    emp_msisdn = t.employee.itop_number if t.employee else "Unknown"
+    emp_code = t.employee.dms_code if t.employee else "Unknown"
 
     text = (
         f"👤 **RSO Target Detail ({month}/{year})**\n"
         f"Page: {page}/{total_count}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📱 **{ff_name}** ({ff_code})\n"
-        f"📞 MSISDN: {ff_msisdn}\n"
+        f"📱 **{emp_name}** ({emp_code})\n"
+        f"📞 MSISDN: {emp_msisdn}\n"
         f"🏘️ House: {h_name}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 **Original Targets**\n"
@@ -293,7 +293,7 @@ async def get_supervisor_target_summary(month, year, house_code=None):
     async with async_session() as session:
         stmt = select(SupervisorTarget).options(
             selectinload(SupervisorTarget.house),
-            selectinload(SupervisorTarget.field_force)
+            selectinload(SupervisorTarget.employee)
         ).where(SupervisorTarget.target_date == target_date)
         
         if house_code:
@@ -310,7 +310,7 @@ async def get_supervisor_target_summary(month, year, house_code=None):
     
     text = f"👨‍💼 **Supervisor Target Summary ({month}/{year})**\n━━━━━━━━━━━━━━━━━━━━━\n"
     for t in targets:
-        name = t.field_force.name if t.field_force else "Unknown"
+        name = t.employee.name if t.employee else "Unknown"
         h_name = t.house.name if t.house else "Unknown"
         text += (
             f"👤 **{name}** ({h_name})\n"
@@ -326,16 +326,8 @@ async def get_rso_target_summary(month, year, supervisor_msisdn=None, house_code
     async with async_session() as session:
         stmt = select(RSOTarget).options(
             selectinload(RSOTarget.house),
-            selectinload(RSOTarget.field_force)
+            selectinload(RSOTarget.employee)
         ).where(RSOTarget.target_date == target_date)
-        
-        if supervisor_msisdn:
-            # Need to find supervisor FF ID first
-            from app.Services.Automation.target_excel import normalize_msisdn
-            norm_msisdn = normalize_msisdn(supervisor_msisdn)
-            # This is complex because we'd need to match normalized itop_number in DB
-            # For simplicity, we filter by supervisor_id if we have it, but here we only have msisdn
-            pass 
         
         if house_code:
             h_res = await session.execute(select(House).where(House.code == house_code))
@@ -355,7 +347,7 @@ async def get_rso_target_summary(month, year, supervisor_msisdn=None, house_code
     
     for t in targets:
         text += (
-            f"📱 **{t.field_force.name}** ({t.field_force.dms_code})\n"
+            f"📱 **{t.employee.name}** ({t.employee.dms_code})\n"
             f"🔹 Recharge: {format_currency(t.total_recharge)}\n"
             f"🔹 GA: {bn_num(t.ga)}\n"
             f"🔹 APP GA: {bn_num(t.ga_target_modified)}\n"
@@ -380,13 +372,13 @@ async def export_targets_to_excel(month, year, target_type, house_code=None):
             if house_id: stmt = stmt.where(HouseTarget.house_id == house_id)
             model = HouseTarget
         elif target_type == 'supervisor':
-            stmt = select(SupervisorTarget).options(selectinload(SupervisorTarget.house), selectinload(SupervisorTarget.field_force)).where(SupervisorTarget.target_date == target_date)
+            stmt = select(SupervisorTarget).options(selectinload(SupervisorTarget.house), selectinload(SupervisorTarget.employee)).where(SupervisorTarget.target_date == target_date)
             if house_id: stmt = stmt.where(SupervisorTarget.house_id == house_id)
             model = SupervisorTarget
         elif target_type == 'rso':
             stmt = select(RSOTarget).options(
                 selectinload(RSOTarget.house),
-                selectinload(RSOTarget.field_force)
+                selectinload(RSOTarget.employee)
             ).where(RSOTarget.target_date == target_date)
             if house_id: stmt = stmt.where(RSOTarget.house_id == house_id)
             model = RSOTarget
@@ -408,19 +400,19 @@ async def export_targets_to_excel(month, year, target_type, house_code=None):
             d['house_name'] = t.house.name if t.house else ""
         elif target_type == 'supervisor':
             d['house_code'] = t.house.code if t.house else ""
-            d['supervisor_name'] = t.field_force.name if t.field_force else ""
-            d['supervisor_msisdn'] = t.field_force.itop_number if t.field_force else ""
+            d['supervisor_name'] = t.employee.name if t.employee else ""
+            d['supervisor_msisdn'] = t.employee.itop_number if t.employee else ""
         elif target_type == 'rso':
             d['house_code'] = t.house.code if t.house else ""
-            d['rso_code'] = t.field_force.dms_code if t.field_force else ""
-            d['rso_name'] = t.field_force.name if t.field_force else ""
-            d['rso_msisdn'] = t.field_force.itop_number if t.field_force else ""
+            d['rso_code'] = t.employee.dms_code if t.employee else ""
+            d['rso_name'] = t.employee.name if t.employee else ""
+            d['rso_msisdn'] = t.employee.itop_number if t.employee else ""
             
         d.pop('id', None)
         d.pop('created_at', None)
         d.pop('updated_at', None)
         d.pop('house_id', None)
-        d.pop('field_force_id', None)
+        d.pop('employee_id', None)
         d.pop('supervisor_id', None)
         data.append(d)
         

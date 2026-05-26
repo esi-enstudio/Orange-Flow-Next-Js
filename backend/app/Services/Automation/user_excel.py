@@ -75,7 +75,7 @@ async def process_user_excel(file_path, house_id, progress_callback=None):
                 name = clean(row.get('NAME'))
                 phone = clean(row.get('PHONE_NUMBER'))
                 role_names_raw = clean(row.get('ROLE'))
-                dd_codes_raw = clean(row.get('DD_CODE'))
+                dd_codes_raw = clean(row.get('DD_CODE')) or clean(row.get('HOUSE_CODE'))
                 
                 if not name or not role_names_raw:
                     pbar.update(1)
@@ -143,28 +143,28 @@ async def process_user_excel(file_path, house_id, progress_callback=None):
                         if h_obj.id not in curr_house_ids:
                             user.houses.append(h_obj)
 
-                # ৮. অটো-লিঙ্ক লজিক (Field Force এর সাথে) ✅
+                # ৮. অটো-লিঙ্ক লজিক (Employee এর সাথে) ✅
                 if phone:
                     await session.flush() # ইউজার আইডি জেনারেট করার জন্য
                     clean_phone_tail = phone[-10:]
                     
-                    # ডাটাবেজে এই ফোন নাম্বারের কোনো ফিল্ড ফোর্স আছে কি না চেক করা
-                    from app.Models.field_force import FieldForce
+                    # ডাটাবেজে এই ফোন নাম্বারের কোনো এমপ্লয়ী আছে কি না চেক করা
+                    from app.Models.employee import Employee
                     from sqlalchemy import or_
                     
-                    ff_res = await session.execute(
-                        select(FieldForce).where(
+                    emp_res = await session.execute(
+                        select(Employee).where(
                             or_(
-                                FieldForce.personal_number.like(f"%{clean_phone_tail}"),
-                                FieldForce.itop_number.like(f"%{clean_phone_tail}")
+                                Employee.personal_number.like(f"%{clean_phone_tail}"),
+                                Employee.itop_number.like(f"%{clean_phone_tail}")
                             ),
-                            FieldForce.user_id == None # যদি আগে লিঙ্ক না থাকে
+                            Employee.user_id == None # যদি আগে লিঙ্ক না থাকে
                         )
                     )
-                    ff_member = ff_res.scalar_one_or_none()
-                    if ff_member:
-                        ff_member.user_id = user.id
-                        logger.info(f"🔗 Auto-linked User {user.name} to Field Force {ff_member.name}")
+                    emp_member = emp_res.scalar_one_or_none()
+                    if emp_member:
+                        emp_member.user_id = user.id
+                        logger.info(f"🔗 Auto-linked User {user.name} to Employee {emp_member.name}")
 
                 count += 1
                 pbar.update(1)

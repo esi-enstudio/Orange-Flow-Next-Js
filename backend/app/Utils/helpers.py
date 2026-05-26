@@ -54,13 +54,13 @@ def bn_num(number):
 
 
 
-def get_field_force_full_profile_text(m):
-    """ফিল্ড ফোর্সের ৩৮টি ফিল্ডের ডাটা HTML ফরম্যাটে সাজিয়ে দেওয়ার ফাংশন"""
+def get_employee_full_profile_text(m):
+    """এমপ্লয়ী বিস্তারিত প্রোফাইল HTML ফরম্যাটে সাজিয়ে দেওয়ার ফাংশন"""
     def clean(val):
         return str(val) if val and str(val).lower() != 'nan' else "N/A"
     
     return (
-        f"👥 **ফিল্ড ফোর্স বিস্তারিত প্রোফাইল**\n"
+        f"👥 **এমপ্লয়ী বিস্তারিত প্রোফাইল**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>🆔 প্রাথমিক পরিচয় (Basic Info):</b>\n"
         f"🔹 নাম: {m.name}\n"
@@ -103,12 +103,12 @@ def get_field_force_full_profile_text(m):
 
 
 def get_retailer_full_profile_text(r):
-    """রিটেইলারের সকল ডাটা ফিল্ড ফোর্সের স্টাইলে সাজিয়ে দেওয়ার ফাংশন"""
+    """রিটেইলারের সকল ডাটা এমপ্লয়ী স্টাইলে সাজিয়ে দেওয়ার ফাংশন"""
     def clean(val):
         return str(val) if val and str(val).lower() != 'nan' else "N/A"
     
     # আরএসও (SR) এর নাম বের করা (যদি লিঙ্ক থাকে)
-    sr_name = r.field_force.name if r.field_force else "অ্যাসাইন করা নেই"
+    sr_name = r.employee.name if r.employee else "অ্যাসাইন করা নেই"
 
     return (
         f"🏪 **রিটেইলার বিস্তারিত প্রোফাইল**\n"
