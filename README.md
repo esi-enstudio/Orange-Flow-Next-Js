@@ -1,279 +1,240 @@
-# OrangeFlow Dev - টেলিগ্রাম বট অটোমেশন প্ল্যাটফর্ম
+# Orange Flow — Telecom Operations Platform
 
-![OrangeFlow লোগো](orange_flow_logo.png)
-
-OrangeFlow Dev হল **aiogram 3.x** ব্যবহার করে তৈরি একটি উন্নত টেলিগ্রাম বট যা টেলিকম অপারেশনের জন্য সম্পূর্ণ অটোমেশন, ডাটা ম্যানেজমেন্ট এবং রিপোর্টিং সুবিধা প্রদান করে। সিস্টেমটিতে এক্সেল প্রসেসিং, ওয়েব স্ক্র্যাপিং, রিয়েল-টাইম সিঙ্ক্রোনাইজেশন এবং রোল-ভিত্তিক অ্যাক্সেস কন্ট্রোল রয়েছে।
-
-## 🚀 বৈশিষ্ট্যসমূহ
-
-### মূল সক্ষমতা
-- **টেলিগ্রাম বট ইন্টারফেস**: বাংলা/ইংরেজি সমর্থন সহ ইন্টারেক্টিভ মেনু-চালিত ইন্টারফেস
-- **রোল-ভিত্তিক অ্যাক্সেস কন্ট্রোল (RBAC)**: মাল্টি-রোল সমর্থন সহ সূক্ষ্ম অনুমতি ব্যবস্থা
-- **এক্সেল ডাটা প্রসেসিং**: অ্যাক্টিভেশন, BTS, খুচরা বিক্রেতা এবং ফিল্ড ফোর্স ডাটার স্বয়ংক্রিয় ইমপোর্ট/এক্সপোর্ট
-- **ওয়েব স্ক্র্যাপিং অটোমেশন**: DMS পোর্টাল এবং অন্যান্য ওয়েব সার্ভিসের জন্য Playwright-ভিত্তিক অটোমেশন
-- **রিয়েল-টাইম GA সিঙ্ক**: সময়সূচী সহ অ্যাক্টিভেশন ডাটার স্বয়ংক্রিয় সিঙ্ক্রোনাইজেশন
-- **ডাটাবেস ম্যানেজমেন্ট**: SQLAlchemy ORM এবং async সমর্থন সহ PostgreSQL
-- **ওয়েবহুক সার্ভার**: OTP গ্রহণ এবং এক্সটার্নাল ইন্টিগ্রেশন সক্ষমতা
-
-### মডিউলসমূহ
-- **ব্যবহারকারী ব্যবস্থাপনা**: রোল এবং হাউজ অ্যাসাইনমেন্ট সহ ব্যবহারকারী তৈরি, আপডেট, মুছে ফেলা
-- **হাউজ ব্যবস্থাপনা**: প্রতিষ্ঠানিক ইউনিট ব্যবস্থাপনা
-- **সাবস্ক্রিপশন ব্যবস্থাপনা**: প্যাকেজ-ভিত্তিক সাবস্ক্রিপশন সিস্টেম (Basic, Standard, Premium)
-- **অ্যাক্টিভেশন ব্যবস্থাপনা**: অ্যাক্টিভেশন এক্সেল ফাইল প্রসেসিং এবং ডাটাবেস আপডেট
-- **BTS ব্যবস্থাপনা**: বেস ট্রান্সসিভার স্টেশন ডাটা ব্যবস্থাপনা
-- **খুচরা বিক্রেতা ব্যবস্থাপনা**: খুচরা বিক্রেতার তথ্য প্রসেসিং
-- **ফিল্ড ফোর্স ব্যবস্থাপনা**: ফিল্ড এজেন্ট ডাটা হ্যান্ডলিং
-- **SIM অপারেশন**: SIM স্ট্যাটাস চেকিং, ইস্যু এবং রিটার্ন প্রসেসিং
-- **মেলা ব্যবস্থাপনা**: ইভেন্ট এবং ক্যাম্পেইন ব্যবস্থাপনা
-- **GA লাইভ রিপোর্ট**: রিয়েল-টাইম অ্যাক্টিভেশন রিপোর্টিং এবং সিঙ্ক্রোনাইজেশন
-- **অটোমেশন ইঞ্জিন**: ওয়েব স্ক্র্যাপিং টাস্কের জন্য ব্রাউজার অটোমেশন
-
-## 📁 প্রজেক্ট স্ট্রাকচার
-
-```
-OrangeFlow_Dev/
-├── app/
-│   ├── Controllers/          # টেলিগ্রাম বট হ্যান্ডলার (aiogram routers)
-│   ├── Models/               # SQLAlchemy ডাটাবেস মডেল
-│   ├── Services/             # বিজনেস লজিক এবং ডাটা প্রসেসিং
-│   │   └── Automation/       # এক্সেল প্রসেসিং এবং ওয়েব স্ক্র্যাপিং
-│   ├── Core/                 # কোর ইঞ্জিন (ব্রাউজার, লগইন, OTP, সেশন)
-│   ├── Middleware/           # অ্যাক্সেস কন্ট্রোল মিডলওয়্যার
-│   ├── Utils/                # হেল্পার ফাংশন এবং ভ্যালিডেটর
-│   └── Views/                # কীবোর্ড লেআউট এবং UI কম্পোনেন্ট
-├── config/
-│   └── settings.py           # কনফিগারেশন এবং এনভায়রনমেন্ট ভেরিয়েবল
-├── database/
-│   └── database.py           # ডাটাবেস কানেকশন সেটআপ
-├── _data_list/               # স্যাম্পল এক্সেল ডাটা ফাইল
-├── main.py                   # অ্যাপ্লিকেশন এন্ট্রি পয়েন্ট
-├── seed_db.py                # ডাটাবেস সিডিং স্ক্রিপ্ট
-├── requirements.txt          # Python ডিপেন্ডেন্সি
-└── .env.example              # এনভায়রনমেন্ট টেমপ্লেট
-```
-
-## 🛠️ ইনস্টলেশন
-
-### পূর্বশর্ত
-- Python 3.11+ (Python 3.13.13 দিয়ে টেস্ট করা হয়েছে)
-- PostgreSQL ডাটাবেস
-- [@BotFather](https://t.me/botfather) থেকে টেলিগ্রাম বট টোকেন
-- Ngrok অ্যাকাউন্ট (ওয়েবহুক মোডের জন্য)
-
-### ধাপ ১: ক্লোন এবং সেটআপ
-```bash
-git clone <repository-url>
-cd OrangeFlow_Dev
-```
-
-### ধাপ ২: ভার্চুয়াল এনভায়রনমেন্ট তৈরি করুন
-```bash
-python -m venv .venv
-# ভার্চুয়াল এনভায়রনমেন্ট অ্যাক্টিভেট করুন
-# Windows:
-.venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
-```
-
-### ধাপ ৩: ডিপেন্ডেন্সি ইনস্টল করুন
-```bash
-pip install -r requirements.txt
-# Playwright ব্রাউজার ইনস্টল করুন
-playwright install chromium
-```
-
-### ধাপ ৪: এনভায়রনমেন্ট কনফিগার করুন
-উদাহরণ এনভায়রনমেন্ট ফাইল কপি করুন এবং আপনার মান দিয়ে আপডেট করুন:
-```bash
-copy .env.example .env
-```
-`.env` ফাইলটি আপনার কনফিগারেশন দিয়ে এডিট করুন:
-```env
-# টেলিগ্রাম বট
-BOT_TOKEN=your_bot_token_here
-SUPER_ADMIN_ID=your_telegram_id
-
-# ডাটাবেস
-DB_USER=postgres
-DB_PASS=your_password
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=orangeflow_dev
-
-# Ngrok (ওয়েবহুক মোডের জন্য)
-NGROK_AUTH_TOKEN=your_ngrok_auth_token
-START_NGROK=False  # Ngrok টানেলিংয়ের জন্য True সেট করুন
-
-# অটোমেশন সেটিংস
-HEADLESS_MODE=True  # হেডলেস মোডে ব্রাউজার চালান
-ENABLE_GA_SYNC=True # GA লাইভ সিঙ্ক শিডিউলার সক্ষম করুন
-DISABLE_SCHEDULER=False
-WEBHOOK_PORT=8080
-STATIC_DOMAIN=your_domain
-FORWARD_OTPS_TO=optional_phone_number
-```
-
-### ধাপ ৫: ডাটাবেস সেটআপ
-১. `orangeflow_dev` নামে একটি PostgreSQL ডাটাবেস তৈরি করুন
-২. ডাটাবেস ইনিশিয়ালাইজেশন চালান:
-```bash
-python main.py
-```
-অ্যাপ্লিকেশনটি প্রথম রানে স্বয়ংক্রিয়ভাবে টেবিল তৈরি করবে।
-
-৩. (ঐচ্ছিক) প্রাথমিক ডাটা সিড করুন:
-```bash
-python seed_db.py
-```
-
-## 🚦 অ্যাপ্লিকেশন চালানো
-
-### ডেভেলপমেন্ট মোড (পোলিং)
-`.env` ফাইলে `START_NGROK=False` সেট করুন এবং চালান:
-```bash
-python main.py
-```
-
-### প্রোডাকশন মোড (Ngrok সহ ওয়েবহুক)
-`START_NGROK=True` সেট করুন এবং `NGROK_AUTH_TOKEN` সেট আছে নিশ্চিত করুন:
-```bash
-python main.py
-```
-
-বটটি শুরু হবে এবং কনসোলে কানেকশন বিস্তারিত প্রদান করবে।
-
-## 📊 মূল কার্যকারিতা
-
-### ১. ব্যবহারকারী ব্যবস্থাপনা
-- **/start** - স্বাগতম বার্তা এবং মূল মেনু
-- মাল্টি-রোল এবং মাল্টি-হাউজ অ্যাসাইনমেন্ট সহ ব্যবহারকারী তৈরি
-- রোল-ভিত্তিক অনুমতি ব্যবস্থা
-- ব্যবহারকারী খোঁজা এবং প্রোফাইল ব্যবস্থাপনা
-
-### ২. সাবস্ক্রিপশন ব্যবস্থাপনা (শুধু সুপার এডমিন)
-- **/renew CODE DAYS** - হাউজের সাবস্ক্রিপশন রিনিউ করুন
-- **/subhistory** - রিনিউ হিস্টরি দেখুন
-- **/packages** - সাবস্ক্রিপশন প্যাকেজ লিস্ট দেখুন
-- প্যাকেজ: Basic (৳5,000), Standard (৳10,000), Premium (৳20,000)
-- রিনিউ লগ সংরক্ষণ
-
-### ২. ডাটা সেন্টার অপারেশন
-- বিভিন্ন ডাটা টাইপের জন্য এক্সেল ফাইল প্রসেসিং
-- হাউজ-ভিত্তিক ডাটা পৃথকীকরণ
-- বাল্ক ইমপোর্ট/এক্সপোর্ট সক্ষমতা
-- ডাটা ভ্যালিডেশন এবং এরর হ্যান্ডলিং
-
-### ৩. অটোমেশন বৈশিষ্ট্য
-- **GA লাইভ সিঙ্ক**: প্রতি ৫ মিনিটে স্বয়ংক্রিয় অ্যাক্টিভেশন ডাটা সিঙ্ক্রোনাইজেশন (সকাল ৮টা - রাত ১২টা)
-- **মধ্যরাত রিসেট**: রাত ১২টায় দৈনিক ডাটা রিসেট
-- **ব্রাউজার অটোমেশন**: DMS পোর্টালের জন্য Playwright-ভিত্তিক ওয়েব স্ক্র্যাপিং
-- **SIM অপারেশন**: স্বয়ংক্রিয় SIM স্ট্যাটাস চেকিং, ইস্যু এবং রিটার্ন
-
-### ৪. রিপোর্টিং
-- রিয়েল-টাইম অ্যাক্টিভেশন রিপোর্ট
-- এক্সেল-ভিত্তিক রিপোর্ট জেনারেশন
-- হাউজ-ভিত্তিক পারফরম্যান্স অ্যানালিটিক্স
-
-## 🔧 কনফিগারেশন অপশন
-
-### শিডিউলার কন্ট্রোল
-- `ENABLE_GA_SYNC`: GA লাইভ সিঙ্ক শিডিউলার সক্ষম/অক্ষম করুন
-- `DISABLE_SCHEDULER`: সমস্ত শিডিউলড টাস্ক সম্পূর্ণভাবে অক্ষম করুন
-- স্থানীয় সময় সকাল ৮:০০ থেকে রাত ১২:০০ পর্যন্ত প্রতি ৫ মিনিটে সিঙ্ক চলে
-
-### ব্রাউজার অটোমেশন
-- `HEADLESS_MODE`: ব্রাউজার ডিবাগিংয়ের জন্য দৃশ্যমান ব্রাউজারের জন্য `False` সেট করুন
-- শনাক্তকরণ এড়ানোর জন্য অপ্টিমাইজড ব্রাউজার আর্গুমেন্ট
-
-### ডিপ্লয়মেন্ট মোড
-- **মাস্টার মোড**: ওয়েবহুক টানেলিংয়ের জন্য ngrok ব্যবহার করে
-- **স্লেভ মোড**: শুধুমাত্র লোকাল পোলিং (ডেভেলপমেন্ট)
-
-## 🧪 টেস্টিং
-
-বট চালান এবং টেলিগ্রামের মাধ্যমে ইন্টারঅ্যাক্ট করুন:
-১. টেলিগ্রামে আপনার বটের সাথে একটি চ্যাট শুরু করুন
-২. শুরু করতে `/start` ব্যবহার করুন
-৩. আপনার অনুমতি অনুযায়ী মেনুতে নেভিগেট করুন
-
-### স্যাম্পল টেস্ট অ্যাকাউন্ট
-সিস্টেমে সিডেড ডাটা রয়েছে:
-- সুপার অ্যাডমিন (SUPER_ADMIN_ID থেকে ID)
-- স্যাম্পল হাউজ: "House 1", "House 2", "House 3"
-- স্যাম্পল রোল: "Admin", "Manager", "Viewer" উপযুক্ত অনুমতি সহ
-
-## 🐛 সমস্যা সমাধান
-
-### সাধারণ সমস্যা
-
-১. **ডাটাবেস কানেকশন এরর**
-   - PostgreSQL চলছে কিনা যাচাই করুন
-   - `.env` ডাটাবেস ক্রেডেনশিয়াল চেক করুন
-   - ডাটাবেস `orangeflow_dev` বিদ্যমান আছে নিশ্চিত করুন
-
-২. **Playwright ব্রাউজার সমস্যা**
-   - `playwright install chromium` চালান
-   - ব্রাউজার উইন্ডো দেখতে `HEADLESS_MODE=False` সেট করুন
-   - ফায়ারওয়াল/অ্যান্টিভাইরাস ব্লকিং চেক করুন
-
-৩. **টেলিগ্রাম বট রেসপন্ড করছে না**
-   - `BOT_TOKEN` সঠিক কিনা যাচাই করুন
-   - ইন্টারনেট কানেক্টিভিটি চেক করুন
-   - বটটি `/start` কমান্ড দিয়ে শুরু হয়েছে নিশ্চিত করুন
-
-৪. **এক্সেল ফাইল প্রসেসিং এরর**
-   - এক্সেল ফাইলগুলি সঠিক ফরম্যাটে আছে নিশ্চিত করুন
-   - `_data_list/` ডিরেক্টরিতে ফাইল পারমিশন চেক করুন
-   - কলামের নাম প্রত্যাশিত ফরম্যাটের সাথে মিলছে কিনা যাচাই করুন
-
-### লগ
-- অ্যাপ্লিকেশন লগ টাইমস্ট্যাম্প সহ কনসোলে আউটপুট হয়
-- লগ লেভেল `main.py` তে সামঞ্জস্য করা যেতে পারে
-- Aiogram লগ ডিফল্টভাবে সাপ্রেস করা হয় (ERROR লেভেলে সেট)
-
-## 📈 পারফরম্যান্স বিবেচনা
-
-- **ডাটাবেস**: উচ্চ কনকারেন্সির জন্য asyncpg সহ কানেকশন পুলিং ব্যবহার করে
-- **মেমরি**: মেমরি ম্যানেজ করার জন্য এক্সেল ফাইলগুলি চাঙ্কে প্রসেস করা হয়
-- **ব্রাউজার**: টাস্ক জুড়ে শেয়ার করা সিঙ্গেল ব্রাউজার ইনস্ট্যান্স
-- **শিডিউলিং**: ওভারল্যাপ এড়াতে সতর্ক টাইমিং সহ asyncio ব্যবহার করে
-
-## 🔒 নিরাপত্তা
-
-- **রোল-ভিত্তিক অ্যাক্সেস কন্ট্রোল**: সমস্ত অপারেশন অনুমতি চেক করে
-- **মিডলওয়্যার ভ্যালিডেশন**: প্রতিটি মেসেজ ACL মিডলওয়্যার দিয়ে পাস করে
-- **সেশন ম্যানেজমেন্ট**: সিকিউর ব্রাউজার সেশন হ্যান্ডলিং
-- **এনভায়রনমেন্ট ভেরিয়েবল**: সংবেদনশীল ডাটা `.env` তে সংরক্ষিত
-- **ডাটাবেস**: বিশেষ অক্ষরের জন্য পাসওয়ার্ড এনকোডিং
-- **সুপার এডমিন প্রোটেকশন**: সাবস্ক্রিপশন রিনিউ শুধুমাত্র সুপার এডমিনের জন্য সীমাবদ্ধ
-
-## 🤝 অবদান
-
-১. রিপোজিটরি ফর্ক করুন
-২. একটি ফিচার ব্রাঞ্চ তৈরি করুন
-৩. উপযুক্ত টেস্ট সহ পরিবর্তন করুন
-৪. একটি পুল রিকোয়েস্ট জমা দিন
-
-### কোড স্টাইল
-- PEP 8 গাইডলাইন অনুসরণ করুন
-- বর্ণনামূলক ভেরিয়েবল নাম ব্যবহার করুন (ইংরেজি পছন্দনীয়)
-- ফাংশনের জন্য ডকস্ট্রিং অন্তর্ভুক্ত করুন
-- জটিল লজিকের জন্য কমেন্ট যোগ করুন (বাংলা কমেন্ট গ্রহণযোগ্য)
-
-## 📄 লাইসেন্স
-
-এই প্রজেক্টটি প্রোপ্রাইটারি সফটওয়্যার। সর্বস্বত্ব সংরক্ষিত।
-
-## 📞 সহায়তা
-
-প্রযুক্তিগত সহায়তা বা ফিচার রিকোয়েস্টের জন্য:
-- ডেভেলপমেন্ট টিমের সাথে যোগাযোগ করুন
-- টিম কন্টাক্ট তথ্যের জন্য `MakeSure.txt` দেখুন
-- নতুন সমস্যা রিপোর্ট করার আগে বিদ্যমান সমস্যা চেক করুন
+A full-stack web platform for telecom operations, featuring **FastAPI** backend with RBAC and **Next.js** frontend. Manages activations, retailer networks, field force, BTS inventory, and reporting — all with multi-tenant house-based isolation.
 
 ---
 
-**টেলিকম অপারেশন অটোমেশনের জন্য ❤️ দিয়ে তৈরি**
+## Architecture
 
-*সর্বশেষ আপডেট: মে ২০২৬*
+```
+┌─────────────────────────────────────────────────────┐
+│                   Frontend (Next.js)                 │
+│   ┌──────────┐ ┌──────────┐ ┌────────────────────┐ │
+│   │  Auth     │ │  Pages   │ │  i18n (BN/EN)     │ │
+│   │  Context  │ │  (30+)   │ │                    │ │
+│   └────┬─────┘ └────┬─────┘ └────────────────────┘ │
+│        └────────────┼──────────────────────────────┘ │
+│                     │ HTTP API                       │
+├─────────────────────┼────────────────────────────────┤
+│              Backend (FastAPI)                        │
+│   ┌──────────┐ ┌──────────┐ ┌────────────────────┐ │
+│   │  Auth     │ │  CRUD    │ │  Automation Engine │ │
+│   │  RBAC     │ │  Endpoints│ │  (Playwright)     │ │
+│   └──────────┘ └──────────┘ └────────────────────┘ │
+│                        │                             │
+│                        ▼                             │
+│               PostgreSQL Database                    │
+└──────────────────────────────────────────────────────┘
+```
+
+---
+
+## Tech Stack
+
+| Layer        | Technology                        |
+|-------------|-----------------------------------|
+| **Frontend** | Next.js (App Router), TypeScript, Tailwind CSS |
+| **Backend**  | Python 3.13+, FastAPI, SQLAlchemy (async) |
+| **Database** | PostgreSQL 16+ with asyncpg       |
+| **Auth**     | JWT-based, Role & House scoped    |
+| **Infra**    | Docker Compose, nginx reverse proxy |
+
+---
+
+## Features
+
+### Core Modules
+- **House Management** — Multi-tenant org units with isolated data
+- **User & Role Management** — Fine-grained RBAC with permission scoping
+- **Retailer Management** — CRUD, search, and bulk import/export
+- **Employee (Field Force) Management** — RSO/Supervisor profiles, bank info, hierarchy
+- **Activation Management** — Import & query activation records from Excel
+- **BTS Management** — Base station inventory and tracking
+- **Target Management** — House, Supervisor, and RSO-level target setting
+
+### Retailer Marking
+- Create tags (DRC, RSP, BSP, etc.) per house
+- Mark retailers with tags for report exclusion
+- Bulk tag assignment with server-side search (debounced)
+- Left panel shows tagged retailers per tag
+
+### Reports & Analytics
+- **Activation Report** — Date-range filtered, tag-exclusion support, paginated
+- **iTop-Up Details** — Granular iTop transaction view
+- **Live Activations** — Real-time activation monitoring
+- **SIM Issues** — Problem SIM tracking
+- **Scratch Card Report** — Card inventory reporting
+- Export capabilities (Excel/CSV)
+
+### Automation
+- **GA Live Sync** — Auto-fetches activations every 5 minutes (8AM–12AM)
+- **DMS Sync** — Scheduled Playwright-based DMS portal scraping
+- **Excel Processing Pipeline** — Validated bulk import (retailers, employees, targets, etc.)
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Docker & Docker Compose
+- Node.js 18+ (for local frontend dev)
+- Python 3.11+ (for local backend dev)
+
+### Production (Docker)
+
+```bash
+cp .env.example .env          # configure your environment
+docker-compose up -d          # starts all services
+```
+
+Services:
+- **Frontend** → `http://localhost:3000`
+- **Backend API** → `http://localhost:8000`
+- **Database** → `localhost:5432`
+
+### Development
+
+**Backend:**
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+**Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev                 # → http://localhost:3000
+```
+
+---
+
+## Project Structure
+
+```
+Orange-Flow-Next-Js/
+├── backend/                    # FastAPI application
+│   ├── main.py                 # API entry point (all routes)
+│   ├── app/
+│   │   ├── Models/             # SQLAlchemy models
+│   │   ├── Services/           # Business logic & automation
+│   │   │   ├── Automation/     # Excel processing, scraping
+│   │   │   └── db_service.py   # Database helpers
+│   │   ├── Core/               # Browser engine, auth core
+│   │   ├── Utils/              # Helpers, validators, access control
+│   │   └── Controllers/        # (legacy Telegram bot handlers)
+│   ├── alembic/                # Database migrations
+│   ├── config/settings.py      # Environment config
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/                   # Next.js application
+│   ├── src/
+│   │   ├── app/                # App Router pages (30+ routes)
+│   │   ├── components/         # Shared UI & layout components
+│   │   ├── context/            # Auth, color theme contexts
+│   │   ├── i18n/               # BN/EN translations
+│   │   └── lib/                # API client, utilities, constants
+│   ├── public/
+│   ├── package.json
+│   └── Dockerfile
+├── docker-compose.yml          # Orchestration
+├── nginx/                      # Reverse proxy config
+└── .env.example
+```
+
+---
+
+## API Overview
+
+All endpoints are prefixed with `/api/`. Authentication via JWT Bearer token.
+
+| Group              | Key Endpoints                                      |
+|--------------------|---------------------------------------------------|
+| **Auth**           | `POST /api/login`, `GET /api/me`                  |
+| **Users**          | `GET/POST/PUT/DELETE /api/users`                  |
+| **Roles**          | `GET/POST/PUT/DELETE /api/roles`                  |
+| **Permissions**    | `GET /api/permissions`                            |
+| **Houses**         | `GET/POST/PUT/DELETE /api/houses`                 |
+| **Retailers**      | `GET/POST/PUT/DELETE /api/retailers`, `GET /api/retailers/export` |
+| **Employees**      | `GET/POST/PUT/DELETE /api/employees`              |
+| **BTS**            | `GET/POST/PUT/DELETE /api/bts`                    |
+| **Activations**    | `GET /api/activations`, `GET /api/activations/report` |
+| **Filter Tags**    | `GET/POST/DELETE /api/filter-tags`                |
+| **Retailer Filters** | `GET/POST/DELETE /api/retailer-filters`, `POST /api/retailer-filters/bulk` |
+| **Targets**        | `GET/POST /api/targets/house`, `/api/targets/supervisor`, `/api/targets/rso` |
+| **Import**         | `POST /api/upload/*` (Excel file uploads)         |
+| **Reports**        | `GET /api/reports/*` (various report formats)     |
+
+---
+
+## RBAC Model
+
+```
+User ──┬── Role ──┬── Permission
+       │          │
+       └── House ─┘
+```
+
+- Users belong to houses (multi-tenant)
+- Roles group permissions (view, create, edit, delete)
+- Permissions are granular: `view_retailers`, `edit_employees`, `view_reports`, etc.
+- House context limits data visibility — admins see all, managers see their house
+
+---
+
+## Environment Variables
+
+Key variables in `.env`:
+
+| Variable              | Purpose                           |
+|----------------------|-----------------------------------|
+| `DATABASE_URL`       | PostgreSQL connection string      |
+| `SECRET_KEY`         | JWT signing secret                |
+| `JWT_ALGORITHM`      | Token algorithm (default HS256)   |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Session duration         |
+| `BOT_TOKEN`          | Telegram bot token (legacy)       |
+| `SUPER_ADMIN_ID`     | Telegram super admin ID           |
+| `ENABLE_GA_SYNC`     | Enable auto activation sync       |
+| `HEADLESS_MODE`      | Browser automation visibility     |
+
+---
+
+## i18n
+
+The platform supports **Bengali (BN)** and **English (EN)**. Language is selected via a UI toggle in the sidebar.
+
+Translation files: `frontend/src/i18n/translations.ts`
+
+---
+
+## Common Tasks
+
+### Restart backend after code changes
+```bash
+docker restart orange_flow_backend
+```
+
+### Run database migrations
+```bash
+docker exec -it orange_flow_backend alembic upgrade head
+```
+
+### Add a new page
+1. Create `frontend/src/app/<route>/page.tsx`
+2. Add navigation item in `frontend/src/lib/constants.ts`
+3. Add translations in `frontend/src/i18n/translations.ts`
+4. Add API endpoints in `backend/main.py` (if needed)
+
+---
+
+## License
+
+Proprietary software. All rights reserved.
+
+---
+
+## Support
+
+For technical support or feature requests, contact the development team.
