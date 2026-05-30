@@ -63,13 +63,13 @@ def get_employee_full_profile_text(m):
         f"👥 **এমপ্লয়ী বিস্তারিত প্রোফাইল**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>🆔 প্রাথমিক পরিচয় (Basic Info):</b>\n"
-        f"🔹 নাম: {m.name}\n"
+        f"🔹 নাম: {m.user.name if m.user else m.dms_code}\n"
         f"🔹 ডিএমএস কোড: `{m.dms_code}`\n"
         f"🔹 নিজের কোড: `{clean(m.assisted_retailer_code)}`\n"
         f"🔹 আইটপ নাম্বার: {clean(m.itop_number)}\n"
         f"🔹 পার্সোনাল নং: {clean(m.personal_number)}\n"
         f"🔹 পুল নম্বর: {clean(m.pool_number)}\n"
-        f"🔹 টাইপ: {clean(m.type)} | স্ট্যাটাস: {m.status}\n\n"
+        f"🔹 স্ট্যাটাস: {m.status}\n\n"
         
         f"<b>🏦 ব্যাংক তথ্য (Bank Details):</b>\n"
         f"🔹 ব্যাংক: {clean(m.bank_name)}\n"
@@ -108,7 +108,7 @@ def get_retailer_full_profile_text(r):
         return str(val) if val and str(val).lower() != 'nan' else "N/A"
     
     # আরএসও (SR) এর নাম বের করা (যদি লিঙ্ক থাকে)
-    sr_name = r.employee.name if r.employee else "অ্যাসাইন করা নেই"
+    sr_name = r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else "অ্যাসাইন করা নেই")
 
     return (
         f"🏪 **রিটেইলার বিস্তারিত প্রোফাইল**\n"

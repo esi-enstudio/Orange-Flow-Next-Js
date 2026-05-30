@@ -93,7 +93,7 @@ async def get_supervisor_target_full_info(month, year, page=1, total_count=None)
         return None, total_count, "Target not found."
 
     h_name = t.house.name if t.house else "Unknown"
-    emp_name = t.employee.name if t.employee else "Unknown"
+    emp_name = (t.employee.user.name if t.employee.user else t.employee.dms_code) if t.employee else "Unknown"
     emp_msisdn = t.employee.pool_number if t.employee else "Unknown"
 
     text = (
@@ -148,7 +148,7 @@ async def get_rso_target_full_info(month, year, page=1, total_count=None):
         return None, total_count, "Target not found."
 
     h_name = t.house.name if t.house else "Unknown"
-    emp_name = t.employee.name if t.employee else "Unknown"
+    emp_name = (t.employee.user.name if t.employee.user else t.employee.dms_code) if t.employee else "Unknown"
     emp_msisdn = t.employee.itop_number if t.employee else "Unknown"
     emp_code = t.employee.dms_code if t.employee else "Unknown"
 
@@ -216,14 +216,14 @@ async def get_rso_target_by_query(month, year, query):
         t = result.scalar_one_or_none()
         
     if not t:
-        return None, f"No targets found for {emp.name} in {month}/{year}."
+        return None, f"No targets found for {(emp.user.name if emp.user else emp.dms_code)} in {month}/{year}."
         
     # We use page=1 and total_count=1 as it's a specific search
     return await format_rso_target_text(t, month, year, 1, 1)
 
 async def format_rso_target_text(t, month, year, page, total_count):
     h_name = t.house.name if t.house else "Unknown"
-    emp_name = t.employee.name if t.employee else "Unknown"
+    emp_name = (t.employee.user.name if t.employee.user else t.employee.dms_code) if t.employee else "Unknown"
     emp_msisdn = t.employee.itop_number if t.employee else "Unknown"
     emp_code = t.employee.dms_code if t.employee else "Unknown"
 
@@ -310,7 +310,7 @@ async def get_supervisor_target_summary(month, year, house_code=None):
     
     text = f"👨‍💼 **Supervisor Target Summary ({month}/{year})**\n━━━━━━━━━━━━━━━━━━━━━\n"
     for t in targets:
-        name = t.employee.name if t.employee else "Unknown"
+        name = (t.employee.user.name if t.employee.user else t.employee.dms_code) if t.employee else "Unknown"
         h_name = t.house.name if t.house else "Unknown"
         text += (
             f"👤 **{name}** ({h_name})\n"
@@ -347,7 +347,7 @@ async def get_rso_target_summary(month, year, supervisor_msisdn=None, house_code
     
     for t in targets:
         text += (
-            f"📱 **{t.employee.name}** ({t.employee.dms_code})\n"
+            f"📱 **{(t.employee.user.name if t.employee.user else t.employee.dms_code)}** ({t.employee.dms_code})\n"
             f"🔹 Recharge: {format_currency(t.total_recharge)}\n"
             f"🔹 GA: {bn_num(t.ga)}\n"
             f"🔹 APP GA: {bn_num(t.ga_target_modified)}\n"
@@ -400,12 +400,12 @@ async def export_targets_to_excel(month, year, target_type, house_code=None):
             d['house_name'] = t.house.name if t.house else ""
         elif target_type == 'supervisor':
             d['house_code'] = t.house.code if t.house else ""
-            d['supervisor_name'] = t.employee.name if t.employee else ""
+            d['supervisor_name'] = (t.employee.user.name if t.employee.user else t.employee.dms_code) if t.employee else ""
             d['supervisor_msisdn'] = t.employee.itop_number if t.employee else ""
         elif target_type == 'rso':
             d['house_code'] = t.house.code if t.house else ""
             d['rso_code'] = t.employee.dms_code if t.employee else ""
-            d['rso_name'] = t.employee.name if t.employee else ""
+            d['rso_name'] = (t.employee.user.name if t.employee.user else t.employee.dms_code) if t.employee else ""
             d['rso_msisdn'] = t.employee.itop_number if t.employee else ""
             
         d.pop('id', None)

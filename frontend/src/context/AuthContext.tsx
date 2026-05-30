@@ -30,18 +30,21 @@ interface User {
   status: string;
   houses?: House[];
   roles?: Role[];
+  selected_house_id?: number;
+  phone_number?: string;
+  telegram_id?: number | string;
+  profile_pic?: string;
 }
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   initialized: boolean | null;
-  selectedHouse: House | null;
-  setSelectedHouse: (house: House | null) => void;
   login: (token: string) => Promise<void>;
   logout: () => void;
   refreshStatus: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
+  selectedHouse: { id: number } | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -50,24 +53,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState<boolean | null>(null);
-  const [selectedHouse, setSelectedHouseState] = useState<House | null>(null);
   const router = useRouter();
   const pathname = usePathname();
 
-  const setSelectedHouse = (house: House | null) => {
-    setSelectedHouseState(house);
-    if (house) {
-      localStorage.setItem("selectedHouseId", house.id.toString());
-      // Optionally update API headers here if needed, 
-      // but usually better to let components/hooks handle it per request
-    } else {
-      localStorage.removeItem("selectedHouseId");
-    }
-  };
-
   const checkSystemStatus = async () => {
     try {
-      const response = await apiClient.get("/admin/setup/status");
+      const response = await apiClient.get("admin/setup/status");
       setInitialized(response.data.initialized);
       return response.data.initialized;
     } catch (error) {
@@ -90,19 +81,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       apiClient.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      const response = await apiClient.get("/auth/me");
+      const response = await apiClient.get("auth/me");
       const userData = response.data;
       setUser(userData);
-
-      // Handle multi-tenant house selection
-      const savedHouseId = localStorage.getItem("selectedHouseId");
-      if (userData.houses && userData.houses.length > 0) {
-        const foundHouse = savedHouseId 
-          ? userData.houses.find((h: House) => h.id.toString() === savedHouseId)
-          : userData.houses[0];
-        
-        setSelectedHouseState(foundHouse || userData.houses[0]);
-      }
     } catch (error) {
       console.error("Failed to fetch user", error);
       logout();
@@ -182,12 +163,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user, 
       loading, 
       initialized, 
-      selectedHouse, 
-      setSelectedHouse, 
       login, 
       logout, 
       refreshStatus,
-      hasPermission
+      hasPermission,
+      selectedHouse: user?.selected_house_id ? { id: user.selected_house_id } : null,
     }}>
       {children}
     </AuthContext.Provider>

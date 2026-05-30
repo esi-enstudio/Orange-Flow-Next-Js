@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import select, func, and_
 from app.Models.house import House
 from app.Models.activation import Activation
-from app.Models.dms_report import DMSReport
+from app.Models.itopup_detail import ITopUpDetail
 from app.Models.scratch_card_issue import ScratchCardIssue
 from app.Models.sim_issue import SimIssue
 from app.Models.sync_history import SyncHistory
@@ -150,7 +150,7 @@ async def sync_house_modules(house):
     """হাউজের মিসিং রেঞ্জগুলো ডাউনলোড করবে - ইম্প্রুভড স্পিড (সেশন রি-ইউজ)"""
     modules = [
         {"name": "Activation", "model": Activation, "date_col": "activation_date", "process_fn": process_activation_excel, "key": "activation"},
-        {"name": "DMS Report", "model": DMSReport, "date_col": "report_date", "sub_types": ["C2C", "C2S", "Balance"]},
+        {"name": "ITopUp Detail", "model": ITopUpDetail, "date_col": "report_date", "sub_types": ["C2C", "C2S", "Balance"]},
         {"name": "Scratch Card", "model": ScratchCardIssue, "date_col": "issue_date", "process_fn": process_scratch_card_excel, "key": "scratch_card"},
         {"name": "SIM Issue", "model": SimIssue, "date_col": "issue_date", "process_fn": process_sim_issue_excel, "key": "sim_issue"}
     ]

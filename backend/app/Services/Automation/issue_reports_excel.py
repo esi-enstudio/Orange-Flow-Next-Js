@@ -271,3 +271,47 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
         return 0, str(e)
 
 
+import io
+from openpyxl import Workbook
+
+async def export_scratch_card_excel(records):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Scratch Card Issues"
+    headers = ["Cluster", "Region", "Issue Date", "Issue Time", "Lifting Date", "Distributor",
+               "Distributor Code", "Retailer", "Retailer Code", "Route Code", "Product",
+               "Product Code", "Start SC No", "End SC No", "RSO Code", "Quantity", "Value"]
+    ws.append(headers)
+    for r in records:
+        ws.append([
+            r.cluster_name, r.region, str(r.issue_date) if r.issue_date else "", r.issue_time,
+            str(r.lifting_date) if r.lifting_date else "", r.distributor_name,
+            r.distributor_code, r.retailer_name, r.retailer_code, r.route_code,
+            r.product_name, r.product_code, r.start_sc_no, r.end_sc_no, r.rso_code,
+            r.quantity, r.value
+        ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+async def export_sim_issue_excel(records):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SIM Issues"
+    headers = ["Issue Date", "Distributor Code", "Distributor Name", "Cluster Market",
+               "Retailer Code", "Retailer Name", "Promotion", "Product Code", "Product Name",
+               "Selling Price", "SIM No"]
+    ws.append(headers)
+    for r in records:
+        ws.append([
+            str(r.issue_date) if r.issue_date else "", r.distributor_code, r.distributor_name,
+            r.cluster_market, r.retailer_code, r.retailer_name, r.promotion,
+            r.product_code, r.product_name, r.selling_price, r.sim_no
+        ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+

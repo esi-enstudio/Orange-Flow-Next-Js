@@ -11,8 +11,6 @@ class Retailer(Base):
     employee_id = Column(Integer, ForeignKey('employees.id'), nullable=True)
 
     # আপনার দেওয়া নির্দিষ্ট কলামসমূহ
-    cluster = Column(String)                       # CLUSTERNAME
-    region = Column(String)                        # REGION
     retailer_code = Column(String, unique=True, index=True) # RETAILER_CODE
     name = Column(String, nullable=False)          # RETAILER_NAME
     type = Column(String)                          # RETAILER_TYPE

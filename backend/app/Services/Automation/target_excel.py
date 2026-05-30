@@ -357,3 +357,64 @@ async def update_progress_target(count, total_rows, target_type, progress_callba
         f"📊 <b>টার্গেট আপলোড ({target_type}):</b> {bn_num(percent)}%\n"
         f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
     )
+
+
+import io
+from openpyxl import Workbook
+
+async def export_house_targets_excel(records):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "House Targets"
+    headers = ["House Code", "EV C2C Target", "SC Primary Target", "Total Recharge Target",
+               "Total GA Target", "BP GA", "RSO GA", "EV SCR", "SSO", "LSO", "BSO", "DDSO",
+               "Target Date"]
+    ws.append(headers)
+    for r in records:
+        ws.append([
+            r.house.code if r.house else "", r.ev_c2c_target, r.sc_primary_target,
+            r.total_recharge_target, r.total_ga_target, r.bp_ga, r.rso_ga, r.ev_scr,
+            r.sso, r.lso, r.bso, r.ddso, str(r.target_date) if r.target_date else ""
+        ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+async def export_supervisor_targets_excel(records):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Supervisor Targets"
+    headers = ["Employee ID", "House Code", "EV Secondary", "SC Secondary", "Total Recharge",
+               "Total GA", "BP GA", "RSO GA", "SSO", "LSO", "BSO", "DDSO", "Target Date"]
+    ws.append(headers)
+    for r in records:
+        ws.append([
+            r.employee_id, r.house.code if r.house else "", r.ev_secondary, r.sc_secondary,
+            r.total_recharge, r.total_ga, r.bp_ga, r.rso_ga, r.sso, r.lso, r.bso,
+            r.ddso, str(r.target_date) if r.target_date else ""
+        ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+async def export_rso_targets_excel(records):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "RSO Targets"
+    headers = ["Employee ID", "Supervisor ID", "House Code", "EV Secondary", "SC Secondary",
+               "Total Recharge", "GA", "SSO", "LSO", "BSO", "DDSO", "Service Route",
+               "Market Type", "Thana", "Target Date"]
+    ws.append(headers)
+    for r in records:
+        ws.append([
+            r.employee_id, r.supervisor_id, r.house.code if r.house else "",
+            r.ev_secondary, r.sc_secondary, r.total_recharge, r.ga, r.sso, r.lso,
+            r.bso, r.ddso, r.service_route, r.market_type, r.thana_name,
+            str(r.target_date) if r.target_date else ""
+        ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()

@@ -24,7 +24,7 @@ from app.Models.house_target import HouseTarget
 from app.Models.supervisor_target import SupervisorTarget
 from app.Models.rso_target import RSOTarget
 from app.Models.bts import BTS
-from app.Models.dms_report import DMSReport
+from app.Models.itopup_detail import ITopUpDetail
 from app.Models.ga_filter import GAProductFilter, FilterTag, RetailerFilter
 from app.Models.scratch_card_issue import ScratchCardIssue
 from app.Models.sim_issue import SimIssue

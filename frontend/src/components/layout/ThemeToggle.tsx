@@ -31,7 +31,7 @@ export function ThemeToggle() {
           className={cn(
             "p-1.5 rounded-md transition-all",
             theme === t.name
-              ? "bg-white dark:bg-slate-700 text-orange-600 shadow-sm"
+              ? "bg-white dark:bg-slate-700 text-primary-600 shadow-sm"
               : "text-gray-500 hover:text-gray-900 dark:hover:text-gray-100"
           )}
           title={t.name.charAt(0).toUpperCase() + t.name.slice(1)}

@@ -12,7 +12,7 @@ import app.Models.ga_filter
 import app.Models.mela
 import app.Models.activation
 import app.Models.subscription
-import app.Models.dms_report
+import app.Models.itopup_detail
 import app.Models.scratch_card_issue
 import app.Models.sim_issue
 import app.Models.sync_history

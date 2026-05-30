@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 # এক্সেল হেডার এবং ডাটাবেজ কলামের ম্যাপিং (সকল কলাম অন্তর্ভুক্ত করা হলো)
 COLUMN_MAP = {
-    'CLUSTERNAME': 'cluster',
-    'REGION': 'region',
     'DISTRIBUTOR_CODE': 'dd_code',
     'RETAILER_CODE': 'retailer_code',
     'RETAILER_NAME': 'name',
@@ -41,7 +39,40 @@ COLUMN_MAP = {
     'ROUTE': 'route'
 }
 
-async def process_retailer_excel(file_path, house_id, progress_callback=None):
+async def export_retailers_excel(retailers):
+    data = []
+    for r in retailers:
+        data.append({
+            'DISTRIBUTOR_CODE': r.house.code if r.house else "",
+            'RETAILER_CODE': r.retailer_code,
+            'RETAILER_NAME': r.name,
+            'RETAILER_TYPE': r.type,
+            'ENABLED': r.enabled,
+            'SIM_SELLER': r.sim_seller,
+            'TRANMOBILENO': r.tran_mobile_no,
+            'I_TOP_UP_SR_NUMBER': r.itop_sr_number,
+            'I_TOP_UP_NUMBER': r.itop_number,
+            'SERVICE_POINT': r.service_point,
+            'CATEGORY': r.category,
+            'OWNER_NAME': r.owner_name,
+            'CONTACT_NO': r.contact_no,
+            'DISTRICT': r.district,
+            'THANA': r.thana,
+            'ADDRESS': r.address,
+            'NID': r.nid,
+            'BP_CODE': r.bp_code,
+            'BP_NUMBER': r.bp_number,
+            'DOB': r.dob,
+            'ROUTE': r.route
+        })
+    df = pd.DataFrame(data)
+    import io
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Retailers')
+    return output.getvalue()
+
+async def process_retailer_excel(file_path, progress_callback=None):
     """উন্নত বাল্ক প্রসেসিং এবং মেমরি ম্যাপিং লজিক ✅"""
     try:
         # ১. ডাটা লোড
@@ -63,13 +94,9 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
 
         async with async_session() as session:
             # ২. পারফরম্যান্স অপ্টিমাইজেশন: সকল হাউজ এবং আরএসও মেমরিতে লোড করা ✅
-            house_res = await session.execute(select(House).where(House.id == house_id))
-            current_house = house_res.scalar_one_or_none()
-            if not current_house:
-                return 0, f"হাউজ আইডি {house_id} পাওয়া যায়নি।"
-            
-            target_house_code = current_house.code.upper()
-            logger.info(f"🎯 Target House: {current_house.name} ({target_house_code})")
+            house_res = await session.execute(select(House.id, House.code))
+            house_map = {h.code.upper(): h.id for h in house_res.all() if h.code}
+            logger.info(f"🏠 Loaded {len(house_map)} houses by code")
             
             emp_res = await session.execute(select(Employee.itop_number, Employee.id))
             rso_map = {f.itop_number: f.id for f in emp_res.all() if f.itop_number}
@@ -84,6 +111,7 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
             for index, row in df.iterrows():
                 r_code = clean(row.get('RETAILER_CODE'))
                 if not r_code:
+                    skipped_count += 1
                     pbar.update(1)
                     continue
 
@@ -91,20 +119,13 @@ async def process_retailer_excel(file_path, house_id, progress_callback=None):
                 itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
                 linked_emp_id = rso_map.get(itop_sr_no) if itop_sr_no else None
                 
-                # ৪. হাউজ ফিল্টারিং লজিক (DISTRIBUTOR_CODE দিয়ে) ✅
-                # লজিক: শুধুমাত্র যে হাউজটি সিলেক্ট করা হয়েছে, সেই হাউজের রিটেইলার ইমপোর্ট হবে।
-                # যদি ফাইলে অন্য কোনো হাউজ কোড থাকে, তবে সেটি বাদ যাবে।
+                # ৪. DISTRIBUTOR_CODE (DD Code) দিয়ে হাউজ আইডি বের করা
                 distributor_code_val = clean(row.get('DISTRIBUTOR_CODE'))
-                
+                house_id = None
                 if distributor_code_val:
-                    # যদি ফাইলের কোড এবং আমাদের টার্গেট হাউজ কোড না মিলে, তবে স্কিপ
-                    if distributor_code_val.upper() != target_house_code:
-                        skipped_count += 1
-                        pbar.update(1)
-                        continue
-                else:
-                    # যদি কোড না থাকে, আমরা রিস্ক নেব না, স্কিপ করে দেব (অথবা আপনি চাইলে এখানে ডিফল্ট এলাউ করতে পারেন)
-                    # তবে সেফটির জন্য স্কিপ করাই ভালো যেহেতু আপনি বলছেন ৩২৩০ টি হওয়ার কথা।
+                    house_id = house_map.get(distributor_code_val.upper())
+                
+                if not house_id:
                     skipped_count += 1
                     pbar.update(1)
                     continue

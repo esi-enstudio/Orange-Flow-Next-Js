@@ -4,6 +4,7 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, Trash2, X, AlertCircle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/i18n/useLanguage";
 
 export type ConfirmType = "warning" | "danger" | "info";
 
@@ -25,11 +26,14 @@ export function ConfirmationModal({
   onConfirm,
   title,
   message,
-  confirmText = "Confirm",
-  cancelText = "Cancel",
+  confirmText,
+  cancelText,
   type = "warning",
   loading = false,
 }: ConfirmationModalProps) {
+  const { t } = useLanguage();
+  const resolvedConfirm = confirmText || t('common.confirm');
+  const resolvedCancel = cancelText || t('common.cancel');
   
   const config = {
     warning: {
@@ -90,14 +94,14 @@ export function ConfirmationModal({
               current.btnBg
             )}
           >
-            {loading ? "Processing..." : confirmText}
+            {loading ? t('common.processing') : resolvedConfirm}
           </button>
           <button
             onClick={onClose}
             disabled={loading}
             className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
           >
-            {cancelText}
+            {resolvedCancel}
           </button>
         </div>
       </motion.div>

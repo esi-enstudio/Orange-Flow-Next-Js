@@ -14,9 +14,9 @@ from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
-# কলাম লিস্ট (DISTRIBUTOR_CODE যুক্ত করা হলো)
+# কলাম লিস্ট (USERNAME যুক্ত করা হলো)
 EMP_COLUMNS = [
-    'DISTRIBUTOR_CODE', 'DMS_CODE', 'AGENCY_ID', 'NAME', 'TYPE', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
+    'USERNAME', 'DD_CODE', 'DMS_CODE', 'AGENCY_ID', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
     'POOL_NUMBER', 'ASSISTED_RETAILER_CODE', 'SALARY', 'MARKET_TYPE', 
     'JOINING_DATE', 'RESIGNED_DATE', 'RELIGION', 'DOB', 'NID',
     'BANK_NAME', 'BANK_ACCOUNT', 'BRANCH_NAME', 'ROUTING_NUMBER', 'HOME_TOWN',
@@ -32,7 +32,57 @@ async def generate_emp_sample(file_path):
     df.to_excel(file_path, index=False)
     return file_path
 
-async def process_employee_excel(file_path, house_id, progress_callback=None):
+async def export_employees_excel(employees):
+    """রপ্তানির জন্য এক্সেল ফাইল তৈরি"""
+    data = []
+    for emp in employees:
+        data.append({
+            'USERNAME': emp.user.username if emp.user else "",
+            'DD_CODE': emp.house.code if emp.house else "", # হাউজ কোড (DD Code)
+            'DMS_CODE': emp.dms_code,
+            'AGENCY_ID': emp.agency_id,
+            'ITOP_NUMBER': emp.itop_number,
+            'PERSONAL_NUMBER': emp.personal_number,
+            'POOL_NUMBER': emp.pool_number,
+            'ASSISTED_RETAILER_CODE': emp.assisted_retailer_code,
+            'SALARY': emp.salary,
+            'MARKET_TYPE': emp.market_type,
+            'JOINING_DATE': emp.joining_date,
+            'RESIGNED_DATE': emp.resigned_date,
+            'RELIGION': emp.religion,
+            'DOB': emp.dob,
+            'NID': emp.nid,
+            'BANK_NAME': emp.bank_name,
+            'BANK_ACCOUNT': emp.bank_account,
+            'BRANCH_NAME': emp.branch_name,
+            'ROUTING_NUMBER': emp.routing_number,
+            'HOME_TOWN': emp.home_town,
+            'EMERGENCY_CONTACT_PERSON_NAME': emp.emergency_contact_person_name,
+            'EMERGENCY_CONTACT_PERSON_NUMBER': emp.emergency_contact_person_number,
+            'RELATIONSHIP': emp.emergency_person_relationship,
+            'LAST_EDUCATION': emp.last_education,
+            'INSTITUTION_NAME': emp.institution_name,
+            'BLOOD_GROUP': emp.blood_group,
+            'PRESENT_ADDRESS': emp.present_address,
+            'PERMANENT_ADDRESS': emp.permanent_address,
+            'FATHERS_NAME': emp.fathers_name,
+            'MOTHERS_NAME': emp.mothers_name,
+            'PREVIOUS_COMPANY_NAME': emp.previous_company_name,
+            'PREVIOUS_COMPANY_SALARY': emp.previous_company_salary,
+            'MOTOR_BIKE': emp.motor_bike,
+            'BICYCLE': emp.bicyle,
+            'DRIVING_LICENSE': emp.driving_license,
+            'STATUS': emp.status
+        })
+    
+    df = pd.DataFrame(data)
+    import io
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Employees')
+    return output.getvalue()
+
+async def process_employee_excel(file_path, house_id=None, progress_callback=None):
     """উন্নত বাল্ক প্রসেসিং এবং ইউজার ম্যাপিং লজিক ✅"""
     try:
         # ১. ডাটা লোড
@@ -58,13 +108,15 @@ async def process_employee_excel(file_path, house_id, progress_callback=None):
             return v
 
         async with async_session() as session:
-            # পারফরম্যান্স অপ্টিমাইজেশন: সকল ইউজার এবং হাউজ মেমরিতে লোড করা ✅
+            # পারফরম্যান্স অপ্টিমাইজেশন: সকল ইউজার ও হাউজ মেমরিতে লোড করা ✅
             logger.info("⏳ ম্যাপ তৈরি হচ্ছে...")
-            user_res = await session.execute(select(User.phone_number, User.id))
-            user_map = {u.phone_number: u.id for u in user_res.all() if u.phone_number}
-            
-            houses_res = await session.execute(select(House.code, House.id))
-            house_map = {h.code.upper(): h.id for h in houses_res.all() if h.code}
+            user_res = await session.execute(select(User.username, User.phone_number, User.id))
+            user_all = user_res.all()
+            user_username_map = {u.username.upper(): u.id for u in user_all if u.username}
+            user_phone_map = {u.phone_number: u.id for u in user_all if u.phone_number}
+
+            house_res = await session.execute(select(House.code, House.id))
+            house_map = {h.code.upper(): h.id for h in house_res.all() if h.code}
 
             count = 0
             batch_size = 50
@@ -75,58 +127,57 @@ async def process_employee_excel(file_path, house_id, progress_callback=None):
 
             for index, row in df.iterrows():
                 dms_code_val = clean_val(row.get('DMS_CODE'))
-                name_val = clean_val(row.get('NAME'))
                 
-                if not dms_code_val or not name_val:
+                if not dms_code_val:
                     pbar.update(1)
                     continue
 
-                # ৩. মেমরি ম্যাপ থেকে User ID বের করা ✅ (ফোন এবং নামের মাধ্যমে)
-                p_phone_raw = clean_val(row.get('PERSONAL_NUMBER'))
-                target_user_id = None
+                # ২.৫ হাউজ আইডি বের করা ✅
+                # মাল্টি-ট্যানেন্ট অ্যাপের জন্য এক্সেল থেকে ডিডি কোড দিয়ে হাউজ বের করা বাধ্যতামূলক।
+                dd_code_val = clean_val(row.get('DD_CODE'))
+                target_house_id = None
                 
-                if p_phone_raw:
-                    # ফোন নাম্বারের শেষ ১০টি ডিজিট দিয়ে ম্যাচ করা (সবচেয়ে নিরাপদ)
-                    clean_p_phone = str(p_phone_raw).replace(".0", "")[-10:]
-                    for u_phone, u_id in user_map.items():
-                        if u_phone and u_phone[-10:] == clean_p_phone:
-                            target_user_id = u_id
-                            break
+                if dd_code_val:
+                    target_house_id = house_map.get(dd_code_val.upper())
                 
-                # যদি ফোন নাম্বার না থাকে বা না মিলে, তবে নাম দিয়ে চেষ্টা (ঐচ্ছিক কিন্তু সহায়ক)
-                if not target_user_id and name_val:
-                    # নামের মাধ্যমে ম্যাপ করার জন্য একটি টেম্পোরারি ম্যাপ ব্যবহার করা যেতে পারে
-                    # তবে এখানে আমরা শুধু ডাটাবেজ ম্যাপ থেকে চেক করছি
-                    pass # (অতিরিক্ত লজিক চাইলে এখানে যোগ করা যায়)
-                
-                # ৪. হাউজ আইডি নির্ধারণ (DISTRIBUTOR_CODE বা DD_CODE দিয়ে) ✅
-                distributor_code_val = clean_val(row.get('DISTRIBUTOR_CODE')) or clean_val(row.get('DD_CODE'))
-                if distributor_code_val:
-                    target_house_id = house_map.get(distributor_code_val.upper())
-                    # যদি DISTRIBUTOR_CODE আছে কিন্তু আমাদের ডাটাবেসে নেই, তবে এটি স্কিপ হবে
-                    if not target_house_id:
-                        pbar.update(1)
-                        continue
-                else:
-                    # যদি ফাইলে DISTRIBUTOR_CODE না থাকে, তবে যে হাউজ থেকে আপলোড হচ্ছে (house_id) সেটি ব্যবহার হবে
+                # যদি এক্সেল ফাইলে ডিডি কোড না থাকে, তবে প্যারামিটার (হেডার) থেকে আসা হাউজ আইডি ব্যবহার হবে।
+                if not target_house_id:
                     target_house_id = house_id
 
+                # যদি কোনো হাউজ আইডি না পাওয়া যায়, তবে এই রো স্কিপ করা হবে (মাল্টি-ট্যানেন্ট সেফটি)।
                 if not target_house_id:
+                    logger.warning(f"⚠️ Row {index}: No House ID found for DD_CODE: {dd_code_val}. Skipping.")
                     pbar.update(1)
                     continue
 
-                # ৫. ডাটাবেজ ম্যাপ তৈরি
+                # ৩. ইউজার ম্যাপিং ✅ (প্রথমে ইউজারনেম দিয়ে, তারপর ফোন নাম্বার দিয়ে)
+                username_val = clean_val(row.get('USERNAME'))
+                target_user_id = None
+                
+                if username_val:
+                    target_user_id = user_username_map.get(username_val.upper())
+                
+                if not target_user_id:
+                    p_phone_raw = clean_val(row.get('PERSONAL_NUMBER'))
+                    if p_phone_raw:
+                        # ফোন নাম্বারের শেষ ১০টি ডিজিট দিয়ে ম্যাচ করা
+                        clean_p_phone = str(p_phone_raw).replace(".0", "")[-10:]
+                        for u_phone, u_id in user_phone_map.items():
+                            if u_phone and u_phone[-10:] == clean_p_phone:
+                                target_user_id = u_id
+                                break
+
+                # ৪. ডাটাবেজ ম্যাপ তৈরি
                 data_map = {
-                    "house_id": target_house_id,
                     "user_id": target_user_id,
+                    "house_id": target_house_id,
                     "dms_code": dms_code_val,
                     "assisted_retailer_code": clean_val(row.get('ASSISTED_RETAILER_CODE')),
                     "agency_id": clean_val(row.get('AGENCY_ID')),
-                    "name": name_val,
                     "itop_number": clean_val(row.get('ITOP_NUMBER')),
-                    "personal_number": p_phone_raw,
+                    "personal_number": clean_val(row.get('PERSONAL_NUMBER')),
                     "pool_number": clean_val(row.get('POOL_NUMBER')),
-                    "type": (clean_val(row.get('TYPE')) or "SR").upper(),
+                    # "type" column removed
                     "status": clean_val(row.get('STATUS')) or "Active",
                     "bank_name": clean_val(row.get('BANK_NAME')),
                     "bank_account": clean_val(row.get('BANK_ACCOUNT')),
@@ -190,11 +241,11 @@ async def do_bulk_upsert_emp(session, batch_data):
     
     # কনফ্লিক্ট হলে কি কি আপডেট হবে
     excluded = stmt.excluded
-    # dms_code এবং house_id বাদে বাকি সব আপডেট হবে
+    # dms_code বাদে বাকি সব আপডেট হবে
     update_cols = {
         col: getattr(excluded, col) 
         for col in batch_data[0].keys() 
-        if col not in ['dms_code', 'house_id']
+        if col not in ['dms_code']
     }
     update_cols['updated_at'] = func.now()
 

@@ -7,7 +7,6 @@ class Employee(Base):
     __tablename__ = "employees"
 
     id = Column(Integer, primary_key=True)
-    house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     
     # ইউজার টেবিলের সাথে রিলেশন (বট ইউজার আইডি) ✅
     # এটি থাকলে আরএসও বা বিপি যখন নিজের জিএ চেক করবে, তখন বট তাকে চিনতে পারবে।
@@ -17,11 +16,9 @@ class Employee(Base):
     
     # বেসিক ইনফো
     dms_code = Column(String, unique=True, index=True) # DMS Code (R642686)
-    name = Column(String, nullable=False)
     itop_number = Column(String, index=True)  # unique=True removed
     personal_number = Column(String)  # unique=True removed
     pool_number = Column(String)  # unique=False removed (default is False)
-    type = Column(String) # 'SR' or 'BP' or 'Supervisor'
     status = Column(String, default="Active") # 'Active', 'Resigned', 'Suspended'
     
     # ব্যাংক ইনফো
@@ -58,14 +55,13 @@ class Employee(Base):
     salary = Column(String)
     
     # Hierarchy
-    supervisor_id = Column(Integer, ForeignKey('employees.id'), nullable=True)
+    house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
     # রিলেশনশিপসমূহ
-    house = relationship("House")
-    supervisor = relationship("Employee", remote_side=[id], backref="subordinates")
+    house = relationship("House", backref="employees")
 
     # রিলেশন: এক এমপ্লয়ীর আন্ডারে অনেক রিটেইলার থাকতে পারে
     retailers = relationship("Retailer", back_populates="employee")

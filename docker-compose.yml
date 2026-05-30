@@ -13,9 +13,9 @@ services:
     ports:
       - "5433:5432"
 
-  bot:
+  backend:
     build: ./backend
-    container_name: orange_flow_bot
+    container_name: orange_flow_backend
     restart: always
     depends_on:
       - db
@@ -23,11 +23,27 @@ services:
       - .env
     environment:
       - DB_HOST=db
+      - DB_PORT=5432
     ports:
       - "${WEBHOOK_PORT:-8090}:${WEBHOOK_PORT:-8090}"
       - "8000:8000"
     volumes:
       - ./backend:/app
+
+  frontend:
+    image: node:20-slim
+    container_name: orange_flow_frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+    command: >
+      sh -c "npm install && npm run dev"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

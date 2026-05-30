@@ -23,32 +23,37 @@ class AccessControl:
             house_ids = [h.id for h in self.user.houses]
             if hasattr(model, 'house_id'):
                 filters.append(model.house_id.in_(house_ids))
+            elif model == Employee:
+                # Employee has no house_id, so we filter by their linked user's houses
+                from app.Models.user import user_houses
+                filters.append(model.user_id.in_(
+                    select(User.id).join(user_houses).where(user_houses.c.house_id.in_(house_ids))
+                ))
             return filters
 
-        # 2. Supervisor / Field Manager
-        # Note: We check if the user has a employee_profile and its type
+        # 2. Supervisor / Field Manager (identified by user role)
         emp_profile = self.user.employee_profile
-        if emp_profile and emp_profile.type == 'Supervisor':
-            # Get all RSOs under this supervisor
+        if emp_profile and any("supervisor" in r for r in self.role_names):
             sub_res = await self.session.execute(
-                select(Employee.id).where(Employee.supervisor_id == emp_profile.id)
+                select(Employee.id).where(Employee.house_id == emp_profile.house_id)
             )
             rso_ids = [r[0] for r in sub_res.all()]
-            # Include the supervisor's own ID just in case they have personal targets/activations
-            rso_ids.append(emp_profile.id)
             
             if hasattr(model, 'employee_id'):
                 filters.append(model.employee_id.in_(rso_ids))
             elif hasattr(model, 'house_id'):
-                filters.append(model.house_id == emp_profile.house_id)
+                house_ids = [h.id for h in self.user.houses]
+                if house_ids:
+                    filters.append(model.house_id.in_(house_ids))
+            elif model == Employee:
+                filters.append(model.id.in_(rso_ids))
             return filters
 
-        # 3. RSO (Employee - SR/BP)
-        if emp_profile and emp_profile.type in ['SR', 'BP', 'RSO']:
+        # 3. RSO / BP / regular employee (identified by having an employee_profile)
+        if emp_profile:
             if hasattr(model, 'employee_id'):
                 filters.append(model.employee_id == emp_profile.id)
             elif hasattr(model, 'retailer_code'):
-                # For models that link by retailer code
                 ret_res = await self.session.execute(
                     select(Retailer.retailer_code).where(Retailer.employee_id == emp_profile.id)
                 )

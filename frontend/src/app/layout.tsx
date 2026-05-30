@@ -4,7 +4,10 @@ import "./globals.css";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/context/AuthContext";
+import { ColorProvider } from "@/context/ColorContext";
 import { Toaster } from "react-hot-toast";
+import { Suspense } from "react";
+import PageProgressIndicator from "@/components/ui/PageProgressIndicator";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,6 +32,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased text-gray-900 dark:text-gray-100`}>
+        <Suspense fallback={null}>
+          <PageProgressIndicator />
+        </Suspense>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -36,10 +42,12 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <AuthProvider>
-            <DashboardLayout>
-              {children}
-            </DashboardLayout>
-            <Toaster position="top-right" reverseOrder={false} />
+            <ColorProvider>
+              <DashboardLayout>
+                {children}
+              </DashboardLayout>
+              <Toaster position="top-right" reverseOrder={false} />
+            </ColorProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

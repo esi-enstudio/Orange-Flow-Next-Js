@@ -15,6 +15,7 @@ import {
   Activity
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/i18n/useLanguage";
 
 interface Stats {
   total_retailers: number;
@@ -38,6 +39,7 @@ export default function Dashboard() {
   const [recentRetailers, setRecentRetailers] = useState<Retailer[]>([]);
   const [loading, setLoading] = useState(true);
   const { user, loading: authLoading, hasPermission } = useAuth();
+  const { t } = useLanguage();
 
   useEffect(() => {
     if (authLoading) return;
@@ -45,11 +47,11 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         const statsPromise = hasPermission("view_reports")
-          ? apiClient.get("/stats").then(res => res.data).catch(() => null)
+          ? apiClient.get("stats").then(res => res.data).catch(() => null)
           : Promise.resolve(null);
 
         const retailersPromise = hasPermission("view_retailers")
-          ? apiClient.get("/retailers?limit=5").then(res => res.data).catch(() => [])
+          ? apiClient.get("retailers?limit=5").then(res => res.data).catch(() => [])
           : Promise.resolve([]);
 
         const [statsData, retailersData] = await Promise.all([
@@ -70,7 +72,7 @@ export default function Dashboard() {
 
   const statCards = [
     { 
-      title: "Total Retailers", 
+      title: t('dashboard.total_retailers'), 
       value: stats?.total_retailers || 0, 
       icon: Store, 
       color: "bg-blue-500", 
@@ -78,7 +80,7 @@ export default function Dashboard() {
       isUp: true 
     },
     { 
-      title: "Active BTS", 
+      title: t('dashboard.active_bts'), 
       value: stats?.total_bts || 0, 
       icon: MapPin, 
       color: "bg-green-500", 
@@ -86,7 +88,7 @@ export default function Dashboard() {
       isUp: true 
     },
     { 
-      title: "Employees", 
+      title: t('dashboard.employees'), 
       value: stats?.total_employees || 0, 
       icon: Users, 
       color: "bg-purple-500", 
@@ -94,10 +96,10 @@ export default function Dashboard() {
       isUp: true 
     },
     { 
-      title: "Today's GA", 
+      title: t('dashboard.today_ga'), 
       value: stats?.today_activations || 0, 
       icon: TrendingUp, 
-      color: "bg-orange-500", 
+      color: "bg-primary-500", 
       trend: "-3%", 
       isUp: false 
     },
@@ -106,7 +108,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500"></div>
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500"></div>
       </div>
     );
   }
@@ -116,15 +118,17 @@ export default function Dashboard() {
       {/* Welcome Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 transition-colors">Dashboard Overview</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">Welcome back, John! Here's what's happening today.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 transition-colors">{t('dashboard.overview')}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">
+            {t('dashboard.welcome').replace('{name}', user?.name || t('common.user'))}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm">
-            Download Report
+            {t('dashboard.download_report')}
           </button>
-          <button className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors shadow-sm shadow-orange-100 dark:shadow-none">
-            Add New Retailer
+          <button className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm shadow-primary-100 dark:shadow-none">
+            {t('dashboard.add_retailer')}
           </button>
         </div>
       </div>
@@ -157,20 +161,20 @@ export default function Dashboard() {
         {/* Recent Retailers Table */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
           <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between">
-            <h2 className="font-bold text-lg dark:text-gray-100">Recent Retailers</h2>
-            <button className="text-orange-600 dark:text-orange-400 text-sm font-semibold flex items-center gap-1 hover:underline">
-              View all <ChevronRight className="w-4 h-4" />
+            <h2 className="font-bold text-lg dark:text-gray-100">{t('dashboard.recent_retailers')}</h2>
+            <button className="text-primary-600 dark:text-primary-400 text-sm font-semibold flex items-center gap-1 hover:underline">
+              {t('dashboard.view_all')} <ChevronRight className="w-4 h-4" />
             </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  <th className="px-6 py-4">Retailer Name</th>
-                  <th className="px-6 py-4">Code</th>
-                  <th className="px-6 py-4">Thana</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4 text-right">Action</th>
+                  <th className="px-6 py-4">{t('dashboard.retailer_name')}</th>
+                  <th className="px-6 py-4">{t('dashboard.code')}</th>
+                  <th className="px-6 py-4">{t('dashboard.thana')}</th>
+                  <th className="px-6 py-4">{t('dashboard.status')}</th>
+                  <th className="px-6 py-4 text-right">{t('dashboard.action')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -178,11 +182,11 @@ export default function Dashboard() {
                   <tr key={retailer.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-700 dark:text-orange-400 font-bold text-xs transition-colors">
+                        <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold text-xs transition-colors">
                           {retailer.name.charAt(0)}
                         </div>
                         <div>
-                          <p className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
+                          <p className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                             {retailer.name}
                           </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400 transition-colors">{retailer.itop_number}</p>
@@ -196,7 +200,7 @@ export default function Dashboard() {
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 transition-colors">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                        Active
+                        {t('dashboard.active')}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -215,14 +219,14 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col transition-colors duration-300">
           <div className="p-6 border-b border-gray-50 dark:border-slate-800">
             <h2 className="font-bold text-lg flex items-center gap-2 dark:text-gray-100 transition-colors">
-              <Activity className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-              Activity Feed
+              <Activity className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+              {t('dashboard.activity_feed')}
             </h2>
           </div>
           <div className="p-6 space-y-6 flex-1">
             {[1, 2, 3, 4].map((item) => (
               <div key={item} className="flex gap-4 relative last:after:hidden after:absolute after:left-[11px] after:top-[26px] after:bottom-[-26px] after:w-[2px] after:bg-gray-50 dark:after:bg-slate-800 transition-colors">
-                <div className="w-[22px] h-[22px] rounded-full border-2 border-orange-500 bg-white dark:bg-slate-900 z-10 transition-colors"></div>
+                <div className="w-[22px] h-[22px] rounded-full border-2 border-primary-500 bg-white dark:bg-slate-900 z-10 transition-colors"></div>
                 <div>
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-none mb-1 transition-colors">Stock Updated</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 transition-colors">RSO Sazzad added 500 SIMs to Retailer A102</p>
@@ -232,8 +236,8 @@ export default function Dashboard() {
             ))}
           </div>
           <div className="p-4 border-t border-gray-50 dark:border-slate-800">
-            <button className="w-full py-2 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 transition-colors">
-              See all activity
+            <button className="w-full py-2 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
+              {t('dashboard.see_all')}
             </button>
           </div>
         </div>

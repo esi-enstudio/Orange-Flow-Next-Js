@@ -12,17 +12,19 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/i18n/useLanguage";
 
 export function MobileNav() {
   const pathname = usePathname();
+  const { t } = useLanguage();
   const { hasPermission } = useAuth();
 
   const mobileItems = [
-    { title: "Home", href: "/", icon: LayoutDashboard },
-    { title: "Retailers", href: "/retailers", icon: Store, permission: "view_retailers" },
-    { title: "BTS", href: "/bts", icon: MapPin, permission: "view_bts" },
-    { title: "Employees", href: "/employees", icon: Users, permission: "view_employees" },
-    { title: "More", href: "/more", icon: Menu },
+    { title: t('nav.dashboard'), href: "/", icon: LayoutDashboard },
+    { title: t('nav.retailers'), href: "/retailers", icon: Store, permission: "view_retailers" },
+    { title: t('nav.bts'), href: "/bts", icon: MapPin, permission: "view_bts" },
+    { title: t('nav.employees'), href: "/employees", icon: Users, permission: "view_employees" },
+    { title: t('nav.more'), href: "/more", icon: Menu },
   ].filter(item => !item.permission || hasPermission(item.permission));
 
   return (
@@ -34,7 +36,7 @@ export function MobileNav() {
             href={item.href}
             className={cn(
               "flex flex-col items-center gap-1",
-              pathname === item.href ? "text-orange-600 dark:text-orange-400" : "text-gray-400 dark:text-gray-500"
+              pathname === item.href ? "text-primary-600 dark:text-primary-400" : "text-gray-400 dark:text-gray-500"
             )}
           >
             <item.icon className="w-5 h-5" />

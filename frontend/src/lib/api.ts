@@ -2,18 +2,11 @@ import axios from "axios";
 
 const apiClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api",
-  headers: {
-    "Content-Type": "application/json",
-  },
 });
 
 // Request interceptor to add house context
 apiClient.interceptors.request.use(
   (config) => {
-    const houseId = localStorage.getItem("selectedHouseId");
-    if (houseId) {
-      config.headers["X-House-ID"] = houseId;
-    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -29,13 +22,20 @@ apiClient.interceptors.response.use(
     if (typeof detail === "string") {
       message = detail;
     } else if (Array.isArray(detail)) {
-      // Handle FastAPI validation errors
-      message = detail.map((err: any) => err.msg).join(", ");
+      // Handle FastAPI validation errors (Pydantic v2 style)
+      message = detail.map((err: any) => {
+        if (typeof err === 'string') return err;
+        const path = err.loc ? err.loc.join('.') : '';
+        const msg = err.msg || 'Unknown error';
+        return path ? `${path}: ${msg}` : msg;
+      }).join(", ");
+    } else if (detail && typeof detail === 'object') {
+      // Handle case where detail is a single object
+      message = detail.msg || JSON.stringify(detail);
     } else if (error.message) {
       message = error.message;
     }
     
-    console.error("API Error:", message);
     return Promise.reject(error);
   }
 );

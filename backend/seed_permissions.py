@@ -8,17 +8,19 @@ async def seed_permissions():
     
     permissions = [
         # User Management
-        "view_users", "create_users", "edit_users", "delete_users",
+        "view_users", "create_users", "edit_users", "delete_users", "import_users", "export_users",
         # Role Management
         "view_roles", "create_roles", "edit_roles", "delete_roles",
         # Retailer Management
-        "view_retailers", "create_retailers", "edit_retailers", "delete_retailers",
+        "view_retailers", "create_retailers", "edit_retailers", "delete_retailers", "import_retailers", "export_retailers",
         # BTS Management
-        "view_bts", "create_bts", "edit_bts", "delete_bts",
+        "view_bts", "create_bts", "edit_bts", "delete_bts", "import_bts", "export_bts",
         # Employees
         "view_employees", "create_employees", "edit_employees", "delete_employees", "import_employees", "export_employees",
         # Reports
         "view_reports", "download_reports",
+        # Houses
+        "view_houses", "create_houses", "edit_houses", "delete_houses", "import_houses", "export_houses",
     ]
     
     async with async_session() as session:

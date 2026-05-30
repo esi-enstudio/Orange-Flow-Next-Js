@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # JWT Authentication
     SECRET_KEY: str = "your-secret-key-change-it-in-env"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200 # 30 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080 # 7 days
 
     @computed_field
     @property

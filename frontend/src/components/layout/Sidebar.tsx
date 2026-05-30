@@ -3,13 +3,12 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, getProfilePicUrl } from "@/lib/utils";
 import { navItems } from "@/lib/constants";
-import { ChevronRight, ChevronDown, LogOut, Bell, X } from "lucide-react";
+import { ChevronRight, ChevronDown, LogOut, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { HouseSelector } from "./HouseSelector";
-import { ThemeToggle } from "./ThemeToggle";
 import { motion, AnimatePresence } from "framer-motion";
+import { useLanguage } from "@/i18n/useLanguage";
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -19,6 +18,7 @@ interface SidebarProps {
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
+  const { t } = useLanguage();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
 
   // Filter items based on permissions - use memo to prevent mutation of constant
@@ -78,11 +78,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           </button>
         </div>
 
-        {/* Global House Selector */}
-        <div className="mb-6 px-1">
-          <HouseSelector />
-        </div>
-
         <nav className="space-y-1">
           {filteredNavItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
@@ -98,17 +93,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                     className={cn(
                       "w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 group",
                       isParentActive 
-                        ? "bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 font-semibold"
+                        ? "bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 font-semibold"
                         : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-100"
                     )}
                   >
                     <div className="flex items-center gap-3">
                       <item.icon className={cn(
                         "w-5 h-5 transition-colors",
-                        isParentActive ? "text-orange-600 dark:text-orange-400" : item.color || "text-gray-400 dark:text-gray-500",
-                        "group-hover:text-orange-600 dark:group-hover:text-orange-400"
+                        isParentActive ? "text-primary-600 dark:text-primary-400" : item.color || "text-gray-400 dark:text-gray-500",
+                        "group-hover:text-primary-600 dark:group-hover:text-primary-400"
                       )} />
-                      <span className="text-sm">{item.title}</span>
+                      <span className="text-sm">{item.translationKey ? t(item.translationKey) : item.title}</span>
                     </div>
                     <ChevronDown className={cn(
                       "w-4 h-4 opacity-40 transition-transform duration-200",
@@ -122,17 +117,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                     className={cn(
                       "flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 group",
                       isDirectActive
-                        ? "bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 font-semibold"
+                        ? "bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 font-semibold"
                         : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-100"
                     )}
                   >
                     <div className="flex items-center gap-3">
                       <item.icon className={cn(
                         "w-5 h-5 transition-colors",
-                        isDirectActive ? "text-orange-600 dark:text-orange-400" : item.color || "text-gray-400 dark:text-gray-500",
-                        "group-hover:text-orange-600 dark:group-hover:text-orange-400"
+                        isDirectActive ? "text-primary-600 dark:text-primary-400" : item.color || "text-gray-400 dark:text-gray-500",
+                        "group-hover:text-primary-600 dark:group-hover:text-primary-400"
                       )} />
-                      <span className="text-sm">{item.title}</span>
+                      <span className="text-sm">{item.translationKey ? t(item.translationKey) : item.title}</span>
                     </div>
                   </Link>
                 )}
@@ -158,17 +153,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                               className={cn(
                                 "flex items-center gap-4 px-3 py-2 rounded-lg text-xs transition-all group/item",
                                 isChildActive
-                                  ? "text-orange-600 dark:text-orange-400 font-bold bg-orange-50/50 dark:bg-orange-500/5"
+                                  ? "text-primary-600 dark:text-primary-400 font-bold bg-primary-50/50 dark:bg-primary-500/5"
                                   : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
                               )}
                             >
                               <div className={cn(
                                 "w-1.5 h-1.5 rounded-full transition-all duration-300",
                                 isChildActive 
-                                  ? "bg-orange-500 scale-125" 
-                                  : "bg-gray-300 dark:bg-slate-700 group-hover/item:bg-orange-300"
+                                  ? "bg-primary-500 scale-125" 
+                                  : "bg-gray-300 dark:bg-slate-700 group-hover/item:bg-primary-300"
                               )} />
-                              <span className="flex-1">{child.title}</span>
+                              <span className="flex-1">{child.translationKey ? t(child.translationKey) : child.title}</span>
                             </Link>
                           );
                         })}
@@ -183,27 +178,24 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       </div>
 
       <div className="mt-auto p-6 space-y-4">
-        {/* Theme and Notifications */}
-        <div className="flex items-center justify-between gap-2 mb-2 p-1.5 bg-gray-50 dark:bg-slate-800/50 rounded-2xl border border-gray-100 dark:border-slate-800/50">
-            <ThemeToggle />
-            <button className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10 rounded-xl transition-all relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"></span>
-            </button>
-        </div>
-
-        <div className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-slate-800 rounded-xl">
-          <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-600 dark:text-orange-400 font-bold text-xs">
-            {user?.name?.charAt(0) || "U"}
-          </div>
-          <div className="flex flex-col overflow-hidden flex-1">
-            <span className="text-xs font-bold truncate dark:text-gray-100">{user?.name || "User"}</span>
-            <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate capitalize">{user?.status || "Active"}</span>
-          </div>
+        <div className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-slate-800 rounded-xl group/card">
+          <Link href="/profile" className="flex items-center gap-3 flex-1 overflow-hidden group">
+            <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs group-hover:scale-110 transition-transform overflow-hidden">
+              {user?.profile_pic ? (
+                <img src={getProfilePicUrl(user.profile_pic)!} alt="User" className="w-full h-full object-cover" />
+              ) : (
+                user?.name?.charAt(0) || "U"
+              )}
+            </div>
+            <div className="flex flex-col overflow-hidden">
+              <span className="text-xs font-bold truncate dark:text-gray-100 group-hover:text-primary-500 transition-colors">{user?.name || t('common.user')}</span>
+              <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate capitalize">{user?.roles?.[0]?.name || t('common.user')}</span>
+            </div>
+          </Link>
           <button 
             onClick={logout}
             className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-            title="Logout"
+            title={t('common.logout')}
           >
             <LogOut className="w-4 h-4" />
           </button>

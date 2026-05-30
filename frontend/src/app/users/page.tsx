@@ -28,11 +28,17 @@ import {
   Building2,
   Briefcase,
   Eye,
-  EyeOff
+  EyeOff,
+  Upload,
+  Download,
+  FileSpreadsheet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
+import { useRef } from "react";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import { useLanguage } from "@/i18n/useLanguage";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Role {
   id: number;
@@ -51,15 +57,18 @@ interface User {
   name: string;
   email: string;
   phone_number?: string;
+  telegram_id?: number | string;
   status: string;
   roles?: Role[];
   houses?: House[];
   parent_id?: number;
+  created_at?: string;
 }
 
 export default function UsersPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
   const router = useRouter();
+  const { t } = useLanguage();
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
@@ -72,6 +81,13 @@ export default function UsersPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Import/Export States
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importResults, setImportResults] = useState<{success: number, error: number} | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState("");
@@ -95,7 +111,10 @@ export default function UsersPage() {
   // Permission Check
   useEffect(() => {
     if (!authLoading && !hasPermission("view_users")) {
-      router.push("/");
+      const timer = setTimeout(() => {
+        router.push("/");
+      }, 5000);
+      return () => clearTimeout(timer);
     }
   }, [authLoading, hasPermission, router]);
 
@@ -103,24 +122,26 @@ export default function UsersPage() {
     setLoading(true);
     try {
       const [usersRes, rolesRes, housesRes] = await Promise.all([
-        apiClient.get("/users"),
-        apiClient.get("/roles"),
-        apiClient.get("/houses")
+        apiClient.get("users"),
+        apiClient.get("roles"),
+        apiClient.get("houses")
       ]);
       setUsers(usersRes.data);
       setRoles(rolesRes.data);
       setHouses(housesRes.data);
     } catch (err) {
       console.error("Failed to fetch data", err);
-      toast.error("Failed to load users");
+      toast.error(t('users.toast_load_failed'));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
-  }, [selectedHouse]);
+    if (!authLoading && hasPermission("view_users")) {
+      fetchData();
+    }
+  }, [selectedHouse, authLoading, hasPermission]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -177,10 +198,10 @@ export default function UsersPage() {
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
-    if (!formData.name.trim()) errors.name = "Name is required";
-    if (!formData.username.trim()) errors.username = "Username is required";
-    if (!formData.email.trim()) errors.email = "Email is required";
-    if (!editingUser && !formData.password.trim()) errors.password = "Password is required";
+    if (!formData.name.trim()) errors.name = t('users.field_error_name');
+    if (!formData.username.trim()) errors.username = t('users.field_error_username');
+    if (!formData.email.trim()) errors.email = t('users.field_error_email');
+    if (!editingUser && !formData.password.trim()) errors.password = t('users.field_error_password');
     
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -202,21 +223,76 @@ export default function UsersPage() {
     try {
       if (editingUser) {
         // Assume PUT /users/:id exists
-        await apiClient.put(`/users/${editingUser.id}`, payload);
-        toast.success("User updated successfully!");
+        await apiClient.put(`users/${editingUser.id}`, payload);
+        toast.success(t('users.toast_update_success'));
       } else {
-        await apiClient.post("/auth/register", payload);
-        toast.success("User created successfully!");
+        await apiClient.post("auth/register", payload);
+        toast.success(t('users.toast_create_success'));
       }
       setIsFormModalOpen(false);
       fetchData();
     } catch (err: any) {
       const detail = err.response?.data?.detail;
-      const errorMsg = typeof detail === "string" ? detail : "Action failed";
+      const errorMsg = typeof detail === "string" ? detail : t('common.action_failed');
       setFormError(errorMsg);
       toast.error(errorMsg);
     } finally {
       setFormLoading(false);
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportProgress(20);
+    setImportResults(null);
+    
+    const importData = new FormData();
+    importData.append("file", file);
+    
+    try {
+      setImportProgress(50);
+      const response = await apiClient.post(`users/import`, importData);
+      setImportProgress(100);
+      setImportResults({
+        success: response.data.success_count,
+        error: response.data.error_count
+      });
+      toast.success(response.data.message);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || t('users.toast_import_failed'));
+    } finally {
+      setTimeout(() => {
+        setIsImporting(false);
+        setImportProgress(0);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }, 1000);
+    }
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const response = await apiClient.get("users/export", { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `users_export_${new Date().getTime()}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success(t('users.toast_export_success'));
+    } catch (err) {
+      toast.error(t('users.toast_export_failed'));
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -229,12 +305,12 @@ export default function UsersPage() {
     if (!deletingId) return;
     setFormLoading(true);
     try {
-      await apiClient.delete(`/users/${deletingId}`);
-      toast.success("User deleted successfully!");
+      await apiClient.delete(`users/${deletingId}`);
+      toast.success(t('users.toast_delete_success'));
       setIsConfirmOpen(false);
       fetchData();
     } catch (err) {
-      toast.error("Failed to delete user");
+      toast.error(t('users.toast_delete_failed'));
     } finally {
       setFormLoading(false);
       setDeletingId(null);
@@ -250,28 +326,105 @@ export default function UsersPage() {
   const paginatedUsers = filteredUsers.slice(page * limit, (page + 1) * limit);
   const totalPages = Math.ceil(filteredUsers.length / limit);
 
+  if (!authLoading && !hasPermission("view_users")) {
+    return <AccessDenied />;
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">User Management</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">Manage system access, roles and reporting lines.</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t('users.title')}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t('users.description')}</p>
         </div>
-        <button 
-          onClick={openAddModal}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-bold hover:bg-orange-700 transition-colors shadow-lg shadow-orange-200 dark:shadow-none"
-        >
-          <Plus className="w-4 h-4" />
-          Add New User
-        </button>
+        <div className="flex flex-wrap gap-3">
+          {hasPermission("export_users") && (
+            <button 
+              onClick={handleExport}
+              disabled={isExporting}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+            >
+              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {t('users.export_list')}
+            </button>
+          )}
+          {hasPermission("import_users") && (
+            <>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
+              <button 
+                onClick={handleImportClick}
+                disabled={isImporting}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+              >
+                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {t('users.import_list')}
+              </button>
+            </>
+          )}
+          {hasPermission("create_users") && (
+            <button 
+              onClick={openAddModal}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none"
+            >
+              <Plus className="w-4 h-4" />
+              {t('users.add_new')}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Import Progress & Results */}
+      {isImporting && (
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-primary-100 dark:border-primary-500/20 shadow-xl animate-in slide-in-from-top-4 duration-300">
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-primary-100 dark:bg-primary-500/20 rounded-xl text-primary-600">
+                        <FileSpreadsheet className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                          {importProgress < 100 ? t('users.import_processing') : t('users.import_done')}
+                        </h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {importProgress < 100 ? t('users.import_wait') : t('users.import_sync_done')}
+                        </p>
+                    </div>
+                </div>
+                {importResults && (
+                   <button onClick={() => setIsImporting(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg">
+                      <X className="w-4 h-4 text-gray-400" />
+                   </button>
+                )}
+            </div>
+            
+            <div className="w-full h-2 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden mb-4">
+                <div 
+                    className="h-full bg-primary-500 transition-all duration-500 ease-out shadow-[0_0_10px_rgba(249,115,22,0.5)]" 
+                    style={{ width: `${importProgress}%` }}
+                />
+            </div>
+
+            {importResults && (
+              <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-500 delay-300">
+                  <div className="bg-green-50 dark:bg-green-500/5 p-3 rounded-xl border border-green-100 dark:border-green-500/10">
+                      <p className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider mb-1">{t('users.import_success')}</p>
+                      <p className="text-xl font-black text-green-700 dark:text-green-300">{importResults.success}</p>
+                  </div>
+                  <div className="bg-red-50 dark:bg-red-500/5 p-3 rounded-xl border border-red-100 dark:border-red-500/10">
+                      <p className="text-[10px] font-bold text-red-600 dark:text-red-400 uppercase tracking-wider mb-1">{t('users.import_failed')}</p>
+                      <p className="text-xl font-black text-red-700 dark:text-red-300">{importResults.error}</p>
+                  </div>
+              </div>
+            )}
+        </div>
+      )}
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-        <StatCard title="Total Users" value={users.length} icon={Users} color="bg-blue-500" />
-        <StatCard title="Active Users" value={users.filter(u => u.status === "Active").length} icon={UserCheck} color="bg-green-500" />
-        <StatCard title="System Roles" value={roles.length} icon={Shield} color="bg-purple-500" />
+        <StatCard title={t('users.total_users')} value={users.length} icon={Users} color="bg-blue-500" />
+        <StatCard title={t('users.active_users')} value={users.filter(u => u.status === "Active").length} icon={UserCheck} color="bg-green-500" />
+        <StatCard title={t('users.system_roles')} value={roles.length} icon={Shield} color="bg-purple-500" />
       </div>
 
       {/* DataTable Container */}
@@ -281,8 +434,8 @@ export default function UsersPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
             <input 
               type="text" 
-              placeholder="Search by name, username or email..." 
-              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-orange-500 transition-all dark:text-gray-100 outline-none"
+              placeholder={t('users.search_placeholder')} 
+              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -294,12 +447,12 @@ export default function UsersPage() {
 
         {loading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-4">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500"></div>
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500"></div>
           </div>
         ) : filteredUsers.length === 0 ? (
           <div className="py-20 text-center">
             <Users className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400 font-medium">No users found</p>
+            <p className="text-gray-500 dark:text-gray-400 font-medium">{t('users.no_users')}</p>
           </div>
         ) : (
           <>
@@ -307,10 +460,10 @@ export default function UsersPage() {
               <table className="w-full text-left min-w-[800px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
-                    <th className="px-6 py-4">User Profile</th>
-                    <th className="px-6 py-4">Roles & Houses</th>
-                    <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
+                    <th className="px-6 py-4">{t('users.table_profile')}</th>
+                    <th className="px-6 py-4">{t('users.table_roles')}</th>
+                    <th className="px-6 py-4">{t('users.table_status')}</th>
+                    <th className="px-6 py-4 text-right">{t('users.table_actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -318,7 +471,7 @@ export default function UsersPage() {
                     <tr key={u.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-700 dark:text-orange-400 font-bold shadow-sm">
+                          <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm">
                             {u.name?.charAt(0) || "U"}
                           </div>
                           <div>
@@ -338,7 +491,7 @@ export default function UsersPage() {
                           ))}
                           {u.houses?.length ? (
                             <span className="px-2 py-0.5 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 text-[9px] font-bold uppercase rounded-full border border-purple-100 dark:border-purple-500/20">
-                              {u.houses.length} Houses
+                              {t('users.houses_count', { count: u.houses.length })}
                             </span>
                           ) : null}
                         </div>
@@ -358,7 +511,7 @@ export default function UsersPage() {
                         <div className="flex justify-end gap-2">
                           <button 
                             onClick={() => openEditModal(u)}
-                            className="p-2 hover:bg-orange-50 dark:hover:bg-orange-500/10 rounded-xl text-gray-400 hover:text-orange-600 transition-all"
+                            className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
@@ -378,7 +531,7 @@ export default function UsersPage() {
 
             <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between">
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Showing result {filteredUsers.length === 0 ? 0 : (page * limit) + 1} to {Math.min((page + 1) * limit, filteredUsers.length)} of {filteredUsers.length}
+                {t('users.showing_results', { start: filteredUsers.length === 0 ? 0 : (page * limit) + 1, end: Math.min((page + 1) * limit, filteredUsers.length), total: filteredUsers.length })}
               </p>
               <div className="flex items-center gap-2">
                 <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronLeft className="w-4 h-4"/></button>
@@ -395,8 +548,8 @@ export default function UsersPage() {
           <div className="bg-white dark:bg-slate-900 w-full max-w-4xl h-full md:h-auto md:max-h-[95vh] md:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
               <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">{editingUser ? "Edit User Profile" : "Create New User"}</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Control system access, roles and distribution context.</p>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">{editingUser ? t('users.modal_edit_title') : t('users.modal_create_title')}</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('users.modal_subtitle')}</p>
               </div>
               <button onClick={() => setIsFormModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl bg-gray-50 dark:bg-slate-800 transition-colors">
                 <X className="w-5 h-5" />
@@ -414,28 +567,28 @@ export default function UsersPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Section 1: Identity & Security */}
                 <div className="space-y-5">
-                  <h4 className="text-xs font-bold text-orange-600 uppercase tracking-widest flex items-center gap-2"><UserIcon className="w-4 h-4"/> Account Identity</h4>
+                  <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest flex items-center gap-2"><UserIcon className="w-4 h-4"/> {t('users.section_identity')}</h4>
                   <div className="space-y-4">
-                    <InputField label="Full Name" required value={formData.name} onChange={(v: string) => setFormData({...formData, name: v})} placeholder="e.g. John Doe" leftIcon={UserIcon} error={fieldErrors.name} />
+                    <InputField label={t('users.field_full_name')} required value={formData.name} onChange={(v: string) => setFormData({...formData, name: v})} placeholder={t('users.field_full_name_placeholder')} leftIcon={UserIcon} error={fieldErrors.name} />
                     <div className="grid grid-cols-2 gap-4">
-                      <InputField label="Username" required value={formData.username} onChange={(v: string) => setFormData({...formData, username: v.toLowerCase()})} placeholder="johndoe" leftIcon={Hash} error={fieldErrors.username} />
-                      <InputField label="Phone" type="number" value={formData.phone_number} onChange={(v: string) => setFormData({...formData, phone_number: v})} placeholder="017xxxxxxxx" leftIcon={Phone} />
+                      <InputField label={t('users.field_username')} required value={formData.username} onChange={(v: string) => setFormData({...formData, username: v.toLowerCase()})} placeholder={t('users.field_username_placeholder')} leftIcon={Hash} error={fieldErrors.username} />
+                      <InputField label={t('users.field_phone')} type="number" value={formData.phone_number} onChange={(v: string) => setFormData({...formData, phone_number: v})} placeholder={t('users.field_phone_placeholder')} leftIcon={Phone} />
                     </div>
-                    <InputField label="Email Address" required type="email" value={formData.email} onChange={(v: string) => setFormData({...formData, email: v})} placeholder="john@example.com" leftIcon={Mail} error={fieldErrors.email} />
-                    <InputField label="Password" required={!editingUser} type="password" value={formData.password} onChange={(v: string) => setFormData({...formData, password: v})} placeholder="••••••••" leftIcon={Lock} error={fieldErrors.password} />
+                    <InputField label={t('users.field_email')} required type="email" value={formData.email} onChange={(v: string) => setFormData({...formData, email: v})} placeholder={t('users.field_email_placeholder')} leftIcon={Mail} error={fieldErrors.email} />
+                    <InputField label={t('users.field_password')} required={!editingUser} type="password" value={formData.password} onChange={(v: string) => setFormData({...formData, password: v})} placeholder={t('users.field_password_placeholder')} leftIcon={Lock} error={fieldErrors.password} />
                     
                     <div className="grid grid-cols-2 gap-4">
-                      <InputField label="Telegram ID" value={formData.telegram_id} onChange={(v: string) => setFormData({...formData, telegram_id: v})} placeholder="Optional" leftIcon={Hash} />
+                      <InputField label={t('users.field_telegram_id')} value={formData.telegram_id} onChange={(v: string) => setFormData({...formData, telegram_id: v})} placeholder={t('users.field_telegram_id_placeholder')} leftIcon={Hash} />
                       <div className="space-y-1.5">
-                        <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-0.5 ml-1">Status</label>
+                        <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-0.5 ml-1">{t('users.field_status')}</label>
                         <select
                           name="status"
-                          className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800/50 border border-transparent focus:border-orange-500/30 rounded-2xl text-sm outline-none transition-all dark:text-gray-100"
+                          className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800/50 border border-transparent focus:border-primary-500/30 rounded-2xl text-sm outline-none transition-all dark:text-gray-100"
                           value={formData.status}
                           onChange={handleInputChange}
                         >
-                          <option value="Active">Active</option>
-                          <option value="Inactive">Inactive</option>
+                          <option value="Active">{t('common.active')}</option>
+                          <option value="Inactive">{t('common.inactive')}</option>
                         </select>
                       </div>
                     </div>
@@ -444,17 +597,17 @@ export default function UsersPage() {
 
                 {/* Section 2: Roles & Permissions */}
                 <div className="space-y-5">
-                  <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2"><Shield className="w-4 h-4"/> Access Control</h4>
+                  <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2"><Shield className="w-4 h-4"/> {t('users.section_access')}</h4>
                   <div className="space-y-6">
                     <div>
-                      <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2.5 ml-1">Reporting Line</label>
+                      <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2.5 ml-1">{t('users.field_reporting_line')}</label>
                       <select
                         name="parent_id"
-                        className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800/50 border border-transparent focus:border-orange-500/30 rounded-2xl text-sm outline-none transition-all dark:text-gray-100 appearance-none"
+                        className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800/50 border border-transparent focus:border-primary-500/30 rounded-2xl text-sm outline-none transition-all dark:text-gray-100 appearance-none"
                         value={formData.parent_id}
                         onChange={handleInputChange}
                       >
-                        <option value="">No Parent (Top Level)</option>
+                        <option value="">{t('users.field_no_parent')}</option>
                         {users.filter(u => u.id !== editingUser?.id).map(u => (
                           <option key={u.id} value={u.id}>{u.name} (@{u.username})</option>
                         ))}
@@ -462,7 +615,7 @@ export default function UsersPage() {
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2.5 ml-1">System Roles</label>
+                      <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2.5 ml-1">{t('users.field_system_roles')}</label>
                       <div className="flex flex-wrap gap-2 p-3 bg-gray-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700">
                         {roles.map(role => {
                           const isSelected = formData.role_ids.includes(role.id);
@@ -474,8 +627,8 @@ export default function UsersPage() {
                               className={cn(
                                 "px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all border",
                                 isSelected 
-                                  ? "bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-200 dark:shadow-none" 
-                                  : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-500 hover:border-orange-300"
+                                  ? "bg-primary-500 border-primary-500 text-white shadow-lg shadow-primary-200 dark:shadow-none" 
+                                  : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-500 hover:border-primary-300"
                               )}
                             >
                               {role.name}
@@ -486,7 +639,7 @@ export default function UsersPage() {
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2.5 ml-1">Assigned Houses</label>
+                      <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2.5 ml-1">{t('users.field_assigned_houses')}</label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 bg-gray-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 max-h-[160px] overflow-y-auto custom-scrollbar">
                         {houses.map(house => {
                           const isSelected = formData.house_ids.includes(house.id);
@@ -515,10 +668,10 @@ export default function UsersPage() {
 
               {/* Action Buttons */}
               <div className="mt-10 pt-6 border-t border-gray-50 dark:border-slate-800 flex gap-4">
-                <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-2xl transition-all">Cancel</button>
-                <button type="submit" disabled={formLoading} className="flex-[2] py-3 bg-orange-600 text-white rounded-2xl text-sm font-bold hover:bg-orange-700 transition-all shadow-xl shadow-orange-200 dark:shadow-none flex items-center justify-center gap-2 group">
+                <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-2xl transition-all">{t('users.btn_cancel')}</button>
+                <button type="submit" disabled={formLoading} className="flex-[2] py-3 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-200 dark:shadow-none flex items-center justify-center gap-2 group">
                   {formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  {editingUser ? "Update Account" : "Create Account"}
+                  {editingUser ? t('users.btn_update') : t('users.btn_create')}
                 </button>
               </div>
             </form>
@@ -532,9 +685,9 @@ export default function UsersPage() {
         onClose={() => setIsConfirmOpen(false)}
         onConfirm={handleConfirmDelete}
         type="danger"
-        title="Delete User Account?"
-        message="Are you sure you want to remove this user? They will lose all access to the system immediately."
-        confirmText="Yes, Delete User"
+        title={t('users.delete_title')}
+        message={t('users.delete_message')}
+        confirmText={t('users.delete_confirm')}
         loading={formLoading}
       />
     </div>
@@ -571,7 +724,7 @@ function InputField({ label, value, onChange, placeholder, required = false, typ
         {Icon && (
           <div className={cn(
             "absolute left-4 top-1/2 -translate-y-1/2 transition-colors z-10",
-            error ? "text-red-500" : "text-gray-400 group-focus-within/input:text-orange-500"
+            error ? "text-red-500" : "text-gray-400 group-focus-within/input:text-primary-500"
           )}>
             <Icon className="w-4 h-4" />
           </div>
@@ -586,7 +739,7 @@ function InputField({ label, value, onChange, placeholder, required = false, typ
             isPassword ? "pr-12" : "pr-4",
             error 
               ? "border-red-500/50 focus:border-red-500 ring-1 ring-red-500/10" 
-              : "border-transparent focus:border-orange-500/30"
+              : "border-transparent focus:border-primary-500/30"
           )}
           placeholder={placeholder}
           value={value}
@@ -596,7 +749,7 @@ function InputField({ label, value, onChange, placeholder, required = false, typ
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-orange-500 transition-colors"
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary-500 transition-colors"
           >
             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>

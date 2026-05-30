@@ -30,6 +30,7 @@ class User(Base):
     name = Column(String, nullable=True)
     email = Column(String, unique=True, index=True, nullable=True)
     phone_number = Column(String, nullable=True)
+    profile_pic = Column(String, nullable=True)
     status = Column(String, default="Active", nullable=False)
 
     # রিপোর্টিং লাইন (Self-referencing Foreign Key) ✅

@@ -8,7 +8,7 @@ from tqdm import tqdm
 from colorama import Fore, Style, init
 
 # ... rest of imports
-from app.Models.dms_report import DMSReport
+from app.Models.itopup_detail import ITopUpDetail
 from app.Models.house import House
 from app.Models.retailer import Retailer
 from app.Services.db_service import async_session
@@ -106,7 +106,7 @@ async def process_dms_report_excel(file_path, report_type, target_house_id=None,
             batch_size = 500  # প্রতি ৫০০ রেকর্ডে একবার ডাটাবেজে হিট করবে
 
             # কুইক আপসার্ট স্টেটমেন্ট তৈরি
-            insert_stmt = insert(DMSReport)
+            insert_stmt = insert(ITopUpDetail)
             upsert_stmt = insert_stmt.on_conflict_do_update(
                 constraint='uix_house_retailer_type_date',
                 set_={
@@ -173,10 +173,10 @@ async def process_dms_report_excel(file_path, report_type, target_house_id=None,
                 if progress_callback and (processed_rows % 50 == 0 or processed_rows == total_rows):
                     percent = round((processed_rows / total_rows) * 100)
                     await progress_callback(
-                        f"🚀 <b>DMS বাল্ক প্রসেসিং:</b> {bn_num(percent)}%\n"
-                        f"📂 টাইপ: <code>{report_type}</code>\n"
-                        f"📈 রো: <code>{bn_num(processed_rows)}</code> / <code>{bn_num(total_rows)}</code>\n"
-                        f"💾 মোট ডাটা সেভ: <code>{bn_num(inserted_records + len(batch_buffer))}</code> টি"
+                        f"🚀 DMS Processing: {percent}%\n"
+                        f"📂 Type: {report_type}\n"
+                        f"📈 Row: {processed_rows} / {total_rows}\n"
+                        f"💾 Saved: {inserted_records + len(batch_buffer)} records"
                     )
 
             # অবশিষ্টাংশ সেভ করা
@@ -203,10 +203,32 @@ async def cleanup_old_dms_reports():
     two_years_ago = datetime.now() - timedelta(days=365 * 2)
     async with async_session() as session:
         try:
-            stmt = delete(DMSReport).where(DMSReport.report_date < two_years_ago.date())
+            stmt = delete(ITopUpDetail).where(ITopUpDetail.report_date < two_years_ago.date())
             result = await session.execute(stmt)
             await session.commit()
             if result.rowcount > 0:
                 logger.info(f"🧹 Cleanup: {result.rowcount} old DMS records deleted.")
         except Exception as e:
             logger.error(f"❌ DMS Cleanup Error: {str(e)}")
+
+
+import io
+from openpyxl import Workbook
+
+async def export_itopup_details_excel(records):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "iTopUp Details"
+    headers = ["Report Type", "Report Date", "Daily Value", "House Code", "Retailer Code", "Retailer Name"]
+    ws.append(headers)
+    for r in records:
+        ws.append([
+            r.report_type, str(r.report_date) if r.report_date else "", r.daily_value,
+            r.house.code if r.house else "",
+            r.retailer.retailer_code if r.retailer else "",
+            r.retailer.name if r.retailer else ""
+        ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()

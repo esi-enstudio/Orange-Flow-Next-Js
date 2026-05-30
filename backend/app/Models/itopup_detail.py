@@ -3,8 +3,8 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.Models.base import Base
 
-class DMSReport(Base):
-    __tablename__ = "dms_reports"
+class ITopUpDetail(Base):
+    __tablename__ = "itopup_details"
     __table_args__ = (
         UniqueConstraint('house_id', 'retailer_id', 'report_type', 'report_date', name='uix_house_retailer_type_date'),
     )
@@ -15,10 +15,10 @@ class DMSReport(Base):
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     retailer_id = Column(Integer, ForeignKey('retailers.id'), nullable=True, index=True)
     
-    # রিপোর্টের ধরন (C2C, C2S, Balance)
-    report_type = Column(String, index=True) # e.g., 'C2C', 'C2S', 'Balance'
+    # Report type (C2C, C2S, Balance)
+    report_type = Column(String, index=True)
     
-    # ডেট এবং ভ্যালু (Excel header dates gulo ekhane row wise thakbe)
+    # Date and value
     report_date = Column(Date, index=True, nullable=False)
     daily_value = Column(Float, default=0.0) 
     

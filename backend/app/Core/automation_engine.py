@@ -16,7 +16,11 @@ class AutomationEngine:
             # সাধারণ ব্রাউজার লঞ্চ
             self.browser = await self.playwright.chromium.launch(
                 headless=settings.HEADLESS,
-                args=['--disable-blink-features=AutomationControlled']
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox'
+                ]
             )
             logger.info("🚀 [Engine] Browser Engine Started.")
 

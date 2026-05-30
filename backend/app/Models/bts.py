@@ -7,13 +7,13 @@ class BTS(Base):
     __tablename__ = "bts_list"
 
     id = Column(Integer, primary_key=True)
-    house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
+    house_id = Column(Integer, ForeignKey('houses.id'), nullable=False, index=True)
     
     # এক্সেল হেডার অনুযায়ী কলামসমূহ
     site_id = Column(String, unique=True, index=True) # Site ID
     bts_code = Column(String, unique=True, index=True) # BTS Code
     site_type = Column(String)                        # Site Type
-    thana = Column(String)                            # Thana
+    thana = Column(String, index=True)                 # Thana
     thana_bn = Column(String)                         # Thana Bn
     district = Column(String)                         # District
     district_bn = Column(String)                      # District Bn
@@ -24,7 +24,7 @@ class BTS(Base):
     region = Column(String)                           # Region
     region_bn = Column(String)                         # Region Bn
     network_mode = Column(String)                     # Network Mode
-    address = Column(String)                          # Address
+    address = Column(String, index=True)               # Address
     address_bn = Column(String)                       # Address Bn
     short_address = Column(String)                    # Short Address
     short_address_bn = Column(String)

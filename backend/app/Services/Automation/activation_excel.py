@@ -199,3 +199,30 @@ async def process_activation_excel(file_path, house_id, progress_callback):
         if 'pbar' in locals(): pbar.close()
         logger.error(f"❌ Critical Sync Error: {str(e)}")
         return 0, f"{str(e)}"
+
+
+import io
+from openpyxl import Workbook
+
+async def export_activations_excel(records):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Activations"
+    headers = ["SIM No", "Activation Date", "Activation Time", "Retailer Code", "Retailer Name",
+               "BTS Code", "Thana", "Promotion", "Product Code", "Product Name", "MSISDN",
+               "Selling Price", "BP Flag", "BP Number", "FC BTS Code", "Bio BTS Code",
+               "DH Lifting Date", "Issue Date", "Subscription Type", "Service Class",
+               "Customer Second Contact", "House Code"]
+    ws.append(headers)
+    for r in records:
+        ws.append([
+            r.sim_no, r.activation_date, r.activation_time, r.retailer_code, r.retailer_name,
+            r.bts_code, r.thana, r.promotion, r.product_code, r.product_name, r.msisdn,
+            r.selling_price, r.bp_flag, r.bp_number, r.fc_bts_code, r.bio_bts_code,
+            r.dh_lifting_date, r.issue_date, r.subscription_type, r.service_class,
+            r.customer_second_contact, r.house.code if r.house else ""
+        ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
