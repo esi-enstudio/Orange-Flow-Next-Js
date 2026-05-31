@@ -3,8 +3,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, date
+from calendar import monthrange
 
 from app.Routers.deps import get_db, has_permission, get_house_context, get_current_user
 from app.Models.user import User
@@ -13,7 +14,8 @@ from app.Models.live_activation import LiveActivation
 from app.Models.itopup_detail import ITopUpDetail
 from app.Models.scratch_card_issue import ScratchCardIssue
 from app.Models.sim_issue import SimIssue
-from app.Models.ga_filter import RetailerFilter
+from app.Models.ga_filter import RetailerFilter, FilterTag, RetailerFilter as RetailerFilterModel
+from app.Models.retailer import Retailer
 from app.Models.employee import Employee
 from app.Utils.access_control import is_admin_user
 from app.Utils.activation_rules import get_excluded_codes, exclude_clause
@@ -252,6 +254,12 @@ async def get_activation_report(
     if clause is not None:
         query = query.where(clause)
         count_query = count_query.where(clause)
+    today_dt = date.today()
+    if not start_date:
+        start_date = today_dt.replace(day=1).isoformat()
+    if not end_date:
+        last = monthrange(today_dt.year, today_dt.month)[1]
+        end_date = today_dt.replace(day=last).isoformat()
     if start_date:
         try: sd = datetime.strptime(start_date, "%Y-%m-%d").date()
         except: raise HTTPException(status_code=400, detail="Invalid start_date format, use YYYY-MM-DD")
@@ -274,7 +282,7 @@ async def get_activation_report(
         excluded_tags_list = [t.strip() for t in exclude_tags.split(",") if t.strip()]
         if excluded_tags_list and (effective_house_id or user_house_ids):
             house_ids_for_exclusion = [effective_house_id] if effective_house_id else (user_house_ids if not is_admin else None)
-            excl_query = select(RetailerFilter.retailer_id).where(RetailerFilter.tag.in_(excluded_tags_list))
+            excl_query = select(RetailerFilter.retailer_id).join(RetailerFilter.tag).where(FilterTag.name.in_(excluded_tags_list))
             if house_ids_for_exclusion:
                 excl_query = excl_query.where(RetailerFilter.house_id.in_(house_ids_for_exclusion))
             excluded_ids_result = await db.execute(excl_query)
@@ -293,15 +301,42 @@ async def get_activation_report(
     offset = (page - 1) * page_size
     result = await db.execute(query.offset(offset).limit(page_size).order_by(Activation.id.desc()))
     records = result.unique().scalars().all()
+
+    # Bulk fetch retailer tags
+    retailer_ids = [r.retailer_id for r in records if r.retailer_id]
+    tags_map: dict[int, list[str]] = {}
+    if retailer_ids:
+        tag_rows = await db.execute(
+            select(RetailerFilter.retailer_id, FilterTag.name)
+            .join(FilterTag, RetailerFilter.tag_id == FilterTag.id)
+            .where(RetailerFilter.retailer_id.in_(retailer_ids))
+        )
+        for rid, tname in tag_rows.all():
+            tags_map.setdefault(rid, []).append(tname)
+
+    # Bulk fetch RSO info
+    rso_map: dict[int, dict] = {}
+    if retailer_ids:
+        rso_rows = await db.execute(
+            select(Retailer.id, Employee.user_id, User.name, Employee.itop_number)
+            .join(Employee, Retailer.employee_id == Employee.id)
+            .join(User, Employee.user_id == User.id)
+            .where(Retailer.id.in_(retailer_ids))
+        )
+        for rid, uid, uname, itop in rso_rows.all():
+            rso_map[rid] = {"name": uname, "itop": itop}
+
     data = []
     for r in records:
         item = {
             "id": r.id, "house_id": r.house_id, "retailer_id": r.retailer_id,
             "activation_date": r.activation_date.isoformat() if r.activation_date else None,
             "retailer_code": r.retailer_code, "retailer_name": r.retailer_name,
+            "retailer_tags": tags_map.get(r.retailer_id, []) if r.retailer_id else [],
+            "rso": rso_map.get(r.retailer_id),
             "sim_no": r.sim_no, "msisdn": r.msisdn, "product_name": r.product_name,
-            "selling_price": r.selling_price, "thana": r.thana,
-            "house": {"id": r.house.id, "name": r.house.name} if r.house else None
+            "product_code": r.product_code, "selling_price": r.selling_price, "thana": r.thana,
+            "house": {"id": r.house.id, "name": r.house.name, "code": r.house.code} if r.house else None
         }
         data.append(item)
     return {

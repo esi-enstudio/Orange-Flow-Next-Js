@@ -87,8 +87,8 @@ class EmployeeCreate(BaseModel):
     @field_validator('status')
     @classmethod
     def validate_status(cls, v):
-        if v is not None and v not in ("Active", "Resigned", "Suspended"):
-            raise ValueError('status must be one of: Active, Resigned, Suspended')
+        if v is not None and v not in ("Active", "Resigned", "Suspended", "Inactive"):
+            raise ValueError('status must be one of: Active, Resigned, Suspended, Inactive')
         return v
 
     @field_validator('market_type')

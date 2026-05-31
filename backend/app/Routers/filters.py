@@ -1,13 +1,13 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.Routers.deps import get_db, has_permission, get_house_context, get_current_user
 from app.Schemas.filter import FilterTagSchema, FilterTagCreate, RetailerFilterSchema, RetailerFilterCreate, RetailerFilterBulkCreate, ExcludedProductSchema, ExcludedProductCreate
-from app.Models.ga_filter import FilterTag, RetailerFilter
+from app.Models.ga_filter import FilterTag, RetailerFilter, GAProductFilter
 from app.Models.product_exclusion import ExcludedProductCode
 from app.Models.retailer import Retailer
 from app.Models.employee import Employee
@@ -73,21 +73,22 @@ async def delete_filter_tag(
     tag = result.scalar_one_or_none()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    await db.execute(RetailerFilter.__table__.delete().where(RetailerFilter.tag == tag.name, RetailerFilter.house_id == tag.house_id))
+    await db.execute(RetailerFilter.__table__.delete().where(RetailerFilter.tag_id == tag.id))
     await db.delete(tag)
     await db.commit()
     return {"message": "Tag deleted successfully"}
 
 @router.get("/retailer-filters")
 async def list_retailer_filters(
-    tag: Optional[str] = None,
+    tag_name: Optional[str] = Query(None, alias="tag"),
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("view_retailers")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(RetailerFilter).options(
-        joinedload(RetailerFilter.retailer).joinedload(Retailer.employee).selectinload(Employee.user)
+        joinedload(RetailerFilter.retailer).joinedload(Retailer.employee).selectinload(Employee.user),
+        joinedload(RetailerFilter.tag)
     )
     is_admin = is_admin_user(current_user)
     if house_id:
@@ -98,8 +99,8 @@ async def list_retailer_filters(
             query = query.where(RetailerFilter.house_id.in_(user_house_ids))
         else:
             query = query.where(RetailerFilter.house_id == -1)
-    if tag:
-        query = query.where(RetailerFilter.tag == tag)
+    if tag_name:
+        query = query.where(RetailerFilter.tag.has(FilterTag.name == tag_name))
     if search:
         pattern = f"%{search}%"
         query = query.where(RetailerFilter.retailer.has(Retailer.name.ilike(pattern)) | RetailerFilter.retailer.has(Retailer.retailer_code.ilike(pattern)))
@@ -107,7 +108,8 @@ async def list_retailer_filters(
     filters = result.unique().scalars().all()
     output = []
     for f in filters:
-        item = {"id": f.id, "house_id": f.house_id, "retailer_id": f.retailer_id, "tag": f.tag,
+        item = {"id": f.id, "house_id": f.house_id, "retailer_id": f.retailer_id, "tag_id": f.tag_id,
+                "tag": f.tag.name if f.tag else None,
                 "created_at": f.created_at.isoformat() if f.created_at else None, "retailer": None}
         if f.retailer:
             emp = f.retailer.employee
@@ -129,18 +131,21 @@ async def create_retailer_filter(
     retailer = await db.get(Retailer, filter_data.retailer_id)
     if not retailer:
         raise HTTPException(status_code=404, detail="Retailer not found")
+    tag = await db.get(FilterTag, filter_data.tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
     existing = (await db.execute(select(RetailerFilter).where(
         RetailerFilter.house_id == retailer.house_id,
         RetailerFilter.retailer_id == filter_data.retailer_id,
-        RetailerFilter.tag == filter_data.tag
+        RetailerFilter.tag_id == filter_data.tag_id
     ))).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=400, detail="Retailer already has this tag")
-    new_filter = RetailerFilter(house_id=retailer.house_id, retailer_id=filter_data.retailer_id, tag=filter_data.tag)
+    new_filter = RetailerFilter(house_id=retailer.house_id, retailer_id=filter_data.retailer_id, tag_id=filter_data.tag_id)
     db.add(new_filter)
     await db.commit()
     await db.refresh(new_filter)
-    return {"id": new_filter.id, "house_id": new_filter.house_id, "retailer_id": new_filter.retailer_id, "tag": new_filter.tag, "message": "Retailer tagged successfully"}
+    return {"id": new_filter.id, "house_id": new_filter.house_id, "retailer_id": new_filter.retailer_id, "tag_id": new_filter.tag_id, "message": "Retailer tagged successfully"}
 
 @router.post("/retailer-filters/bulk")
 async def bulk_create_retailer_filters(
@@ -148,6 +153,9 @@ async def bulk_create_retailer_filters(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("edit_retailers"))
 ):
+    tag = await db.get(FilterTag, bulk_data.tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
     count = 0
     errors = []
     for retailer_id in bulk_data.retailer_ids:
@@ -158,11 +166,11 @@ async def bulk_create_retailer_filters(
         existing = (await db.execute(select(RetailerFilter).where(
             RetailerFilter.house_id == retailer.house_id,
             RetailerFilter.retailer_id == retailer_id,
-            RetailerFilter.tag == bulk_data.tag
+            RetailerFilter.tag_id == bulk_data.tag_id
         ))).scalar_one_or_none()
         if existing:
             continue
-        new_filter = RetailerFilter(house_id=retailer.house_id, retailer_id=retailer_id, tag=bulk_data.tag)
+        new_filter = RetailerFilter(house_id=retailer.house_id, retailer_id=retailer_id, tag_id=bulk_data.tag_id)
         db.add(new_filter)
         count += 1
     await db.commit()

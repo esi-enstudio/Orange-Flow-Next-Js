@@ -11,14 +11,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
-  Loader2,
   Calendar,
   Store,
-  Smartphone,
-  Hash,
   Tag,
   X,
-  Download
+  Download,
+  Copy,
+  User
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
@@ -35,12 +34,15 @@ interface ActivationRecord {
   activation_date: string;
   retailer_code: string;
   retailer_name: string;
+  retailer_tags: string[];
+  rso: { name: string; itop: string } | null;
   sim_no: string;
   msisdn: string;
   product_name: string;
+  product_code: string;
   selling_price: string;
   thana: string;
-  house: { id: number; name: string } | null;
+  house: { id: number; name: string; code: string } | null;
 }
 
 interface ReportResponse {
@@ -60,14 +62,18 @@ export default function ActivationsReportPage() {
 
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedExcludeTags, setSelectedExcludeTags] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(fmt(firstDay));
+  const [endDate, setEndDate] = useState(fmt(lastDay));
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const pageSize = 50;
+  const pageSize = 10;
 
   useEffect(() => {
     if (!authLoading && !hasPermission("view_reports")) {
@@ -290,51 +296,93 @@ export default function ActivationsReportPage() {
               <table className="w-full text-left min-w-[1000px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
+                    <th className="px-6 py-4">{t('activation_report.house')}</th>
                     <th className="px-6 py-4">{t('activation_report.date')}</th>
                     <th className="px-6 py-4">{t('activation_report.retailer')}</th>
+                    <th className="px-6 py-4">{t('activation_report.rso')}</th>
                     <th className="px-6 py-4">{t('activation_report.sim')}</th>
-                    <th className="px-6 py-4">{t('activation_report.msisdn')}</th>
                     <th className="px-6 py-4">{t('activation_report.product')}</th>
-                    <th className="px-6 py-4">{t('activation_report.price')}</th>
-                    <th className="px-6 py-4">{t('activation_report.house')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
-                  {report.data.map(r => (
+                  {report.data.map(r => {
+                    const dateStr = r.activation_date
+                      ? new Date(r.activation_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                      : "—";
+                    return (
                     <tr key={r.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
                       <td className="px-6 py-4">
-                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                          {r.activation_date ? new Date(r.activation_date).toLocaleDateString('en-GB') : "—"}
-                        </span>
+                        <div>
+                          <p className="text-xs font-bold text-gray-600 dark:text-gray-400">{r.house?.name || "—"}</p>
+                          {r.house?.code && <p className="text-[10px] text-gray-500 font-mono">{r.house.code}</p>}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{dateStr}</span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-600 dark:text-primary-400">
+                          <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-600 dark:text-primary-400 shrink-0">
                             <Store className="w-4 h-4" />
                           </div>
-                          <div>
-                            <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{r.retailer_name}</p>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{r.retailer_name}</span>
+                              {r.retailer_tags && r.retailer_tags.map(tag => (
+                                <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-500/20">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
                             <p className="text-[10px] text-gray-500 font-mono">{r.retailer_code}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-xs font-mono font-bold text-gray-700 dark:text-gray-300">{r.sim_no || "—"}</span>
+                        {r.rso ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                              <User className="w-3.5 h-3.5" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-gray-900 dark:text-gray-100">{r.rso.name}</p>
+                              <p className="text-[10px] text-gray-500 font-mono">{r.rso.itop}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-xs font-mono font-bold text-gray-700 dark:text-gray-300">{r.msisdn || "—"}</span>
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-mono font-bold text-gray-700 dark:text-gray-300">{r.sim_no || "—"}</span>
+                              {r.sim_no && (
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(r.sim_no); toast.success("SIM copied"); }}
+                                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                                  title="Copy SIM"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                            {r.msisdn && (
+                              <p className="text-[10px] text-gray-500 font-mono mt-0.5">{r.msisdn}</p>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{r.product_name || "—"}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{r.selling_price || "—"}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-xs font-bold text-gray-600 dark:text-gray-400">{r.house?.name || "—"}</span>
+                        <div>
+                          <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{r.product_name || "—"}</p>
+                          {r.product_code && <p className="text-[10px] text-gray-500 font-mono">{r.product_code}</p>}
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -29,13 +29,14 @@ class FilterTag(Base):
 class RetailerFilter(Base):
     """রিপোর্ট থেকে যে রিটেইলারগুলো বাদ যাবে"""
     __tablename__ = "retailer_filters"
-    __table_args__ = (UniqueConstraint('house_id', 'retailer_id', name='uix_house_retailer_filter'),)
+    __table_args__ = (UniqueConstraint('house_id', 'retailer_id', 'tag_id', name='uix_house_retailer_tag'),)
 
     id = Column(Integer, primary_key=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     retailer_id = Column(Integer, ForeignKey('retailers.id', ondelete='CASCADE'), nullable=False)
-    tag = Column(String, nullable=True) # ফিল্টার ক্যাটাগরি (DRC, BP, ইত্যাদি)
+    tag_id = Column(Integer, ForeignKey('filter_tags.id', ondelete='CASCADE'), nullable=False)
     
     created_at = Column(DateTime, server_default=func.now())
     house = relationship("House")
     retailer = relationship("Retailer")
+    tag = relationship("FilterTag")

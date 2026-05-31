@@ -135,8 +135,8 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                 pbar.update(1)
                 if progress_callback and (processed_count % 200 == 0 or processed_count == total_rows):
                     await progress_callback(
-                        f"📊 লাইভ অ্যাক্টিভেশন: {round((processed_count/total_rows)*100)}%\n"
-                        f"📈 {processed_count}/{total_rows}"
+                        f"📊 Live Activation Import Progress: {round((processed_count/total_rows)*100)}%\n"
+                        f"📈 Processed: {processed_count} / {total_rows}"
                     )
 
             if today_count == 0:

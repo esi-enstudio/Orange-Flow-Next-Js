@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { 
+import {
   Users2, 
   Plus, 
   Search, 
@@ -35,12 +35,14 @@ import {
   Upload,
   Download,
   FileSpreadsheet,
-  Eye
+  Eye,
+  AlertTriangle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { useRef } from "react";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import { motion, AnimatePresence } from "framer-motion";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
 
@@ -217,6 +219,11 @@ export default function EmployeesPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
+  // Reassign Retailers
+  const [reassignData, setReassignData] = useState<{ emp: Employee; newStatus: string; retailerCount: number } | null>(null);
+  const [reassignTargetId, setReassignTargetId] = useState<number>(0);
+  const [reassignLoading, setReassignLoading] = useState(false);
+
   // Import/Export Progress
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -347,6 +354,16 @@ export default function EmployeesPage() {
     setFormErrors({});
     try {
       if (editingMember) {
+        const newStatus = formData.status;
+        if (newStatus === "Resigned" || newStatus === "Inactive") {
+          const res = await apiClient.get(`employees/${editingMember.id}/retailer-count`);
+          const count = res.data.count;
+          if (count > 0) {
+            setReassignData({ emp: editingMember as any, newStatus, retailerCount: count });
+            setFormLoading(false);
+            return;
+          }
+        }
         await apiClient.put(`employees/${editingMember.id}`, formData);
         toast.success(t('employees.toast_update_success'));
       } else {
@@ -431,16 +448,51 @@ export default function EmployeesPage() {
   };
 
   const handleStatusChange = async (empId: number, newStatus: string) => {
+    const emp = members.find(m => m.id === empId);
+    if (!emp) return;
+
+    if (newStatus === "Resigned" || newStatus === "Inactive") {
+      try {
+        const res = await apiClient.get(`employees/${empId}/retailer-count`);
+        const count = res.data.count;
+        if (count > 0) {
+          setReassignData({ emp, newStatus, retailerCount: count });
+          setReassignTargetId(0);
+          return;
+        }
+      } catch {
+        toast.error(t('common.action_failed'));
+        return;
+      }
+    }
+
     try {
-      const emp = members.find(m => m.id === empId);
-      if (!emp) return;
-      
       const updatedData = { ...emp, status: newStatus };
       await apiClient.put(`employees/${empId}`, updatedData);
       toast.success(`Status updated to ${newStatus}`);
       fetchData();
-    } catch (err) {
+    } catch {
       toast.error(t('common.action_failed'));
+    }
+  };
+
+  const handleReassignConfirm = async () => {
+    if (!reassignData || !reassignTargetId) return;
+    setReassignLoading(true);
+    try {
+      await apiClient.post(`employees/${reassignData.emp.id}/reassign`, {
+        new_employee_id: reassignTargetId,
+        status: reassignData.newStatus
+      });
+      toast.success(`Transferred ${reassignData.retailerCount} retailers and status set to ${reassignData.newStatus}`);
+      setReassignData(null);
+      setReassignTargetId(0);
+      setIsFormModalOpen(false);
+      fetchData();
+    } catch {
+      toast.error(t('common.action_failed'));
+    } finally {
+      setReassignLoading(false);
     }
   };
 
@@ -573,22 +625,27 @@ export default function EmployeesPage() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="relative inline-block group/status">
+                        <div className="relative inline-block">
+                          <div className={cn(
+                            "px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1",
+                            m.status === "Active" ? "bg-green-50 text-green-700 dark:bg-green-900/40 dark:text-green-300" : 
+                            m.status === "Resigned" ? "bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300" :
+                            m.status === "Inactive" ? "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-gray-300" :
+                            "bg-primary-50 text-primary-700 dark:bg-indigo-900/40 dark:text-indigo-300"
+                          )}>
+                            <span>{m.status || "—"}</span>
+                            <ChevronDown className="w-3 h-3 opacity-50" />
+                          </div>
                           <select 
                             value={m.status}
                             onChange={(e) => handleStatusChange(m.id, e.target.value)}
-                            className={cn(
-                              "px-2 py-1 rounded-full text-[10px] font-bold uppercase cursor-pointer outline-none border-none appearance-none pr-6",
-                              m.status === "Active" ? "bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400" : 
-                              m.status === "Resigned" ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400" :
-                              "bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-400"
-                            )}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                           >
                             <option value="Active">Active</option>
                             <option value="Resigned">Resigned</option>
                             <option value="Suspended">Suspended</option>
+                            <option value="Inactive">Inactive</option>
                           </select>
-                          <ChevronDown className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 opacity-50 pointer-events-none" />
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -859,6 +916,7 @@ export default function EmployeesPage() {
                         <option value="Active">{t('common.active')}</option>
                         <option value="Resigned">{t('common.resigned')}</option>
                         <option value="Suspended">{t('common.suspended')}</option>
+                        <option value="Inactive">{t('common.inactive')}</option>
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                     </div>
@@ -1071,6 +1129,71 @@ export default function EmployeesPage() {
         type="danger"
         loading={formLoading}
       />
+
+      {/* Reassign Retailers Modal */}
+      <AnimatePresence>
+        {reassignData && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex flex-col items-center text-center mb-6">
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-amber-100 dark:bg-amber-500/20">
+                    <AlertTriangle className="w-10 h-10 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Reassign Retailers</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                    This employee has <strong className="text-gray-700 dark:text-gray-200">{reassignData.retailerCount} retailers</strong> assigned. 
+                    Reassign them to another employee before setting status to {reassignData.newStatus}.
+                  </p>
+                </div>
+
+                <div className="space-y-2 mb-6">
+                  <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Transfer to</label>
+                  <select
+                    value={reassignTargetId}
+                    onChange={e => setReassignTargetId(Number(e.target.value))}
+                    className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 appearance-none"
+                  >
+                    <option value={0} disabled>Select an employee...</option>
+                    {members
+                      .filter(m => m.id !== reassignData.emp.id && m.house_id === reassignData.emp.house_id && m.status === "Active")
+                      .map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.user?.name || `#${m.id}`} — {m.dms_code || "N/A"} {m.itop_number ? `(${m.itop_number})` : ""}
+                        </option>
+                      ))}
+                  </select>
+                  {members.filter(m => m.id !== reassignData.emp.id && m.house_id === reassignData.emp.house_id && m.status === "Active").length === 0 && (
+                    <p className="text-xs text-red-500 mt-1">No active employees available in this house to transfer to.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-8 pb-6 flex flex-col gap-3">
+                <button
+                  onClick={handleReassignConfirm}
+                  disabled={!reassignTargetId || reassignLoading}
+                  className="w-full py-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-50"
+                >
+                  {reassignLoading ? "Processing..." : `Transfer & Set ${reassignData.newStatus}`}
+                </button>
+                <button
+                  onClick={() => { setReassignData(null); setReassignTargetId(0); }}
+                  disabled={reassignLoading}
+                  className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

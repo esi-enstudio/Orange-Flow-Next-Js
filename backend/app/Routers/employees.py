@@ -12,6 +12,8 @@ from app.Schemas.employee import EmployeeSchema, EmployeeCreate, EmployeeSelfUpd
 from app.Models.employee import Employee
 from app.Models.house import House
 from app.Models.user import User
+from app.Models.retailer import Retailer
+from pydantic import BaseModel
 from app.Utils.access_control import is_admin_user
 from app.Utils.validation import safe_filename, validate_excel
 from app.Services.Automation.employee_excel import process_employee_excel, export_employees_excel
@@ -94,6 +96,55 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
         .where(Employee.id == emp.id)
     )
     return result.unique().scalar_one()
+
+class ReassignRequest(BaseModel):
+    new_employee_id: int
+    status: str
+
+@router.get("/{emp_id}/retailer-count")
+async def get_employee_retailer_count(
+    emp_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_employees"))
+):
+    result = await db.execute(select(Employee).where(Employee.id == emp_id))
+    emp = result.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    count_result = await db.execute(
+        select(Retailer.id).where(Retailer.employee_id == emp_id)
+    )
+    count = len(count_result.all())
+    return {"count": count}
+
+@router.post("/{emp_id}/reassign")
+async def reassign_employee_retailers(
+    emp_id: int,
+    req: ReassignRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("edit_employees"))
+):
+    result = await db.execute(select(Employee).where(Employee.id == emp_id))
+    emp = result.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    new_emp_result = await db.execute(select(Employee).where(Employee.id == req.new_employee_id))
+    new_emp = new_emp_result.scalar_one_or_none()
+    if not new_emp:
+        raise HTTPException(status_code=404, detail="New employee not found")
+    if emp.house_id != new_emp.house_id:
+        raise HTTPException(status_code=422, detail="Employees must be in the same house")
+    if req.status not in ("Active", "Resigned", "Suspended", "Inactive"):
+        raise HTTPException(status_code=422, detail="Invalid status")
+    # Transfer all retailers
+    await db.execute(
+        Retailer.__table__.update().where(Retailer.employee_id == emp_id).values(employee_id=req.new_employee_id)
+    )
+    # Update employee status
+    emp.status = req.status
+    await db.commit()
+    await db.refresh(emp)
+    return {"message": f"Transferred retailers to {new_emp.dms_code or new_emp.id} and status set to {req.status}"}
 
 @router.delete("/{emp_id}")
 async def delete_employee(emp_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_employees"))):

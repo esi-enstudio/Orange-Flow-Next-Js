@@ -17,18 +17,19 @@ class RetailerFilterSchema(BaseModel):
     id: int
     house_id: int
     retailer_id: int
-    tag: Optional[str] = None
+    tag_id: int
+    tag_name: Optional[str] = None
     created_at: Optional[datetime] = None
     retailer: Optional[dict] = None
     class Config: from_attributes = True
 
 class RetailerFilterCreate(BaseModel):
     retailer_id: int
-    tag: Optional[str] = None
+    tag_id: int
 
 class RetailerFilterBulkCreate(BaseModel):
     retailer_ids: List[int]
-    tag: Optional[str] = None
+    tag_id: int
 
 class ExcludedProductSchema(BaseModel):
     id: int

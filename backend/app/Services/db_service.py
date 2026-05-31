@@ -28,10 +28,42 @@ logger = logging.getLogger(__name__)
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
+async def _migrate_retailer_filter_tag_id():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='retailer_filters' AND column_name='tag_id'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating retailer_filters: adding tag_id column...")
+            await conn.execute(text("ALTER TABLE retailer_filters ADD COLUMN tag_id INTEGER"))
+            await conn.execute(text(
+                "UPDATE retailer_filters rf SET tag_id = ft.id FROM filter_tags ft "
+                "WHERE rf.tag = ft.name AND rf.house_id = ft.house_id"
+            ))
+            await conn.execute(text("ALTER TABLE retailer_filters ALTER COLUMN tag_id SET NOT NULL"))
+            await conn.execute(text("ALTER TABLE retailer_filters DROP COLUMN IF EXISTS tag"))
+            await conn.execute(text(
+                "ALTER TABLE retailer_filters DROP CONSTRAINT IF EXISTS uix_house_retailer_filter"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE retailer_filters ADD CONSTRAINT uix_house_retailer_tag "
+                "UNIQUE (house_id, retailer_id, tag_id)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE retailer_filters ADD CONSTRAINT fk_retailer_filters_tag_id "
+                "FOREIGN KEY (tag_id) REFERENCES filter_tags(id) ON DELETE CASCADE"
+            ))
+            logger.info("Migration complete: retailer_filters.tag_id")
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer_filters.tag_id): {e}")
+
 async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        await _migrate_retailer_filter_tag_id()
         from app.Models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func
         async with async_session() as session:

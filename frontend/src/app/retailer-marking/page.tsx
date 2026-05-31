@@ -5,18 +5,7 @@ import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Tag,
-  Plus,
-  X,
-  Search,
-  Loader2,
-  Check,
-  Store,
-  Trash2,
-  UserCheck,
-  Hash,
-  Smartphone,
-  Home
+  Tag, Plus, X, Search, Loader2, Check, Store, Trash2, UserCheck, Hash, Smartphone, Home, MapPin
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
@@ -25,33 +14,21 @@ import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { useLanguage } from "@/i18n/useLanguage";
 
 interface House {
-  id: number;
-  name: string;
-  code: string;
+  id: number; name: string; code: string;
 }
 
 interface FilterTag {
-  id: number;
-  house_id: number;
-  name: string;
+  id: number; house_id: number; name: string;
 }
 
 interface Retailer {
-  id: number;
-  name: string;
-  retailer_code: string;
-  itop_number: string;
-  thana: string;
-  type: string;
-  employee?: { name: string; itop_number: string } | null;
+  id: number; name: string; retailer_code: string; itop_number: string;
+  thana: string; type: string; employee?: { name: string; itop_number: string } | null;
 }
 
 interface RetailerFilter {
-  id: number;
-  house_id: number;
-  retailer_id: number;
-  tag: string;
-  retailer: Retailer | null;
+  id: number; house_id: number; retailer_id: number; tag_id: number;
+  tag: string | null; retailer: Retailer | null;
 }
 
 export default function RetailerMarkingPage() {
@@ -62,7 +39,7 @@ export default function RetailerMarkingPage() {
   const [tags, setTags] = useState<FilterTag[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [selectedHouseId, setSelectedHouseId] = useState<number | "">("");
-  const [selectedTag, setSelectedTag] = useState<string | "">("");
+  const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
   const [retailerFilters, setRetailerFilters] = useState<RetailerFilter[]>([]);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Retailer[]>([]);
@@ -79,6 +56,8 @@ export default function RetailerMarkingPage() {
   const [deleting, setDeleting] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const selectedTagName = tags.find(t => t.id === selectedTagId)?.name || "";
+
   useEffect(() => {
     if (!authLoading && !hasPermission("view_retailers")) {
       const timer = setTimeout(() => router.push("/"), 5000);
@@ -87,12 +66,7 @@ export default function RetailerMarkingPage() {
   }, [authLoading, hasPermission, router]);
 
   const fetchHouses = useCallback(async () => {
-    try {
-      const res = await apiClient.get("houses");
-      setHouses(res.data);
-    } catch {
-      // silently fail
-    }
+    try { const res = await apiClient.get("houses"); setHouses(res.data); } catch {}
   }, []);
 
   const fetchTags = useCallback(async (houseId?: number | string) => {
@@ -101,48 +75,30 @@ export default function RetailerMarkingPage() {
       if (houseId) params.house_id = houseId;
       const res = await apiClient.get("filter-tags", { params });
       setTags(res.data);
-    } catch {
-      toast.error(t('retailer_marking.toast_load_failed'));
-    }
+    } catch { toast.error(t('retailer_marking.toast_load_failed')); }
   }, [t]);
 
-  const fetchMarkedRetailers = useCallback(async (tag: string) => {
-    if (!tag) {
-      setRetailerFilters([]);
-      return;
-    }
+  const fetchMarkedRetailers = useCallback(async (tagName: string) => {
+    if (!tagName) { setRetailerFilters([]); return; }
     try {
-      const res = await apiClient.get("retailer-filters", { params: { tag } });
+      const res = await apiClient.get("retailer-filters", { params: { tag: tagName } });
       setRetailerFilters(res.data);
-    } catch {
-      toast.error(t('retailer_marking.toast_load_failed'));
-    }
+    } catch { toast.error(t('retailer_marking.toast_load_failed')); }
   }, [t]);
 
   const searchRetailers = useCallback(async (query: string) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
+    if (!query.trim()) { setSearchResults([]); setSearching(false); return; }
     setSearching(true);
     try {
       const res = await apiClient.get("retailers", { params: { search: query.trim(), limit: 100 } });
       setSearchResults(res.data);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
+    } catch { setSearchResults([]); }
+    finally { setSearching(false); }
   }, []);
 
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (!search.trim()) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
+    if (!search.trim()) { setSearchResults([]); setSearching(false); return; }
     searchTimer.current = setTimeout(() => searchRetailers(search), 200);
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [search, searchRetailers]);
@@ -159,17 +115,15 @@ export default function RetailerMarkingPage() {
   }, [selectedHouseId, fetchTags]);
 
   useEffect(() => {
-    if (selectedTag) {
-      fetchMarkedRetailers(selectedTag);
-      setSearch("");
-      setSearchResults([]);
-      setSelectedIds(new Set());
+    if (selectedTagId) {
+      fetchMarkedRetailers(selectedTagName);
+      setSearch(""); setSearchResults([]); setSelectedIds(new Set());
     }
-  }, [selectedTag, fetchMarkedRetailers]);
+  }, [selectedTagId, selectedTagName, fetchMarkedRetailers]);
 
   useEffect(() => {
-    if (tags.length > 0 && !selectedTag) {
-      setSelectedTag(tags[0].name);
+    if (tags.length > 0 && !selectedTagId) {
+      setSelectedTagId(tags[0].id);
     }
   }, [tags]);
 
@@ -179,15 +133,11 @@ export default function RetailerMarkingPage() {
     try {
       await apiClient.post("filter-tags", { name: newTagName.trim(), house_id: Number(newTagHouseId) });
       toast.success(t('retailer_marking.toast_tag_created'));
-      setNewTagName("");
-      setNewTagHouseId("");
-      setShowAddTag(false);
+      setNewTagName(""); setNewTagHouseId(""); setShowAddTag(false);
       await fetchTags(selectedHouseId || undefined);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || t('retailer_marking.toast_apply_failed'));
-    } finally {
-      setCreatingTag(false);
-    }
+    } finally { setCreatingTag(false); }
   };
 
   const handleDeleteTag = async () => {
@@ -196,45 +146,34 @@ export default function RetailerMarkingPage() {
     try {
       await apiClient.delete(`filter-tags/${deleteConfirm.id}`);
       toast.success(t('retailer_marking.toast_tag_deleted'));
-      if (selectedTag) {
-        const deletedTag = tags.find(t => t.id === deleteConfirm.id);
-        if (deletedTag?.name === selectedTag) setSelectedTag("");
-      }
+      if (selectedTagId === deleteConfirm.id) setSelectedTagId(null);
       await fetchTags(selectedHouseId || undefined);
       setDeleteConfirm(null);
-    } catch {
-      toast.error(t('retailer_marking.toast_apply_failed'));
-    } finally {
-      setDeleting(false);
-    }
+    } catch { toast.error(t('retailer_marking.toast_apply_failed')); }
+    finally { setDeleting(false); }
   };
 
   const handleBulkApply = async () => {
-    if (!selectedTag || selectedIds.size === 0) return;
+    if (!selectedTagId || selectedIds.size === 0) return;
     setApplying(true);
     try {
       const res = await apiClient.post("retailer-filters/bulk", {
-        retailer_ids: Array.from(selectedIds),
-        tag: selectedTag
+        retailer_ids: Array.from(selectedIds), tag_id: selectedTagId
       });
       toast.success(t('retailer_marking.bulk_success', { count: res.data.count }));
       setSelectedIds(new Set());
-      await fetchMarkedRetailers(selectedTag);
+      await fetchMarkedRetailers(selectedTagName);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || t('retailer_marking.toast_apply_failed'));
-    } finally {
-      setApplying(false);
-    }
+    } finally { setApplying(false); }
   };
 
   const handleRemoveTag = async (filterId: number) => {
     try {
       await apiClient.delete(`retailer-filters/${filterId}`);
       toast.success(t('retailer_marking.toast_tag_removed'));
-      await fetchMarkedRetailers(selectedTag);
-    } catch {
-      toast.error(t('retailer_marking.toast_apply_failed'));
-    }
+      await fetchMarkedRetailers(selectedTagName);
+    } catch { toast.error(t('retailer_marking.toast_apply_failed')); }
   };
 
   const markedRetailerIds = new Set(retailerFilters.map(f => f.retailer_id));
@@ -243,353 +182,227 @@ export default function RetailerMarkingPage() {
   const toggleSelect = (id: number) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === unmarkedResults.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(unmarkedResults.map(r => r.id)));
-    }
+    if (selectedIds.size === unmarkedResults.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(unmarkedResults.map(r => r.id)));
   };
 
-  if (!authLoading && !hasPermission("view_retailers")) {
-    return <AccessDenied />;
-  }
+  if (authLoading) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>;
+  if (!hasPermission("view_retailers")) return <AccessDenied />;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t('retailer_marking.title')}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{t('retailer_marking.title')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('retailer_marking.description')}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg">
-            {t('retailer_marking.tags_count', { count: tags.length })}
-          </span>
-          <span className="text-xs font-bold text-primary-600 bg-primary-50 dark:bg-primary-500/10 px-3 py-1.5 rounded-lg">
-            {t('retailer_marking.marked_count', { count: retailerFilters.length })}
-          </span>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
-        <button
-          onClick={() => setActiveTab("tags")}
-          className={cn(
-            "px-4 py-2 rounded-lg text-sm font-bold transition-all",
-            activeTab === "tags"
-              ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 shadow-sm"
-              : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-          )}
-        >
+      <div className="flex items-center gap-1 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-1.5 w-fit">
+        <button onClick={() => setActiveTab("tags")}
+          className={cn("px-5 py-2.5 text-sm font-semibold rounded-xl transition-all",
+            activeTab === "tags" ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200")}>
           {t('retailer_marking.manage_tags')}
         </button>
-        <button
-          onClick={() => setActiveTab("marking")}
-          className={cn(
-            "px-4 py-2 rounded-lg text-sm font-bold transition-all",
-            activeTab === "marking"
-              ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 shadow-sm"
-              : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-          )}
-        >
+        <button onClick={() => setActiveTab("marking")}
+          className={cn("px-5 py-2.5 text-sm font-semibold rounded-xl transition-all",
+            activeTab === "marking" ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200")}>
           {t('retailer_marking.mark_retailers')}
         </button>
       </div>
 
       {loading ? (
-        <div className="py-20 flex flex-col items-center justify-center gap-4">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500" />
-        </div>
+        <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>
       ) : activeTab === "tags" ? (
-        /* === TAGS MANAGEMENT === */
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-gray-50 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 shrink-0">{t('retailer_marking.manage_tags')}</h3>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => { setShowAddTag(true); if (selectedHouseId) setNewTagHouseId(selectedHouseId); }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-500 text-white rounded-lg text-xs font-bold hover:bg-primary-600 transition-colors shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                {t('retailer_marking.add_tag')}
-              </button>
-            </div>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+          <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between">
+            <h2 className="font-bold flex items-center gap-2 dark:text-gray-100">
+              <Tag className="w-5 h-5 text-primary-600" /> {t('retailer_marking.manage_tags')}
+              <span className="text-xs font-bold bg-primary-50 dark:bg-primary-500/10 text-primary-600 px-2 py-0.5 rounded-full">{tags.length}</span>
+            </h2>
+            <button onClick={() => setShowAddTag(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-100">
+              <Plus className="w-4 h-4" /> {t('retailer_marking.add_tag')}
+            </button>
           </div>
 
           {showAddTag && (
-            <div className="p-4 bg-gray-50 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-800">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                <div className="relative flex-1">
-                  <Home className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <select
-                    value={newTagHouseId}
-                    onChange={e => setNewTagHouseId(e.target.value ? Number(e.target.value) : "")}
-                    className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-gray-100 appearance-none cursor-pointer"
-                  >
+            <div className="p-6 border-b border-gray-50 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="w-40">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">{t('retailer_marking.select_house')}</label>
+                  <select value={newTagHouseId} onChange={e => setNewTagHouseId(e.target.value ? Number(e.target.value) : "")}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none">
                     <option value="">{t('retailer_marking.select_house')}</option>
-                    {houses.map(h => (
-                      <option key={h.id} value={h.id}>{h.name}</option>
-                    ))}
+                    {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
                   </select>
                 </div>
-                <input
-                  type="text"
-                  value={newTagName}
-                  onChange={e => setNewTagName(e.target.value)}
-                  placeholder={t('retailer_marking.tag_name_placeholder')}
-                  className="flex-[2] px-3 py-2 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-gray-100"
-                  onKeyDown={e => e.key === 'Enter' && handleCreateTag()}
-                  autoFocus
-                />
-                <button
-                  onClick={handleCreateTag}
-                  disabled={creatingTag || !newTagName.trim() || !newTagHouseId}
-                  className="px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors disabled:opacity-50 shrink-0"
-                >
-                  {creatingTag ? <Loader2 className="w-4 h-4 animate-spin" /> : t('retailer_marking.create_tag')}
-                </button>
-                <button
-                  onClick={() => { setShowAddTag(false); setNewTagName(""); setNewTagHouseId(""); }}
-                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-700 shrink-0"
-                >
-                  <X className="w-4 h-4" />
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">{t('retailer_marking.tag_name')}</label>
+                  <input type="text" value={newTagName} onChange={e => setNewTagName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleCreateTag()}
+                    placeholder={t('retailer_marking.tag_name_placeholder')}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none" />
+                </div>
+                <button onClick={handleCreateTag} disabled={creatingTag || !newTagName.trim() || !newTagHouseId}
+                  className="px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center gap-2">
+                  {creatingTag ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  {t('retailer_marking.create_tag')}
                 </button>
               </div>
             </div>
           )}
 
           {tags.length === 0 ? (
-            <div className="py-16 text-center">
-              <Tag className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-              <p className="text-gray-500 dark:text-gray-400 font-medium">{t('retailer_marking.no_tags')}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('retailer_marking.no_tags_hint')}</p>
+            <div className="p-12 text-center">
+              <div className="w-14 h-14 rounded-full bg-gray-50 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><Tag className="w-7 h-7 text-gray-300 dark:text-gray-600" /></div>
+              <p className="font-medium text-gray-900 dark:text-gray-100">{t('retailer_marking.no_tags')}</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{t('retailer_marking.no_tags_hint')}</p>
             </div>
           ) : (
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {tags.map(tag => {
-                const tagHouse = houses.find(h => h.id === tag.house_id);
-                return (
-                  <div
-                    key={tag.id}
-                    className={cn(
-                      "flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer",
-                      selectedTag === tag.name
-                        ? "border-primary-500 bg-primary-50 dark:bg-primary-500/10 dark:border-primary-500"
-                        : "border-gray-100 dark:border-slate-700 hover:border-gray-200 dark:hover:border-slate-600"
-                    )}
-                    onClick={() => { setSelectedTag(tag.name); setActiveTab("marking"); }}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={cn(
-                        "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                        selectedTag === tag.name ? "bg-primary-500 text-white" : "bg-gray-100 dark:bg-slate-700 text-gray-500"
-                      )}>
-                        <Tag className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <span className="font-bold text-sm text-gray-900 dark:text-gray-100 block truncate">{tag.name}</span>
-                        {tagHouse && (
-                          <span className="text-[10px] text-gray-400 dark:text-gray-500 block truncate">{tagHouse.name}</span>
-                        )}
-                      </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-6">
+              {tags.map(tag => (
+                <div key={tag.id}
+                  onClick={() => { setSelectedTagId(tag.id); setActiveTab("marking"); }}
+                  className={cn("flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all",
+                    selectedTagId === tag.id
+                      ? "border-primary-500 bg-primary-50/50 dark:bg-primary-500/5 dark:border-primary-500"
+                      : "border-gray-100 dark:border-slate-700 hover:border-gray-200 dark:hover:border-slate-600 hover:shadow-sm bg-white dark:bg-slate-900")}>
+                  <div className="flex items-center gap-3">
+                    <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center",
+                      selectedTagId === tag.id ? "bg-primary-500 text-white" : "bg-gray-50 dark:bg-slate-800 text-gray-400 dark:text-gray-500")}>
+                      <Hash className="w-5 h-5" />
                     </div>
-                    <button
-                      onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: tag.id, name: tag.name }); }}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                  <div>
+                    <p className="font-semibold text-gray-900 dark:text-gray-100">{tag.name}</p>
                   </div>
-                );
-              })}
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: tag.id, name: tag.name }); }}
+                    className="p-2 rounded-xl text-gray-300 dark:text-gray-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
       ) : (
-        /* === RETAILER MARKING === */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left: Marked Retailers */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-50 dark:border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
-                  <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <select
-                    value={selectedTag}
-                    onChange={e => setSelectedTag(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-gray-100 appearance-none cursor-pointer"
-                  >
-                    <option value="">{t('retailer_marking.select_tag')}</option>
-                    {tags.map(tag => (
-                      <option key={tag.id} value={tag.name}>{tag.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+          {/* Left: Marked retailers */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+            <div className="p-6 border-b border-gray-50 dark:border-slate-800">
+              <h2 className="font-bold flex items-center gap-2 dark:text-gray-100 mb-3">
+                <Tag className="w-5 h-5 text-primary-600" /> {t('retailer_marking.mark_retailers')}
+              </h2>
+              <select value={selectedTagId ?? ""} onChange={e => setSelectedTagId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none">
+                <option value="">{t('retailer_marking.select_tag')}</option>
+                {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+              </select>
             </div>
-
-            {!selectedTag ? (
-              <div className="py-16 text-center">
-                <Tag className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-                <p className="text-gray-400 dark:text-gray-500 text-sm font-medium">{t('retailer_marking.select_tag')}</p>
-              </div>
-            ) : retailerFilters.length === 0 ? (
-              <div className="py-16 text-center">
-                <Store className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-                <p className="text-gray-500 dark:text-gray-400 font-medium">{t('retailer_marking.no_marked')}</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-50 dark:divide-slate-800 max-h-[600px] overflow-y-auto">
-                {retailerFilters.map(rf => (
-                  <div key={rf.id} className="p-4 flex items-center justify-between hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors group">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-9 h-9 rounded-lg bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold shrink-0">
-                        <Store className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">{rf.retailer?.name || `#${rf.retailer_id}`}</p>
-                        <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-                          <span className="font-mono">{rf.retailer?.retailer_code}</span>
-                          {rf.retailer?.itop_number && <><span className="mx-1.5 text-gray-300 dark:text-gray-600">|</span><span className="font-mono">{rf.retailer.itop_number}</span></>}
-                          {rf.retailer?.employee?.name && (
-                            <><span className="mx-1.5 text-gray-300 dark:text-gray-600">|</span>{rf.retailer.employee.name} ({rf.retailer.employee.itop_number?.slice(-3)})</>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRemoveTag(rf.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+            <div className="divide-y divide-gray-50 dark:divide-slate-800 max-h-[500px] overflow-y-auto">
+              {retailerFilters.length === 0 ? (
+                <div className="p-8 text-center">
+                  <p className="text-sm text-gray-400 dark:text-gray-500">{t('retailer_marking.no_marked')}</p>
+                </div>
+              ) : retailerFilters.map(rf => (
+                <div key={rf.id} className="flex items-center gap-3 px-6 py-4 hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors">
+                  <div className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center flex-shrink-0">
+                    <Store className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                   </div>
-                ))}
-              </div>
-            )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">{rf.retailer?.name}</p>
+                    <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                      <span>{rf.retailer?.retailer_code}</span>
+                      {rf.retailer?.itop_number && <><span className="w-1 h-1 rounded-full bg-gray-300" /><span>{rf.retailer.itop_number}</span></>}
+                      {rf.retailer?.thana && <><span className="w-1 h-1 rounded-full bg-gray-300" /><span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{rf.retailer.thana}</span></>}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                      {rf.retailer?.employee?.name && <span className="flex items-center gap-1"><UserCheck className="w-3 h-3" />{rf.retailer.employee.name}{rf.retailer.employee.itop_number ? ` (${rf.retailer.employee.itop_number.slice(-3)})` : ""}</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => handleRemoveTag(rf.id)}
+                    className="p-2 rounded-xl text-gray-300 dark:text-gray-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all" title={t('retailer_marking.remove_tag')}>
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              {retailerFilters.length > 0 && (
+                <div className="px-6 py-3 bg-gray-50/50 dark:bg-slate-800/30">
+                  <p className="text-xs text-gray-400 dark:text-gray-500">{t('retailer_marking.marked_count', { count: retailerFilters.length })}</p>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Right: Unmarked Retailers */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-50 dark:border-slate-800 space-y-3">
+          {/* Right: Search & apply */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+            <div className="p-6 border-b border-gray-50 dark:border-slate-800">
+              <h2 className="font-bold flex items-center gap-2 dark:text-gray-100 mb-3">
+                <Plus className="w-5 h-5 text-primary-600" /> {t('retailer_marking.select_retailer')}
+              </h2>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder={t('retailer_marking.search_placeholder')}
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-gray-100"
-                  value={search}
-                  onChange={e => { setSearch(e.target.value); setSelectedIds(new Set()); }}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size === unmarkedResults.length && unmarkedResults.length > 0}
-                    onChange={toggleSelectAll}
-                    className="rounded border-gray-300 dark:border-slate-600 text-primary-500 focus:ring-primary-500"
-                  />
-                  <span className="text-xs font-bold text-gray-500 dark:text-gray-400">
-                    {selectedIds.size === unmarkedResults.length && unmarkedResults.length > 0
-                      ? t('retailer_marking.deselect_all')
-                      : t('retailer_marking.select_all')}
-                  </span>
-                </label>
-                {selectedTag && selectedIds.size > 0 && (
-                  <button
-                    onClick={handleBulkApply}
-                    disabled={applying}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-500 text-white rounded-lg text-xs font-bold hover:bg-primary-600 transition-colors disabled:opacity-50"
-                  >
-                    {applying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                    {t('retailer_marking.apply_tag')} ({selectedIds.size})
-                  </button>
-                )}
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder={t('retailer_marking.search_retailers')}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none" />
               </div>
             </div>
-
-            {!selectedTag ? (
-              <div className="py-16 text-center">
-                <Tag className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-                <p className="text-gray-400 dark:text-gray-500 text-sm font-medium">{t('retailer_marking.select_retailer')}</p>
-              </div>
-            ) : searching ? (
-              <div className="py-16 flex justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-primary-500" />
-              </div>
-            ) : search && unmarkedResults.length === 0 ? (
-              <div className="py-16 text-center">
-                <UserCheck className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-                <p className="text-gray-500 dark:text-gray-400 font-medium">{t('retailer_marking.no_marked')}</p>
-              </div>
-            ) : !search ? (
-              <div className="py-16 text-center">
-                <Search className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-                <p className="text-gray-400 dark:text-gray-500 text-sm font-medium">{t('common.search')}</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-50 dark:divide-slate-800 max-h-[600px] overflow-y-auto">
-                {unmarkedResults.map(r => (
-                  <div
-                    key={r.id}
-                    className={cn(
-                      "p-4 flex items-center justify-between hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer",
-                      selectedIds.has(r.id) && "bg-primary-50/50 dark:bg-primary-500/5"
-                    )}
-                    onClick={() => toggleSelect(r.id)}
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className={cn(
-                        "w-9 h-9 rounded-lg flex items-center justify-center font-bold shrink-0",
-                        selectedIds.has(r.id)
-                          ? "bg-primary-500 text-white"
-                          : "bg-gray-100 dark:bg-slate-700 text-gray-500"
-                      )}>
-                        {selectedIds.has(r.id) ? <Check className="w-4 h-4" /> : <Store className="w-4 h-4" />}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">{r.name}</p>
-                        <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-                          <span className="font-mono">{r.retailer_code}</span>
-                          {r.itop_number && <><span className="mx-1.5 text-gray-300 dark:text-gray-600">|</span><span className="font-mono">{r.itop_number}</span></>}
-                          {r.employee?.name && (
-                            <><span className="mx-1.5 text-gray-300 dark:text-gray-600">|</span>{r.employee.name} ({r.employee.itop_number?.slice(-3)})</>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(r.id)}
-                      onChange={() => toggleSelect(r.id)}
-                      className="rounded border-gray-300 dark:border-slate-600 text-primary-500 focus:ring-primary-500 shrink-0 ml-2"
-                    />
+            <div className="divide-y divide-gray-50 dark:divide-slate-800 max-h-[500px] overflow-y-auto">
+              {!search.trim() ? (
+                <div className="p-8 text-center"><p className="text-sm text-gray-400">{t('retailer_marking.search_retailers')}</p></div>
+              ) : searching ? (
+                <div className="p-8 text-center"><Loader2 className="w-5 h-5 animate-spin text-primary-500 mx-auto" /></div>
+              ) : unmarkedResults.length === 0 ? (
+                <div className="p-8 text-center"><p className="text-sm text-gray-400">No retailers found</p></div>
+              ) : unmarkedResults.map(r => (
+                <div key={r.id} onClick={() => toggleSelect(r.id)}
+                  className={cn("flex items-center gap-3 px-6 py-4 cursor-pointer transition-colors",
+                    selectedIds.has(r.id) ? "bg-primary-50/50 dark:bg-primary-500/5" : "hover:bg-gray-50/50 dark:hover:bg-slate-800/50")}>
+                  <div className={cn("w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all",
+                    selectedIds.has(r.id) ? "bg-primary-600 border-primary-600" : "border-gray-300 dark:border-gray-600")}>
+                    {selectedIds.has(r.id) && <Check className="w-3.5 h-3.5 text-white" />}
                   </div>
-                ))}
+                  <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
+                    <Store className="w-5 h-5 text-gray-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">{r.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{r.retailer_code} · {r.itop_number || "—"}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {unmarkedResults.length > 0 && (
+              <div className="p-4 border-t border-gray-50 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <button onClick={toggleSelectAll} className="text-primary-600 dark:text-primary-400 font-semibold hover:underline">
+                    {selectedIds.size === unmarkedResults.length ? t('retailer_marking.deselect_all') : t('retailer_marking.select_all')}
+                  </button>
+                  <span className="text-gray-400">{selectedIds.size} selected</span>
+                </div>
+                <button onClick={handleBulkApply} disabled={!selectedTagId || selectedIds.size === 0 || applying}
+                  className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+                  {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tag className="w-4 h-4" />}
+                  {t('retailer_marking.apply_tag')}
+                </button>
               </div>
             )}
           </div>
         </div>
       )}
-      <ConfirmationModal
-        isOpen={deleteConfirm !== null}
-        onClose={() => setDeleteConfirm(null)}
-        onConfirm={handleDeleteTag}
-        title={t('common.delete') || "Delete Tag"}
-        message={deleteConfirm ? `Are you sure you want to delete "${deleteConfirm.name}"? This will also remove the tag from all marked retailers.` : ""}
-        confirmText={t('retailer_marking.delete_tag') || "Delete"}
-        type="danger"
-        loading={deleting}
-      />
+
+      <ConfirmationModal isOpen={!!deleteConfirm} onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleDeleteTag} title={t('retailer_marking.delete_tag')}
+        message={`${t('common.confirm_delete_desc')} "${deleteConfirm?.name}"?`}
+        confirmText={t('retailer_marking.delete_tag')} type="danger" loading={deleting} />
     </div>
   );
 }

@@ -173,9 +173,9 @@ async def process_activation_excel(file_path, house_id, progress_callback):
                 if processed_count % 200 == 0 or processed_count == total_rows:
                     percent = round((processed_count / total_rows) * 100)
                     await progress_callback(
-                        f"📊 <b>এক্টিভেশন আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
-                        f"📈 প্রসেস হয়েছে: <code>{bn_num(processed_count)}</code> / <code>{bn_num(total_rows)}</code>\n"
-                        f"💾 সেভ হয়েছে: <code>{bn_num(inserted_count + len(batch_buffer))}</code> টি"
+                        f"📊 Activation Import Progress: {percent}%\n"
+                        f"📈 Processed: {processed_count} / {total_rows}\n"
+                        f"💾 Saved: {inserted_count + len(batch_buffer)} records"
                     )
             
             # অবশিষ্টাংশ সেভ করা
