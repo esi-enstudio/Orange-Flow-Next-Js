@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
 import { Lock, User, Loader2, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useLanguage } from "@/i18n/useLanguage";
 
 export default function LoginPage() {
+  const router = useRouter();
   const { login } = useAuth();
   const { t } = useLanguage();
   const [username, setUsername] = useState("");
@@ -127,9 +128,13 @@ export default function LoginPage() {
               </label>
             </div>
             <div className="text-sm">
-              <Link href="#" className="font-medium text-primary-600 hover:text-primary-500">
+              <button
+                type="button"
+                onClick={() => router.push("/forgot-password")}
+                className="font-medium text-primary-600 hover:text-primary-500 bg-transparent border-none cursor-pointer"
+              >
                 {t('login.forgot_password')}
-              </Link>
+              </button>
             </div>
           </div>
 

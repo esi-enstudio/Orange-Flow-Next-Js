@@ -10,10 +10,14 @@ import {
   TrendingUp, 
   ArrowUpRight, 
   ArrowDownRight,
-  MoreVertical,
+  ListTodo,
+  Plus,
   ChevronRight,
-  Activity
+  Circle,
+  CheckCircle2,
+  Clock,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 
@@ -26,17 +30,17 @@ interface Stats {
   today_activations: number;
 }
 
-interface Retailer {
+interface Todo {
   id: number;
-  name: string;
-  retailer_code: string;
-  itop_number: string;
-  thana: string;
+  title: string;
+  status: string;
+  priority: string;
+  due_date: string | null;
 }
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [recentRetailers, setRecentRetailers] = useState<Retailer[]>([]);
+  const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
   const { user, loading: authLoading, hasPermission } = useAuth();
   const { t } = useLanguage();
@@ -50,17 +54,9 @@ export default function Dashboard() {
           ? apiClient.get("stats").then(res => res.data).catch(() => null)
           : Promise.resolve(null);
 
-        const retailersPromise = hasPermission("view_retailers")
-          ? apiClient.get("retailers?limit=5").then(res => res.data).catch(() => [])
-          : Promise.resolve([]);
-
-        const [statsData, retailersData] = await Promise.all([
-          statsPromise,
-          retailersPromise
-        ]);
+        const [statsData] = await Promise.all([statsPromise]);
 
         setStats(statsData);
-        setRecentRetailers(retailersData);
       } catch (err) {
         console.error("Failed to fetch dashboard data", err);
       } finally {
@@ -69,6 +65,12 @@ export default function Dashboard() {
     };
     fetchData();
   }, [authLoading, hasPermission]);
+
+  useEffect(() => {
+    apiClient.get("todos").then(res => {
+      setTodos(res.data);
+    }).catch(() => {});
+  }, []);
 
   const statCards = [
     { 
@@ -105,6 +107,16 @@ export default function Dashboard() {
     },
   ];
 
+  const pendingTodos = todos.filter(t => t.status === "pending");
+
+  const priorityColor = (p: string) => {
+    switch (p) {
+      case "high": return "text-red-500";
+      case "low": return "text-gray-400";
+      default: return "text-amber-500";
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -127,9 +139,13 @@ export default function Dashboard() {
           <button className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm">
             {t('dashboard.download_report')}
           </button>
-          <button className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm shadow-primary-100 dark:shadow-none">
-            {t('dashboard.add_retailer')}
-          </button>
+          <Link
+            href="/todos"
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm shadow-primary-100 dark:shadow-none inline-flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            {t('todos.add_task')}
+          </Link>
         </div>
       </div>
 
@@ -157,88 +173,103 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* To-Do Widget */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Retailers Table */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
           <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between">
-            <h2 className="font-bold text-lg dark:text-gray-100">{t('dashboard.recent_retailers')}</h2>
-            <button className="text-primary-600 dark:text-primary-400 text-sm font-semibold flex items-center gap-1 hover:underline">
-              {t('dashboard.view_all')} <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  <th className="px-6 py-4">{t('dashboard.retailer_name')}</th>
-                  <th className="px-6 py-4">{t('dashboard.code')}</th>
-                  <th className="px-6 py-4">{t('dashboard.thana')}</th>
-                  <th className="px-6 py-4">{t('dashboard.status')}</th>
-                  <th className="px-6 py-4 text-right">{t('dashboard.action')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
-                {recentRetailers.map((retailer) => (
-                  <tr key={retailer.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold text-xs transition-colors">
-                          {retailer.name.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
-                            {retailer.name}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 transition-colors">{retailer.itop_number}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <code className="bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded text-xs font-mono dark:text-gray-300 transition-colors">{retailer.retailer_code}</code>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 transition-colors">{retailer.thana}</td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 transition-colors">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                        {t('dashboard.active')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg text-gray-400 transition-colors">
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Activity Feed */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col transition-colors duration-300">
-          <div className="p-6 border-b border-gray-50 dark:border-slate-800">
-            <h2 className="font-bold text-lg flex items-center gap-2 dark:text-gray-100 transition-colors">
-              <Activity className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-              {t('dashboard.activity_feed')}
+            <h2 className="font-bold text-lg flex items-center gap-2 dark:text-gray-100">
+              <ListTodo className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+              {t('todos.my_tasks')}
+              {pendingTodos.length > 0 && (
+                <span className="text-xs font-bold bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 px-2 py-0.5 rounded-full">
+                  {pendingTodos.length}
+                </span>
+              )}
             </h2>
+            <Link
+              href="/todos"
+              className="text-primary-600 dark:text-primary-400 text-sm font-semibold flex items-center gap-1 hover:underline"
+            >
+              {t('dashboard.view_all')} <ChevronRight className="w-4 h-4" />
+            </Link>
           </div>
-          <div className="p-6 space-y-6 flex-1">
-            {[1, 2, 3, 4].map((item) => (
-              <div key={item} className="flex gap-4 relative last:after:hidden after:absolute after:left-[11px] after:top-[26px] after:bottom-[-26px] after:w-[2px] after:bg-gray-50 dark:after:bg-slate-800 transition-colors">
-                <div className="w-[22px] h-[22px] rounded-full border-2 border-primary-500 bg-white dark:bg-slate-900 z-10 transition-colors"></div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-none mb-1 transition-colors">Stock Updated</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 transition-colors">RSO Sazzad added 500 SIMs to Retailer A102</p>
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1 font-medium transition-colors">10 minutes ago</p>
+          <div className="divide-y divide-gray-50 dark:divide-slate-800">
+            {todos.length === 0 && (
+              <div className="p-8 text-center text-sm text-gray-400 dark:text-gray-500">
+                {t('todos.no_tasks')}
+              </div>
+            )}
+            {todos.slice(0, 5).map((todo) => (
+              <div key={todo.id} className="flex items-center gap-3 px-6 py-4 hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors group">
+                <div className={cn(
+                  "flex-shrink-0",
+                  todo.status === "completed" ? "text-green-500" : "text-gray-300 dark:text-gray-600"
+                )}>
+                  {todo.status === "completed"
+                    ? <CheckCircle2 className="w-5 h-5" />
+                    : <Circle className="w-5 h-5" />
+                  }
                 </div>
+                <div className="flex-1 min-w-0">
+                  <p className={cn(
+                    "text-sm font-medium truncate",
+                    todo.status === "completed"
+                      ? "text-gray-400 line-through"
+                      : "text-gray-900 dark:text-gray-100"
+                  )}>
+                    {todo.title}
+                  </p>
+                  {todo.due_date && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3" />
+                      {new Date(todo.due_date).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+                <span className={cn(
+                  "text-[10px] font-bold uppercase px-2 py-0.5 rounded-full",
+                  priorityColor(todo.priority),
+                  todo.priority === "high" && "bg-red-50 dark:bg-red-500/10",
+                  todo.priority === "medium" && "bg-amber-50 dark:bg-amber-500/10",
+                  todo.priority === "low" && "bg-gray-50 dark:bg-gray-500/10",
+                )}>
+                  {todo.priority}
+                </span>
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Quick Add / Summary */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col transition-colors duration-300">
+          <div className="p-6 border-b border-gray-50 dark:border-slate-800">
+            <h2 className="font-bold text-lg flex items-center gap-2 dark:text-gray-100">
+              <Clock className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+              {t('todos.summary')}
+            </h2>
+          </div>
+          <div className="p-6 space-y-4 flex-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-500 dark:text-gray-400">{t('todos.total')}</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{todos.length}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-500 dark:text-gray-400">{t('todos.pending')}</span>
+              <span className="text-lg font-bold text-amber-500">{pendingTodos.length}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-500 dark:text-gray-400">{t('todos.completed')}</span>
+              <span className="text-lg font-bold text-green-500">{todos.length - pendingTodos.length}</span>
+            </div>
+          </div>
           <div className="p-4 border-t border-gray-50 dark:border-slate-800">
-            <button className="w-full py-2 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
-              {t('dashboard.see_all')}
-            </button>
+            <Link
+              href="/todos"
+              className="w-full py-2.5 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              {t('todos.manage_tasks')}
+            </Link>
           </div>
         </div>
       </div>

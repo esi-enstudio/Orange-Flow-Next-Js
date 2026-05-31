@@ -23,7 +23,8 @@ import {
   Crosshair,
   UserCheck,
   Upload,
-  Tag
+  Tag,
+  ListTodo,
 } from "lucide-react";
 
 export interface NavItem {
@@ -49,6 +50,13 @@ export const navItems: NavItem[] = [
     href: "/",
     icon: LayoutDashboard,
     color: "text-blue-500",
+  },
+  {
+    title: "To-Do List",
+    translationKey: "nav.todos",
+    href: "/todos",
+    icon: ListTodo,
+    color: "text-primary-500",
   },
   {
     title: "Data Import",
@@ -142,6 +150,7 @@ export const navItems: NavItem[] = [
     children: [
       { title: "User Management", translationKey: "nav.users", href: "/users", permission: "view_users" },
       { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "view_retailers" },
+      { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "view_reports" },
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "view_settings" },
     ]
   },

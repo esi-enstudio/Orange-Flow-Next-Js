@@ -131,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup";
+      const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup" || pathname === "/forgot-password" || pathname === "/reset-password";
       if (!user && !isPublicPage) {
         router.push("/login");
       } else if (user && isPublicPage) {
