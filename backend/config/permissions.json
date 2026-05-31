@@ -65,33 +65,5 @@
             "display_name": "Products",
             "actions": ["view", "create", "edit", "delete", "import", "export"]
         }
-    ],
-    "default_roles": [
-        {
-            "name": "Admin",
-            "is_admin": true
-        },
-        {
-            "name": "Manager",
-            "is_admin": true
-        },
-        {
-            "name": "Supervisor",
-            "permissions": [
-                "view_houses", "view_users", "view_retailers", "view_employees", "view_bts", "view_reports"
-            ]
-        },
-        {
-            "name": "RSO",
-            "permissions": [
-                "view_retailers", "view_reports"
-            ]
-        },
-        {
-            "name": "BP",
-            "permissions": [
-                "view_reports"
-            ]
-        }
     ]
 }
