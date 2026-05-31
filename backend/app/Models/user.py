@@ -48,6 +48,8 @@ class User(Base):
     # রিপোর্টিং লাইন রিলেশনশিপ
     parent = relationship("User", remote_side=[id], backref="subordinates")
 
+    todos = relationship("Todo", back_populates="user", lazy="selectin", cascade="all, delete-orphan")
+
     # টাইমস্ট্যাম্প কলাম
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

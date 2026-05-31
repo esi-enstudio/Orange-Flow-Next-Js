@@ -5,6 +5,16 @@ from app.Models.employee import Employee
 from app.Models.retailer import Retailer
 from app.Models.house import House
 
+ADMIN_ROLE_NAMES = frozenset({
+    "admin", "super admin", "super_admin", "manager", "house manager", "house_manager"
+})
+
+def is_admin_role(role_names: list[str]) -> bool:
+    return any(r in ADMIN_ROLE_NAMES for r in role_names)
+
+def is_admin_user(user: User) -> bool:
+    return is_admin_role([r.name.lower() for r in user.roles])
+
 class AccessControl:
     def __init__(self, user: User, session: Session):
         self.user = user

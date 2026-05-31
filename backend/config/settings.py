@@ -30,10 +30,19 @@ class Settings(BaseSettings):
     ENABLE_GA_SYNC: bool = True
     HEADLESS_MODE: bool = True
 
+    # SMTP / Email
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASS: Optional[str] = None
+    SMTP_FROM: Optional[str] = None
+    APP_URL: str = "http://localhost:3000"
+
     # JWT Authentication
     SECRET_KEY: str = "your-secret-key-change-it-in-env"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080 # 7 days
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 30
 
     @computed_field
     @property
