@@ -2,7 +2,7 @@
 import { useLanguage } from "@/i18n/useLanguage";
 import { usePrimaryColor, PRIMARY_COLORS } from "@/context/ColorContext";
 import { Settings, Palette, Sun, Moon, Monitor, Check } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/ThemeProvider";
 import { useState, useEffect } from "react";
 
 export default function SettingsPage() {

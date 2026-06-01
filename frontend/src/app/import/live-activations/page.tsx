@@ -1,10 +1,11 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2 } from "lucide-react";
+import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2, Trash2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
 interface Record {
   id: number; sim_no: string; activation_date: string; activation_time: string;
@@ -22,6 +23,8 @@ export default function ImportLiveActivationsPage() {
   const [page, setPage] = useState(0);
   const [totalRecords, setTotalRecords] = useState(0);
   const [importProgress, setImportProgress] = useState<{percent: number; message: string} | null>(null);
+  const [showTruncateConfirm, setShowTruncateConfirm] = useState(false);
+  const [truncating, setTruncating] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{message: string; count: number} | null>(null);
   const [summaryType, setSummaryType] = useState<"success" | "error">("success");
@@ -118,6 +121,21 @@ export default function ImportLiveActivationsPage() {
     }
   };
 
+  const handleTruncate = async () => {
+    setTruncating(true);
+    try {
+      await axios.delete("/live-activations/truncate");
+      toast.success("All live activations deleted");
+      setData([]);
+      setTotalRecords(0);
+      setShowTruncateConfirm(false);
+    } catch {
+      toast.error("Failed to delete");
+    } finally {
+      setTruncating(false);
+    }
+  };
+
   const handleExport = async () => {
     try {
       const res = await axios.get("/live-activations/export", { responseType: "blob" });
@@ -208,7 +226,7 @@ export default function ImportLiveActivationsPage() {
         <div className="flex items-center gap-3">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx,.xls" />
           <button onClick={() => fileInputRef.current?.click()} disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-lg shadow-primary-200">
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-md">
             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             {importing ? "Importing..." : "Import Excel"}
           </button>
@@ -216,6 +234,12 @@ export default function ImportLiveActivationsPage() {
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
             <Download className="w-4 h-4" /> Export
           </button>
+          {totalRecords > 0 && (
+            <button onClick={() => setShowTruncateConfirm(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/50 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+              <Trash2 className="w-4 h-4" /> Clear All
+            </button>
+          )}
         </div>
       </div>
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
@@ -294,6 +318,17 @@ export default function ImportLiveActivationsPage() {
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={showTruncateConfirm}
+        onClose={() => setShowTruncateConfirm(false)}
+        onConfirm={handleTruncate}
+        title="Delete All Data"
+        message="Are you sure you want to delete ALL live activation records? This action cannot be undone."
+        confirmText={truncating ? "Deleting..." : "Delete All"}
+        type="danger"
+        loading={truncating}
+      />
     </div>
   );
 }

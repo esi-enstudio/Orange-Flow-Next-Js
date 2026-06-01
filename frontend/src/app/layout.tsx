@@ -35,12 +35,7 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <PageProgressIndicator />
         </Suspense>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <ThemeProvider>
           <AuthProvider>
             <ColorProvider>
               <DashboardLayout>

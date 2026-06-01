@@ -15,19 +15,34 @@ import {
   ChevronRight,
   Circle,
   CheckCircle2,
+  XCircle,
   Clock,
+  Building2,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 interface Stats {
   total_retailers: number;
+  active_retailers: number;
+  inactive_retailers: number;
   total_houses: number;
   total_bts: number;
   total_employees: number;
+  active_employees: number;
+  inactive_employees: number;
   active_users: number;
   today_activations: number;
+  product_breakdown: Record<string, number>;
+}
+
+interface House {
+  id: number;
+  name: string;
+  code: string;
+  display_name: string;
 }
 
 interface Todo {
@@ -42,21 +57,35 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [houses, setHouses] = useState<House[]>([]);
+  const [selectedHouseId, setSelectedHouseId] = useState<string>("");
+  const [dailyData, setDailyData] = useState<{date: string; count: number}[]>([]);
+  const [isDark, setIsDark] = useState(false);
   const { user, loading: authLoading, hasPermission } = useAuth();
   const { t } = useLanguage();
+
+  const fetchStats = (houseId: string) => {
+    if (!hasPermission("view_reports")) return;
+    const params: any = {};
+    if (houseId) params.house_id = houseId;
+    apiClient.get("stats", { params })
+      .then(res => setStats(res.data))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (authLoading) return;
 
     const fetchData = async () => {
       try {
-        const statsPromise = hasPermission("view_reports")
-          ? apiClient.get("stats").then(res => res.data).catch(() => null)
-          : Promise.resolve(null);
-
-        const [statsData] = await Promise.all([statsPromise]);
-
-        setStats(statsData);
+        const housesData = await apiClient.get("houses/accessible").then(res => res.data).catch(() => []);
+        setHouses(housesData);
+        if (housesData.length <= 1) {
+          setSelectedHouseId("");
+        }
+        if (hasPermission("view_reports")) {
+          fetchStats("");
+        }
       } catch (err) {
         console.error("Failed to fetch dashboard data", err);
       } finally {
@@ -64,7 +93,26 @@ export default function Dashboard() {
       }
     };
     fetchData();
-  }, [authLoading, hasPermission]);
+  }, [authLoading]);
+
+  useEffect(() => {
+    if (!authLoading && hasPermission("view_reports")) {
+      const params: any = {};
+      if (selectedHouseId) params.house_id = selectedHouseId;
+      apiClient.get("stats", { params })
+        .then(res => setStats(res.data))
+        .catch(() => {});
+    }
+  }, [selectedHouseId]);
+
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains("dark"));
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     apiClient.get("todos").then(res => {
@@ -72,7 +120,25 @@ export default function Dashboard() {
     }).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!authLoading && hasPermission("view_reports")) {
+      const params: any = {};
+      if (selectedHouseId) params.house_id = selectedHouseId;
+      apiClient.get("stats/daily-activations", { params })
+        .then(res => setDailyData(res.data))
+        .catch(() => {});
+    }
+  }, [authLoading, selectedHouseId]);
+
   const statCards = [
+    { 
+      title: t('dashboard.today_ga'), 
+      value: stats?.today_activations || 0, 
+      icon: TrendingUp, 
+      color: "bg-primary-500", 
+      trend: "-3%", 
+      isUp: false 
+    },
     { 
       title: t('dashboard.total_retailers'), 
       value: stats?.total_retailers || 0, 
@@ -96,14 +162,6 @@ export default function Dashboard() {
       color: "bg-purple-500", 
       trend: "stable", 
       isUp: true 
-    },
-    { 
-      title: t('dashboard.today_ga'), 
-      value: stats?.today_activations || 0, 
-      icon: TrendingUp, 
-      color: "bg-primary-500", 
-      trend: "-3%", 
-      isUp: false 
     },
   ];
 
@@ -136,16 +194,21 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm">
-            {t('dashboard.download_report')}
-          </button>
-          <Link
-            href="/todos"
-            className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm shadow-primary-100 dark:shadow-none inline-flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            {t('todos.add_task')}
-          </Link>
+          {houses.length > 1 && (
+            <div className="relative">
+              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <select
+                value={selectedHouseId}
+                onChange={(e) => setSelectedHouseId(e.target.value)}
+                className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer"
+              >
+                <option value="">{t('common.all')}</option>
+                {houses.map((h) => (
+                  <option key={h.id} value={h.id}>{h.display_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -168,6 +231,30 @@ export default function Dashboard() {
             <div>
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400 transition-colors">{card.title}</p>
               <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1 transition-colors">{card.value.toLocaleString()}</h3>
+              {(card.title === t('dashboard.total_retailers') || card.title === t('dashboard.employees')) && (
+                <div className="flex items-center gap-4 mt-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-green-600 dark:text-green-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    {card.title === t('dashboard.total_retailers') ? (stats?.active_retailers?.toLocaleString() || 0) : (stats?.active_employees?.toLocaleString() || 0)}
+                  </span>
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-red-600 dark:text-red-400">
+                    <XCircle className="w-4 h-4" />
+                    {card.title === t('dashboard.total_retailers') ? (stats?.inactive_retailers?.toLocaleString() || 0) : (stats?.inactive_employees?.toLocaleString() || 0)}
+                  </span>
+                </div>
+              )}
+              {card.title === t('dashboard.today_ga') && stats?.product_breakdown && Object.keys(stats.product_breakdown).length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    {Object.entries(stats.product_breakdown).map(([code, count]) => (
+                      <div key={code} className="flex items-center justify-between font-medium text-gray-700 dark:text-gray-300" style={{fontSize: '0.6rem'}}>
+                        <span>{code}</span>
+                        <span className="font-bold text-gray-900 dark:text-gray-100">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -262,17 +349,48 @@ export default function Dashboard() {
               <span className="text-lg font-bold text-green-500">{todos.length - pendingTodos.length}</span>
             </div>
           </div>
-          <div className="p-4 border-t border-gray-50 dark:border-slate-800">
-            <Link
-              href="/todos"
-              className="w-full py-2.5 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg flex items-center justify-center gap-2 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              {t('todos.manage_tasks')}
-            </Link>
-          </div>
         </div>
       </div>
+
+      {/* Daily Activations Chart */}
+      {dailyData.length > 0 && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-6 transition-colors duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-lg flex items-center gap-2 dark:text-gray-100">
+              <TrendingUp className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+              Daily Activations (Running Month)
+            </h2>
+          </div>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dailyData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e5e7eb"} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }}
+                  tickFormatter={(val: any) => {
+                    const d = new Date(String(val));
+                    return d.toLocaleDateString("en", { month: "short", day: "numeric" });
+                  }}
+                  stroke={isDark ? "#475569" : "#cbd5e1"}
+                />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }} stroke={isDark ? "#475569" : "#cbd5e1"} />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: "12px",
+                    border: isDark ? "1px solid #334155" : "1px solid #e5e7eb",
+                    fontSize: "13px",
+                    backgroundColor: isDark ? "#1e293b" : "#ffffff",
+                    color: isDark ? "#e2e8f0" : "#1e293b",
+                  }}
+                  labelFormatter={(val: any) => new Date(String(val)).toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}
+                />
+                <Bar dataKey="count" radius={[6, 6, 0, 0]} fill="#f97316" maxBarSize={40} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

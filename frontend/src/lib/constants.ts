@@ -1,19 +1,5 @@
 import { LucideIcon } from "lucide-react";
 import {
-  LayoutDashboard, 
-  Users2, 
-  Store, 
-  MapPin, 
-  Settings, 
-  BarChart3,
-  Calendar,
-  ShieldCheck,
-  Shield,
-  Home,
-  Network,
-  Banknote,
-  Zap,
-  TrendingUp,
   FileSpreadsheet,
   Wallet,
   SmartphoneNfc,
@@ -25,6 +11,14 @@ import {
   Upload,
   Tag,
   ListTodo,
+  ScrollText,
+  LayoutDashboard,
+  Users2,
+  Banknote,
+  Zap,
+  BarChart3,
+  Shield,
+  ShieldCheck,
 } from "lucide-react";
 
 export interface NavItem {
@@ -150,8 +144,9 @@ export const navItems: NavItem[] = [
     children: [
       { title: "User Management", translationKey: "nav.users", href: "/users", permission: "view_users" },
       { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "view_retailers" },
-      { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "view_reports" },
-      { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "view_settings" },
+                      { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "view_reports" },
+                      { title: "Report Rules", translationKey: "nav.report_rules", href: "/report-rules", permission: "view_reports" },
+                      { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "view_settings" },
     ]
   },
 ];

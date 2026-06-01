@@ -48,7 +48,12 @@
         {
             "name": "reports",
             "display_name": "Reports",
-            "actions": ["view", "download", "dms_access"]
+            "actions": ["view", "edit", "download", "dms_access"]
+        },
+        {
+            "name": "report_rules",
+            "display_name": "Report Rules",
+            "actions": ["view", "create", "edit", "delete"]
         },
         {
             "name": "automation",

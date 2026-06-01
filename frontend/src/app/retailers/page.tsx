@@ -143,9 +143,9 @@ export default function RetailersPage() {
       link.setAttribute('download', 'retailers.xlsx');
       document.body.appendChild(link);
       link.click();
-      toast.success(t('retailers.toast_export_success' || 'Export successful'));
+      toast.success(t('retailers.toast_export_success') || 'Export successful');
     } catch (err) {
-      toast.error(t('retailers.toast_export_failed' || 'Export failed'));
+      toast.error(t('retailers.toast_export_failed') || 'Export failed');
     } finally {
       setIsExporting(false);
     }

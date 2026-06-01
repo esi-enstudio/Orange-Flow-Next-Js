@@ -66,6 +66,7 @@ export const translations = {
       import_sim_issue: "SIM Issues",
       retailer_marking: "Retailer Marking",
       product_exclusions: "Product Exclusions",
+      report_rules: "Report Rules",
       import_house_targets: "House Targets",
       import_supervisor_targets: "Supervisor Targets",
       import_rso_targets: "RSO Targets",
@@ -644,6 +645,7 @@ export const translations = {
       prev: "Prev",
       next: "Next",
       export_report: "Export Report",
+      daily_stats: "Daily Stats",
     },
     settings: {
       title: "System Settings",
@@ -719,6 +721,7 @@ export const translations = {
       import_sim_issue: "সিম ইস্যু",
       retailer_marking: "রিটেইলার মার্কিং",
       product_exclusions: "প্রোডাক্ট বর্জন",
+      report_rules: "রিপোর্ট রুলস",
       import_house_targets: "হাউস টার্গেট",
       import_supervisor_targets: "সুপারভাইজার টার্গেট",
       import_rso_targets: "আরএসও টার্গেট",
@@ -1329,6 +1332,7 @@ export const translations = {
       prev: "পূর্ববর্তী",
       next: "পরবর্তী",
       export_report: "রিপোর্ট এক্সপোর্ট",
+      daily_stats: "দৈনিক পরিসংখ্যান",
     },
     settings: {
       title: "সিস্টেম সেটিংস",

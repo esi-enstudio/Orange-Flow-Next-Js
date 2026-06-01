@@ -10,6 +10,23 @@ from app.Utils.access_control import is_admin_user
 
 router = APIRouter(prefix="/api/houses", tags=["houses"])
 
+
+@router.get("/accessible")
+async def get_accessible_houses(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    is_admin = is_admin_user(current_user)
+    if is_admin:
+        result = await db.execute(select(House).order_by(House.name))
+        houses = result.scalars().all()
+    else:
+        houses = current_user.houses
+    return [
+        {"id": h.id, "name": h.name, "code": h.code, "display_name": f"{h.name} ({h.code})"}
+        for h in houses
+    ]
+
 @router.get("", response_model=list[HouseSchema])
 async def list_houses(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_any_permission(["view_houses", "view_users", "edit_users"]))):
     is_admin = is_admin_user(current_user)

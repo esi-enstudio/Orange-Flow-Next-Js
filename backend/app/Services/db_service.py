@@ -22,6 +22,7 @@ import app.Models.house_target
 import app.Models.supervisor_target
 import app.Models.rso_target
 import app.Models.product_exclusion
+import app.Models.report_rule
 
 logger = logging.getLogger(__name__)
 

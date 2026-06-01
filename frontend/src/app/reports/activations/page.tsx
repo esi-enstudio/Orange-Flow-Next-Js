@@ -17,8 +17,11 @@ import {
   X,
   Download,
   Copy,
-  User
+  User,
+  TrendingUp,
+  Building2
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -70,10 +73,16 @@ export default function ActivationsReportPage() {
   const [endDate, setEndDate] = useState(fmt(lastDay));
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [houses, setHouses] = useState<{id: number; name: string; code: string; display_name: string}[]>([]);
+  const [selectedHouseId, setSelectedHouseId] = useState<string>("");
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const pageSize = 10;
+  const [chartData, setChartData] = useState<{date: string; count: number}[]>([]);
+  const [chartMonth, setChartMonth] = useState(today.getMonth() + 1);
+  const [chartYear, setChartYear] = useState(today.getFullYear());
+  const [isDark, setIsDark] = useState(false);
+  const pageSize = 5;
 
   useEffect(() => {
     if (!authLoading && !hasPermission("view_reports")) {
@@ -102,6 +111,7 @@ export default function ActivationsReportPage() {
       if (endDate) params.end_date = endDate;
       if (selectedExcludeTags.length > 0) params.exclude_tags = selectedExcludeTags.join(",");
       if (search) params.search = search;
+      if (selectedHouseId) params.house_id = selectedHouseId;
 
       const res = await apiClient.get("activations/report", { params });
       setReport(res.data);
@@ -111,18 +121,47 @@ export default function ActivationsReportPage() {
       setLoading(false);
       setInitialLoading(false);
     }
-  }, [page, startDate, endDate, selectedExcludeTags, search]);
+  }, [page, startDate, endDate, selectedExcludeTags, search, selectedHouseId]);
+
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains("dark"));
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
+  const fetchChartData = useCallback(async () => {
+    try {
+      const params: Record<string, any> = { month: chartMonth, year: chartYear };
+      if (selectedExcludeTags.length > 0) params.exclude_tags = selectedExcludeTags.join(",");
+      if (search) params.search = search;
+      if (selectedHouseId) params.house_id = selectedHouseId;
+      const res = await apiClient.get("activations/daily-stats", { params });
+      setChartData(res.data);
+    } catch {}
+  }, [chartMonth, chartYear, selectedExcludeTags, search, selectedHouseId]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("view_reports")) {
+      apiClient.get("houses/accessible").then(res => setHouses(res.data)).catch(() => {});
       fetchTags();
       fetchReport();
+      fetchChartData();
     }
-  }, [authLoading, hasPermission, fetchTags, fetchReport]);
+  }, [authLoading, hasPermission, fetchTags, fetchReport, fetchChartData]);
+
+  useEffect(() => {
+    if (!authLoading && hasPermission("view_reports")) {
+      fetchChartData();
+    }
+  }, [chartMonth, chartYear]);
 
   const handleRefresh = () => {
     setPage(1);
     fetchReport();
+    fetchChartData();
   };
 
   const toggleExcludeTag = (tagName: string) => {
@@ -169,6 +208,21 @@ export default function ActivationsReportPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('activation_report.description')}</p>
         </div>
         <div className="flex items-center gap-3">
+          {houses.length > 1 && (
+            <div className="relative">
+              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <select
+                value={selectedHouseId}
+                onChange={(e) => { setSelectedHouseId(e.target.value); setPage(1); }}
+                className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer"
+              >
+                <option value="">{t('common.all')}</option>
+                {houses.map((h) => (
+                  <option key={h.id} value={h.id}>{h.display_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
             onClick={handleExport}
             className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
@@ -279,6 +333,69 @@ export default function ActivationsReportPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Daily Chart */}
+        {chartData.length > 0 && (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-6 transition-colors duration-300">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg flex items-center gap-2 dark:text-gray-100">
+                <TrendingUp className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                {t('activation_report.daily_stats')}
+              </h2>
+              <div className="flex items-center gap-2">
+                <select
+                  value={chartMonth}
+                  onChange={(e) => { setChartMonth(Number(e.target.value)); setPage(1); }}
+                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  {Array.from({length: 12}, (_, i) => i + 1).map(m => (
+                    <option key={m} value={m}>
+                      {new Date(2000, m - 1, 1).toLocaleDateString("en", { month: "long" })}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={chartYear}
+                  onChange={(e) => { setChartYear(Number(e.target.value)); setPage(1); }}
+                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  {Array.from({length: 5}, (_, i) => today.getFullYear() - 2 + i).map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e5e7eb"} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }}
+                    tickFormatter={(val: any) => {
+                      const d = new Date(String(val));
+                      return d.toLocaleDateString("en", { month: "short", day: "numeric" });
+                    }}
+                    stroke={isDark ? "#475569" : "#cbd5e1"}
+                  />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }} stroke={isDark ? "#475569" : "#cbd5e1"} />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: "12px",
+                      border: isDark ? "1px solid #334155" : "1px solid #e5e7eb",
+                      fontSize: "13px",
+                      backgroundColor: isDark ? "#1e293b" : "#ffffff",
+                      color: isDark ? "#e2e8f0" : "#1e293b",
+                    }}
+                    labelFormatter={(val: any) => new Date(String(val)).toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}
+                  />
+                  <Bar dataKey="count" radius={[6, 6, 0, 0]} fill="#3b82f6" maxBarSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
         {/* Data Table */}
         {initialLoading ? (
@@ -286,12 +403,12 @@ export default function ActivationsReportPage() {
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500" />
           </div>
         ) : !report || report.data.length === 0 ? (
-          <div className="py-20 text-center">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm py-20 text-center">
             <BarChart3 className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
             <p className="text-gray-500 dark:text-gray-400 font-medium">{t('activation_report.no_data')}</p>
           </div>
         ) : (
-          <>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left min-w-[1000px]">
                 <thead>
@@ -416,9 +533,8 @@ export default function ActivationsReportPage() {
                 </button>
               </div>
             </div>
-          </>
+          </div>
         )}
-      </div>
     </div>
   );
 }
