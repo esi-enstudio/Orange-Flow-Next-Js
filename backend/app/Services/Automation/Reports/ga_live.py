@@ -161,11 +161,24 @@ async def process_and_save_data(file_path, house_id):
                             v = v.split(' ')[0]
                         return v
 
+                    raw_date = get_val('ACTIVATION_DATE')
+                    if raw_date:
+                        try:
+                            parsed_date = pd.to_datetime(raw_date, format='%d-%b-%Y')
+                        except (ValueError, TypeError, AssertionError):
+                            try:
+                                parsed_date = pd.to_datetime(raw_date, format='%Y-%m-%d')
+                            except (ValueError, TypeError, AssertionError):
+                                parsed_date = pd.to_datetime(raw_date, errors='coerce')
+                        activation_date_val = parsed_date.strftime('%Y-%m-%d') if isinstance(parsed_date, pd.Timestamp) and pd.notna(parsed_date) else raw_date
+                    else:
+                        activation_date_val = raw_date
+
                     new_activation = LiveActivation(
                         house_id=house_id,
-                        retailer_id=retailer_db_id, # রিটেইলার টেবিলের ফরেন-কি ✅
+                        retailer_id=retailer_db_id,
                         
-                        activation_date=get_val('ACTIVATION_DATE'),
+                        activation_date=activation_date_val,
                         activation_time=get_val('ACTIVATION_TIME'),
                         retailer_code=ret_code, # টেক্সট কোডটিও ব্যাকআপ হিসেবে থাকবে
                         retailer_name=get_val('RETAILER_NAME'),

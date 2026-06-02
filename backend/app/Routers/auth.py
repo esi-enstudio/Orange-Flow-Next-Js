@@ -173,10 +173,11 @@ async def forgot_password(req: ForgotPasswordRequest, db: AsyncSession = Depends
         html_body=build_reset_email(reset_link, user.name or user.username or "User"),
     )
 
+    logger.info(f"Password reset token for {user.email}: {token}")
+    logger.info(f"Reset link: {reset_link}")
+
     if not sent:
-        logger.warning(f"Password reset email not sent (SMTP not configured). Token printed to logs.")
-        logger.info(f"Password reset token for {user.email}: {token}")
-        logger.info(f"Reset link: {reset_link}")
+        logger.warning("SMTP not configured — link only available in logs.")
 
     return {"message": "If the email exists, a reset link has been sent."}
 

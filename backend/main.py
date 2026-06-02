@@ -6,9 +6,17 @@ from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
+# --- Bangladesh Time (BST = UTC+6) ---
+BST = timezone(timedelta(hours=6))
+
+class BangladeshFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=BST)
+        return f"{dt.strftime('%Y-%m-%d %H:%M:%S')},{int(record.msecs):03d}"
+
 # --- Logging Setup ---
 if not os.path.exists('logs'): os.makedirs('logs')
-log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_formatter = BangladeshFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler = RotatingFileHandler('logs/orange_flow.log', maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
 file_handler.setFormatter(log_formatter)
 console_handler = logging.StreamHandler(sys.stdout)
@@ -41,6 +49,7 @@ from app.Routers.filters import router as filters_router
 from app.Routers.stats import router as stats_router
 from app.Routers.todos import router as todos_router
 from app.Routers.report_rules import router as report_rules_router
+from app.Routers.webhook import router as webhook_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -70,6 +79,7 @@ app.include_router(filters_router)
 app.include_router(stats_router)
 app.include_router(todos_router)
 app.include_router(report_rules_router)
+app.include_router(webhook_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -91,6 +101,59 @@ async def security_headers(request: Request, call_next):
 async def root():
     return {"message": "OrangeFlow API is running"}
 
+@app.post("/receive-otp")
+@app.post("/receive-sms")
+async def receive_otp(request: Request):
+    payload = {}
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        payload = await request.json()
+    elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        payload = dict(form)
+    else:
+        try:
+            payload = await request.json()
+        except Exception:
+            try:
+                form = await request.form()
+                payload = dict(form)
+            except Exception:
+                body = await request.body()
+                payload = {"raw": body.decode("utf-8", errors="replace")}
+
+    otp_code = payload.get("otp_code") or payload.get("otp") or payload.get("code") or ""
+    house_code = payload.get("house_code") or payload.get("house_name") or payload.get("house") or ""
+    sender = (payload.get("from") or payload.get("from_") or payload.get("sender")
+              or payload.get("phone") or payload.get("sender_number") or house_code or "Unknown")
+    message = (payload.get("message") or payload.get("body") or payload.get("text")
+               or payload.get("msg") or payload.get("sms") or payload.get("content")
+               or (f"OTP: {otp_code}" if otp_code else "")
+               or str(payload))
+
+    if otp_code and house_code:
+        from app.Core.otp_manager import otp_manager
+        otp_manager.update_otp(str(otp_code), house_code)
+
+    logger.info("=" * 60)
+    if otp_code and house_code:
+        logger.info(f"🔐 OTP Received — House: {house_code} | OTP: {otp_code}")
+        logger.info(f"🏢 House: {house_code}  |  🔑 OTP Code: {otp_code}")
+    else:
+        logger.info(f"🔐 OTP Received — From: {sender}")
+        logger.info(f"🔑 OTP/Message: {message}")
+    logger.info(f"📦 Full Payload: {payload}")
+    logger.info("=" * 60)
+
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            await session.post("http://host.docker.internal:8080/receive-otp", json=payload, timeout=2)
+    except Exception:
+        pass
+
+    return {"status": "ok", "message": "OTP received"}
+
 # ==========================================
 # 2. SCHEDULER
 # ==========================================
@@ -103,12 +166,17 @@ async def master_automation_scheduler():
     logger.info("Master Automation Scheduler started...")
     await asyncio.sleep(20)
     last_auto_sync_date = None
+    last_heartbeat = datetime.now(BST)
     while True:
         try:
-            now = datetime.now()
+            now = datetime.now(BST)
             today_date = now.date()
             hour = now.hour
+            if (now - last_heartbeat).total_seconds() >= 600:
+                logger.info(f"⏳ [Scheduler Heartbeat] Hour: {hour}, GA Sync {'Active' if 8 <= hour < 24 else 'Sleeping'}...")
+                last_heartbeat = now
             if hour == 0 and now.minute < 5:
+                logger.info("🌙 [Scheduler] রাত ১২টা — ডেইলি রিসেট চলছে...")
                 await reset_daily_activations()
                 await cleanup_old_dms_reports()
                 await asyncio.sleep(300)
@@ -153,10 +221,27 @@ async def main():
         return
 
     background_tasks = []
+    ngrok_tunnel = None
     try:
         config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info", reload=False)
         server = uvicorn.Server(config)
         background_tasks.append(asyncio.create_task(server.serve()))
+
+        if settings.START_NGROK:
+            try:
+                from pyngrok import ngrok
+                if settings.NGROK_AUTH_TOKEN:
+                    ngrok.set_auth_token(settings.NGROK_AUTH_TOKEN)
+                if settings.STATIC_DOMAIN:
+                    ngrok_tunnel = ngrok.connect(8000, domain=settings.STATIC_DOMAIN)
+                else:
+                    ngrok_tunnel = ngrok.connect(8000)
+                public_url = ngrok_tunnel.public_url
+                logger.info(f"🌐 Ngrok tunnel opened: {public_url}")
+                logger.info(f"📱 Configure SMS Forwarder to POST to: {public_url}/api/webhook/sms")
+                logger.info(f"🔐 Or use OTP endpoint: {public_url}/api/webhook/otp")
+            except Exception as e:
+                logger.error(f"❌ Failed to start ngrok: {e}")
 
         if settings.ENABLE_GA_SYNC:
             background_tasks.append(asyncio.create_task(master_automation_scheduler()))
@@ -168,6 +253,13 @@ async def main():
 
     except (KeyboardInterrupt, asyncio.CancelledError): pass
     finally:
+        if ngrok_tunnel:
+            try:
+                from pyngrok import ngrok
+                ngrok.disconnect(ngrok_tunnel.public_url)
+                logger.info("Ngrok tunnel closed.")
+            except Exception:
+                pass
         for task in background_tasks:
             if not task.done(): task.cancel()
         await engine.stop()
