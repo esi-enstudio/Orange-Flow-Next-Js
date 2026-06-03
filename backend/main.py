@@ -50,6 +50,7 @@ from app.Routers.stats import router as stats_router
 from app.Routers.todos import router as todos_router
 from app.Routers.report_rules import router as report_rules_router
 from app.Routers.webhook import router as webhook_router
+from app.Routers.app_settings import router as app_settings_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -80,6 +81,7 @@ app.include_router(stats_router)
 app.include_router(todos_router)
 app.include_router(report_rules_router)
 app.include_router(webhook_router)
+app.include_router(app_settings_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -173,23 +175,40 @@ async def master_automation_scheduler():
             now = datetime.now(BST)
             today_date = now.date()
             hour = now.hour
+            minute = now.minute
+
             if (now - last_heartbeat).total_seconds() >= 600:
-                logger.info(f"⏳ [Scheduler Heartbeat] Hour: {hour}, GA Sync {'Active' if 8 <= hour < 24 else 'Sleeping'}...")
+                ga_status = 'Active' if 8 <= hour < 24 else 'Sleeping'
+                daily_status = f"Daily Sync: {'Done' if last_auto_sync_date == today_date else 'Pending'}"
+                logger.info(f"⏳ [Scheduler Heartbeat] Hour: {hour}, GA Sync {ga_status}, {daily_status}")
                 last_heartbeat = now
-            if hour == 0 and now.minute < 5:
+
+            # Midnight reset (00:00-00:05)
+            if hour == 0 and minute < 5:
                 logger.info("🌙 [Scheduler] রাত ১২টা — ডেইলি রিসেট চলছে...")
                 await reset_daily_activations()
                 await cleanup_old_dms_reports()
+                last_auto_sync_date = None
                 await asyncio.sleep(300)
                 continue
+
+            # 7:00 AM — দৈনিক রিপোর্ট সিঙ্ক (Activation, iTopUp, Scratch Card, SIM Issue)
+            if hour == 7 and last_auto_sync_date != today_date:
+                logger.info("🌅 [Scheduler] সকাল ৭টা — দৈনিক রিপোর্ট সিঙ্ক শুরু হচ্ছে...")
+                await run_daily_auto_sync()
+                last_auto_sync_date = today_date
+                logger.info("✅ [Scheduler] দৈনিক রিপোর্ট সিঙ্ক সম্পন্ন।")
+                await asyncio.sleep(60)
+                continue
+
+            # সকাল ৮টা - রাত ১১:৫৯ — লাইভ অ্যাক্টিভেশন সিঙ্ক (প্রতি ৫ মিনিট)
             if 8 <= hour < 24:
                 await run_ga_live_sync()
-                if last_auto_sync_date != today_date:
-                    await run_daily_auto_sync()
-                    last_auto_sync_date = today_date
                 await asyncio.sleep(300)
             else:
-                await asyncio.sleep(600)
+                # রাত ১টা - সকাল ৬:৫৯ — প্রতি ১ মিনিট পর চেক (৭টা মিস না করতে)
+                await asyncio.sleep(60)
+
         except Exception as e:
             logger.error(f"Scheduler Error: {str(e)}")
             await asyncio.sleep(60)
@@ -220,6 +239,9 @@ async def main():
     except Exception as e:
         logger.error(f"Failed to start automation engine: {e}")
         return
+
+    from app.Services.cache_service import cache_service
+    await cache_service.connect()
 
     background_tasks = []
     ngrok_tunnel = None
@@ -254,6 +276,8 @@ async def main():
 
     except (KeyboardInterrupt, asyncio.CancelledError): pass
     finally:
+        from app.Services.cache_service import cache_service
+        await cache_service.close()
         if ngrok_tunnel:
             try:
                 from pyngrok import ngrok

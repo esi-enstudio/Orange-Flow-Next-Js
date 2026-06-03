@@ -26,3 +26,4 @@ python-multipart
 python-slugify
 email-validator
 Pillow
+redis

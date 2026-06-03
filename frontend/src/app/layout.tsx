@@ -5,6 +5,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/context/AuthContext";
 import { ColorProvider } from "@/context/ColorContext";
+import { BrandProvider } from "@/context/BrandContext";
 import { Toaster } from "react-hot-toast";
 import { Suspense } from "react";
 import PageProgressIndicator from "@/components/ui/PageProgressIndicator";
@@ -38,10 +39,12 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <ColorProvider>
+              <BrandProvider>
               <DashboardLayout>
                 {children}
               </DashboardLayout>
               <Toaster position="top-right" reverseOrder={false} />
+              </BrandProvider>
             </ColorProvider>
           </AuthProvider>
         </ThemeProvider>

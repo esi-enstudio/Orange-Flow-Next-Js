@@ -23,10 +23,18 @@ import app.Models.supervisor_target
 import app.Models.rso_target
 import app.Models.product_exclusion
 import app.Models.report_rule
+import app.Models.app_setting
 
 logger = logging.getLogger(__name__)
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_size=50,
+    max_overflow=30,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 async def _migrate_retailer_filter_tag_id():
@@ -60,11 +68,86 @@ async def _migrate_retailer_filter_tag_id():
     except Exception as e:
         logger.warning(f"Migration warning (retailer_filters.tag_id): {e}")
 
+async def _migrate_app_settings_daily_sync():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='app_settings' AND column_name='is_daily_sync_enabled'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating app_settings: adding is_daily_sync_enabled column...")
+            await conn.execute(text(
+                "ALTER TABLE app_settings ADD COLUMN is_daily_sync_enabled INTEGER NOT NULL DEFAULT 1"
+            ))
+            logger.info("Migration complete: app_settings.is_daily_sync_enabled")
+    except Exception as e:
+        logger.warning(f"Migration warning (app_settings.is_daily_sync_enabled): {e}")
+
+INDEX_MIGRATIONS = [
+    # activations table
+    ("ix_activations_house_id", "CREATE INDEX IF NOT EXISTS ix_activations_house_id ON activations (house_id)"),
+    ("ix_activations_product_code", "CREATE INDEX IF NOT EXISTS ix_activations_product_code ON activations (product_code)"),
+    ("ix_activations_house_date", "CREATE INDEX IF NOT EXISTS ix_activations_house_date ON activations (house_id, activation_date)"),
+    ("ix_activations_retailer_id", "CREATE INDEX IF NOT EXISTS ix_activations_retailer_id ON activations (retailer_id)"),
+    # itopup_details table
+    ("ix_itopup_details_house_id", "CREATE INDEX IF NOT EXISTS ix_itopup_details_house_id ON itopup_details (house_id)"),
+    ("ix_itopup_details_house_date", "CREATE INDEX IF NOT EXISTS ix_itopup_details_house_date ON itopup_details (house_id, report_date)"),
+    # scratch_card_issues table
+    ("ix_scratch_card_issues_house_id", "CREATE INDEX IF NOT EXISTS ix_scratch_card_issues_house_id ON scratch_card_issues (house_id)"),
+    ("ix_scratch_card_issues_house_date", "CREATE INDEX IF NOT EXISTS ix_scratch_card_issues_house_date ON scratch_card_issues (house_id, issue_date)"),
+    # sim_issues table
+    ("ix_sim_issues_house_id", "CREATE INDEX IF NOT EXISTS ix_sim_issues_house_id ON sim_issues (house_id)"),
+    ("ix_sim_issues_house_date", "CREATE INDEX IF NOT EXISTS ix_sim_issues_house_date ON sim_issues (house_id, issue_date)"),
+    # live_activations table
+    ("ix_live_activations_house_id", "CREATE INDEX IF NOT EXISTS ix_live_activations_house_id ON live_activations (house_id)"),
+    ("ix_live_activations_product_code", "CREATE INDEX IF NOT EXISTS ix_live_activations_product_code ON live_activations (product_code)"),
+    ("ix_live_activations_activation_date", "CREATE INDEX IF NOT EXISTS ix_live_activations_activation_date ON live_activations (activation_date)"),
+    # sync_history table
+    ("ix_sync_history_house_id", "CREATE INDEX IF NOT EXISTS ix_sync_history_house_id ON sync_history (house_id)"),
+    ("ix_sync_history_module_name", "CREATE INDEX IF NOT EXISTS ix_sync_history_module_name ON sync_history (module_name)"),
+    ("ix_sync_history_sync_date", "CREATE INDEX IF NOT EXISTS ix_sync_history_sync_date ON sync_history (sync_date)"),
+    # retailer_filters table
+    ("ix_retailer_filters_retailer_id", "CREATE INDEX IF NOT EXISTS ix_retailer_filters_retailer_id ON retailer_filters (retailer_id)"),
+    ("ix_retailer_filters_tag_id", "CREATE INDEX IF NOT EXISTS ix_retailer_filters_tag_id ON retailer_filters (tag_id)"),
+    # retailers table
+    ("ix_retailers_house_id", "CREATE INDEX IF NOT EXISTS ix_retailers_house_id ON retailers (house_id)"),
+    # filter_tags table
+    ("ix_filter_tags_name", "CREATE INDEX IF NOT EXISTS ix_filter_tags_name ON filter_tags (name)"),
+]
+
+async def _migrate_indexes():
+    for name, sql in INDEX_MIGRATIONS:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(sql))
+        except Exception as e:
+            logger.warning(f"Index migration warning ({name}): {e}")
+    logger.info("Index migrations complete")
+
+async def _migrate_live_activation_date_type():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT data_type FROM information_schema.columns WHERE table_name='live_activations' AND column_name='activation_date'"
+            ))
+            current_type = result.scalar()
+            if current_type and current_type.lower() == 'date':
+                return
+            logger.info("Migrating live_activations: changing activation_date from VARCHAR to DATE...")
+            await conn.execute(text("ALTER TABLE live_activations ALTER COLUMN activation_date TYPE DATE USING activation_date::date"))
+            logger.info("Migration complete: live_activations.activation_date → DATE")
+    except Exception as e:
+        logger.warning(f"Migration warning (live_activations.activation_date): {e}")
+
 async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await _migrate_retailer_filter_tag_id()
+        await _migrate_app_settings_daily_sync()
+        await _migrate_live_activation_date_type()
+        await _migrate_indexes()
         from app.Models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func
         async with async_session() as session:

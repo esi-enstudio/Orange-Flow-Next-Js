@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn, getProfilePicUrl } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { ChevronRight, ChevronDown, LogOut, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
+import { useBrand } from "@/context/BrandContext";
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -20,6 +21,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { user, logout, hasPermission } = useAuth();
   const { t } = useLanguage();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const { brand } = useBrand();
 
   // Filter items based on permissions - use memo to prevent mutation of constant
   const filteredNavItems = React.useMemo(() => {
@@ -64,10 +66,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       <div className="p-6">
         <div className="flex items-center justify-between gap-2 mb-8">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-200 dark:shadow-none">
-              <span className="text-white font-bold text-lg">O</span>
-            </div>
-            <span className="font-bold text-xl tracking-tight dark:text-gray-100">OrangeFlow</span>
+            {brand.logo ? (
+              <img src={brand.logo} alt="Logo" className="w-8 h-8 rounded-lg object-cover" />
+            ) : (
+              <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-200 dark:shadow-none">
+                <span className="text-white font-bold text-lg">{brand.app_name.charAt(0)}</span>
+              </div>
+            )}
+            <span className="font-bold text-xl tracking-tight dark:text-gray-100">{brand.app_name}</span>
           </div>
           {/* Mobile Close Button */}
           <button 

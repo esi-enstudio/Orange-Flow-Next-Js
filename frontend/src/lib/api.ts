@@ -4,6 +4,15 @@ const apiClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api",
 });
 
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+
+export function resolveImageUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  const base = API_BASE.replace(/\/api\/?$/, "");
+  return `${base}${path}`;
+}
+
 // Request interceptor to add house context
 apiClient.interceptors.request.use(
   (config) => {

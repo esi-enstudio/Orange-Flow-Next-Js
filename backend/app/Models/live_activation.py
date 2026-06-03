@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.Models.base import Base
@@ -11,7 +11,7 @@ class LiveActivation(Base):
     retailer_id = Column(Integer, ForeignKey('retailers.id'), nullable=True)
     
     # activation data columns
-    activation_date = Column(String)
+    activation_date = Column(Date, index=True)
     activation_time = Column(String)
     retailer_code = Column(String)
     retailer_name = Column(String)

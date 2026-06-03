@@ -103,13 +103,24 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
 
 async def run_daily_auto_sync():
     """মেইন অটো-সিঙ্ক ফাংশন"""
+    from app.Models.app_setting import AppSetting
+
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR, exist_ok=True)
 
     async with async_session() as session:
+        # গ্লোবাল সেটিংস চেক (সুপার এডমিন/এডমিন চালু/বন্ধ করতে পারে)
+        setting_result = await session.execute(
+            select(AppSetting).where(AppSetting.id == 1)
+        )
+        app_setting = setting_result.scalar_one_or_none()
+        if app_setting and not app_setting.is_daily_sync_enabled:
+            logger.info("ℹ️ [Auto Sync] দৈনিক সিঙ্ক বন্ধ আছে (AppSettings)।")
+            return
+
         result = await session.execute(
             select(House).where(
-                House.dms_user != None, 
+                House.dms_user != None,
                 House.is_active == True,
                 House.is_sync_enabled == True
             )
@@ -168,7 +179,7 @@ async def sync_house_modules(house):
             for mod in modules:
                 # মডিউল অনুযায়ী মিসিং তারিখ বের করা
                 all_ranges = []
-                if mod['name'] == "DMS Report":
+                if 'sub_types' in mod:
                     for sub_type in mod['sub_types']:
                         missing = await get_missing_dates(session, house.id, mod['model'], mod['date_col'], dms_type=sub_type, house_code=house.code)
                         ranges = get_date_ranges(missing)

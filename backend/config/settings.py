@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     ENABLE_GA_SYNC: bool = True
     HEADLESS_MODE: bool = True
 
+    # Redis / Caching
+    REDIS_URL: str = "redis://redis:6379/0"
+    CACHE_ENABLED: bool = True
+
     # SMTP / Email
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587

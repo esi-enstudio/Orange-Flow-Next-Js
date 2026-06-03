@@ -72,6 +72,7 @@ export default function ActivationsReportPage() {
   const [startDate, setStartDate] = useState(fmt(firstDay));
   const [endDate, setEndDate] = useState(fmt(lastDay));
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [houses, setHouses] = useState<{id: number; name: string; code: string; display_name: string}[]>([]);
   const [selectedHouseId, setSelectedHouseId] = useState<string>("");
@@ -82,7 +83,12 @@ export default function ActivationsReportPage() {
   const [chartMonth, setChartMonth] = useState(today.getMonth() + 1);
   const [chartYear, setChartYear] = useState(today.getFullYear());
   const [isDark, setIsDark] = useState(false);
-  const pageSize = 5;
+  const pageSize = 50;
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search); }, 400);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => {
     if (!authLoading && !hasPermission("view_reports")) {
@@ -110,7 +116,7 @@ export default function ActivationsReportPage() {
       if (startDate) params.start_date = startDate;
       if (endDate) params.end_date = endDate;
       if (selectedExcludeTags.length > 0) params.exclude_tags = selectedExcludeTags.join(",");
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (selectedHouseId) params.house_id = selectedHouseId;
 
       const res = await apiClient.get("activations/report", { params });
@@ -121,7 +127,7 @@ export default function ActivationsReportPage() {
       setLoading(false);
       setInitialLoading(false);
     }
-  }, [page, startDate, endDate, selectedExcludeTags, search, selectedHouseId]);
+  }, [page, startDate, endDate, selectedExcludeTags, debouncedSearch, selectedHouseId]);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -136,12 +142,12 @@ export default function ActivationsReportPage() {
     try {
       const params: Record<string, any> = { month: chartMonth, year: chartYear };
       if (selectedExcludeTags.length > 0) params.exclude_tags = selectedExcludeTags.join(",");
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (selectedHouseId) params.house_id = selectedHouseId;
       const res = await apiClient.get("activations/daily-stats", { params });
       setChartData(res.data);
     } catch {}
-  }, [chartMonth, chartYear, selectedExcludeTags, search, selectedHouseId]);
+  }, [chartMonth, chartYear, selectedExcludeTags, debouncedSearch, selectedHouseId]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("view_reports")) {

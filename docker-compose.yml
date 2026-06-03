@@ -12,23 +12,71 @@ services:
       - ./backend/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
     ports:
       - "5433:5432"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: >
+      postgres
+      -c shared_buffers=1GB
+      -c work_mem=64MB
+      -c effective_cache_size=3GB
+      -c maintenance_work_mem=256MB
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c max_connections=200
+
+  redis:
+    image: redis:7-alpine
+    container_name: orange_flow_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build: ./backend
     container_name: orange_flow_backend
     restart: always
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       - DB_HOST=db
       - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
     ports:
       - "${WEBHOOK_PORT:-8090}:${WEBHOOK_PORT:-8090}"
       - "8000:8000"
     volumes:
       - ./backend:/app
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+    # Production: uvicorn with multiple workers
+    # command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --loop asyncio
 
   frontend:
     image: node:20-slim
@@ -40,10 +88,17 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+      - NODE_ENV=development
     command: >
       sh -c "npm install && npm run dev"
     depends_on:
       - backend
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    # Production: use built app
+    # command: sh -c "npm run build && npm start"
 
 volumes:
   postgres_data:
