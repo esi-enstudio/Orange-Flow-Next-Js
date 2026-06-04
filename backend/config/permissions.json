@@ -70,5 +70,39 @@
             "display_name": "Products",
             "actions": ["view", "create", "edit", "delete", "import", "export"]
         }
+    ],
+    "default_roles": [
+        {
+            "name": "Super Admin",
+            "is_admin": true
+        },
+        {
+            "name": "Admin",
+            "is_admin": true
+        },
+        {
+            "name": "Distributor",
+            "permissions": ["view_houses", "view_retailers", "view_employees", "view_bts", "view_reports"]
+        },
+        {
+            "name": "Manager",
+            "permissions": ["view_reports", "view_retailers", "view_employees", "view_bts"]
+        },
+        {
+            "name": "Supervisor",
+            "permissions": ["view_reports", "view_retailers"]
+        },
+        {
+            "name": "RSO",
+            "permissions": ["view_reports", "view_retailers"]
+        },
+        {
+            "name": "BP",
+            "permissions": ["view_reports"]
+        },
+        {
+            "name": "Cc",
+            "permissions": ["view_reports"]
+        }
     ]
 }

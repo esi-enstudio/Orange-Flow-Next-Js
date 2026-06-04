@@ -51,6 +51,7 @@ from app.Routers.todos import router as todos_router
 from app.Routers.report_rules import router as report_rules_router
 from app.Routers.webhook import router as webhook_router
 from app.Routers.app_settings import router as app_settings_router
+from app.Routers.ga_section_configs import router as ga_section_configs_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -82,6 +83,7 @@ app.include_router(todos_router)
 app.include_router(report_rules_router)
 app.include_router(webhook_router)
 app.include_router(app_settings_router)
+app.include_router(ga_section_configs_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -252,19 +254,21 @@ async def main():
 
         if settings.START_NGROK:
             try:
-                from pyngrok import ngrok
+                from pyngrok import ngrok, conf
                 if settings.NGROK_AUTH_TOKEN:
                     ngrok.set_auth_token(settings.NGROK_AUTH_TOKEN)
-                if settings.STATIC_DOMAIN:
-                    ngrok_tunnel = ngrok.connect(8000, domain=settings.STATIC_DOMAIN)
+                ngrok_cfg = conf.PyngrokConfig(request_timeout=30)
+                ngrok.connect(8000, pyngrok_config=ngrok_cfg)
+                tunnels = ngrok.get_tunnels(pyngrok_config=ngrok_cfg)
+                if tunnels:
+                    public_url = tunnels[0].public_url
+                    logger.info(f"🌐 Ngrok tunnel opened: {public_url}")
+                    logger.info(f"📱 Configure SMS Forwarder to POST to: {public_url}/api/webhook/sms")
                 else:
-                    ngrok_tunnel = ngrok.connect(8000)
-                public_url = ngrok_tunnel.public_url
-                logger.info(f"🌐 Ngrok tunnel opened: {public_url}")
-                logger.info(f"📱 Configure SMS Forwarder to POST to: {public_url}/api/webhook/sms")
-                logger.info(f"🔐 Or use OTP endpoint: {public_url}/api/webhook/otp")
+                    logger.error("❌ Ngrok tunnel not available")
             except Exception as e:
                 logger.error(f"❌ Failed to start ngrok: {e}")
+                logger.info("⚠️  App running without ngrok tunnel")
 
         if settings.ENABLE_GA_SYNC:
             background_tasks.append(asyncio.create_task(master_automation_scheduler()))

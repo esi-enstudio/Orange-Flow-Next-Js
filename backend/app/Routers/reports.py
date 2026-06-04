@@ -17,6 +17,7 @@ from app.Models.sim_issue import SimIssue
 from app.Models.ga_filter import RetailerFilter, FilterTag, RetailerFilter as RetailerFilterModel
 from app.Models.retailer import Retailer
 from app.Models.employee import Employee
+from app.Models.role import Role
 from app.Utils.access_control import is_admin_user
 from app.Utils.activation_rules import get_excluded_codes, exclude_clause
 from app.Services.Automation.activation_excel import export_activations_excel
@@ -157,11 +158,14 @@ async def get_live_activations(
 async def export_live_activations(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    house_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("export_live_activations")),
-    house_id: Optional[int] = Depends(get_house_context)
+    header_house_id: Optional[int] = Depends(get_house_context),
 ):
-    query = select(LiveActivation)
+    if not house_id:
+        house_id = header_house_id
+    query = select(LiveActivation).options(selectinload(LiveActivation.house))
     if house_id: query = query.where(LiveActivation.house_id == house_id)
     if start_date:
         try: sd = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -492,3 +496,44 @@ async def get_activation_daily_stats(
     if not search:
         await cache_service.set(cache_key, result, ttl=300)
     return result
+
+
+@router.get("/reports/ga-live")
+async def get_ga_live_report(
+    house_id: Optional[int] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_live_activations")),
+):
+    from app.Services.ga_live_service import GaLiveQueryBuilder
+
+    is_admin = is_admin_user(current_user)
+    user_houses_raw = current_user.houses
+
+    target_house_id = house_id
+    if not target_house_id:
+        if is_admin:
+            raise HTTPException(status_code=400, detail="house_id is required for admin users")
+        if len(user_houses_raw) == 1:
+            target_house_id = user_houses_raw[0].id
+        else:
+            raise HTTPException(status_code=400, detail="house_id is required when user has multiple houses")
+    else:
+        if not is_admin:
+            user_house_ids = [h.id for h in user_houses_raw]
+            if target_house_id not in user_house_ids:
+                raise HTTPException(status_code=403, detail="You do not have access to this house")
+
+    today = date.today()
+    if not start_date:
+        start_date = today
+    else:
+        start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+    if not end_date:
+        end_date = today
+    else:
+        end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    builder = GaLiveQueryBuilder(db, target_house_id, start_date, end_date)
+    return await builder.build_all()

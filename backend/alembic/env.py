@@ -33,6 +33,7 @@ from app.Models.sync_history import SyncHistory
 from app.Models.mela import Mela, MelaActivity, MelaType, MelaEligibleBTS, MelaAssignment
 from app.Models.leave_management import LeaveRequest
 from app.Models.product import Product
+from app.Models.ga_section_config import GaSectionConfig
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

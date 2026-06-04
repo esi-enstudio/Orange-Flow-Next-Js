@@ -104,7 +104,7 @@ async def get_stats(
         if q_house_id not in user_house_ids:
             raise HTTPException(status_code=403, detail="You do not have access to this house")
     excluded_codes = await get_excluded_codes(db)
-    today_str = date.today().strftime("%Y-%m-%d")
+    today_d = date.today()
 
     retailer_query = select(func.count()).select_from(Retailer)
     active_retailer_query = select(func.count()).select_from(Retailer).where(Retailer.enabled == "Yes")
@@ -118,7 +118,7 @@ async def get_stats(
     activation_query = (
         select(func.count())
         .select_from(LiveActivation)
-        .where(LiveActivation.activation_date == today_str)
+        .where(LiveActivation.activation_date == today_d)
     )
     clause = exclude_clause(LiveActivation, excluded_codes)
     if clause is not None:
@@ -177,7 +177,7 @@ async def get_stats(
 
     product_query = (
         select(LiveActivation.product_code, func.count().label("cnt"))
-        .where(LiveActivation.activation_date == today_str)
+        .where(LiveActivation.activation_date == today_d)
         .group_by(LiveActivation.product_code)
     )
     clause_p = exclude_clause(LiveActivation, excluded_codes)
@@ -284,7 +284,7 @@ async def get_daily_activations(
     live_query = (
         select(func.count())
         .select_from(LiveActivation)
-        .where(LiveActivation.activation_date == today_str)
+        .where(LiveActivation.activation_date == today)
     )
     clause_l = exclude_clause(LiveActivation, excluded_codes)
     if clause_l is not None:
