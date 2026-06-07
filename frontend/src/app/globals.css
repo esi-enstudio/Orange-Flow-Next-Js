@@ -191,9 +191,40 @@
 
   .dark .dark\:shadow-primary-900\/30 { --tw-shadow-color: color-mix(in srgb, var(--clr-primary-900) 30%, transparent); }
 
+  .from-primary-50  { --tw-gradient-from: var(--clr-primary-50); }
+  .from-primary-100 { --tw-gradient-from: var(--clr-primary-100); }
+  .from-primary-200 { --tw-gradient-from: var(--clr-primary-200); }
+  .from-primary-300 { --tw-gradient-from: var(--clr-primary-300); }
   .from-primary-400 { --tw-gradient-from: var(--clr-primary-400); }
+  .from-primary-500 { --tw-gradient-from: var(--clr-primary-500); }
+  .from-primary-600 { --tw-gradient-from: var(--clr-primary-600); }
+  .from-primary-700 { --tw-gradient-from: var(--clr-primary-700); }
+  .from-primary-800 { --tw-gradient-from: var(--clr-primary-800); }
+  .from-primary-900 { --tw-gradient-from: var(--clr-primary-900); }
+  .via-primary-50  { --tw-gradient-via: var(--clr-primary-50); }
+  .via-primary-100 { --tw-gradient-via: var(--clr-primary-100); }
+  .via-primary-200 { --tw-gradient-via: var(--clr-primary-200); }
+  .via-primary-300 { --tw-gradient-via: var(--clr-primary-300); }
+  .via-primary-400 { --tw-gradient-via: var(--clr-primary-400); }
+  .via-primary-500 { --tw-gradient-via: var(--clr-primary-500); }
   .via-primary-600 { --tw-gradient-via: var(--clr-primary-600); }
+  .via-primary-700 { --tw-gradient-via: var(--clr-primary-700); }
+  .via-primary-800 { --tw-gradient-via: var(--clr-primary-800); }
+  .via-primary-900 { --tw-gradient-via: var(--clr-primary-900); }
+  .to-primary-50  { --tw-gradient-to: var(--clr-primary-50); }
+  .to-primary-100 { --tw-gradient-to: var(--clr-primary-100); }
+  .to-primary-200 { --tw-gradient-to: var(--clr-primary-200); }
+  .to-primary-300 { --tw-gradient-to: var(--clr-primary-300); }
+  .to-primary-400 { --tw-gradient-to: var(--clr-primary-400); }
   .to-primary-500 { --tw-gradient-to: var(--clr-primary-500); }
+  .to-primary-600 { --tw-gradient-to: var(--clr-primary-600); }
+  .to-primary-700 { --tw-gradient-to: var(--clr-primary-700); }
+  .to-primary-800 { --tw-gradient-to: var(--clr-primary-800); }
+  .to-primary-900 { --tw-gradient-to: var(--clr-primary-900); }
+  .hover\:from-primary-600:hover { --tw-gradient-from: var(--clr-primary-600); }
+  .hover\:to-primary-700:hover { --tw-gradient-to: var(--clr-primary-700); }
 
   .hover\:bg-primary-50:hover { background-color: var(--clr-primary-50); }
+  .dark .dark\:from-primary-500\/15 { --tw-gradient-from: color-mix(in srgb, var(--clr-primary-500) 15%, transparent); }
+  .dark .dark\:to-primary-600\/10 { --tw-gradient-to: color-mix(in srgb, var(--clr-primary-600) 10%, transparent); }
 }

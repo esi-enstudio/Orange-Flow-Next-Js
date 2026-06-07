@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity, Users, UserCheck, Target, Award,
   BarChart3, RefreshCw, FileSpreadsheet,
-  Radio, Shield, Building2, BadgeCheck, UserCog,
+  Radio, Shield, Building2, UserCog,
   Smartphone, ChevronDown, ChevronUp, Grid3X3, List,
   Sparkles, Medal, Zap, Search, Check, CalendarDays,
   Pencil, Settings,
@@ -27,6 +27,7 @@ import {
 interface GaLiveData {
   summary: {
     total_activations: number;
+    yesterday_total: number;
     employee_activation: number;
     employee_activation_pct: number;
     market_activation: number;
@@ -116,7 +117,7 @@ function KpiCard({
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-4 hover:shadow-lg hover:border-gray-200 dark:hover:border-slate-600 transition-all duration-300"
+      className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5 hover:shadow-lg hover:border-gray-200 dark:hover:border-slate-600 transition-all duration-300"
     >
       <div className="flex items-center justify-between mb-3">
         <div
@@ -129,7 +130,7 @@ function KpiCard({
       <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5 truncate uppercase tracking-wider">
         {label}
       </p>
-      <p className="text-xl font-bold text-gray-900 dark:text-gray-100">
+      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
         {typeof value === "number" ? value.toLocaleString() : value}
       </p>
       {sub && (
@@ -580,9 +581,15 @@ export default function GaLiveReportPage() {
       {/* ────── Executive Summary ────── */}
       <section>
         <SectionHeader title="Executive Summary" subtitle="Key activation metrics for the selected period" />
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="group relative">
-            <KpiCard icon={Activity} label="Total Activation" value={summary.total_activations} color="#8b5cf6" />
+            <KpiCard
+              icon={Activity}
+              label="Total Activation"
+              value={summary.total_activations}
+              sub={`Yesterday GA - ${(summary.yesterday_total ?? 0).toLocaleString()}`}
+              color="#8b5cf6"
+            />
             {isAdmin && (
               <button
                 onClick={() => setEditingSection("total_activation")}
@@ -629,30 +636,6 @@ export default function GaLiveReportPage() {
               </button>
             )}
           </div>
-          <KpiCard
-            icon={Users}
-            label="Active Supervisors"
-            value={`${summary.active_supervisors}/${summary.total_supervisors}`}
-            color="#3b82f6"
-          />
-          <KpiCard
-            icon={UserCog}
-            label="Active RSO"
-            value={`${summary.active_rso}/${summary.total_rso}`}
-            color="#f97316"
-          />
-          <KpiCard
-            icon={BadgeCheck}
-            label="Active BP"
-            value={`${summary.active_bp}/${summary.total_bp}`}
-            color="#14b8a6"
-          />
-          <KpiCard
-            icon={Smartphone}
-            label="Active CC"
-            value={`${summary.active_cc}/${summary.total_cc}`}
-            color="#f43f5e"
-          />
         </div>
       </section>
 

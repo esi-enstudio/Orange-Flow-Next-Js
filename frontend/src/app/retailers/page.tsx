@@ -49,7 +49,7 @@ interface Retailer {
   dob: string;
   route: string;
   house?: { name: string, code: string };
-  employee?: { name: string, itop_number: string, user?: { name: string } };
+  employee?: { name: string, itop_number: string, dms_code: string, user?: { name: string } };
 }
 
 export default function RetailersPage() {
@@ -277,7 +277,10 @@ export default function RetailersPage() {
                           </p>
                           {r.employee?.itop_number && (
                             <p className="text-[10px] text-gray-500 dark:text-gray-400 font-mono flex items-center gap-1">
-                                <Smartphone className="w-2.5 h-2.5 text-blue-500" /> {r.employee.itop_number}
+                              <Smartphone className="w-2.5 h-2.5 text-blue-500" /> {r.employee.itop_number}
+                              {r.employee.dms_code && (
+                                <span>• {r.employee.dms_code}</span>
+                              )}
                             </p>
                           )}
                         </div>

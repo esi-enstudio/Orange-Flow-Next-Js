@@ -15,7 +15,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-async def process_user_excel(file_path):
+async def process_user_excel(file_path, progress_callback=None):
     """Process Excel for bulk User Import"""
     try:
         df = pd.read_excel(file_path, dtype=str)
@@ -101,6 +101,10 @@ async def process_user_excel(file_path):
                 except Exception as e:
                     logger.error(f"Row {index} error: {e}")
                     error_count += 1
+
+                if progress_callback and (index + 1) % 5 == 0:
+                    pct = min(int((index + 1) / total_rows * 100), 100)
+                    await progress_callback(f"{pct}% — {index + 1}/{total_rows} users")
 
             await session.commit()
             return success_count, error_count, None

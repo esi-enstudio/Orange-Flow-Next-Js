@@ -70,6 +70,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./backend/ngrok-bin:/app/ngrok-bin
     deploy:
       resources:
         limits:

@@ -51,11 +51,6 @@
             "actions": ["view", "edit", "download", "dms_access"]
         },
         {
-            "name": "report_rules",
-            "display_name": "Report Rules",
-            "actions": ["view", "create", "edit", "delete"]
-        },
-        {
             "name": "automation",
             "display_name": "Automation",
             "actions": ["ga_sync", "dms_sync", "settings"]

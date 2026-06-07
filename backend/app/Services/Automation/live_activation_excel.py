@@ -48,7 +48,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
         total_rows = len(df)
 
-        today_str = str(date.today())
+        today_date = date.today()
 
         def clean(val):
             if val is None: return None
@@ -82,11 +82,11 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                     continue
                 try:
                     raw_date = row.get('ACTIVATION_DATE')
-                    act_date = str(pd.to_datetime(raw_date).date()) if raw_date else None
+                    act_date = pd.to_datetime(raw_date).date() if raw_date else None
                 except:
                     act_date = None
 
-                if act_date != today_str:
+                if act_date != today_date:
                     processed_count += 1
                     skipped_count += 1
                     pbar.update(1)
@@ -135,13 +135,13 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                 pbar.update(1)
                 if progress_callback and (processed_count % 200 == 0 or processed_count == total_rows):
                     await progress_callback(
-                        f"📊 Live Activation Import Progress: {round((processed_count/total_rows)*100)}%\n"
-                        f"📈 Processed: {processed_count} / {total_rows}"
+                        f"Live Activations — {round((processed_count/total_rows)*100)}%"
+                        f" ({processed_count} / {total_rows})"
                     )
 
             if today_count == 0:
                 pbar.close()
-                return 0, f"আজকের ({today_str}) তারিখের কোন ডাটা ফাইলে নেই। শুধুমাত্র আজকের ডাটা ইম্পোর্ট করা যাবে।"
+                return 0, f"আজকের ({today_date}) তারিখের কোন ডাটা ফাইলে নেই। শুধুমাত্র আজকের ডাটা ইম্পোর্ট করা যাবে।"
 
             if batch_buffer:
                 unique = {item['sim_no']: item for item in batch_buffer}.values()
@@ -151,7 +151,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                 inserted_count += len(batch_buffer)
             await session.commit()
             pbar.close()
-            msg = f"✅ {inserted_count} টি রেকর্ড ইম্পোর্ট করা হয়েছে (আজকের {today_str})"
+            msg = f"✅ {inserted_count} টি রেকর্ড ইম্পোর্ট করা হয়েছে (আজকের {today_date})"
             if skipped_count:
                 msg += f" | {skipped_count} টি রেকর্ড বাদ দেওয়া হয়েছে (আজকের তারিখ নয়)"
             print(f"{Fore.GREEN}{msg}\n")

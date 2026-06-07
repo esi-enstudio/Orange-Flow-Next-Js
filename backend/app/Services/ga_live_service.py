@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.Models.live_activation import LiveActivation
+from app.Models.activation import Activation
 from app.Models.retailer import Retailer
 from app.Models.employee import Employee
 from app.Models.user import User
@@ -96,6 +97,37 @@ class GaLiveQueryBuilder:
 
     async def get_total_count(self, section_key: str) -> int:
         query = await self._build_base_query(section_key)
+        count_q = select(func.count()).select_from(query.subquery())
+        result = await self.db.execute(count_q)
+        return result.scalar() or 0
+
+    async def get_yesterday_total_count(self, section_key: str) -> int:
+        yesterday_start = self.start_date - timedelta(days=1)
+        yesterday_end = self.start_date - timedelta(days=1)
+
+        query = select(Activation).where(
+            Activation.house_id == self.house_id,
+            Activation.activation_date >= yesterday_start,
+            Activation.activation_date <= yesterday_end,
+        )
+
+        exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
+
+        if exclude_product_codes:
+            clause = exclude_clause(Activation, set(exclude_product_codes))
+            if clause is not None:
+                query = query.where(clause)
+
+        for tag in exclude_retailer_tags:
+            excluded_ids = await self._load_excluded_retailers_by_tag(tag)
+            if excluded_ids:
+                query = query.where(
+                    and_(
+                        Activation.retailer_id != None,
+                        Activation.retailer_id.notin_(excluded_ids),
+                    )
+                )
+
         count_q = select(func.count()).select_from(query.subquery())
         result = await self.db.execute(count_q)
         return result.scalar() or 0
@@ -462,6 +494,7 @@ class GaLiveQueryBuilder:
         await self._load_section_configs()
 
         total = await self.get_total_count("total_activation")
+        yesterday_total = await self.get_yesterday_total_count("total_activation")
         emp_count = await self.get_employee_activation_by_code("employee_activation")
         market_count = await self.get_market_activation_count("market_activation")
         emp_pct = round((emp_count / total * 100), 1) if total else 0
@@ -502,6 +535,7 @@ class GaLiveQueryBuilder:
         return {
             "summary": {
                 "total_activations": total,
+                "yesterday_total": yesterday_total,
                 "employee_activation": emp_count,
                 "employee_activation_pct": emp_pct,
                 "market_activation": market_count,

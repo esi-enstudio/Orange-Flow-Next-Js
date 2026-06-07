@@ -49,7 +49,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [codeSearch, setCodeSearch] = useState("");
@@ -425,53 +425,55 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
 
             {/* ── Footer ── */}
             <div className="shrink-0 px-6 py-4 border-t border-gray-100 dark:border-slate-700/50 bg-gray-50/50 dark:bg-slate-900/50">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
                     setSelectedCodes([]);
                     setSelectedTags([]);
                   }}
-                  className="px-4 py-2 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
                 >
                   Reset
                 </button>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={onClose}
-                    className="px-5 py-2 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <motion.button
-                    onClick={handleSave}
-                    disabled={saving || loading || saved}
-                    whileTap={{ scale: 0.97 }}
-                    className={cn(
-                      "px-6 py-2.5 rounded-xl text-sm font-bold text-white transition-all duration-200 flex items-center gap-2.5 shadow-lg",
-                      saved
-                        ? "bg-green-500 shadow-green-500/20"
-                        : "bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 shadow-primary-500/20 hover:shadow-primary-500/30",
-                      (saving || loading || saved) && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    {saving ? (
-                      <>
-                        <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                        Saving...
-                      </>
-                    ) : saved ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        Saved!
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-4 h-4" />
-                        Save Configuration
-                      </>
-                    )}
-                  </motion.button>
-                </div>
+                <div className="flex-1" />
+                <button
+                  onClick={onClose}
+                  className="px-5 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <motion.button
+                  onClick={handleSave}
+                  disabled={saving || loading || saved}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  className={cn(
+                    "px-7 py-2.5 rounded-xl text-sm font-bold text-white transition-all duration-200 flex items-center gap-2.5 shadow-lg",
+                    saved
+                      ? "bg-green-500 shadow-green-500/25"
+                      : saving || loading
+                        ? "bg-primary-400 cursor-not-allowed shadow-primary-400/20"
+                        : "bg-primary-600 hover:bg-primary-700 shadow-primary-600/25 hover:shadow-primary-600/40",
+                    (saving || loading) && "opacity-80"
+                  )}
+                >
+                  {saving ? (
+                    <>
+                      <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                      Saving...
+                    </>
+                  ) : saved ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Saved!
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Configuration
+                    </>
+                  )}
+                </motion.button>
               </div>
             </div>
           </motion.div>

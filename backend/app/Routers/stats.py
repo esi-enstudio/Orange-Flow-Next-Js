@@ -15,80 +15,11 @@ from app.Models.user import User
 from app.Models.activation import Activation
 from app.Models.live_activation import LiveActivation
 
-from app.Models.report_rule import ReportRule
 from app.Models.ga_filter import FilterTag, RetailerFilter
 from app.Utils.access_control import is_admin_user
 from app.Utils.activation_rules import get_excluded_codes, exclude_clause
 
 router = APIRouter(prefix="/api", tags=["stats"])
-
-
-async def get_applicable_rules(db: AsyncSession, house_id: Optional[int], rule_type: str, report_type: Optional[str] = None):
-    today = datetime.now()
-    query = (
-        select(ReportRule)
-        .where(ReportRule.rule_type == rule_type)
-        .where(ReportRule.is_active == True)
-        .where(ReportRule.valid_from <= today)
-        .where((ReportRule.valid_to >= today) | (ReportRule.valid_to.is_(None)))
-    )
-    if house_id:
-        query = query.where(ReportRule.house_id == house_id)
-    result = await db.execute(query)
-    rules = result.scalars().all()
-    if report_type:
-        filtered = []
-        for r in rules:
-            if not r.report_types:
-                continue
-            try:
-                types = json.loads(r.report_types) if isinstance(r.report_types, str) else r.report_types
-            except (json.JSONDecodeError, TypeError):
-                types = []
-            if report_type in types:
-                filtered.append(r)
-        return filtered
-    return rules
-
-
-async def get_excluded_retailer_ids_by_rules(db: AsyncSession, house_id: Optional[int], report_type: Optional[str] = None) -> set[int]:
-    excluded_ids = set()
-    rules = await get_applicable_rules(db, house_id, "retailer_tag_exclusion", report_type)
-    for rule in rules:
-        try:
-            config = json.loads(rule.config) if isinstance(rule.config, str) else rule.config
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if not config:
-            continue
-        tag_names = config.get("tag_names", [])
-        if not tag_names:
-            continue
-        q = (
-            select(RetailerFilter.retailer_id)
-            .join(FilterTag, RetailerFilter.tag_id == FilterTag.id)
-            .where(FilterTag.name.in_(tag_names))
-        )
-        if house_id:
-            q = q.where(RetailerFilter.house_id == house_id)
-        result = await db.execute(q)
-        excluded_ids.update(row[0] for row in result.all())
-    return excluded_ids
-
-
-async def get_excluded_house_ids_by_rules(db: AsyncSession, report_type: Optional[str] = None) -> set[int]:
-    excluded_ids = set()
-    rules = await get_applicable_rules(db, None, "house_exclusion", report_type)
-    for rule in rules:
-        try:
-            config = json.loads(rule.config) if isinstance(rule.config, str) else rule.config
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if not config:
-            continue
-        house_ids = config.get("house_ids", [])
-        excluded_ids.update(house_ids)
-    return excluded_ids
 
 
 @router.get("/stats")
@@ -137,17 +68,7 @@ async def get_stats(
         bts_query = bts_query.where(BTS.house_id == target_house_id)
         activation_query = activation_query.where(LiveActivation.house_id == target_house_id)
     elif is_admin:
-        excluded_houses = await get_excluded_house_ids_by_rules(db, "dashboard")
-        if excluded_houses:
-            retailer_query = retailer_query.where(Retailer.house_id.notin_(excluded_houses))
-            active_retailer_query = active_retailer_query.where(Retailer.house_id.notin_(excluded_houses))
-            inactive_retailer_query = inactive_retailer_query.where(Retailer.house_id.notin_(excluded_houses))
-            emp_query = emp_query.where(Employee.house_id.notin_(excluded_houses))
-            active_emp_query = active_emp_query.where(Employee.house_id.notin_(excluded_houses))
-            inactive_emp_query = inactive_emp_query.where(Employee.house_id.notin_(excluded_houses))
-            house_query = house_query.where(House.id.notin_(excluded_houses))
-            bts_query = bts_query.where(BTS.house_id.notin_(excluded_houses))
-            activation_query = activation_query.where(LiveActivation.house_id.notin_(excluded_houses))
+        pass
     else:
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
@@ -171,10 +92,6 @@ async def get_stats(
             bts_query = bts_query.where(BTS.house_id == -1)
             activation_query = activation_query.where(LiveActivation.house_id == -1)
 
-    excluded_retailer_ids = await get_excluded_retailer_ids_by_rules(db, target_house_id, "dashboard")
-    if excluded_retailer_ids:
-        activation_query = activation_query.where(LiveActivation.retailer_id.notin_(excluded_retailer_ids))
-
     product_query = (
         select(LiveActivation.product_code, func.count().label("cnt"))
         .where(LiveActivation.activation_date == today_d)
@@ -186,15 +103,12 @@ async def get_stats(
     if target_house_id:
         product_query = product_query.where(LiveActivation.house_id == target_house_id)
     elif is_admin:
-        if excluded_houses:
-            product_query = product_query.where(LiveActivation.house_id.notin_(excluded_houses))
+        pass
     else:
         if user_house_ids:
             product_query = product_query.where(LiveActivation.house_id.in_(user_house_ids))
         else:
             product_query = product_query.where(LiveActivation.house_id == -1)
-    if excluded_retailer_ids:
-        product_query = product_query.where(LiveActivation.retailer_id.notin_(excluded_retailer_ids))
     product_rows = (await db.execute(product_query)).all()
     product_breakdown = {row.product_code: row.cnt for row in product_rows}
 
@@ -240,7 +154,6 @@ async def get_daily_activations(
     today = date.today()
     month_start = today.replace(day=1)
     excluded_codes = await get_excluded_codes(db)
-    excluded_retailer_ids = await get_excluded_retailer_ids_by_rules(db, target_house_id, "dashboard")
     is_admin = is_admin_user(current_user)
 
     # Past dates (month_start to yesterday) → Activation table
@@ -254,14 +167,10 @@ async def get_daily_activations(
     clause_h = exclude_clause(Activation, excluded_codes)
     if clause_h is not None:
         hist_query = hist_query.where(clause_h)
-    if excluded_retailer_ids:
-        hist_query = hist_query.where(Activation.retailer_id.notin_(excluded_retailer_ids))
     if target_house_id:
         hist_query = hist_query.where(Activation.house_id == target_house_id)
     elif is_admin:
-        excluded_houses = await get_excluded_house_ids_by_rules(db, "dashboard")
-        if excluded_houses:
-            hist_query = hist_query.where(Activation.house_id.notin_(excluded_houses))
+        pass
     else:
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
@@ -289,14 +198,10 @@ async def get_daily_activations(
     clause_l = exclude_clause(LiveActivation, excluded_codes)
     if clause_l is not None:
         live_query = live_query.where(clause_l)
-    if excluded_retailer_ids:
-        live_query = live_query.where(LiveActivation.retailer_id.notin_(excluded_retailer_ids))
     if target_house_id:
         live_query = live_query.where(LiveActivation.house_id == target_house_id)
     elif is_admin:
-        excluded_houses = await get_excluded_house_ids_by_rules(db, "dashboard")
-        if excluded_houses:
-            live_query = live_query.where(LiveActivation.house_id.notin_(excluded_houses))
+        pass
     else:
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:

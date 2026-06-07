@@ -145,7 +145,6 @@ export const navItems: NavItem[] = [
       { title: "User Management", translationKey: "nav.users", href: "/users", permission: "view_users" },
       { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "view_retailers" },
                       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "view_reports" },
-                      { title: "Report Rules", translationKey: "nav.report_rules", href: "/report-rules", permission: "view_reports" },
                       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "view_settings" },
     ]
   },

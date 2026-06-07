@@ -48,7 +48,6 @@ from app.Routers.targets import router as targets_router
 from app.Routers.filters import router as filters_router
 from app.Routers.stats import router as stats_router
 from app.Routers.todos import router as todos_router
-from app.Routers.report_rules import router as report_rules_router
 from app.Routers.webhook import router as webhook_router
 from app.Routers.app_settings import router as app_settings_router
 from app.Routers.ga_section_configs import router as ga_section_configs_router
@@ -80,7 +79,6 @@ app.include_router(targets_router)
 app.include_router(filters_router)
 app.include_router(stats_router)
 app.include_router(todos_router)
-app.include_router(report_rules_router)
 app.include_router(webhook_router)
 app.include_router(app_settings_router)
 app.include_router(ga_section_configs_router)

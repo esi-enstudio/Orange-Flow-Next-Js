@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 
 from app.Models.house import House
 from app.Services.db_service import async_session
-from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +115,5 @@ async def process_house_excel(file_path, progress_callback=None):
 async def update_progress_house(count, total_rows, progress_callback):
     percent = round((count / total_rows) * 100)
     await progress_callback(
-        f"📊 <b>হাউজ আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
-        f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
+        f"Houses — {percent}%  ({count} / {total_rows})"
     )

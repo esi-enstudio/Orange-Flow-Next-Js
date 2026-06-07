@@ -23,6 +23,5 @@ from app.Models.role import Permission
 from app.Models.user import user_houses, user_roles
 from app.Models.todo import Todo
 from app.Models.product_exclusion import ExcludedProductCode
-from app.Models.report_rule import ReportRule
 from app.Models.app_setting import AppSetting
 from app.Models.ga_section_config import GaSectionConfig

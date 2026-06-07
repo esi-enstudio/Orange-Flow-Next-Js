@@ -10,7 +10,6 @@ from app.Models.employee import Employee
 from app.Models.user import User         
 from app.Models.house import House
 from app.Services.db_service import async_session
-from app.Utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
@@ -256,9 +255,7 @@ async def do_bulk_upsert_emp(session, batch_data):
     await session.execute(stmt)
 
 async def update_progress_emp(count, total_rows, progress_callback):
-    """এমপ্লয়ী প্রগ্রেস আপডেট হেল্পার"""
     percent = round((count / total_rows) * 100)
     await progress_callback(
-        f"📊 <b>এমপ্লয়ী আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
-        f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
+        f"Employees — {percent}%  ({count} / {total_rows})"
     )
