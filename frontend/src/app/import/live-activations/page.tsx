@@ -26,11 +26,11 @@ export default function ImportLiveActivationsPage() {
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(0);
   const [totalRecords, setTotalRecords] = useState(0);
-  const [importProgress, setImportProgress] = useState<{percent: number; message: string} | null>(null);
+  const [importProgress, setImportProgress] = useState<{ percent: number; message: string } | null>(null);
   const [showTruncateConfirm, setShowTruncateConfirm] = useState(false);
   const [truncating, setTruncating] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
-  const [summaryData, setSummaryData] = useState<{message: string; count: number} | null>(null);
+  const [summaryData, setSummaryData] = useState<{ message: string; count: number } | null>(null);
   const [summaryType, setSummaryType] = useState<"success" | "error">("success");
   const limit = 5;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -133,7 +133,7 @@ export default function ImportLiveActivationsPage() {
       if (!response.ok) {
         const errText = await response.text();
         let errMsg = "Import failed";
-        try { const errJson = JSON.parse(errText); errMsg = errJson.detail || errMsg; } catch {}
+        try { const errJson = JSON.parse(errText); errMsg = errJson.detail || errMsg; } catch { }
         throw new Error(errMsg);
       }
       const result = await readSSEStream(response);
@@ -190,17 +190,15 @@ export default function ImportLiveActivationsPage() {
       {showSummary && summaryData && (
         <div className="fixed top-0 left-0 right-0 z-[9999] pointer-events-none">
           <div className={`mx-auto max-w-md mt-4 pointer-events-auto ${showSummary ? 'animate-slide-down' : ''}`}>
-            <div className={`rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border p-5 ${
-              summaryType === "success"
+            <div className={`rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border p-5 ${summaryType === "success"
                 ? "bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700"
                 : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800"
-            }`}>
+              }`}>
               <div className="flex items-start gap-4">
-                <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-                  summaryType === "success"
+                <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${summaryType === "success"
                     ? "bg-emerald-100 dark:bg-emerald-500/20"
                     : "bg-red-100 dark:bg-red-500/20"
-                }`}>
+                  }`}>
                   {summaryType === "success"
                     ? <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                     : <X className="w-5 h-5 text-red-600" />
@@ -346,35 +344,25 @@ export default function ImportLiveActivationsPage() {
           </table>
         </div>
         {totalRecords > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-slate-800">
-            <span className="text-xs text-gray-400">
-              Showing {page * limit + 1} to {Math.min((page + 1) * limit, totalRecords)} of {totalRecords} results
-            </span>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
-                <ChevronLeft className="w-3.5 h-3.5" /> Prev
+          <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Showing {totalRecords === 0 ? 0 : page * limit + 1} to{" "}
+              {Math.min((page + 1) * limit, totalRecords)} of {totalRecords}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
+              >
+                <ChevronLeft className="w-4 h-4" />
               </button>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                  const startPage = Math.max(0, Math.min(page - 2, totalPages - 5));
-                  const p = startPage + i;
-                  if (p >= totalPages) return null;
-                  return (
-                    <button key={p} onClick={() => setPage(p)}
-                      className={`w-8 h-8 text-sm rounded-lg font-medium transition-colors ${
-                        p === page
-                          ? "bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300"
-                          : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800"
-                      }`}>
-                      {p + 1}
-                    </button>
-                  );
-                })}
-              </div>
-              <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * limit >= totalRecords}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
-                Next <ChevronRight className="w-3.5 h-3.5" />
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page >= totalPages - 1}
+                className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
+              >
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>

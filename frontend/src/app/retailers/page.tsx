@@ -4,9 +4,9 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { 
-  Search, 
-  ChevronLeft, 
+import {
+  Search,
+  ChevronLeft,
   ChevronRight,
   Loader2,
   User,
@@ -58,9 +58,10 @@ export default function RetailersPage() {
   const { t } = useLanguage();
   const [retailers, setRetailers] = useState<Retailer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const limit = 5; 
+  const limit = 5;
 
   useEffect(() => {
     if (!authLoading && !hasPermission("view_retailers")) {
@@ -105,10 +106,10 @@ export default function RetailersPage() {
 
     setIsImporting(true);
     setImportProgress(20);
-    
+
     const importData = new FormData();
     importData.append("file", file);
-    
+
     try {
       setImportProgress(40);
       const response = await apiClient.post("retailers/import", importData);
@@ -151,14 +152,27 @@ export default function RetailersPage() {
     }
   };
 
-  const filteredRetailers = retailers.filter(r => 
-    r.name?.toLowerCase().includes(search.toLowerCase()) || 
+  const filteredRetailers = retailers.filter(r =>
+    r.name?.toLowerCase().includes(search.toLowerCase()) ||
     r.retailer_code?.toLowerCase().includes(search.toLowerCase()) ||
     r.itop_number?.includes(search)
   );
 
   const paginatedRetailers = filteredRetailers.slice(page * limit, (page + 1) * limit);
   const totalPages = Math.ceil(filteredRetailers.length / limit);
+
+  const pageLoadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerPageLoading = () => {
+    setPageLoading(true);
+
+    if (pageLoadingTimeoutRef.current) {
+      clearTimeout(pageLoadingTimeoutRef.current);
+    }
+
+    // data is already in memory; keep it brief to match "slight loading" UX
+    pageLoadingTimeoutRef.current = setTimeout(() => setPageLoading(false), 180);
+  };
 
   if (!authLoading && !hasPermission("view_retailers")) {
     return <AccessDenied />;
@@ -172,46 +186,46 @@ export default function RetailersPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t('retailers.description')}</p>
         </div>
         <div className="flex flex-wrap gap-3">
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
-            <button 
-                onClick={handleImportClick}
-                disabled={isImporting}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
-            >
-                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                {t('retailers.import_list')}
-            </button>
-            <button
-                onClick={handleExport}
-                disabled={isExporting}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
-            >
-                {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {t('retailers.export_list')}
-            </button>
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
+          <button
+            onClick={handleImportClick}
+            disabled={isImporting}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+          >
+            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            {t('retailers.import_list')}
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+          >
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {t('retailers.export_list')}
+          </button>
         </div>
       </div>
 
       {isImporting && (
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-primary-100 dark:border-primary-500/20 shadow-xl animate-in slide-in-from-top-4 duration-300">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-primary-100 dark:bg-primary-500/20 rounded-xl text-primary-600">
-                        <FileSpreadsheet className="w-5 h-5" />
-                    </div>
-                    <div>
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t('retailers.import_processing')}</h4>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('retailers.import_wait')}</p>
-                    </div>
-                </div>
-                <span className="text-sm font-black text-primary-600">{importProgress}%</span>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-primary-100 dark:bg-primary-500/20 rounded-xl text-primary-600">
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t('retailers.import_processing')}</h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('retailers.import_wait')}</p>
+              </div>
             </div>
-            <div className="w-full h-2 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div 
-                    className="h-full bg-primary-500 transition-all duration-500 ease-out shadow-[0_0_10px_rgba(249,115,22,0.5)]" 
-                    style={{ width: `${importProgress}%` }}
-                />
-            </div>
+            <span className="text-sm font-black text-primary-600">{importProgress}%</span>
+          </div>
+          <div className="w-full h-2 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary-500 transition-all duration-500 ease-out shadow-[0_0_10px_rgba(249,115,22,0.5)]"
+              style={{ width: `${importProgress}%` }}
+            />
+          </div>
         </div>
       )}
 
@@ -219,22 +233,25 @@ export default function RetailersPage() {
         <div className="p-4 border-b border-gray-50 dark:border-slate-800">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder={t('retailers.search_placeholder')}
               className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
                 setPage(0);
+                triggerPageLoading();
               }}
             />
           </div>
         </div>
 
-        {loading ? (
+        {loading || pageLoading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-4">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500"></div>
+            <div className="flex items-center justify-center">
+              <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
+            </div>
           </div>
         ) : filteredRetailers.length === 0 ? (
           <div className="py-20 text-center">
@@ -265,7 +282,7 @@ export default function RetailersPage() {
                           <div>
                             <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{r.name}</p>
                             <p className="text-[10px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                                <Phone className="w-2.5 h-2.5" /> {r.itop_number} <Hash className="w-2.5 h-2.5 ml-1" /> {r.retailer_code}
+                              <Phone className="w-2.5 h-2.5" /> {r.itop_number} <Hash className="w-2.5 h-2.5 ml-1" /> {r.retailer_code}
                             </p>
                           </div>
                         </div>
@@ -285,31 +302,31 @@ export default function RetailersPage() {
                           )}
                         </div>
                       </td>
-                    <td className="px-6 py-4">
+                      <td className="px-6 py-4">
                         <div className="flex flex-col gap-1.5">
-                            {(() => {
-                              const isEnabled = r.enabled === "Yes" || r.enabled === "Y";
-                              const isSimSeller = r.sim_seller === "Yes" || r.sim_seller === "Y";
-                              return (
-                                <>
-                                  <span className={cn(
-                                      "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider w-fit",
-                                      isEnabled
-                                      ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
-                                      : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
-                                  )}>
-                                      <span className={cn("w-1 h-1 rounded-full", isEnabled ? "bg-green-500" : "bg-red-500")}></span>
-                                      {isEnabled ? t('common.enabled') : t('common.disabled')}
-                                  </span>
-                                  <span className={cn(
-                                      "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider w-fit",
-                                      isSimSeller ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400" : "bg-gray-50 text-gray-500 dark:bg-slate-800"
-                                  )}>
-                                      {isSimSeller ? t('retailers.sim_seller_yes') : t('retailers.sim_seller_no')}
-                                  </span>
-                                </>
-                              );
-                            })()}
+                          {(() => {
+                            const isEnabled = r.enabled === "Yes" || r.enabled === "Y";
+                            const isSimSeller = r.sim_seller === "Yes" || r.sim_seller === "Y";
+                            return (
+                              <>
+                                <span className={cn(
+                                  "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider w-fit",
+                                  isEnabled
+                                    ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
+                                    : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+                                )}>
+                                  <span className={cn("w-1 h-1 rounded-full", isEnabled ? "bg-green-500" : "bg-red-500")}></span>
+                                  {isEnabled ? t('common.enabled') : t('common.disabled')}
+                                </span>
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider w-fit",
+                                  isSimSeller ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400" : "bg-gray-50 text-gray-500 dark:bg-slate-800"
+                                )}>
+                                  {isSimSeller ? t('retailers.sim_seller_yes') : t('retailers.sim_seller_no')}
+                                </span>
+                              </>
+                            );
+                          })()}
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -338,8 +355,20 @@ export default function RetailersPage() {
                 {t('retailers.showing_results', { start: filteredRetailers.length === 0 ? 0 : (page * limit) + 1, end: Math.min((page + 1) * limit, filteredRetailers.length), total: filteredRetailers.length })}
               </p>
               <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronLeft className="w-4 h-4"/></button>
-                <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronRight className="w-4 h-4"/></button>
+                <button
+                  onClick={() => { triggerPageLoading(); setPage(p => Math.max(0, p - 1)); }}
+                  disabled={page === 0}
+                  className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => { triggerPageLoading(); setPage(p => p + 1); }}
+                  disabled={page >= totalPages - 1}
+                  className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
           </>
