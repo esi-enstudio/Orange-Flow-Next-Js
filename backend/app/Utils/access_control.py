@@ -1,9 +1,9 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.Models.user import User
-from app.Models.employee import Employee
-from app.Models.retailer import Retailer
-from app.Models.house import House
+from app.models.user import User
+from app.models.employee import Employee
+from app.models.retailer import Retailer
+from app.models.house import House
 
 ADMIN_ROLE_NAMES = frozenset({
     "admin", "super admin", "super_admin", "manager", "house manager", "house_manager"
@@ -35,7 +35,7 @@ class AccessControl:
                 filters.append(model.house_id.in_(house_ids))
             elif model == Employee:
                 # Employee has no house_id, so we filter by their linked user's houses
-                from app.Models.user import user_houses
+                from app.models.user import user_houses
                 filters.append(model.user_id.in_(
                     select(User.id).join(user_houses).where(user_houses.c.house_id.in_(house_ids))
                 ))

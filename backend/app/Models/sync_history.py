@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.sql import func
-from app.Models.base import Base
+from app.models.base import Base
 
 class SyncHistory(Base):
     __tablename__ = "sync_history"

@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint, ForeignKey, JSON
 from sqlalchemy.orm import relationship
-from app.Models.base import Base
+from app.models.base import Base
 
 class RSOTarget(Base):
     __tablename__ = "rso_targets"

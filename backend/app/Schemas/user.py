@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
-from app.Schemas.role import RoleSchema
-from app.Schemas.house import HouseSchema
+from app.schemas.role import RoleSchema
+from app.schemas.house import HouseSchema
 
 class UserSchema(BaseModel):
     id: int

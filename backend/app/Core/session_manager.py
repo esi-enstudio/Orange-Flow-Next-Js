@@ -3,10 +3,10 @@ import os
 import time
 import logging
 from playwright.async_api import async_playwright
-from app.Core.otp_manager import otp_manager
+from app.core.otp_manager import otp_manager
 from config import settings
 
-logger = logging.getLogger("app.Core.session_manager")
+logger = logging.getLogger("app.core.session_manager")
 
 LOGIN_URL = "https://blkdms.banglalink.net/Account/Login"
 CHECK_URL = "https://blkdms.banglalink.net/SmartSearchReport"

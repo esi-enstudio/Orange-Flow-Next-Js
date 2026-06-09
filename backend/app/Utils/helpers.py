@@ -1,8 +1,8 @@
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from app.Models.user import User
-from app.Models.house import House
-from app.Services.db_service import async_session
+from app.models.user import User
+from app.models.house import House
+from app.services.db_service import async_session
 
 async def get_dms_credentials(house_id: int):
     """হাউজ আইডি দিয়ে ডিএমএস ক্রেডেনশিয়াল সংগ্রহ করার কমন ফাংশন"""

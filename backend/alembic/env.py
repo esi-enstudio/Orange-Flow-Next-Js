@@ -11,29 +11,30 @@ from alembic import context
 sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), '..')))
 
 from config.settings import settings
-from app.Models.base import Base
+from app.models.base import Base
 # Import all models to ensure they are registered with Base.metadata
-from app.Models.user import User
-from app.Models.role import Role, Permission
-from app.Models.house import House
-from app.Models.employee import Employee
-from app.Models.retailer import Retailer
-from app.Models.activation import Activation
-from app.Models.live_activation import LiveActivation
-from app.Models.house_target import HouseTarget
-from app.Models.supervisor_target import SupervisorTarget
-from app.Models.rso_target import RSOTarget
-from app.Models.bts import BTS
-from app.Models.itopup_detail import ITopUpDetail
-from app.Models.ga_filter import GAProductFilter, FilterTag, RetailerFilter
-from app.Models.scratch_card_issue import ScratchCardIssue
-from app.Models.sim_issue import SimIssue
-from app.Models.subscription import HouseSubscription
-from app.Models.sync_history import SyncHistory
-from app.Models.mela import Mela, MelaActivity, MelaType, MelaEligibleBTS, MelaAssignment
-from app.Models.leave_management import LeaveRequest
-from app.Models.product import Product
-from app.Models.ga_section_config import GaSectionConfig
+from app.models.user import User
+from app.models.role import Role, Permission
+from app.models.house import House
+from app.models.employee import Employee
+from app.models.retailer import Retailer
+from app.models.activation import Activation
+from app.models.live_activation import LiveActivation
+from app.models.house_target import HouseTarget
+from app.models.supervisor_target import SupervisorTarget
+from app.models.rso_target import RSOTarget
+from app.models.bts import BTS
+from app.models.itopup_detail import ITopUpDetail
+from app.models.ga_filter import GAProductFilter, FilterTag, RetailerFilter
+from app.models.scratch_card_issue import ScratchCardIssue
+from app.models.sim_issue import SimIssue
+from app.models.subscription import HouseSubscription
+from app.models.sync_history import SyncHistory
+from app.models.mela import Mela, MelaActivity, MelaType, MelaEligibleBTS, MelaAssignment
+from app.models.leave_management import LeaveRequest
+from app.models.product import Product
+from app.models.ga_section_config import GaSectionConfig
+from app.models.app_setting import AppSetting
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

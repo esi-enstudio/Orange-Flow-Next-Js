@@ -3,12 +3,12 @@ import re
 import os
 import logging
 from datetime import datetime
-from app.Services.Automation.dms_scraper import get_smart_search_results
-from app.Core.session_manager import session_manager
-from app.Utils.helpers import bn_num
+from app.services.Automation.dms_scraper import get_smart_search_results
+from app.core.session_manager import session_manager
+from app.utils.helpers import bn_num
 
 # লগিং কনফিগারেশন
-logger = logging.getLogger("app.Services.Automation.Tasks")
+logger = logging.getLogger("app.services.Automation.Tasks")
 
 # ডিএমএস ইউআরএল সমূহ
 SMART_SEARCH_URL = "https://blkdms.banglalink.net/SmartSearchReport"

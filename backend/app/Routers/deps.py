@@ -11,11 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from config.settings import settings
-from app.Services.db_service import async_session
-from app.Models.user import User
-from app.Models.role import Role
-from app.Models.house import House
-from app.Utils.access_control import is_admin_user, is_admin_role
+from app.services.db_service import async_session
+from app.models.user import User
+from app.models.role import Role
+from app.models.house import House
+from app.utils.access_control import is_admin_user, is_admin_role
 
 logger = logging.getLogger(__name__)
 

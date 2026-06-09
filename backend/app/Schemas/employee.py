@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
-from app.Schemas.user import UserSchema
-from app.Schemas.house import HouseSchema
+from app.schemas.user import UserSchema
+from app.schemas.house import HouseSchema
 
 class EmployeeSchema(BaseModel):
     id: int

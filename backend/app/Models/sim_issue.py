@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Date, Numeric, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.Models.base import Base
+from app.models.base import Base
 
 class SimIssue(Base):
     __tablename__ = "sim_issues"

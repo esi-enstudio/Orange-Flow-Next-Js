@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.Routers.deps import get_db, has_permission, has_any_permission, get_current_user
-from app.Schemas.house import HouseSchema, HouseCreate
-from app.Models.house import House
-from app.Models.user import User
-from app.Utils.access_control import is_admin_user
+from app.routers.deps import get_db, has_permission, has_any_permission, get_current_user
+from app.schemas.house import HouseSchema, HouseCreate
+from app.models.house import House
+from app.models.user import User
+from app.utils.access_control import is_admin_user
 
 router = APIRouter(prefix="/api/houses", tags=["houses"])
 

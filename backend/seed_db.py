@@ -3,9 +3,9 @@ import json
 import os
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from app.Services.db_service import async_session
-from app.Models.role import Role, Permission
-from app.Models.subscription import SubscriptionPackage, SubscriptionTier
+from app.services.db_service import async_session
+from app.models.role import Role, Permission
+from app.models.subscription import SubscriptionPackage, SubscriptionTier
 
 async def seed_system_data(session=None):
     """

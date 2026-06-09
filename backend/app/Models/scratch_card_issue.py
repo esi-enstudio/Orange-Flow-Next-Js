@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Date, Time, Numeric, ForeignKey, DateTime, BigInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.Models.base import Base
+from app.models.base import Base
 
 class ScratchCardIssue(Base):
     __tablename__ = "scratch_card_issues"

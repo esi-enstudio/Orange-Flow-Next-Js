@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.Models.base import Base
+from app.models.base import Base
 
 class GAProductFilter(Base):
     """জিএ রিপোর্ট থেকে যে প্রোডাক্ট কোডগুলো বাদ যাবে (উদা: SIMSWAP)"""

@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.Models.base import Base
+from app.models.base import Base
 
 class ITopUpDetail(Base):
     __tablename__ = "itopup_details"

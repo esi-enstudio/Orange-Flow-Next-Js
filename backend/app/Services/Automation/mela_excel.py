@@ -1,7 +1,7 @@
 import pandas as pd
 from datetime import datetime
-from app.Models.mela import Mela, MelaAssignment
-from app.Services.db_service import async_session
+from app.models.mela import Mela, MelaAssignment
+from app.services.db_service import async_session
 
 async def process_mela_excel(file_path, house_id):
     try:

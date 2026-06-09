@@ -4,10 +4,10 @@ from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 from passlib.context import CryptContext
 
-from app.Models.user import User, user_roles, user_houses
-from app.Models.role import Role
-from app.Models.house import House
-from app.Services.db_service import async_session
+from app.models.user import User, user_roles, user_houses
+from app.models.role import Role
+from app.models.house import House
+from app.services.db_service import async_session
 
 logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

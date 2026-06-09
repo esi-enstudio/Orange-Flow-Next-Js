@@ -2,11 +2,11 @@ import pandas as pd
 import logging
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func, select
-from app.Models.house_target import HouseTarget
-from app.Models.supervisor_target import SupervisorTarget
-from app.Models.rso_target import RSOTarget
-from app.Services.db_service import async_session
-from app.Utils.helpers import bn_num
+from app.models.house_target import HouseTarget
+from app.models.supervisor_target import SupervisorTarget
+from app.models.rso_target import RSOTarget
+from app.services.db_service import async_session
+from app.utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 
@@ -155,8 +155,8 @@ RSO_META_COLUMNS = [
     'NEW_MARKET_TYPE', 'ARCHETYPE', 'TYPE_OF_THANA'
 ]
 
-from app.Models.house import House
-from app.Models.employee import Employee
+from app.models.house import House
+from app.models.employee import Employee
 
 async def process_target_excel_unified(file_path, target_date, progress_callback=None):
     """Excel ফাইলের প্রতিটি শিট চেক করে অটোমেটিক প্রসেস করার লজিক ✅"""

@@ -3,9 +3,9 @@ import io
 import logging
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-from app.Models.bts import BTS
-from app.Models.house import House
-from app.Services.db_service import async_session
+from app.models.bts import BTS
+from app.models.house import House
+from app.services.db_service import async_session
 
 logger = logging.getLogger(__name__)
 

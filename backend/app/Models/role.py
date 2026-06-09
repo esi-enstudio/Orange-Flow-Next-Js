@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.Models.base import Base
+from app.models.base import Base
 
 # ১. Role এবং Permission এর মধ্যে পিভট টেবিল
 role_permissions = Table(
@@ -23,7 +23,7 @@ class Role(Base):
     # রিলেশনশিপ (User এর সাথে - Many-to-Many)
     # এখানে 'secondary' হিসেবে user_roles ব্যবহার করতে হবে যা user.py তে আছে
     # ডাইরেক্ট ইম্পোর্ট এরর এড়াতে আমরা স্ট্রিং রেফারেন্স ব্যবহার করছি
-    from app.Models.user import user_roles  # লোকাল ইম্পোর্ট সার্কুলার এরর এড়াতে
+    from app.models.user import user_roles  # লোকাল ইম্পোর্ট সার্কুলার এরর এড়াতে
     users = relationship("User", secondary=user_roles, back_populates="roles")
 
 

@@ -1,8 +1,8 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime
-from app.Schemas.role import RoleSchema
-from app.Schemas.house import HouseSchema
+from app.schemas.role import RoleSchema
+from app.schemas.house import HouseSchema
 
 class Token(BaseModel):
     access_token: str

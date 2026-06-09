@@ -1,6 +1,6 @@
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.Models.product_exclusion import ExcludedProductCode
+from app.models.product_exclusion import ExcludedProductCode
 
 
 async def get_excluded_codes(db: AsyncSession) -> set[str]:

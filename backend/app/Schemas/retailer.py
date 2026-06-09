@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
-from app.Schemas.house import HouseSchema
+from app.schemas.house import HouseSchema
 
 class RetailerSchema(BaseModel):
     id: int

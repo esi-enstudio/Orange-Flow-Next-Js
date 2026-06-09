@@ -1,13 +1,16 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2, Trash2 } from "lucide-react";
+import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2, Trash2, SlidersHorizontal } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import LiveActivationsFilter, { LiveActivationFilters, defaultLiveActivationFilters } from "@/components/live-activations/LiveActivationsFilter";
+import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 
-interface Record {
+interface ActivationRecord {
   id: number; sim_no: string; activation_date: string; activation_time: string;
   retailer_code: string; retailer_name: string; bts_code: string; thana: string;
   promotion: string; product_code: string; product_name: string; msisdn: string;
@@ -16,8 +19,9 @@ interface Record {
 
 export default function ImportLiveActivationsPage() {
   const { t } = useLanguage();
-  const [data, setData] = useState<Record[]>([]);
-  const [search, setSearch] = useState("");
+  const [data, setData] = useState<ActivationRecord[]>([]);
+  const [filters, setFilters] = useState<LiveActivationFilters>({ ...defaultLiveActivationFilters });
+  const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(0);
@@ -34,12 +38,38 @@ export default function ImportLiveActivationsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get("/live-activations", { params: { search: search || undefined, skip: page * limit, limit } });
+      const params: Record<string, any> = { skip: page * limit, limit };
+      const f = filters;
+      if (f.search) params.search = f.search;
+      if (f.activation_date_from) params.activation_date_from = f.activation_date_from;
+      if (f.activation_date_to) params.activation_date_to = f.activation_date_to;
+      if (f.activation_time) params.activation_time = f.activation_time;
+      if (f.retailer_code) params.retailer_code = f.retailer_code;
+      if (f.retailer_name) params.retailer_name = f.retailer_name;
+      if (f.bts_code) params.bts_code = f.bts_code;
+      if (f.thana) params.thana = f.thana;
+      if (f.promotion) params.promotion = f.promotion;
+      if (f.product_code) params.product_code = f.product_code;
+      if (f.product_name) params.product_name = f.product_name;
+      if (f.sim_no) params.sim_no = f.sim_no;
+      if (f.msisdn) params.msisdn = f.msisdn;
+      if (f.selling_price_min) params.selling_price_min = f.selling_price_min;
+      if (f.selling_price_max) params.selling_price_max = f.selling_price_max;
+      if (f.bp_flag) params.bp_flag = f.bp_flag;
+      if (f.bp_number) params.bp_number = f.bp_number;
+      if (f.fc_bts_code) params.fc_bts_code = f.fc_bts_code;
+      if (f.bio_bts_code) params.bio_bts_code = f.bio_bts_code;
+      if (f.dh_lifting_date) params.dh_lifting_date = f.dh_lifting_date;
+      if (f.issue_date) params.issue_date = f.issue_date;
+      if (f.subscription_type) params.subscription_type = f.subscription_type;
+      if (f.service_class) params.service_class = f.service_class;
+      if (f.customer_second_contact) params.customer_second_contact = f.customer_second_contact;
+      const res = await axios.get("/live-activations", { params });
       setData(res.data.data || []);
       setTotalRecords(res.data.total || 0);
     } catch { toast.error("Failed to load"); }
     finally { setLoading(false); }
-  }, [search, page]);
+  }, [filters, page]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -243,14 +273,46 @@ export default function ImportLiveActivationsPage() {
         </div>
       </div>
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-slate-800">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search by SIM, retailer, MSISDN..." value={search}
-              onChange={e => { setSearch(e.target.value); setPage(0); }}
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none" />
+        <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={cn(
+              "p-2 rounded-xl border transition-all active:scale-95 shrink-0",
+              showFilters
+                ? "bg-primary-500 text-white border-primary-500 shadow-sm"
+                : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
+            )}
+            title="Toggle filters"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+          <div className="relative flex-1 group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+            <input type="text" placeholder="Search by SIM, retailer, MSISDN..." value={filters.search}
+              onChange={e => { setFilters(f => ({ ...f, search: e.target.value })); setPage(0); }}
+              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none transition-all" />
           </div>
         </div>
+
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="overflow-hidden border-b dark:border-slate-800"
+            >
+              <div className="p-4">
+                <LiveActivationsFilter
+                  filters={filters}
+                  onChange={(f) => { setFilters(f); setPage(0); }}
+                  onClear={() => { setFilters({ ...defaultLiveActivationFilters }); setPage(0); }}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

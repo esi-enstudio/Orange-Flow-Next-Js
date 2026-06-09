@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import enum
 
-from app.Models.base import Base
+from app.models.base import Base
 
 
 class PriorityEnum(str, enum.Enum):

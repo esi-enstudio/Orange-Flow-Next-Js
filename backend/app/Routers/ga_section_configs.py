@@ -5,11 +5,11 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
-from app.Routers.deps import get_db, has_permission
-from app.Models.user import User
-from app.Models.house import House
-from app.Models.ga_section_config import GaSectionConfig
-from app.Utils.access_control import is_admin_user
+from app.routers.deps import get_db, has_permission
+from app.models.user import User
+from app.models.house import House
+from app.models.ga_section_config import GaSectionConfig
+from app.utils.access_control import is_admin_user
 
 router = APIRouter(prefix="/api/ga-live/section-configs", tags=["ga-live"])
 
@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/ga-live/section-configs", tags=["ga-live"])
 class SectionConfigUpdate(BaseModel):
     exclude_product_codes: list[str] = []
     exclude_retailer_tags: list[str] = []
+    selected_employee_ids: Optional[list[int]] = None
 
 
 def get_section_keys():
@@ -62,6 +63,7 @@ async def list_section_configs(
             "section_key": key,
             "exclude_product_codes": cfg.exclude_product_codes if cfg else [],
             "exclude_retailer_tags": cfg.exclude_retailer_tags if cfg else [],
+            "selected_employee_ids": cfg.selected_employee_ids if cfg else [],
             "is_active": cfg.is_active if cfg else True,
         })
 
@@ -108,6 +110,8 @@ async def update_section_config(
 
     cfg.exclude_product_codes = data.exclude_product_codes
     cfg.exclude_retailer_tags = data.exclude_retailer_tags
+    if data.selected_employee_ids is not None:
+        cfg.selected_employee_ids = data.selected_employee_ids
     cfg.updated_by = current_user.id
     await db.commit()
     await db.refresh(cfg)
@@ -116,5 +120,6 @@ async def update_section_config(
         "section_key": cfg.section_key,
         "exclude_product_codes": cfg.exclude_product_codes,
         "exclude_retailer_tags": cfg.exclude_retailer_tags,
+        "selected_employee_ids": cfg.selected_employee_ids or [],
         "is_active": cfg.is_active,
     }

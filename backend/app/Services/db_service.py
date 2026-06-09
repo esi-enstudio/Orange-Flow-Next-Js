@@ -2,27 +2,27 @@ import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import text
 from config.settings import DATABASE_URL
-from app.Models.base import Base
-import app.Models.user
-import app.Models.house
-import app.Models.role
-import app.Models.live_activation
-import app.Models.retailer
-import app.Models.employee
-import app.Models.bts
-import app.Models.ga_filter
-import app.Models.mela
-import app.Models.activation
-import app.Models.subscription
-import app.Models.itopup_detail
-import app.Models.scratch_card_issue
-import app.Models.sim_issue
-import app.Models.sync_history
-import app.Models.house_target
-import app.Models.supervisor_target
-import app.Models.rso_target
-import app.Models.product_exclusion
-import app.Models.app_setting
+from app.models.base import Base
+import app.models.user
+import app.models.house
+import app.models.role
+import app.models.live_activation
+import app.models.retailer
+import app.models.employee
+import app.models.bts
+import app.models.ga_filter
+import app.models.mela
+import app.models.activation
+import app.models.subscription
+import app.models.itopup_detail
+import app.models.scratch_card_issue
+import app.models.sim_issue
+import app.models.sync_history
+import app.models.house_target
+import app.models.supervisor_target
+import app.models.rso_target
+import app.models.product_exclusion
+import app.models.app_setting
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +135,26 @@ async def _migrate_live_activation_date_type():
                 return
             logger.info("Migrating live_activations: changing activation_date from VARCHAR to DATE...")
             await conn.execute(text("ALTER TABLE live_activations ALTER COLUMN activation_date TYPE DATE USING activation_date::date"))
-            logger.info("Migration complete: live_activations.activation_date → DATE")
+            logger.info("Migration complete: live_activations.activation_date  DATE")
     except Exception as e:
         logger.warning(f"Migration warning (live_activations.activation_date): {e}")
+
+async def _migrate_ga_section_config_employee_ids():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='ga_section_configs' AND column_name='selected_employee_ids'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating ga_section_configs: adding selected_employee_ids column...")
+            await conn.execute(text(
+                "ALTER TABLE ga_section_configs ADD COLUMN selected_employee_ids JSON"
+            ))
+            logger.info("Migration complete: ga_section_configs.selected_employee_ids")
+    except Exception as e:
+        logger.warning(f"Migration warning (ga_section_configs.selected_employee_ids): {e}")
 
 async def init_db():
     try:
@@ -146,8 +163,9 @@ async def init_db():
         await _migrate_retailer_filter_tag_id()
         await _migrate_app_settings_daily_sync()
         await _migrate_live_activation_date_type()
+        await _migrate_ga_section_config_employee_ids()
         await _migrate_indexes()
-        from app.Models.product_exclusion import ExcludedProductCode
+        from app.models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func
         async with async_session() as session:
             count = (await session.execute(select(func.count()).select_from(ExcludedProductCode))).scalar()

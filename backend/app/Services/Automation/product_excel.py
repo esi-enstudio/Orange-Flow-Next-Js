@@ -3,9 +3,9 @@ import os
 import logging
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
-from app.Models.product import Product
-from app.Services.db_service import async_session
-from app.Utils.helpers import bn_num
+from app.models.product import Product
+from app.services.db_service import async_session
+from app.utils.helpers import bn_num
 
 logger = logging.getLogger(__name__)
 

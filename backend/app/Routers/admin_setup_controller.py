@@ -8,8 +8,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.Services.db_service import async_session
-from app.Utils.validation import safe_filename, validate_excel, MAX_FILE_SIZE
+from app.services.db_service import async_session
+from app.utils.validation import safe_filename, validate_excel, MAX_FILE_SIZE
 from seed_db import seed_system_data
 from seed_admin import seed_super_admin
 import logging
@@ -22,7 +22,7 @@ async def get_db():
         yield session
 
 async def _require_uninitialized(db: AsyncSession):
-    from app.Models.user import User
+    from app.models.user import User
     result = await db.execute(select(func.count()).select_from(User))
     if result.scalar() > 0:
         raise HTTPException(status_code=400, detail="System already initialized")
@@ -81,7 +81,7 @@ async def _setup_import_stream(file: UploadFile, processor, label: str):
 
 @router.get("/status")
 async def get_system_status(db: AsyncSession = Depends(get_db)):
-    from app.Models.user import User
+    from app.models.user import User
     result = await db.execute(select(func.count()).select_from(User))
     user_count = result.scalar()
     return {"initialized": user_count > 0, "user_count": user_count}
@@ -98,25 +98,25 @@ async def initialize_system(db: AsyncSession = Depends(get_db)):
 
 @router.post("/import/houses")
 async def setup_import_houses(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    from app.Services.Automation.house_excel import process_house_excel
+    from app.services.Automation.house_excel import process_house_excel
     return StreamingResponse(_setup_import_stream(file, process_house_excel, "🏠 Houses"), media_type="text/event-stream")
 
 @router.post("/import/bts")
 async def setup_import_bts(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    from app.Services.Automation.bts_excel import process_bts_excel
+    from app.services.Automation.bts_excel import process_bts_excel
     return StreamingResponse(_setup_import_stream(file, process_bts_excel, "📡 BTS"), media_type="text/event-stream")
 
 @router.post("/import/employees")
 async def setup_import_employees(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    from app.Services.Automation.employee_excel import process_employee_excel
+    from app.services.Automation.employee_excel import process_employee_excel
     return StreamingResponse(_setup_import_stream(file, process_employee_excel, "👤 Employees"), media_type="text/event-stream")
 
 @router.post("/import/users")
 async def setup_import_users(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    from app.Services.Automation.user_excel import process_user_excel
+    from app.services.Automation.user_excel import process_user_excel
     return StreamingResponse(_setup_import_stream(file, process_user_excel, "👥 Users"), media_type="text/event-stream")
 
 @router.post("/import/retailers")
 async def setup_import_retailers(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    from app.Services.Automation.retailer_excel import process_retailer_excel
+    from app.services.Automation.retailer_excel import process_retailer_excel
     return StreamingResponse(_setup_import_stream(file, process_retailer_excel, "🏪 Retailers"), media_type="text/event-stream")

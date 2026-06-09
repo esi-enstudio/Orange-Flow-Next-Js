@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Date, ForeignKey, DateTime, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.Models.base import Base
+from app.models.base import Base
 
 # ১. পিভট টেবিল: মেলার সাথে বিটিএস লিঙ্ক করার জন্য (এটি ক্লাসের আগে থাকতে হবে) ✅
 mela_bts_link = Table(

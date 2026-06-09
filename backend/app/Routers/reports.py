@@ -7,23 +7,23 @@ from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, date, timedelta
 from calendar import monthrange
 
-from app.Routers.deps import get_db, has_permission, get_house_context, get_current_user
-from app.Models.user import User
-from app.Models.activation import Activation
-from app.Models.live_activation import LiveActivation
-from app.Models.itopup_detail import ITopUpDetail
-from app.Models.scratch_card_issue import ScratchCardIssue
-from app.Models.sim_issue import SimIssue
-from app.Models.ga_filter import RetailerFilter, FilterTag, RetailerFilter as RetailerFilterModel
-from app.Models.retailer import Retailer
-from app.Models.employee import Employee
-from app.Models.role import Role
-from app.Utils.access_control import is_admin_user
-from app.Utils.activation_rules import get_excluded_codes, exclude_clause
-from app.Services.Automation.activation_excel import export_activations_excel
-from app.Services.Automation.dms_report_excel import export_itopup_details_excel
-from app.Services.Automation.live_activation_excel import export_live_activations_excel
-from app.Services.Automation.issue_reports_excel import export_scratch_card_excel, export_sim_issue_excel
+from app.routers.deps import get_db, has_permission, get_house_context, get_current_user
+from app.models.user import User
+from app.models.activation import Activation
+from app.models.live_activation import LiveActivation
+from app.models.itopup_detail import ITopUpDetail
+from app.models.scratch_card_issue import ScratchCardIssue
+from app.models.sim_issue import SimIssue
+from app.models.ga_filter import RetailerFilter, FilterTag, RetailerFilter as RetailerFilterModel
+from app.models.retailer import Retailer
+from app.models.employee import Employee
+from app.models.role import Role
+from app.utils.access_control import is_admin_user
+from app.utils.activation_rules import get_excluded_codes, exclude_clause
+from app.services.Automation.activation_excel import export_activations_excel
+from app.services.Automation.dms_report_excel import export_itopup_details_excel
+from app.services.Automation.live_activation_excel import export_live_activations_excel
+from app.services.Automation.issue_reports_excel import export_scratch_card_excel, export_sim_issue_excel
 
 router = APIRouter(prefix="/api", tags=["reports"])
 
@@ -135,6 +135,29 @@ async def get_live_activations(
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
+    activation_date_from: Optional[str] = None,
+    activation_date_to: Optional[str] = None,
+    activation_time: Optional[str] = None,
+    retailer_code: Optional[str] = None,
+    retailer_name: Optional[str] = None,
+    bts_code: Optional[str] = None,
+    thana: Optional[str] = None,
+    promotion: Optional[str] = None,
+    product_code: Optional[str] = None,
+    product_name: Optional[str] = None,
+    sim_no: Optional[str] = None,
+    msisdn: Optional[str] = None,
+    selling_price_min: Optional[str] = None,
+    selling_price_max: Optional[str] = None,
+    bp_flag: Optional[str] = None,
+    bp_number: Optional[str] = None,
+    fc_bts_code: Optional[str] = None,
+    bio_bts_code: Optional[str] = None,
+    dh_lifting_date: Optional[str] = None,
+    issue_date: Optional[str] = None,
+    subscription_type: Optional[str] = None,
+    service_class: Optional[str] = None,
+    customer_second_contact: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("view_live_activations")),
     house_id: Optional[int] = Depends(get_house_context)
@@ -147,12 +170,75 @@ async def get_live_activations(
             (LiveActivation.sim_no.ilike(p)) | (LiveActivation.retailer_code.ilike(p)) |
             (LiveActivation.retailer_name.ilike(p)) | (LiveActivation.msisdn.ilike(p))
         )
+    if activation_date_from:
+        try:
+            sd = datetime.strptime(activation_date_from, "%Y-%m-%d").date()
+            query = query.where(LiveActivation.activation_date >= sd)
+        except:
+            pass
+    if activation_date_to:
+        try:
+            ed = datetime.strptime(activation_date_to, "%Y-%m-%d").date()
+            query = query.where(LiveActivation.activation_date <= ed)
+        except:
+            pass
+    if activation_time: query = query.where(LiveActivation.activation_time.ilike(f"%{activation_time}%"))
+    if retailer_code: query = query.where(LiveActivation.retailer_code.ilike(f"%{retailer_code}%"))
+    if retailer_name: query = query.where(LiveActivation.retailer_name.ilike(f"%{retailer_name}%"))
+    if bts_code: query = query.where(LiveActivation.bts_code.ilike(f"%{bts_code}%"))
+    if thana: query = query.where(LiveActivation.thana.ilike(f"%{thana}%"))
+    if promotion: query = query.where(LiveActivation.promotion == promotion)
+    if product_code: query = query.where(LiveActivation.product_code.ilike(f"%{product_code}%"))
+    if product_name: query = query.where(LiveActivation.product_name.ilike(f"%{product_name}%"))
+    if sim_no: query = query.where(LiveActivation.sim_no.ilike(f"%{sim_no}%"))
+    if msisdn: query = query.where(LiveActivation.msisdn.ilike(f"%{msisdn}%"))
+    if selling_price_min: query = query.where(LiveActivation.selling_price >= selling_price_min)
+    if selling_price_max: query = query.where(LiveActivation.selling_price <= selling_price_max)
+    if bp_flag: query = query.where(LiveActivation.bp_flag == bp_flag)
+    if bp_number: query = query.where(LiveActivation.bp_number.ilike(f"%{bp_number}%"))
+    if fc_bts_code: query = query.where(LiveActivation.fc_bts_code.ilike(f"%{fc_bts_code}%"))
+    if bio_bts_code: query = query.where(LiveActivation.bio_bts_code.ilike(f"%{bio_bts_code}%"))
+    if dh_lifting_date: query = query.where(LiveActivation.dh_lifting_date.ilike(f"%{dh_lifting_date}%"))
+    if issue_date: query = query.where(LiveActivation.issue_date.ilike(f"%{issue_date}%"))
+    if subscription_type: query = query.where(LiveActivation.subscription_type == subscription_type)
+    if service_class: query = query.where(LiveActivation.service_class == service_class)
+    if customer_second_contact: query = query.where(LiveActivation.customer_second_contact.ilike(f"%{customer_second_contact}%"))
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.execute(count_query)
     total_count = total.scalar()
     result = await db.execute(query.offset(skip).limit(limit).order_by(LiveActivation.id.desc()))
     records = result.scalars().all()
     return {"total": total_count, "data": records}
+
+@router.get("/live-activations/filter-options")
+async def get_live_activation_filter_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_live_activations")),
+    house_id: Optional[int] = Depends(get_house_context)
+):
+    base = select(LiveActivation)
+    if house_id: base = base.where(LiveActivation.house_id == house_id)
+
+    async def get_distinct(column):
+        q = select(column).distinct().where(column.isnot(None)).where(column != "").order_by(column)
+        result = await db.execute(q)
+        return [row[0] for row in result.all()]
+
+    promotions = await get_distinct(LiveActivation.promotion)
+    product_codes = await get_distinct(LiveActivation.product_code)
+    product_names = await get_distinct(LiveActivation.product_name)
+    subscription_types = await get_distinct(LiveActivation.subscription_type)
+    service_classes = await get_distinct(LiveActivation.service_class)
+    bp_flags = await get_distinct(LiveActivation.bp_flag)
+
+    return {
+        "promotions": promotions,
+        "product_codes": product_codes,
+        "product_names": product_names,
+        "subscription_types": subscription_types,
+        "service_classes": service_classes,
+        "bp_flags": bp_flags,
+    }
 
 @router.get("/live-activations/export")
 async def export_live_activations(
@@ -165,7 +251,7 @@ async def export_live_activations(
 ):
     if not house_id:
         house_id = header_house_id
-    query = select(LiveActivation).options(selectinload(LiveActivation.house))
+    query = select(LiveActivation).options(selectinload(LiveActivation.house), selectinload(LiveActivation.retailer))
     if house_id: query = query.where(LiveActivation.house_id == house_id)
     if start_date:
         try: sd = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -309,7 +395,7 @@ async def get_activation_report(
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
-    from app.Services.cache_service import cache_service
+    from app.services.cache_service import cache_service
     target_house_id = q_house_id or house_id
     if not search and page == 1 and page_size <= 50:
         cache_key = cache_service.cache_key("report", start_date, end_date, exclude_tags, target_house_id)
@@ -431,7 +517,7 @@ async def get_activation_daily_stats(
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
-    from app.Services.cache_service import cache_service
+    from app.services.cache_service import cache_service
     target_house_id = q_house_id or house_id
     if q_house_id and not is_admin_user(current_user):
         user_house_ids = [h.id for h in current_user.houses]
@@ -506,7 +592,7 @@ async def get_ga_live_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("view_live_activations")),
 ):
-    from app.Services.ga_live_service import GaLiveQueryBuilder
+    from app.services.ga_live_service import GaLiveQueryBuilder
 
     is_admin = is_admin_user(current_user)
     user_houses_raw = current_user.houses

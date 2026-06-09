@@ -7,15 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.Routers.deps import get_db, has_permission, get_house_context
-from app.Schemas.user import UserSchema, UserUpdate
-from app.Models.user import User
-from app.Models.role import Role
-from app.Models.house import House
-from app.Models.employee import Employee
-from app.Utils.access_control import is_admin_user
-from app.Utils.validation import safe_filename, validate_excel
-from app.Services.Automation.user_excel import process_user_excel, export_users_excel
+from app.routers.deps import get_db, has_permission, get_house_context
+from app.schemas.user import UserSchema, UserUpdate
+from app.models.user import User
+from app.models.role import Role
+from app.models.house import House
+from app.models.employee import Employee
+from app.utils.access_control import is_admin_user
+from app.utils.validation import safe_filename, validate_excel
+from app.services.Automation.user_excel import process_user_excel, export_users_excel
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -69,7 +69,7 @@ async def update_user(
     if user_data.status is not None: user.status = user_data.status
     if user_data.parent_id is not None: user.parent_id = user_data.parent_id
     if user_data.password:
-        from app.Routers.deps import get_password_hash
+        from app.routers.deps import get_password_hash
         user.hashed_password = get_password_hash(user_data.password)
     if user_data.role_ids is not None:
         roles_result = await db.execute(select(Role).where(Role.id.in_(user_data.role_ids)))
@@ -85,7 +85,7 @@ async def update_user(
             if not existing_emp:
                 first_house = user.houses[0] if user.houses else (await db.execute(select(House).limit(1))).scalar_one_or_none()
                 if first_house:
-                    from app.Routers.deps import get_password_hash
+                    from app.routers.deps import get_password_hash
                     emp = Employee(
                         user_id=user.id,
                         house_id=first_house.id,

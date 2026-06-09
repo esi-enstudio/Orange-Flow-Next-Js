@@ -8,12 +8,12 @@ from sqlalchemy.dialects.postgresql import insert
 from tqdm import tqdm
 from colorama import Fore, Style, init
 
-from app.Models.scratch_card_issue import ScratchCardIssue
-from app.Models.sim_issue import SimIssue
-from app.Models.house import House
-from app.Models.retailer import Retailer
-from app.Services.db_service import async_session
-from app.Utils.helpers import bn_num
+from app.models.scratch_card_issue import ScratchCardIssue
+from app.models.sim_issue import SimIssue
+from app.models.house import House
+from app.models.retailer import Retailer
+from app.services.db_service import async_session
+from app.utils.helpers import bn_num
 
 # Initialize colorama
 init(autoreset=True)

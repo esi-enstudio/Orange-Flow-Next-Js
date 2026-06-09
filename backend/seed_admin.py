@@ -1,7 +1,7 @@
 import asyncio
-from app.Services.db_service import init_db, async_session
-from app.Models.user import User
-from app.Models.role import Role
+from app.services.db_service import init_db, async_session
+from app.models.user import User
+from app.models.role import Role
 from sqlalchemy import select
 from passlib.context import CryptContext
 from sqlalchemy.orm import joinedload

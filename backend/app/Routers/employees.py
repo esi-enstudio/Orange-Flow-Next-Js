@@ -3,31 +3,102 @@ import shutil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_, cast, Float
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.Routers.deps import get_db, has_permission, get_current_user, get_house_context
-from app.Schemas.employee import EmployeeSchema, EmployeeCreate, EmployeeSelfUpdate
-from app.Models.employee import Employee
-from app.Models.house import House
-from app.Models.user import User
-from app.Models.retailer import Retailer
+from app.routers.deps import get_db, has_permission, get_current_user, get_house_context
+from app.schemas.employee import EmployeeSchema, EmployeeCreate, EmployeeSelfUpdate
+from app.models.employee import Employee
+from app.models.house import House
+from app.models.user import User
+from app.models.retailer import Retailer
 from pydantic import BaseModel
-from app.Utils.access_control import is_admin_user
-from app.Utils.validation import safe_filename, validate_excel
-from app.Services.Automation.employee_excel import process_employee_excel, export_employees_excel
+from app.utils.access_control import is_admin_user
+from app.utils.validation import safe_filename, validate_excel
+from app.services.Automation.employee_excel import process_employee_excel, export_employees_excel
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
+
+@router.get("/by-house-grouped")
+async def list_employees_by_house_grouped(
+    house_id: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_employees")),
+):
+    """List employees with assisted_retailer_code, grouped by role (RSO/BP/CC)."""
+    is_admin = is_admin_user(current_user)
+    if not is_admin:
+        user_house_ids = [h.id for h in current_user.houses]
+        if house_id not in user_house_ids:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    emp_rows = await db.execute(
+        select(Employee)
+        .options(joinedload(Employee.user).selectinload(User.roles))
+        .where(
+            Employee.house_id == house_id,
+            Employee.status == "Active",
+            Employee.assisted_retailer_code != None,
+            Employee.assisted_retailer_code != "",
+        )
+    )
+    employees = emp_rows.unique().scalars().all()
+
+    groups: dict[str, list] = {"rso": [], "bp": [], "cc": []}
+    role_names = {"rso", "bp", "cc"}
+
+    for emp in employees:
+        user_roles = [r.name.lower() for r in emp.user.roles] if emp.user else []
+        primary_role = next((r for r in user_roles if r in role_names), None)
+        if not primary_role:
+            continue
+
+        groups[primary_role].append({
+            "id": emp.id,
+            "name": emp.user.name if emp.user else None,
+            "dms_code": emp.dms_code,
+            "itop_number": emp.itop_number,
+            "personal_number": emp.personal_number,
+            "assisted_retailer_code": emp.assisted_retailer_code,
+            "role": primary_role.upper(),
+        })
+
+    for role in groups:
+        groups[role].sort(key=lambda e: e["name"] or e["dms_code"] or "")
+
+    return {
+        "groups": groups,
+        "counts": {role: len(emps) for role, emps in groups.items()},
+        "total": sum(len(emps) for emps in groups.values()),
+    }
+
 @router.get("", response_model=list[EmployeeSchema])
 async def list_employees(
-    search: Optional[str] = None,
+    search: Optional[str] = Query(None, description="Global search across name, dms_code, itop_number"),
+    status: Optional[str] = Query(None, description="Filter by status: Active, Resigned, Suspended, Inactive"),
+    market_type: Optional[str] = Query(None, description="Filter by market type: Urban, Rural"),
+    motor_bike: Optional[str] = Query(None, description="Filter by motor_bike: Yes, No"),
+    bicyle: Optional[str] = Query(None, description="Filter by bicycle: Yes, No"),
+    driving_license: Optional[str] = Query(None, description="Filter by driving_license: Yes, No"),
+    blood_group: Optional[str] = Query(None, description="Filter by blood group"),
+    religion: Optional[str] = Query(None, description="Filter by religion"),
+    has_assisted_code: Optional[bool] = Query(None, description="Filter by presence of assisted_retailer_code"),
+    has_user: Optional[bool] = Query(None, description="Filter by presence of linked user"),
+    has_bank_info: Optional[bool] = Query(None, description="Filter by presence of bank_name and bank_account"),
+    joining_date_from: Optional[str] = Query(None, description="Joining date range start (YYYY-MM-DD)"),
+    joining_date_to: Optional[str] = Query(None, description="Joining date range end (YYYY-MM-DD)"),
+    resigned_date_from: Optional[str] = Query(None, description="Resigned date range start (YYYY-MM-DD)"),
+    resigned_date_to: Optional[str] = Query(None, description="Resigned date range end (YYYY-MM-DD)"),
+    salary_min: Optional[float] = Query(None, description="Minimum salary filter"),
+    salary_max: Optional[float] = Query(None, description="Maximum salary filter"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("view_employees")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(Employee).options(joinedload(Employee.house), joinedload(Employee.user).selectinload(User.roles))
+
     is_admin = is_admin_user(current_user)
     if house_id:
         query = query.where(Employee.house_id == house_id)
@@ -39,14 +110,108 @@ async def list_employees(
             query = query.where(Employee.house_id.in_(user_house_ids))
         else:
             query = query.where(Employee.house_id == -1)
+
+    conditions = []
+
     if search:
         search_pattern = f"%{search}%"
-        query = query.where(
-            (Employee.dms_code.ilike(search_pattern)) |
-            (Employee.itop_number.ilike(search_pattern))
+        conditions.append(
+            or_(
+                Employee.dms_code.ilike(search_pattern),
+                Employee.itop_number.ilike(search_pattern),
+                Employee.personal_number.ilike(search_pattern),
+                Employee.pool_number.ilike(search_pattern),
+                Employee.assisted_retailer_code.ilike(search_pattern),
+                Employee.agency_id.ilike(search_pattern),
+                Employee.nid.ilike(search_pattern),
+            )
         )
+
+    if status:
+        conditions.append(Employee.status == status)
+    if market_type:
+        conditions.append(Employee.market_type == market_type)
+    if motor_bike:
+        conditions.append(Employee.motor_bike == motor_bike)
+    if bicyle:
+        conditions.append(Employee.bicyle == bicyle)
+    if driving_license:
+        conditions.append(Employee.driving_license == driving_license)
+    if blood_group:
+        conditions.append(Employee.blood_group == blood_group)
+    if religion:
+        conditions.append(Employee.religion == religion)
+
+    if has_assisted_code is True:
+        conditions.append(Employee.assisted_retailer_code != None)
+        conditions.append(Employee.assisted_retailer_code != "")
+    elif has_assisted_code is False:
+        conditions.append(
+            or_(Employee.assisted_retailer_code == None, Employee.assisted_retailer_code == "")
+        )
+
+    if has_user is True:
+        conditions.append(Employee.user_id != None)
+    elif has_user is False:
+        conditions.append(Employee.user_id == None)
+
+    if has_bank_info is True:
+        conditions.append(Employee.bank_name != None)
+        conditions.append(Employee.bank_name != "")
+        conditions.append(Employee.bank_account != None)
+        conditions.append(Employee.bank_account != "")
+    elif has_bank_info is False:
+        conditions.append(
+            or_(
+                Employee.bank_name == None,
+                Employee.bank_name == "",
+                Employee.bank_account == None,
+                Employee.bank_account == "",
+            )
+        )
+
+    if joining_date_from:
+        conditions.append(Employee.joining_date >= joining_date_from)
+    if joining_date_to:
+        conditions.append(Employee.joining_date <= joining_date_to)
+    if resigned_date_from:
+        conditions.append(Employee.resigned_date >= resigned_date_from)
+    if resigned_date_to:
+        conditions.append(Employee.resigned_date <= resigned_date_to)
+
+    if salary_min is not None:
+        conditions.append(cast(Employee.salary, Float) >= salary_min)
+    if salary_max is not None:
+        conditions.append(cast(Employee.salary, Float) <= salary_max)
+
+    if conditions:
+        query = query.where(and_(*conditions))
+
     result = await db.execute(query.order_by(Employee.id.desc()))
     return result.unique().scalars().all()
+
+
+@router.get("/filter-options")
+async def get_employee_filter_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_employees")),
+):
+    """Return distinct values for filter dropdowns."""
+    async def _distinct(column):
+        res = await db.execute(select(column).distinct().where(column != None, column != "").order_by(column))
+        return [r[0] for r in res.all()]
+
+    statuses = await _distinct(Employee.status)
+    market_types = await _distinct(Employee.market_type)
+    blood_groups = await _distinct(Employee.blood_group)
+    religions = await _distinct(Employee.religion)
+
+    return {
+        "statuses": statuses,
+        "market_types": market_types,
+        "blood_groups": blood_groups,
+        "religions": religions,
+    }
 
 @router.post("", response_model=EmployeeSchema)
 async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_employees"))):

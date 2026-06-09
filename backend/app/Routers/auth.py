@@ -10,14 +10,14 @@ from PIL import Image
 from pydantic import EmailStr
 
 from config.settings import settings
-from app.Routers.deps import (
+from app.routers.deps import (
     get_db, get_current_user, has_permission,
     verify_password, get_password_hash, create_access_token,
     create_password_reset_token, verify_password_reset_token,
     check_login_rate_limit
 )
 from pydantic import BaseModel
-from app.Schemas.auth import Token, ProfileUpdate
+from app.schemas.auth import Token, ProfileUpdate
 
 class ForgotPasswordRequest(BaseModel):
     email: str
@@ -25,14 +25,14 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
-from app.Schemas.user import UserSchema, UserCreate
-from app.Schemas.role import RoleSchema
-from app.Schemas.house import HouseSchema
-from app.Models.user import User
-from app.Models.role import Role
-from app.Models.house import House
-from app.Models.employee import Employee
-from app.Utils.validation import validate_image, MAX_FILE_SIZE
+from app.schemas.user import UserSchema, UserCreate
+from app.schemas.role import RoleSchema
+from app.schemas.house import HouseSchema
+from app.models.user import User
+from app.models.role import Role
+from app.models.house import House
+from app.models.employee import Employee
+from app.utils.validation import validate_image, MAX_FILE_SIZE
 import logging
 
 logger = logging.getLogger(__name__)
@@ -166,7 +166,7 @@ async def forgot_password(req: ForgotPasswordRequest, db: AsyncSession = Depends
     token = create_password_reset_token(user.id)
     reset_link = f"{settings.APP_URL}/reset-password?token={token}"
 
-    from app.Utils.email import send_email, build_reset_email
+    from app.utils.email import send_email, build_reset_email
     sent = send_email(
         to_email=user.email,
         subject="OrangeFlow — Password Reset",

@@ -5,13 +5,14 @@ import pandas as pd
 import warnings
 from datetime import date, datetime
 from sqlalchemy import select, delete
+from sqlalchemy.dialects.postgresql import insert
 
 # কোর মডিউল ইম্পোর্ট
-from app.Models.house import House
-from app.Models.live_activation import LiveActivation
-from app.Services.db_service import async_session
-from app.Core.session_manager import session_manager
-from app.Models.retailer import Retailer
+from app.models.house import House
+from app.models.live_activation import LiveActivation
+from app.services.db_service import async_session
+from app.core.session_manager import session_manager
+from app.models.retailer import Retailer
 
 # openpyxl ওয়ার্নিং সাইলেন্ট করা
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -19,7 +20,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 REPORT_URL = "https://blkdms.banglalink.net/ActivationReport"
 TEMP_DIR = "temp_downloads"
 
-logger = logging.getLogger("app.Services.Automation.GA")
+logger = logging.getLogger("app.services.Automation.GA")
 
 async def run_ga_live_sync():
     """সবগুলো হাউজের জন্য জিএ লাইভ ডাটা সিঙ্ক করার মেইন ফাংশন"""
@@ -111,7 +112,7 @@ async def sync_house_data(house):
 
 
 async def process_and_save_data(file_path, house_id):
-    """সবগুলো কলাম ম্যাপ করে এবং রিটেইলার আইডি লিঙ্ক করে ডাটা সেভ করার লজিক"""
+    """সবগুলো কলাম ম্যাপ করে এবং রিটেইলার আইডি লিঙ্ক করে ডাটা সেভ করার লজিক (ON CONFLICT DO UPDATE সহ)"""
     try:
         # ১. ফাইল রিড করা
         df = pd.read_excel(file_path, dtype=str)
@@ -128,85 +129,74 @@ async def process_and_save_data(file_path, house_id):
             house_res = await session.execute(select(House.code).where(House.id == house_id))
             house_code = house_res.scalar() or str(house_id)
 
-            # ৩. ফাস্ট পারফরম্যান্সের জন্য ওই হাউজের সকল রিটেইলারের কোড এবং আইডি ম্যাপ তৈরি করা ✅
+            # ৩. ফাস্ট পারফরম্যান্সের জন্য ওই হাউজের সকল রিটেইলারের কোড এবং আইডি ম্যাপ তৈরি করা
             ret_res = await session.execute(
                 select(Retailer.retailer_code, Retailer.id).where(Retailer.house_id == house_id)
             )
-            # ডিকশনারি ফরম্যাট: {"R12345": 10, "R54321": 11}
             retailer_map = {str(r.retailer_code).strip(): r.id for r in ret_res.all()}
 
-            # ৪. বর্তমান ডাটাবেজের আজকের সব SIM_NO সংগ্রহ (ডুপ্লিকেট এড়াতে)
-            db_res = await session.execute(
-                select(LiveActivation.sim_no).where(LiveActivation.house_id == house_id)
-            )
-            existing_sims = set(db_res.scalars().all())
-
-            new_records = []
+            records = []
             for _, row in df.iterrows():
                 sim_no = str(row.get('SIM_NO', '')).strip()
                 ret_code = str(row.get('RETAILER_CODE', '')).strip()
-                
-                # ৫. ইউনিক চেক: যদি সিমটি আগে থেকে ডাটাবেজে না থাকে
-                if sim_no and sim_no not in existing_sims:
-                    
-                    # ৬. রিটেইলার আইডি খুঁজে বের করা (ম্যাপ থেকে) ✅
-                    # যদি রিটেইলার লিস্টে এই কোড না থাকে, তবে এটি None থাকবে
-                    retailer_db_id = retailer_map.get(ret_code)
+                if not sim_no:
+                    continue
 
-                    # হেল্পার ফাংশন: ডাটা ক্লিন এবং স্ট্রিং নিশ্চিত করতে
-                    def get_val(key):
-                        v = str(row.get(key, '')).strip()
-                        # তারিখ থেকে সময় বাদ দেওয়া
-                        if ' ' in v and '-' in v:
-                            v = v.split(' ')[0]
-                        return v
+                retailer_db_id = retailer_map.get(ret_code)
 
-                    raw_date = get_val('ACTIVATION_DATE')
-                    activation_date_val = None
-                    if raw_date:
+                def get_val(key):
+                    v = str(row.get(key, '')).strip()
+                    if ' ' in v and '-' in v:
+                        v = v.split(' ')[0]
+                    return v
+
+                raw_date = get_val('ACTIVATION_DATE')
+                activation_date_val = None
+                if raw_date:
+                    try:
+                        parsed_date = pd.to_datetime(raw_date, format='%d-%b-%Y')
+                    except (ValueError, TypeError, AssertionError):
                         try:
-                            parsed_date = pd.to_datetime(raw_date, format='%d-%b-%Y')
+                            parsed_date = pd.to_datetime(raw_date, format='%Y-%m-%d')
                         except (ValueError, TypeError, AssertionError):
-                            try:
-                                parsed_date = pd.to_datetime(raw_date, format='%Y-%m-%d')
-                            except (ValueError, TypeError, AssertionError):
-                                parsed_date = pd.to_datetime(raw_date, errors='coerce')
-                        if isinstance(parsed_date, pd.Timestamp) and pd.notna(parsed_date):
-                            activation_date_val = parsed_date.date()
+                            parsed_date = pd.to_datetime(raw_date, errors='coerce')
+                    if isinstance(parsed_date, pd.Timestamp) and pd.notna(parsed_date):
+                        activation_date_val = parsed_date.date()
 
-                    new_activation = LiveActivation(
-                        house_id=house_id,
-                        retailer_id=retailer_db_id,
-                        
-                        activation_date=activation_date_val,
-                        activation_time=get_val('ACTIVATION_TIME'),
-                        retailer_code=ret_code, # টেক্সট কোডটিও ব্যাকআপ হিসেবে থাকবে
-                        retailer_name=get_val('RETAILER_NAME'),
-                        bts_code=get_val('BTS_CODE'),
-                        thana=get_val('THANA'),
-                        promotion=get_val('PROMOTION'),
-                        product_code=get_val('PRODUCT_CODE'),
-                        product_name=get_val('PRODUCT_NAME'),
-                        sim_no=sim_no,
-                        msisdn=get_val('MSISDN'),
-                        selling_price=get_val('SELLING_PRICE'),
-                        bp_flag=get_val('BP_FLAG'),
-                        bp_number=get_val('BP_NUMBER'),
-                        fc_bts_code=get_val('FC_BTS_CODE'),
-                        bio_bts_code=get_val('BIO_BTS_CODE'),
-                        dh_lifting_date=get_val('DH_LIFTINGDATE'),
-                        issue_date=get_val('ISSUEDATE'),
-                        subscription_type=get_val('SUBSCRIPTION_TYPE'),
-                        service_class=get_val('SERVICE_CLASS'),
-                        customer_second_contact=get_val('CUSTOMER_SECOND_CONTACT')
-                    )
-                    new_records.append(new_activation)
+                records.append({
+                    "house_id": house_id,
+                    "retailer_id": retailer_db_id,
+                    "activation_date": activation_date_val,
+                    "activation_time": get_val('ACTIVATION_TIME'),
+                    "retailer_code": ret_code,
+                    "retailer_name": get_val('RETAILER_NAME'),
+                    "bts_code": get_val('BTS_CODE'),
+                    "thana": get_val('THANA'),
+                    "promotion": get_val('PROMOTION'),
+                    "product_code": get_val('PRODUCT_CODE'),
+                    "product_name": get_val('PRODUCT_NAME'),
+                    "sim_no": sim_no,
+                    "msisdn": get_val('MSISDN'),
+                    "selling_price": get_val('SELLING_PRICE'),
+                    "bp_flag": get_val('BP_FLAG'),
+                    "bp_number": get_val('BP_NUMBER'),
+                    "fc_bts_code": get_val('FC_BTS_CODE'),
+                    "bio_bts_code": get_val('BIO_BTS_CODE'),
+                    "dh_lifting_date": get_val('DH_LIFTINGDATE'),
+                    "issue_date": get_val('ISSUEDATE'),
+                    "subscription_type": get_val('SUBSCRIPTION_TYPE'),
+                    "service_class": get_val('SERVICE_CLASS'),
+                    "customer_second_contact": get_val('CUSTOMER_SECOND_CONTACT'),
+                })
 
-            # ৭. বাল্ক ইনসার্ট করা
-            if new_records:
-                session.add_all(new_records)
+            # ৭. বাল্ক আপসার্ট (ON CONFLICT DO UPDATE) — ডুপ্লিকেট sim_no নিরাপদে হ্যান্ডেল করে
+            if records:
+                unique = {r['sim_no']: r for r in records}.values()
+                stmt = insert(LiveActivation).values(list(unique))
+                update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no']}
+                await session.execute(stmt.on_conflict_do_update(index_elements=['sim_no'], set_=update_cols))
                 await session.commit()
-                logger.info(f"📊 [Sync] হাউজ {house_code}: {len(new_records)}টি নতুন ডাটা যুক্ত হয়েছে।")
+                logger.info(f"📊 [Sync] হাউজ {house_code}: {len(unique)}টি ডাটা আপসার্ট করা হয়েছে।")
             else:
                 logger.info(f"ℹ️ হাউজ {house_code}: নতুন কোনো ডাটা পাওয়ার যায়নি।")
 

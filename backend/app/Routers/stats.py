@@ -6,18 +6,18 @@ from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime, timedelta
 
-from app.Routers.deps import get_db, has_permission, get_house_context, get_current_user
-from app.Models.retailer import Retailer
-from app.Models.house import House
-from app.Models.bts import BTS
-from app.Models.employee import Employee
-from app.Models.user import User
-from app.Models.activation import Activation
-from app.Models.live_activation import LiveActivation
+from app.routers.deps import get_db, has_permission, get_house_context, get_current_user
+from app.models.retailer import Retailer
+from app.models.house import House
+from app.models.bts import BTS
+from app.models.employee import Employee
+from app.models.user import User
+from app.models.activation import Activation
+from app.models.live_activation import LiveActivation
 
-from app.Models.ga_filter import FilterTag, RetailerFilter
-from app.Utils.access_control import is_admin_user
-from app.Utils.activation_rules import get_excluded_codes, exclude_clause
+from app.models.ga_filter import FilterTag, RetailerFilter
+from app.utils.access_control import is_admin_user
+from app.utils.activation_rules import get_excluded_codes, exclude_clause
 
 router = APIRouter(prefix="/api", tags=["stats"])
 

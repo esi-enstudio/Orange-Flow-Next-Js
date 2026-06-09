@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   X, Save, Settings, Package, Tags, Search,
   Check, RotateCcw, AlertCircle, Sliders,
+  Users, ChevronDown, ChevronUp,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -34,13 +35,53 @@ const SECTION_META: Record<string, { label: string; icon: string; desc: string }
   trend:              { label: "Activation Trend", icon: "📉", desc: "Daily activation count trend" },
 };
 
+const ROLE_META: Record<string, { label: string; color: string; bg: string; text: string; ring: string }> = {
+  RSO: {
+    label: "RSO",
+    color: "blue",
+    bg: "bg-blue-50 dark:bg-blue-500/10",
+    text: "text-blue-700 dark:text-blue-300",
+    ring: "ring-blue-200 dark:ring-blue-500/30",
+  },
+  BP: {
+    label: "BP",
+    color: "amber",
+    bg: "bg-amber-50 dark:bg-amber-500/10",
+    text: "text-amber-700 dark:text-amber-300",
+    ring: "ring-amber-200 dark:ring-amber-500/30",
+  },
+  CC: {
+    label: "CC",
+    color: "emerald",
+    bg: "bg-emerald-50 dark:bg-emerald-500/10",
+    text: "text-emerald-700 dark:text-emerald-300",
+    ring: "ring-emerald-200 dark:ring-emerald-500/30",
+  },
+};
+
+type Employee = {
+  id: number;
+  name: string | null;
+  dms_code: string;
+  itop_number: string | null;
+  personal_number: string | null;
+  assisted_retailer_code: string;
+  role: "RSO" | "BP" | "CC";
+};
+
+type EmployeeGroupedResponse = {
+  groups: { rso: Employee[]; bp: Employee[]; cc: Employee[] };
+  counts: { rso: number; bp: number; cc: number };
+  total: number;
+};
+
 interface Props {
   open: boolean;
   sectionKey: SectionKey;
   houseId: number;
   onClose: () => void;
   onSaved: () => void;
-  mode?: "full" | "products_only";
+  mode?: "full" | "products_only" | "employees_only";
 }
 
 export default function SectionConfigModal({ open, sectionKey, houseId, onClose, onSaved, mode = "full" }: Props) {
@@ -55,7 +96,13 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
   const [codeSearch, setCodeSearch] = useState("");
   const [tagSearch, setTagSearch] = useState("");
 
+  const [employeeGroups, setEmployeeGroups] = useState<EmployeeGroupedResponse | null>(null);
+  const [selectedEmpIds, setSelectedEmpIds] = useState<number[]>([]);
+  const [empSearch, setEmpSearch] = useState("");
+  const [collapsedRoles, setCollapsedRoles] = useState<Set<string>>(new Set());
+
   const meta = SECTION_META[sectionKey];
+  const isEmployeesMode = mode === "employees_only";
 
   useEffect(() => {
     if (!open || !houseId) return;
@@ -67,26 +114,47 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
       setSaved(false);
       setCodeSearch("");
       setTagSearch("");
+      setEmpSearch("");
+      setCollapsedRoles(new Set());
+
       try {
-        const [codesRes, tagsRes, configRes] = await Promise.all([
-          apiClient.get<Array<{ id: number; product_code: string }>>("/product-exclusions"),
-          apiClient.get<Array<{ id: number; name: string }>>("/filter-tags", {
-            params: { house_id: houseId },
-          }),
-          apiClient.get<{ sections: Array<{ section_key: string; exclude_product_codes: string[]; exclude_retailer_tags: string[] }> }>(
-            "/ga-live/section-configs",
-            { params: { house_id: houseId } }
-          ),
-        ]);
+        if (isEmployeesMode) {
+          const [empRes, configRes] = await Promise.all([
+            apiClient.get<EmployeeGroupedResponse>("/employees/by-house-grouped", {
+              params: { house_id: houseId },
+            }),
+            apiClient.get<{ sections: Array<{ section_key: string; selected_employee_ids: number[] }> }>(
+              "/ga-live/section-configs",
+              { params: { house_id: houseId } }
+            ),
+          ]);
 
-        if (cancelled) return;
+          if (cancelled) return;
 
-        const sectionConfig = configRes.data.sections.find((s) => s.section_key === sectionKey);
+          setEmployeeGroups(empRes.data);
+          const sectionConfig = configRes.data.sections.find((s) => s.section_key === sectionKey);
+          setSelectedEmpIds(sectionConfig?.selected_employee_ids ?? []);
+        } else {
+          const [codesRes, tagsRes, configRes] = await Promise.all([
+            apiClient.get<Array<{ id: number; product_code: string }>>("/product-exclusions"),
+            apiClient.get<Array<{ id: number; name: string }>>("/filter-tags", {
+              params: { house_id: houseId },
+            }),
+            apiClient.get<{ sections: Array<{ section_key: string; exclude_product_codes: string[]; exclude_retailer_tags: string[]; selected_employee_ids: number[] }> }>(
+              "/ga-live/section-configs",
+              { params: { house_id: houseId } }
+            ),
+          ]);
 
-        setProductCodes(codesRes.data.map((c) => c.product_code));
-        setRetailerTags(tagsRes.data.map((t) => t.name));
-        setSelectedCodes(sectionConfig?.exclude_product_codes ?? []);
-        setSelectedTags(sectionConfig?.exclude_retailer_tags ?? []);
+          if (cancelled) return;
+
+          const sectionConfig = configRes.data.sections.find((s) => s.section_key === sectionKey);
+
+          setProductCodes(codesRes.data.map((c) => c.product_code));
+          setRetailerTags(tagsRes.data.map((t) => t.name));
+          setSelectedCodes(sectionConfig?.exclude_product_codes ?? []);
+          setSelectedTags(sectionConfig?.exclude_retailer_tags ?? []);
+        }
       } catch {
         if (!cancelled) setError("Failed to load configuration options");
       } finally {
@@ -96,7 +164,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
 
     load();
     return () => { cancelled = true; };
-  }, [open, houseId, sectionKey]);
+  }, [open, houseId, sectionKey, isEmployeesMode]);
 
   useEffect(() => {
     if (open) {
@@ -131,6 +199,58 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
   function selectAllTags() { setSelectedTags([...retailerTags]); }
   function deselectAllTags() { setSelectedTags([]); }
 
+  function toggleEmployee(empId: number) {
+    setSelectedEmpIds((prev) =>
+      prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
+    );
+  }
+
+  function toggleRoleGroup(role: "RSO" | "BP" | "CC") {
+    if (!employeeGroups) return;
+    const groupKey = role.toLowerCase() as "rso" | "bp" | "cc";
+    const groupEmps = employeeGroups.groups[groupKey];
+    const groupIds = groupEmps.map((e) => e.id);
+    const allSelected = groupIds.every((id) => selectedEmpIds.includes(id));
+    if (allSelected) {
+      setSelectedEmpIds((prev) => prev.filter((id) => !groupIds.includes(id)));
+    } else {
+      setSelectedEmpIds((prev) => Array.from(new Set([...prev, ...groupIds])));
+    }
+  }
+
+  function selectAllEmployees() {
+    if (!employeeGroups) return;
+    const allIds = [
+      ...employeeGroups.groups.rso.map((e) => e.id),
+      ...employeeGroups.groups.bp.map((e) => e.id),
+      ...employeeGroups.groups.cc.map((e) => e.id),
+    ];
+    setSelectedEmpIds(allIds);
+  }
+
+  function deselectAllEmployees() { setSelectedEmpIds([]); }
+
+  function toggleRoleCollapse(role: string) {
+    setCollapsedRoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  }
+
+  function filterEmployees(emps: Employee[]) {
+    if (!empSearch) return emps;
+    const q = empSearch.toLowerCase();
+    return emps.filter(
+      (e) =>
+        (e.name?.toLowerCase().includes(q) ?? false) ||
+        (e.dms_code?.toLowerCase().includes(q) ?? false) ||
+        (e.itop_number?.toLowerCase().includes(q) ?? false) ||
+        (e.assisted_retailer_code?.toLowerCase().includes(q) ?? false)
+    );
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -138,6 +258,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
       await apiClient.put(`/ga-live/section-configs/${sectionKey}`, {
         exclude_product_codes: selectedCodes,
         exclude_retailer_tags: selectedTags,
+        selected_employee_ids: isEmployeesMode ? selectedEmpIds : undefined,
       }, { params: { house_id: houseId } });
       setSaved(true);
       setTimeout(() => { onSaved(); onClose(); }, 600);
@@ -278,7 +399,6 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
                       )}
                     </div>
 
-                    {/* Search */}
                     <div className="relative mb-3">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                       <input
@@ -331,7 +451,30 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
                     )}
                   </div>
 
-                  {mode === "full" && (
+                  {isEmployeesMode ? (
+                    <>
+                      {/* ── Divider ── */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-px bg-gray-100 dark:bg-slate-700/50" />
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">and</span>
+                        <div className="flex-1 h-px bg-gray-100 dark:bg-slate-700/50" />
+                      </div>
+
+                      <EmployeesSection
+                        groups={employeeGroups}
+                        selectedIds={selectedEmpIds}
+                        search={empSearch}
+                        setSearch={setEmpSearch}
+                        collapsedRoles={collapsedRoles}
+                        toggleCollapse={toggleRoleCollapse}
+                        toggleEmployee={toggleEmployee}
+                        toggleRoleGroup={toggleRoleGroup}
+                        selectAll={selectAllEmployees}
+                        deselectAll={deselectAllEmployees}
+                        filterEmployees={filterEmployees}
+                      />
+                    </>
+                  ) : mode === "full" ? (
                     <>
                     {/* ── Divider ── */}
                     <div className="flex items-center gap-3">
@@ -365,7 +508,6 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
                         )}
                       </div>
 
-                      {/* Search */}
                       <div className="relative mb-3">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                         <input
@@ -418,7 +560,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
                       )}
                     </div>
                     </>
-                  )}
+                  ) : null}
                 </>
               )}
             </div>
@@ -430,6 +572,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
                   onClick={() => {
                     setSelectedCodes([]);
                     setSelectedTags([]);
+                    setSelectedEmpIds([]);
                   }}
                   className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
                 >
@@ -497,5 +640,218 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+
+function EmployeesSection({
+  groups,
+  selectedIds,
+  search,
+  setSearch,
+  collapsedRoles,
+  toggleCollapse,
+  toggleEmployee,
+  toggleRoleGroup,
+  selectAll,
+  deselectAll,
+  filterEmployees,
+}: {
+  groups: EmployeeGroupedResponse | null;
+  selectedIds: number[];
+  search: string;
+  setSearch: (v: string) => void;
+  collapsedRoles: Set<string>;
+  toggleCollapse: (role: string) => void;
+  toggleEmployee: (id: number) => void;
+  toggleRoleGroup: (role: "RSO" | "BP" | "CC") => void;
+  selectAll: () => void;
+  deselectAll: () => void;
+  filterEmployees: (emps: Employee[]) => Employee[];
+}) {
+  if (!groups) return null;
+
+  const totalSelectedInGroup = (role: "RSO" | "BP" | "CC") => {
+    const g = groups.groups[role.toLowerCase() as "rso" | "bp" | "cc"];
+    return g.filter((e) => selectedIds.includes(e.id)).length;
+  };
+
+  const renderRoleGroup = (role: "RSO" | "BP" | "CC") => {
+    const groupKey = role.toLowerCase() as "rso" | "bp" | "cc";
+    const emps = groups.groups[groupKey];
+    const meta = ROLE_META[role];
+    const selectedCount = totalSelectedInGroup(role);
+    const allSelected = emps.length > 0 && selectedCount === emps.length;
+    const collapsed = collapsedRoles.has(role);
+    const filtered = filterEmployees(emps);
+
+    return (
+      <div key={role} className="rounded-2xl border border-gray-200 dark:border-slate-700/60 overflow-hidden">
+        {/* Group Header */}
+        <div className={cn("flex items-center gap-2.5 px-4 py-3", meta.bg)}>
+          <button
+            type="button"
+            onClick={() => toggleRoleGroup(role)}
+            className="flex items-center gap-2.5 flex-1 min-w-0"
+          >
+            <div className={cn(
+              "w-4.5 h-4.5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all",
+              allSelected
+                ? "bg-primary-500 border-primary-500"
+                : "border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800"
+            )}>
+              {allSelected && <Check className="w-3 h-3 text-white" />}
+            </div>
+            <span className={cn("text-sm font-bold", meta.text)}>{meta.label}</span>
+            <span className={cn(
+              "text-xs font-medium px-2 py-0.5 rounded-full",
+              selectedCount > 0
+                ? cn(meta.bg, meta.text, "ring-1", meta.ring)
+                : "bg-white/60 dark:bg-slate-800/60 text-gray-500 dark:text-gray-400"
+            )}>
+              {selectedCount} / {emps.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleCollapse(role)}
+            className="p-1.5 rounded-lg hover:bg-white/50 dark:hover:bg-slate-800/50 text-gray-500 dark:text-gray-400 transition-colors"
+          >
+            {collapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {/* Group Body */}
+        <AnimatePresence initial={false}>
+          {!collapsed && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="p-2 space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar bg-white dark:bg-slate-900/30">
+                {filtered.length === 0 ? (
+                  <div className="flex items-center justify-center py-4 text-xs text-gray-400">
+                    No {meta.label} employees match
+                  </div>
+                ) : (
+                  filtered.map((emp) => {
+                    const isSelected = selectedIds.includes(emp.id);
+                    return (
+                      <motion.button
+                        key={emp.id}
+                        type="button"
+                        layout
+                        initial={false}
+                        onClick={() => toggleEmployee(emp.id)}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition-all duration-150",
+                          isSelected
+                            ? cn(meta.bg, "border-transparent", meta.text)
+                            : "bg-white dark:bg-slate-800/50 border-gray-100 dark:border-slate-700/50 text-gray-700 dark:text-gray-300 hover:border-gray-200 dark:hover:border-slate-600"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all",
+                          isSelected
+                            ? "bg-primary-500 border-primary-500"
+                            : "border-gray-300 dark:border-slate-600"
+                        )}>
+                          {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">
+                            {emp.name || `Employee #${emp.id}`}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            {emp.dms_code && <span className="font-mono">{emp.dms_code}</span>}
+                            {emp.assisted_retailer_code && (
+                              <>
+                                <span>•</span>
+                                <span className="font-mono">{emp.assisted_retailer_code}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </motion.button>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center">
+              <Users className="w-3.5 h-3.5 text-primary-600 dark:text-primary-400" />
+            </div>
+            <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Employees</span>
+            <span className={cn(
+              "text-xs font-medium px-2 py-0.5 rounded-full transition-colors",
+              selectedIds.length > 0
+                ? "bg-primary-100 dark:bg-primary-500/15 text-primary-700 dark:text-primary-300"
+                : "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400"
+            )}>
+              {selectedIds.length} / {groups.total} selected
+            </span>
+          </div>
+          {groups.total > 0 && (
+            <div className="flex items-center gap-1.5">
+              <button onClick={selectAll} className="text-xs font-medium px-2.5 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors">All</button>
+              <button onClick={deselectAll} className="text-xs font-medium px-2.5 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors">None</button>
+            </div>
+          )}
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by name, DMS code, ITOP, retailer code..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 dark:focus:border-primary-500 transition-all"
+          />
+        </div>
+
+        {/* Info banner */}
+        {selectedIds.length === 0 && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 mb-3">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              No employees selected. Employee activation count will be <strong>0</strong> until you select at least one employee.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Groups */}
+      {groups.total === 0 ? (
+        <div className="flex flex-col items-center py-8 text-center bg-gray-50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700">
+          <Users className="w-8 h-8 text-gray-300 dark:text-gray-600 mb-2" />
+          <p className="text-sm text-gray-500 dark:text-gray-400">No employees with assisted retailer codes</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Add them in <span className="font-medium">Employees</span> with retailer codes</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {(["RSO", "BP", "CC"] as const).map((role) => {
+            if (groups.counts[role.toLowerCase() as "rso" | "bp" | "cc"] === 0) return null;
+            return renderRoleGroup(role);
+          })}
+        </div>
+      )}
+    </div>
   );
 }

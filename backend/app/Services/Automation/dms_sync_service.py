@@ -4,21 +4,21 @@ import logging
 import pandas as pd
 from datetime import date, datetime, timedelta
 from sqlalchemy import select, func, and_
-from app.Models.house import House
-from app.Models.activation import Activation
-from app.Models.itopup_detail import ITopUpDetail
-from app.Models.scratch_card_issue import ScratchCardIssue
-from app.Models.sim_issue import SimIssue
-from app.Models.sync_history import SyncHistory
-from app.Services.db_service import async_session
-from app.Core.session_manager import session_manager
-from app.Services.Automation.activation_excel import process_activation_excel
-from app.Services.Automation.dms_report_excel import process_dms_report_excel
-from app.Services.Automation.issue_reports_excel import process_scratch_card_excel, process_sim_issue_excel
+from app.models.house import House
+from app.models.activation import Activation
+from app.models.itopup_detail import ITopUpDetail
+from app.models.scratch_card_issue import ScratchCardIssue
+from app.models.sim_issue import SimIssue
+from app.models.sync_history import SyncHistory
+from app.services.db_service import async_session
+from app.core.session_manager import session_manager
+from app.services.Automation.activation_excel import process_activation_excel
+from app.services.Automation.dms_report_excel import process_dms_report_excel
+from app.services.Automation.issue_reports_excel import process_scratch_card_excel, process_sim_issue_excel
 from colorama import Fore, Style
 from sqlalchemy.dialects.postgresql import insert
 
-logger = logging.getLogger("app.Services.Automation.Sync")
+logger = logging.getLogger("app.services.Automation.Sync")
 
 TEMP_DIR = "temp_downloads"
 
@@ -103,7 +103,7 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
 
 async def run_daily_auto_sync():
     """মেইন অটো-সিঙ্ক ফাংশন"""
-    from app.Models.app_setting import AppSetting
+    from app.models.app_setting import AppSetting
 
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR, exist_ok=True)

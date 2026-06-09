@@ -30,27 +30,27 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from config.settings import settings
-from app.Services.db_service import init_db
-from app.Core.automation_engine import engine
-from app.Controllers import admin_controller, admin_setup_controller
+from app.services.db_service import init_db
+from app.core.automation_engine import engine
+from app.routers import admin_controller, admin_setup_controller
 
 # --- Routers ---
-from app.Routers.auth import router as auth_router
-from app.Routers.houses import router as houses_router
-from app.Routers.employees import router as employees_router
-from app.Routers.users import router as users_router
-from app.Routers.roles_permissions import router as roles_permissions_router
-from app.Routers.retailers import router as retailers_router
-from app.Routers.bts import router as bts_router
-from app.Routers.imports import router as imports_router
-from app.Routers.reports import router as reports_router
-from app.Routers.targets import router as targets_router
-from app.Routers.filters import router as filters_router
-from app.Routers.stats import router as stats_router
-from app.Routers.todos import router as todos_router
-from app.Routers.webhook import router as webhook_router
-from app.Routers.app_settings import router as app_settings_router
-from app.Routers.ga_section_configs import router as ga_section_configs_router
+from app.routers.auth import router as auth_router
+from app.routers.houses import router as houses_router
+from app.routers.employees import router as employees_router
+from app.routers.users import router as users_router
+from app.routers.roles_permissions import router as roles_permissions_router
+from app.routers.retailers import router as retailers_router
+from app.routers.bts import router as bts_router
+from app.routers.imports import router as imports_router
+from app.routers.reports import router as reports_router
+from app.routers.targets import router as targets_router
+from app.routers.filters import router as filters_router
+from app.routers.stats import router as stats_router
+from app.routers.todos import router as todos_router
+from app.routers.webhook import router as webhook_router
+from app.routers.app_settings import router as app_settings_router
+from app.routers.ga_section_configs import router as ga_section_configs_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -135,7 +135,7 @@ async def receive_otp(request: Request):
                or str(payload))
 
     if otp_code and house_code:
-        from app.Core.otp_manager import otp_manager
+        from app.core.otp_manager import otp_manager
         otp_manager.update_otp(str(otp_code), house_code)
 
     logger.info("=" * 60)
@@ -162,9 +162,9 @@ async def receive_otp(request: Request):
 # ==========================================
 
 async def master_automation_scheduler():
-    from app.Services.Automation.Reports.ga_live import run_ga_live_sync, reset_daily_activations
-    from app.Services.Automation.dms_report_excel import cleanup_old_dms_reports
-    from app.Services.Automation.dms_sync_service import run_daily_auto_sync
+    from app.services.Automation.Reports.ga_live import run_ga_live_sync, reset_daily_activations
+    from app.services.Automation.dms_report_excel import cleanup_old_dms_reports
+    from app.services.Automation.dms_sync_service import run_daily_auto_sync
     if getattr(settings, "DISABLE_SCHEDULER", False): return
     logger.info("Master Automation Scheduler started...")
     await asyncio.sleep(20)
@@ -203,7 +203,22 @@ async def master_automation_scheduler():
 
             # সকাল ৮টা - রাত ১১:৫৯ — লাইভ অ্যাক্টিভেশন সিঙ্ক (প্রতি ৫ মিনিট)
             if 8 <= hour < 24:
-                await run_ga_live_sync()
+                from app.models.app_setting import AppSetting
+                from sqlalchemy import select
+                try:
+                    from app.services.db_service import async_session
+                    async with async_session() as session:
+                        setting_result = await session.execute(
+                            select(AppSetting).where(AppSetting.id == 1)
+                        )
+                        app_setting = setting_result.scalar_one_or_none()
+                        live_sync_enabled = app_setting.is_live_sync_enabled if app_setting else 1
+                except Exception:
+                    live_sync_enabled = 1
+                if live_sync_enabled:
+                    await run_ga_live_sync()
+                else:
+                    logger.debug("⏸️ [Scheduler] লাইভ সিঙ্ক বন্ধ আছে (AppSettings)।")
                 await asyncio.sleep(300)
             else:
                 # রাত ১টা - সকাল ৬:৫৯ — প্রতি ১ মিনিট পর চেক (৭টা মিস না করতে)
@@ -240,7 +255,7 @@ async def main():
         logger.error(f"Failed to start automation engine: {e}")
         return
 
-    from app.Services.cache_service import cache_service
+    from app.services.cache_service import cache_service
     await cache_service.connect()
 
     background_tasks = []
@@ -278,7 +293,7 @@ async def main():
 
     except (KeyboardInterrupt, asyncio.CancelledError): pass
     finally:
-        from app.Services.cache_service import cache_service
+        from app.services.cache_service import cache_service
         await cache_service.close()
         if ngrok_tunnel:
             try:

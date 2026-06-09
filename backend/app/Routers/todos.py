@@ -4,10 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.Routers.deps import get_db, get_current_user
-from app.Schemas.todo import TodoCreate, TodoUpdate, TodoSchema
-from app.Models.user import User
-from app.Models.todo import Todo
+from app.routers.deps import get_db, get_current_user
+from app.schemas.todo import TodoCreate, TodoUpdate, TodoSchema
+from app.models.user import User
+from app.models.todo import Todo
 
 logger = logging.getLogger(__name__)
 

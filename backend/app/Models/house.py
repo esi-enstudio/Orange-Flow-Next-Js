@@ -1,8 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.Models.base import Base
-from app.Models.user import user_houses
+from app.models.base import Base
+from app.models.user import user_houses
 
 class House(Base):
     __tablename__ = "houses"

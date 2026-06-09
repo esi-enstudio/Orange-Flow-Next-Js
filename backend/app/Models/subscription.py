@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Enum, Numeric, Text, ForeignKey, BigInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.Models.base import Base
+from app.models.base import Base
 import enum
 
 class SubscriptionTier(enum.Enum):

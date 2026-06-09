@@ -6,17 +6,17 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.Models.live_activation import LiveActivation
-from app.Models.activation import Activation
-from app.Models.retailer import Retailer
-from app.Models.employee import Employee
-from app.Models.user import User
-from app.Models.ga_filter import RetailerFilter, FilterTag
-from app.Models.ga_section_config import GaSectionConfig
-from app.Utils.activation_rules import get_excluded_codes, exclude_clause
-from app.Services.cache_service import cache_service
+from app.models.live_activation import LiveActivation
+from app.models.activation import Activation
+from app.models.retailer import Retailer
+from app.models.employee import Employee
+from app.models.user import User
+from app.models.ga_filter import RetailerFilter, FilterTag
+from app.models.ga_section_config import GaSectionConfig
+from app.utils.activation_rules import get_excluded_codes, exclude_clause
+from app.services.cache_service import cache_service
 
-logger = logging.getLogger("app.Services.GaLive")
+logger = logging.getLogger("app.services.GaLive")
 
 
 class GaLiveQueryBuilder:
@@ -44,6 +44,7 @@ class GaLiveQueryBuilder:
             self._section_configs[cfg.section_key] = {
                 "exclude_product_codes": cfg.exclude_product_codes or [],
                 "exclude_retailer_tags": cfg.exclude_retailer_tags or [],
+                "selected_employee_ids": cfg.selected_employee_ids or [],
             }
 
     async def _get_exclusions(self, section_key: str) -> tuple[list[str], list[str]]:
@@ -153,13 +154,21 @@ class GaLiveQueryBuilder:
 
     async def get_employee_activation_by_code(self, section_key: str) -> int:
         base = await self._build_base_query(section_key)
-        emp_codes = await self.db.execute(
+
+        cfg = self._section_configs.get(section_key, {})
+        selected_emp_ids: list[int] = cfg.get("selected_employee_ids") or []
+
+        if not selected_emp_ids:
+            return 0
+
+        emp_rows = await self.db.execute(
             select(Employee.assisted_retailer_code).where(
                 Employee.house_id == self.house_id,
+                Employee.id.in_(selected_emp_ids),
                 Employee.assisted_retailer_code != None,
             )
         )
-        assisted_codes = [row[0] for row in emp_codes.all() if row[0]]
+        assisted_codes = [row[0] for row in emp_rows.all() if row[0]]
         if not assisted_codes:
             return 0
         emp_q = base.where(
@@ -490,6 +499,41 @@ class GaLiveQueryBuilder:
             cursor += timedelta(days=1)
         return result
 
+    async def _get_employee_participation_counts(self) -> dict:
+        cfg = self._section_configs.get("employee_activation", {})
+        emp_ids: list[int] = cfg.get("selected_employee_ids") or []
+        if not emp_ids:
+            return {"total_selected": 0, "activated_count": 0}
+
+        emp_rows = await self.db.execute(
+            select(Employee.id, Employee.assisted_retailer_code).where(
+                Employee.house_id == self.house_id,
+                Employee.status == "Active",
+                Employee.id.in_(emp_ids),
+                Employee.assisted_retailer_code != None,
+                Employee.assisted_retailer_code != "",
+            )
+        )
+        emp_data = [(r.id, r.assisted_retailer_code) for r in emp_rows.all()]
+        if not emp_data:
+            return {"total_selected": 0, "activated_count": 0}
+
+        total_selected = len(emp_data)
+        codes = [code for _, code in emp_data]
+
+        act_rows = await self.db.execute(
+            select(LiveActivation.retailer_code).distinct().where(
+                LiveActivation.house_id == self.house_id,
+                LiveActivation.activation_date >= self.start_date,
+                LiveActivation.activation_date <= self.end_date,
+                LiveActivation.retailer_code.in_(codes),
+            )
+        )
+        activated_codes = {r[0] for r in act_rows.all() if r[0]}
+        activated_count = sum(1 for _, code in emp_data if code in activated_codes)
+
+        return {"total_selected": total_selected, "activated_count": activated_count}
+
     async def build_all(self) -> dict:
         await self._load_section_configs()
 
@@ -499,6 +543,7 @@ class GaLiveQueryBuilder:
         market_count = await self.get_market_activation_count("market_activation")
         emp_pct = round((emp_count / total * 100), 1) if total else 0
         market_pct = round((market_count / total * 100), 1) if total else 0
+        emp_participation = await self._get_employee_participation_counts()
 
         distribution = await self.get_employee_market_count("distribution")
         (
@@ -540,6 +585,8 @@ class GaLiveQueryBuilder:
                 "employee_activation_pct": emp_pct,
                 "market_activation": market_count,
                 "market_activation_pct": market_pct,
+                "total_selected_employees": emp_participation["total_selected"],
+                "activated_employee_count": emp_participation["activated_count"],
                 **active_counts,
             },
             "distribution": distribution,

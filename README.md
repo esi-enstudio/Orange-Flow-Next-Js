@@ -118,15 +118,16 @@ Orange-Flow-Next-Js/
 ├── backend/                    # FastAPI application
 │   ├── main.py                 # API entry point (all routes)
 │   ├── app/
-│   │   ├── Models/             # SQLAlchemy models
-│   │   ├── Services/           # Business logic & automation
-│   │   │   ├── Automation/     # Excel processing, scraping
+│   │   ├── models/             # SQLAlchemy models
+│   │   ├── services/           # Business logic & automation
+│   │   │   ├── automation/     # Excel processing, scraping
 │   │   │   └── db_service.py   # Database helpers
-│   │   ├── Core/               # Browser engine, auth core
-│   │   ├── Utils/              # Helpers, validators, access control
-│   │   └── Controllers/        # (legacy Telegram bot handlers)
+│   │   ├── core/               # Browser engine, auth core
+│   │   ├── utils/              # Helpers, validators, access control
+│   │   └── routers/            # API endpoints (merged from controllers)
 │   ├── alembic/                # Database migrations
 │   ├── config/settings.py      # Environment config
+│   ├── data/                   # Data assets (renamed from _data_list)
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/                   # Next.js application
@@ -135,12 +136,15 @@ Orange-Flow-Next-Js/
 │   │   ├── components/         # Shared UI & layout components
 │   │   ├── context/            # Auth, color theme contexts
 │   │   ├── i18n/               # BN/EN translations
-│   │   └── lib/                # API client, utilities, constants
+│   │   ├── hooks/              # Custom React hooks
+│   │   ├── types/              # TypeScript interfaces/types
+│   │   ├── constants/          # Application constants
+│   │   ├── services/           # API service layer
+│   │   └── lib/                # Shared utilities
 │   ├── public/
 │   ├── package.json
 │   └── Dockerfile
 ├── docker-compose.yml          # Orchestration
-├── nginx/                      # Reverse proxy config
 └── .env.example
 ```
 

@@ -1,6 +1,6 @@
 import asyncio
-from app.Services.db_service import init_db, async_session
-from app.Models.role import Permission
+from app.services.db_service import init_db, async_session
+from app.models.role import Permission
 from sqlalchemy import select
 
 async def seed_permissions():

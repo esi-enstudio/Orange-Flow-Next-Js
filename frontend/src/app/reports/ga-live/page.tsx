@@ -11,7 +11,7 @@ import {
   Radio, Shield, Building2, UserCog,
   Smartphone, ChevronDown, ChevronUp, Grid3X3, List,
   Sparkles, Medal, Zap, Search, Check, CalendarDays,
-  Pencil, Settings,
+  Pencil, Settings, Play, Square,
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,6 +32,8 @@ interface GaLiveData {
     employee_activation_pct: number;
     market_activation: number;
     market_activation_pct: number;
+    total_selected_employees: number;
+    activated_employee_count: number;
     active_supervisors: number;
     active_rso: number;
     active_bp: number;
@@ -405,6 +407,8 @@ export default function GaLiveReportPage() {
   const [allHouses, setAllHouses] = useState<Array<{ id: number; name: string; code: string }> | null>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [configVersion, setConfigVersion] = useState(0);
+  const [liveSyncEnabled, setLiveSyncEnabled] = useState(true);
+  const [liveSyncLoading, setLiveSyncLoading] = useState(false);
 
   const isAdmin = hasPermission("edit_reports");
 
@@ -457,6 +461,24 @@ export default function GaLiveReportPage() {
   }, [effectiveHouseId, today, configVersion]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    apiClient.get("/settings/live-sync").then(res => {
+      setLiveSyncEnabled(res.data.enabled);
+    }).catch(() => {});
+  }, []);
+
+  const toggleLiveSync = async () => {
+    setLiveSyncLoading(true);
+    try {
+      const res = await apiClient.put("/settings/live-sync", { enabled: !liveSyncEnabled });
+      setLiveSyncEnabled(res.data.enabled);
+    } catch {
+      // silent
+    } finally {
+      setLiveSyncLoading(false);
+    }
+  };
 
   const handleExport = async () => {
     if (!effectiveHouseId) return;
@@ -556,6 +578,20 @@ export default function GaLiveReportPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={toggleLiveSync}
+            disabled={liveSyncLoading}
+            className={cn(
+              "px-3 py-2 rounded-xl border text-sm font-medium flex items-center gap-2 transition-all",
+              liveSyncEnabled
+                ? "border-green-300 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/20"
+                : "border-red-300 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20"
+            )}
+            title={liveSyncEnabled ? "Live sync is ON — click to stop" : "Live sync is OFF — click to start"}
+          >
+            {liveSyncEnabled ? <Play className="w-3.5 h-3.5 fill-current" /> : <Square className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">Live Sync</span>
+          </button>
           <div className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
             <CalendarDays className="w-4 h-4 text-gray-400" />
             {today}
@@ -605,7 +641,7 @@ export default function GaLiveReportPage() {
               icon={UserCheck}
               label="Employee Activation"
               value={summary.employee_activation}
-              sub={`${summary.employee_activation_pct}% of total`}
+              sub={`${summary.activated_employee_count} / ${summary.total_selected_employees} (${summary.total_selected_employees > 0 ? Math.round(summary.activated_employee_count / summary.total_selected_employees * 100) : 0}%) employees activated`}
               color="#10b981"
             />
             {isAdmin && (
@@ -1179,7 +1215,13 @@ export default function GaLiveReportPage() {
         houseId={effectiveHouseId!}
         onClose={() => setEditingSection(null)}
         onSaved={() => setConfigVersion((v) => v + 1)}
-        mode={editingSection === "total_activation" ? "full" : "products_only"}
+        mode={
+          editingSection === "total_activation"
+            ? "full"
+            : editingSection === "employee_activation"
+              ? "employees_only"
+              : "products_only"
+        }
       />
     </div>
   );

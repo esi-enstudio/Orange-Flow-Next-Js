@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.Routers.deps import get_db, has_permission, has_any_permission
-from app.Schemas.role import RoleSchema, RoleCreate, PermissionSchema, PermissionCreate
-from app.Models.role import Role, Permission
+from app.routers.deps import get_db, has_permission, has_any_permission
+from app.schemas.role import RoleSchema, RoleCreate, PermissionSchema, PermissionCreate
+from app.models.role import Role, Permission
 
 router = APIRouter(prefix="/api", tags=["roles & permissions"])
 

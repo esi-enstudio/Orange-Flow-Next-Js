@@ -6,10 +6,10 @@ from tqdm import tqdm
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
 
-from app.Models.retailer import Retailer
-from app.Models.employee import Employee # অটো-লিঙ্কিং এর জন্য জরুরি
-from app.Models.house import House
-from app.Services.db_service import async_session
+from app.models.retailer import Retailer
+from app.models.employee import Employee # অটো-লিঙ্কিং এর জন্য জরুরি
+from app.models.house import House
+from app.services.db_service import async_session
 
 logger = logging.getLogger(__name__)
 

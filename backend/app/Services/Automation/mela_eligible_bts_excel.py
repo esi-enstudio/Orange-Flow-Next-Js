@@ -1,9 +1,9 @@
 import pandas as pd
 import logging
 from sqlalchemy import select, delete
-from app.Models.mela import MelaEligibleBTS 
-from app.Models.bts import BTS
-from app.Services.db_service import async_session
+from app.models.mela import MelaEligibleBTS 
+from app.models.bts import BTS
+from app.services.db_service import async_session
 
 logger = logging.getLogger(__name__)
 

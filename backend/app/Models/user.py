@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, BigInteger, Table, ForeignKey, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.Models.base import Base
+from app.models.base import Base
 
 # পিভট টেবিল (User <-> Role) - এটি অবশ্যই ক্লাসের আগে থাকতে হবে
 user_roles = Table(

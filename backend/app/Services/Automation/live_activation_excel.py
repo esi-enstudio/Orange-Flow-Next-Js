@@ -6,10 +6,10 @@ from sqlalchemy import select, func
 from tqdm import tqdm
 from colorama import Fore, Style, init
 
-from app.Models.live_activation import LiveActivation
-from app.Models.retailer import Retailer
-from app.Models.house import House
-from app.Services.db_service import async_session
+from app.models.live_activation import LiveActivation
+from app.models.retailer import Retailer
+from app.models.house import House
+from app.services.db_service import async_session
 
 init(autoreset=True)
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                     stmt = insert(LiveActivation).values(list(unique))
                     update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no']}
                     await session.execute(stmt.on_conflict_do_update(index_elements=['sim_no'], set_=update_cols))
-                    inserted_count += len(batch_buffer)
+                    inserted_count += len(unique)
                     batch_buffer = []
                 processed_count += 1
                 pbar.update(1)
@@ -148,7 +148,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                 stmt = insert(LiveActivation).values(list(unique))
                 update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no']}
                 await session.execute(stmt.on_conflict_do_update(index_elements=['sim_no'], set_=update_cols))
-                inserted_count += len(batch_buffer)
+                inserted_count += len(unique)
             await session.commit()
             pbar.close()
             msg = f"✅ {inserted_count} টি রেকর্ড ইম্পোর্ট করা হয়েছে (আজকের {today_date})"
@@ -172,15 +172,17 @@ async def export_live_activations_excel(records):
                "BTS Code", "Thana", "Promotion", "Product Code", "Product Name", "MSISDN",
                "Selling Price", "BP Flag", "BP Number", "FC BTS Code", "Bio BTS Code",
                "DH Lifting Date", "Issue Date", "Subscription Type", "Service Class",
-               "Customer Second Contact", "House Code"]
+               "Customer Second Contact", "House Code", "Retailer ID Code"]
     ws.append(headers)
     for r in records:
+        retailer_id_code = r.retailer.retailer_code if r.retailer else ""
         ws.append([
             r.sim_no, r.activation_date, r.activation_time, r.retailer_code, r.retailer_name,
             r.bts_code, r.thana, r.promotion, r.product_code, r.product_name, r.msisdn,
             r.selling_price, r.bp_flag, r.bp_number, r.fc_bts_code, r.bio_bts_code,
             r.dh_lifting_date, r.issue_date, r.subscription_type, r.service_class,
-            r.customer_second_contact, r.house.code if r.house else ""
+            r.customer_second_contact, r.house.code if r.house else "",
+            retailer_id_code
         ])
     buf = io.BytesIO()
     wb.save(buf)

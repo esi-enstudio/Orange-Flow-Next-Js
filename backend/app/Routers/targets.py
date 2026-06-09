@@ -6,11 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from datetime import date
 
-from app.Routers.deps import get_db, has_permission, get_house_context
-from app.Models.house_target import HouseTarget
-from app.Models.supervisor_target import SupervisorTarget
-from app.Models.rso_target import RSOTarget
-from app.Services.Automation.target_excel import (
+from app.routers.deps import get_db, has_permission, get_house_context
+from app.models.house_target import HouseTarget
+from app.models.supervisor_target import SupervisorTarget
+from app.models.rso_target import RSOTarget
+from app.services.Automation.target_excel import (
     export_house_targets_excel,
     export_supervisor_targets_excel,
     export_rso_targets_excel

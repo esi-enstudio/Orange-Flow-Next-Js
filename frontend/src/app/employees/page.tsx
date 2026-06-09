@@ -12,6 +12,7 @@ import {
   ChevronLeft, 
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Loader2,
   X,
   Check,
@@ -36,15 +37,21 @@ import {
   Download,
   FileSpreadsheet,
   Eye,
-  AlertTriangle
+  AlertTriangle,
+  Filter,
+  SlidersHorizontal,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
-import { useRef } from "react";
+import { useRef, useMemo } from "react";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { motion, AnimatePresence } from "framer-motion";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
+import EmployeeMasterFilter, { EmployeeFilters, defaultFilters } from "@/components/employees/EmployeeMasterFilter";
 
 interface Employee {
   id: number;
@@ -144,9 +151,9 @@ function InputField({ label, value, onChange, required, type = "text", icon: Ico
 
 function FieldRow({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div className="flex items-baseline gap-2 py-1.5 border-b border-gray-50 dark:border-slate-800/50">
+    <div className="flex items-baseline gap-2 py-1.5 border-b border-gray-100 dark:border-slate-800/50">
       <span className="text-[11px] font-bold text-gray-400 uppercase shrink-0 w-[110px]">{label}</span>
-      <span className="text-sm font-bold dark:text-gray-200 truncate">{value || "—"}</span>
+      <span className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate">{value || "—"}</span>
     </div>
   );
 }
@@ -163,8 +170,11 @@ export default function EmployeesPage() {
   const [houses, setHouses] = useState<House[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<EmployeeFilters>({ ...defaultFilters });
+  const [sortField, setSortField] = useState<string>("id");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const limit = 5;
 
   // Form State
@@ -496,14 +506,107 @@ export default function EmployeesPage() {
     }
   };
 
-  const filteredMembers = members.filter(m => 
-    (m.user?.name?.toLowerCase() || "").includes(search.toLowerCase()) || 
-    (m.dms_code || "").toLowerCase().includes(search.toLowerCase()) ||
-    (m.itop_number || "").includes(search)
-  );
+  const filteredMembers = useMemo(() => {
+    return members.filter(m => {
+      // Global search
+      if (filters.search) {
+        const s = filters.search.toLowerCase();
+        const match =
+          (m.user?.name?.toLowerCase() || "").includes(s) ||
+          (m.dms_code || "").toLowerCase().includes(s) ||
+          (m.itop_number || "").toLowerCase().includes(s) ||
+          (m.personal_number || "").includes(s) ||
+          (m.pool_number || "").toLowerCase().includes(s) ||
+          (m.assisted_retailer_code || "").toLowerCase().includes(s);
+        if (!match) return false;
+      }
+
+      // House
+      if (filters.house_id && m.house_id !== filters.house_id) return false;
+
+      // Role
+      if (filters.role) {
+        const userRoles = m.user?.roles?.map(r => r.name) || [];
+        if (!userRoles.some(r => r.toLowerCase() === filters.role.toLowerCase())) return false;
+      }
+
+      // Status
+      if (filters.status && m.status !== filters.status) return false;
+
+      // Market type
+      if (filters.market_type && m.market_type !== filters.market_type) return false;
+
+      // Motor bike
+      if (filters.motor_bike && m.motor_bike !== filters.motor_bike) return false;
+
+      // Bicycle
+      if (filters.bicyle && m.bicyle !== filters.bicyle) return false;
+
+      // Driving license
+      if (filters.driving_license && m.driving_license !== filters.driving_license) return false;
+
+      // Blood group
+      if (filters.blood_group && m.blood_group !== filters.blood_group) return false;
+
+      // Religion
+      if (filters.religion && m.religion !== filters.religion) return false;
+
+      // Has assisted code
+      if (filters.has_assisted_code === true && !m.assisted_retailer_code) return false;
+      if (filters.has_assisted_code === false && m.assisted_retailer_code) return false;
+
+      // Has user
+      if (filters.has_user === true && !m.user_id) return false;
+      if (filters.has_user === false && m.user_id) return false;
+
+      // Has bank info
+      if (filters.has_bank_info === true && (!m.bank_name || !m.bank_account)) return false;
+      if (filters.has_bank_info === false && m.bank_name && m.bank_account) return false;
+
+      // Joining date range
+      if (filters.joining_date_from && m.joining_date && m.joining_date < filters.joining_date_from) return false;
+      if (filters.joining_date_to && m.joining_date && m.joining_date > filters.joining_date_to) return false;
+
+      // Resigned date range
+      if (filters.resigned_date_from && m.resigned_date && m.resigned_date < filters.resigned_date_from) return false;
+      if (filters.resigned_date_to && m.resigned_date && m.resigned_date > filters.resigned_date_to) return false;
+
+      // Salary range
+      const salary = m.salary ? parseFloat(m.salary) : NaN;
+      if (filters.salary_min && !isNaN(salary) && salary < parseFloat(filters.salary_min)) return false;
+      if (filters.salary_max && !isNaN(salary) && salary > parseFloat(filters.salary_max)) return false;
+
+      return true;
+    });
+  }, [members, filters]);
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedMembers = [...filteredMembers].sort((a, b) => {
+    const getVal = (e: Employee): string => {
+      switch (sortField) {
+        case "name": return (e.user?.name || e.dms_code || "").toLowerCase();
+        case "dms_code": return (e.dms_code || "").toLowerCase();
+        case "house": return (e.house?.name || "").toLowerCase();
+        case "assisted_code": return (e.assisted_retailer_code || "").toLowerCase();
+        case "status": return (e.status || "").toLowerCase();
+        default: return String(e.id);
+      }
+    };
+    const va = getVal(a);
+    const vb = getVal(b);
+    return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
 
   const totalPages = Math.ceil(filteredMembers.length / limit);
-  const paginatedMembers = filteredMembers.slice(page * limit, (page + 1) * limit);
+  const paginatedMembers = sortedMembers.slice(page * limit, (page + 1) * limit);
 
   if (authLoading) return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500"/></div>;
   if (!hasPermission("view_employees")) return <AccessDenied />;
@@ -548,22 +651,58 @@ export default function EmployeesPage() {
       </div>
 
       {/* Main Content */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border dark:border-slate-800 shadow-sm overflow-hidden transition-all duration-300">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border dark:border-slate-800 shadow-sm overflow-hidden transition-all duration-300">
         <div className="p-4 border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex flex-col md:flex-row gap-4 justify-between items-center">
-          <div className="relative w-full md:w-96 group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-            <input 
-              type="text" 
-              placeholder={t('employees.search_placeholder')} 
-              className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-1 focus:ring-primary-500 outline-none dark:text-gray-100 transition-all shadow-sm"
-              value={search}
-              onChange={e => {setSearch(e.target.value); setPage(0);}}
-            />
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={cn(
+                "p-2 rounded-xl border transition-all active:scale-95",
+                showFilters
+                  ? "bg-primary-500 text-white border-primary-500 shadow-sm"
+                  : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
+              )}
+              title="Toggle filters"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+            <div className="relative flex-1 md:w-80 group">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+              <input 
+                type="text" 
+                placeholder={t('employees.search_placeholder')} 
+                className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-1 focus:ring-primary-500 outline-none dark:text-gray-100 transition-all shadow-sm"
+                value={filters.search}
+                onChange={e => {setFilters(f => ({ ...f, search: e.target.value })); setPage(0);}}
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-3 py-1 rounded-full">{t('employees.count_label', { count: filteredMembers.length })}</span>
           </div>
         </div>
+
+        {/* Filter dropdown */}
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="overflow-hidden border-b dark:border-slate-800"
+            >
+              <div className="p-4">
+                <EmployeeMasterFilter
+                  filters={filters}
+                  onChange={setFilters}
+                  onClear={() => setFilters({ ...defaultFilters })}
+                  houses={houses}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {loading ? (
           <div className="p-12 flex flex-col items-center justify-center gap-4">
@@ -583,10 +722,36 @@ export default function EmployeesPage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-800 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b dark:border-slate-800">
-                    <th className="px-6 py-4">{t('employees.table_info')}</th>
-                    <th className="px-6 py-4">{t('employees.table_dms')}</th>
-                    <th className="px-6 py-4">{t('employees.table_house')}</th>
-                    <th className="px-6 py-4">{t('employees.table_status')}</th>
+                    <th className="px-6 py-4">
+                      <button onClick={() => handleSort("name")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                        {t('employees.table_info')}
+                        {sortField === "name" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4">
+                      <button onClick={() => handleSort("dms_code")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                        {t('employees.table_dms')}
+                        {sortField === "dms_code" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4">
+                      <button onClick={() => handleSort("house")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                        {t('employees.table_house')}
+                        {sortField === "house" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4">
+                      <button onClick={() => handleSort("assisted_code")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                        Assisted Code
+                        {sortField === "assisted_code" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4">
+                      <button onClick={() => handleSort("status")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                        {t('employees.table_status')}
+                        {sortField === "status" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+                      </button>
+                    </th>
                     <th className="px-6 py-4 text-right">{t('employees.table_actions')}</th>
                   </tr>
                 </thead>
@@ -622,6 +787,16 @@ export default function EmployeesPage() {
                           </div>
                         ) : (
                           <span className="text-gray-400 italic text-xs">{t('employees.no_house')}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {m.assisted_retailer_code ? (
+                          <span className="text-xs font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-300 px-2 py-0.5 rounded-lg inline-flex items-center gap-1">
+                            <Store className="w-3 h-3" />
+                            {m.assisted_retailer_code}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-400 italic">—</span>
                         )}
                       </td>
                       <td className="px-6 py-4">
@@ -674,15 +849,14 @@ export default function EmployeesPage() {
 
       {/* View Modal */}
       {isViewModalOpen && viewingMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setIsViewModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] border dark:border-slate-800 animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setIsViewModalOpen(false)}>
+          <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col max-h-[95vh] border border-gray-200 dark:border-slate-800 animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}> 
             {/* Header */}
-            <div className="relative shrink-0">
-              <div className="absolute inset-0 bg-gradient-to-br from-primary-500 to-primary-700 opacity-95 rounded-t-2xl" />
+            <div className="bg-primary-600 rounded-t-2xl relative overflow-hidden shrink-0">
               <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
               <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
-              <div className="relative px-6 py-5 flex items-start gap-4">
-                <div className="w-16 h-16 shrink-0 rounded-2xl bg-white/20 flex items-center justify-center text-white text-2xl font-black shadow-lg backdrop-blur-sm border border-white/20 overflow-hidden">
+              <div className="relative px-4 sm:px-6 py-3 sm:py-5 flex items-start gap-3 sm:gap-4">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 rounded-2xl bg-white/20 flex items-center justify-center text-white text-lg sm:text-2xl font-black shadow-lg backdrop-blur-sm border border-white/20 overflow-hidden">
                   {viewingMember.user?.profile_pic ? (
                     <img src={profilePicUrl(viewingMember.user.profile_pic)!} alt="" className="w-full h-full object-cover" />
                   ) : (
@@ -690,47 +864,47 @@ export default function EmployeesPage() {
                   )}
                 </div>
                 <div className="flex-1 text-white min-w-0">
-                  <h2 className="text-xl font-bold truncate">{viewingMember.user?.name || "Unnamed"}</h2>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <h2 className="text-base sm:text-xl font-bold truncate">{viewingMember.user?.name || "Unnamed"}</h2>
+                  <div className="flex flex-wrap items-center gap-1 mt-1.5">
                     <span className="text-[11px] font-mono bg-white/15 px-2 py-0.5 rounded-lg whitespace-nowrap">{viewingMember.dms_code}</span>
                     {viewingMember.house && (
                       <span className="text-[11px] bg-white/15 px-2 py-0.5 rounded-lg truncate max-w-[200px]">{viewingMember.house.name}</span>
                     )}
                     <span className={cn(
                       "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase whitespace-nowrap",
-                      viewingMember.status === "Active" ? "bg-green-400/20 text-green-200" :
-                      viewingMember.status === "Resigned" ? "bg-red-400/20 text-red-200" :
-                      "bg-primary-400/20 text-primary-200"
+                      viewingMember.status === "Active" ? "bg-green-400/30 text-green-100" :
+                      viewingMember.status === "Resigned" ? "bg-red-400/30 text-red-100" :
+                      "bg-primary-400/30 text-primary-100"
                     )}>{viewingMember.status}</span>
                   </div>
                 </div>
-                <button onClick={() => setIsViewModalOpen(false)} className="p-2 shrink-0 bg-white/10 hover:bg-white/20 rounded-xl transition-all text-white">
-                  <X className="w-5 h-5" />
+                <button onClick={() => setIsViewModalOpen(false)} className="p-1.5 sm:p-2 shrink-0 bg-white/10 hover:bg-white/20 rounded-xl transition-all text-white">
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Scrollable content */}
-            <div className="p-6 overflow-y-auto space-y-5 scrollbar-hide">
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5 text-gray-900 dark:text-gray-100">
               {/* Contact Info — inline badges */}
               <div className="flex flex-wrap gap-2">
-                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-xl text-sm">
+                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-xl text-sm border border-gray-200 dark:border-transparent">
                   <Phone className="w-3.5 h-3.5 text-primary-500" />
-                  <span className="font-bold dark:text-gray-200">{viewingMember.personal_number || "—"}</span>
+                  <span className="font-bold text-gray-800 dark:text-gray-200">{viewingMember.personal_number || "—"}</span>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-xl text-sm">
+                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-xl text-sm border border-gray-200 dark:border-transparent">
                   <Smartphone className="w-3.5 h-3.5 text-blue-500" />
-                  <span className="font-bold dark:text-gray-200">{viewingMember.itop_number || "—"}</span>
+                  <span className="font-bold text-gray-800 dark:text-gray-200">{viewingMember.itop_number || "—"}</span>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-xl text-sm">
+                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-xl text-sm border border-gray-200 dark:border-transparent">
                   <Calendar className="w-3.5 h-3.5 text-purple-500" />
-                  <span className="font-bold dark:text-gray-200">{viewingMember.joining_date || "—"}</span>
+                  <span className="font-bold text-gray-800 dark:text-gray-200">{viewingMember.joining_date || "—"}</span>
                 </div>
               </div>
 
               {/* Professional Details */}
               <div>
-                <div className="flex items-center gap-2 pb-2 mb-3 border-b dark:border-slate-800">
+                <div className="flex items-center gap-2 pb-2 mb-3 border-b border-gray-200 dark:border-slate-800">
                   <Briefcase className="w-4 h-4 text-blue-500" />
                   <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_professional')}</h4>
                 </div>
@@ -744,7 +918,7 @@ export default function EmployeesPage() {
 
               {/* Personal Information */}
               <div>
-                <div className="flex items-center gap-2 pb-2 mb-3 border-b dark:border-slate-800">
+                <div className="flex items-center gap-2 pb-2 mb-3 border-b border-gray-200 dark:border-slate-800">
                   <User className="w-4 h-4 text-purple-500" />
                   <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_personal')}</h4>
                 </div>
@@ -764,7 +938,7 @@ export default function EmployeesPage() {
 
               {/* Bank Details */}
               <div>
-                <div className="flex items-center gap-2 pb-2 mb-3 border-b dark:border-slate-800">
+                <div className="flex items-center gap-2 pb-2 mb-3 border-b border-gray-200 dark:border-slate-800">
                   <CreditCard className="w-4 h-4 text-emerald-500" />
                   <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_bank')}</h4>
                 </div>
@@ -778,7 +952,7 @@ export default function EmployeesPage() {
 
               {/* Emergency Contact */}
               <div>
-                <div className="flex items-center gap-2 pb-2 mb-3 border-b dark:border-slate-800">
+                <div className="flex items-center gap-2 pb-2 mb-3 border-b border-gray-200 dark:border-slate-800">
                   <Shield className="w-4 h-4 text-red-500" />
                   <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_emergency')}</h4>
                 </div>
@@ -791,7 +965,7 @@ export default function EmployeesPage() {
 
               {/* Experience & Assets */}
               <div>
-                <div className="flex items-center gap-2 pb-2 mb-3 border-b dark:border-slate-800">
+                <div className="flex items-center gap-2 pb-2 mb-3 border-b border-gray-200 dark:border-slate-800">
                   <Briefcase className="w-4 h-4 text-amber-500" />
                   <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_experience')}</h4>
                 </div>
@@ -806,11 +980,11 @@ export default function EmployeesPage() {
             </div>
 
             {/* Footer with actions */}
-            <div className="p-4 border-t dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex justify-end gap-2">
-              <button onClick={() => { setIsViewModalOpen(false); openEditModal(viewingMember); }} className="px-5 py-2.5 bg-primary-500 hover:bg-primary-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-primary-200 dark:shadow-none">
+            <div className="shrink-0 p-3 sm:p-4 border-t border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex flex-col-reverse sm:flex-row justify-end gap-2">
+              <button onClick={() => { setIsViewModalOpen(false); openEditModal(viewingMember); }} className="px-4 sm:px-5 py-2.5 bg-primary-500 hover:bg-primary-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-primary-200 dark:shadow-none">
                 <Edit2 className="w-4 h-4" /> Edit
               </button>
-              <button onClick={() => { setIsViewModalOpen(false); setDeletingId(viewingMember.id); setIsConfirmOpen(true); }} className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-all active:scale-95">
+              <button onClick={() => { setIsViewModalOpen(false); setDeletingId(viewingMember.id); setIsConfirmOpen(true); }} className="px-4 sm:px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95">
                 <Trash2 className="w-4 h-4" /> Delete
               </button>
             </div>
@@ -820,8 +994,8 @@ export default function EmployeesPage() {
 
       {/* Form Modal */}
       {isFormModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] border dark:border-slate-800 animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-y-auto max-h-[95vh] border dark:border-slate-800 animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
               <div>
                 <h3 className="text-lg font-bold dark:text-gray-100 flex items-center gap-2">
@@ -834,7 +1008,7 @@ export default function EmployeesPage() {
               </div>
               <button onClick={() => setIsFormModalOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-all active:scale-90"><X className="w-5 h-5"/></button>
             </div>
-            <form onSubmit={handleFormSubmit} className="p-6 overflow-y-auto space-y-8 scrollbar-hide">
+            <form onSubmit={handleFormSubmit} className="p-6 space-y-8">
               {/* Section 1: Basic Information */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 pb-2 border-b dark:border-slate-800">
@@ -1108,7 +1282,7 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div className="flex gap-4 pt-6 bg-white dark:bg-slate-900 border-t dark:border-slate-800 py-4 z-10">
+              <div className="flex gap-4 pt-6 bg-white dark:bg-slate-900 border-t dark:border-slate-800 pb-24 sm:pb-4">
                 <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all active:scale-95">{t('employees.btn_cancel')}</button>
                 <button type="submit" disabled={formLoading} className="flex-[2] py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-primary-200 dark:shadow-none transition-all active:scale-95">
                   {formLoading ? <Loader2 className="w-5 h-5 animate-spin"/> : <Check className="w-5 h-5"/>}

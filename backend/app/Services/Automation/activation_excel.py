@@ -7,11 +7,11 @@ from sqlalchemy import select, func
 from tqdm import tqdm
 from colorama import Fore, Style, init
 
-from app.Models.activation import Activation
-from app.Models.retailer import Retailer
-from app.Models.house import House
-from app.Services.db_service import async_session
-from app.Utils.helpers import bn_num
+from app.models.activation import Activation
+from app.models.retailer import Retailer
+from app.models.house import House
+from app.services.db_service import async_session
+from app.utils.helpers import bn_num
 
 # Initialize colorama
 init(autoreset=True)

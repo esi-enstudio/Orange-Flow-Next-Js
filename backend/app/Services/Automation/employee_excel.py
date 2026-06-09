@@ -6,10 +6,10 @@ from tqdm import tqdm
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
 
-from app.Models.employee import Employee
-from app.Models.user import User         
-from app.Models.house import House
-from app.Services.db_service import async_session
+from app.models.employee import Employee
+from app.models.user import User         
+from app.models.house import House
+from app.services.db_service import async_session
 
 logger = logging.getLogger(__name__)
 

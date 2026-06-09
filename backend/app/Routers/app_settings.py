@@ -4,8 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
-from app.Routers.deps import get_db, has_permission
-from app.Models.app_setting import AppSetting
+from app.routers.deps import get_db, has_permission
+from app.models.app_setting import AppSetting
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,32 @@ async def toggle_daily_sync(
     status = "🟢 চালু" if data.enabled else "🔴 বন্ধ"
     logger.info(f"দৈনিক সিঙ্ক {status} করা হয়েছে")
     return {"enabled": bool(setting.is_daily_sync_enabled)}
+
+@router.get("/live-sync")
+async def get_live_sync_status(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
+    setting = result.scalar_one_or_none()
+    if not setting:
+        return {"enabled": True}
+    return {"enabled": bool(setting.is_live_sync_enabled)}
+
+@router.put("/live-sync")
+async def toggle_live_sync(
+    data: DailySyncToggle,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("manage_settings")),
+):
+    result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
+    setting = result.scalar_one_or_none()
+    if not setting:
+        setting = AppSetting(id=1)
+        db.add(setting)
+    setting.is_live_sync_enabled = 1 if data.enabled else 0
+    await db.commit()
+    await db.refresh(setting)
+    status = "🟢 চালু" if data.enabled else "🔴 বন্ধ"
+    logger.info(f"লাইভ সিঙ্ক {status} করা হয়েছে")
+    return {"enabled": bool(setting.is_live_sync_enabled)}
 
 @router.post("/brand/logo")
 async def upload_logo(

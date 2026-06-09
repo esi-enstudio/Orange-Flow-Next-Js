@@ -8,11 +8,11 @@ from tqdm import tqdm
 from colorama import Fore, Style, init
 
 # ... rest of imports
-from app.Models.itopup_detail import ITopUpDetail
-from app.Models.house import House
-from app.Models.retailer import Retailer
-from app.Services.db_service import async_session
-from app.Utils.helpers import bn_num
+from app.models.itopup_detail import ITopUpDetail
+from app.models.house import House
+from app.models.retailer import Retailer
+from app.services.db_service import async_session
+from app.utils.helpers import bn_num
 
 # Initialize colorama
 init(autoreset=True)
