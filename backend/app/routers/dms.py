@@ -40,6 +40,22 @@ class SIMStatusCheckResponse(BaseModel):
     total_checked: int
     results: List[SIMStatusItem]
 
+class SIMReturnRequest(BaseModel):
+    house_id: int = Field(..., description="ID of the distribution house")
+    input_value: str = Field(..., description="Range-based input or list of serials")
+
+class SIMReturnItem(BaseModel):
+    sim_no: str
+    status: str
+    remarks: Optional[str] = None
+
+class SIMReturnResponse(BaseModel):
+    house_id: int
+    house_name: str
+    house_code: str
+    total_processed: int
+    results: List[SIMReturnItem]
+
 def parse_serial_input(input_val: str) -> List[str]:
     # Split by newlines, commas, or semicolons
     raw_lines = re.split(r'[\n,\;]+', input_val)
@@ -289,5 +305,180 @@ async def check_sim_status(
         house_name=house.name,
         house_code=house.code,
         total_checked=len(serials),
+        results=results_list
+    )
+
+
+SIM_RETURN_URL = "https://blkdms.banglalink.net/SmartSearchReport"
+
+
+def process_return_results(scanned_data: list, credentials: dict, input_serials: list) -> list:
+    target_code = str(credentials.get('code', '')).strip().upper()
+
+    scanned_map = {}
+    for d in scanned_data:
+        sim = d.get("SIM No", "").strip().replace("'", "")
+        if sim:
+            scanned_map[sim] = d
+
+    results = []
+    for sim in input_serials:
+        if sim in scanned_map:
+            d = scanned_map[sim]
+            dms_distro = str(d.get("Distributor", "")).strip().upper()
+            retailer = d.get("Retailer", "").strip()
+            act_date = d.get("Activation Date", "").strip()
+
+            if target_code not in dms_distro:
+                results.append({
+                    "sim_no": sim,
+                    "status": "Failed",
+                    "remarks": f"SIM belongs to different distributor ({d.get('Distributor', 'N/A')})"
+                })
+            elif act_date:
+                results.append({
+                    "sim_no": sim,
+                    "status": "Failed",
+                    "remarks": "SIM is already activated, cannot be returned"
+                })
+            elif retailer and retailer != "Select" and retailer != "N/A":
+                results.append({
+                    "sim_no": sim,
+                    "status": "Success",
+                    "remarks": f"Returned from retailer: {retailer}"
+                })
+            else:
+                results.append({
+                    "sim_no": sim,
+                    "status": "Already Returned",
+                    "remarks": "SIM is already in warehouse stock"
+                })
+        else:
+            results.append({
+                "sim_no": sim,
+                "status": "Failed",
+                "remarks": "SIM not found in DMS system"
+            })
+
+    return results
+
+
+async def run_sim_return_check(serials: list, credentials: dict):
+    house_name = credentials.get('house_name', 'N/A')
+    h_code = credentials.get('code', 'N/A')
+
+    page = None
+    context = None
+
+    try:
+        page, context = await session_manager.get_valid_page(credentials)
+    except Exception as e:
+        logger.error(f"❌ [Task Error] {house_name} সেশন পেতে ব্যর্থ: {str(e)}")
+        raise Exception(f"DMS session login failed: {str(e)}")
+
+    try:
+        logger.info(f"🔙 [SIM Return] {house_name} ({h_code}) এর জন্য {len(serials)}টি সিম রিটার্ন চেক শুরু...")
+
+        await page.goto(SIM_RETURN_URL, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_selector("#SearchType", timeout=30000)
+
+        await page.select_option("#SearchType", "1")
+        await page.fill("#SearchValue", "\n".join(serials))
+
+        await page.click("button.btn-success")
+        logger.info(f"📡 {house_name}: সার্চ সাবমিট হয়েছে, ডাটা সংগ্রহের অপেক্ষা...")
+
+        scanned_data, error = await get_smart_search_results(page)
+
+        if error:
+            logger.warning(f"⚠️ {house_name}: {error}")
+            raise Exception(error)
+
+        if not scanned_data:
+            scanned_data = []
+
+        return process_return_results(scanned_data, credentials, serials)
+
+    except Exception as e:
+        logger.error(f"❌ [Task Error] {house_name} রিটার্ন ক্র্যাশ: {str(e)}", exc_info=True)
+        raise e
+    finally:
+        try:
+            if page: await page.close()
+            if context: await context.close()
+            logger.info(f"🚪 [{house_name}] রিটার্ন টাস্ক ট্যাব ও সেশন ক্লোজ করা হয়েছে।")
+        except:
+            pass
+
+
+@router.post("/sim-return", response_model=SIMReturnResponse)
+async def return_sim(
+    payload: SIMReturnRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_sim_return"))
+):
+    is_admin = is_admin_user(current_user)
+
+    result = await db.execute(select(House).where(House.id == payload.house_id))
+    house = result.scalar_one_or_none()
+
+    if not house:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Distribution house not found."
+        )
+
+    if not is_admin:
+        user_house_ids = [h.id for h in current_user.houses]
+        if house.id not in user_house_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this distribution house."
+            )
+
+    if not house.dms_user or not house.dms_pass or not house.dms_house_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DMS credentials are not configured for this distribution house. Please configure them in House Settings."
+        )
+
+    try:
+        serials = parse_serial_input(payload.input_value)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+    if not serials:
+        return SIMReturnResponse(
+            house_id=house.id,
+            house_name=house.name,
+            house_code=house.code,
+            total_processed=0,
+            results=[]
+        )
+
+    credentials = {
+        "user": house.dms_user,
+        "pass": house.dms_pass,
+        "house_id": house.dms_house_id,
+        "house_name": house.name,
+        "code": house.code
+    }
+
+    try:
+        results_list = await run_sim_return_check(serials, credentials)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"SIM return automation failed: {str(e)}"
+        )
+
+    return SIMReturnResponse(
+        house_id=house.id,
+        house_name=house.name,
+        house_code=house.code,
+        total_processed=len(serials),
         results=results_list
     )

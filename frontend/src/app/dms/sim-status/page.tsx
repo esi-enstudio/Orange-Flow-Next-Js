@@ -34,7 +34,7 @@ interface House {
 }
 
 interface SIMStatusItem {
-  sim_no: str;
+  sim_no: string;
   status: "Active" | "Issued" | "Warehouse" | "Other House" | "Not Found";
   distributor: string | null;
   retailer: string | null;
