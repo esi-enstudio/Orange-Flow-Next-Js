@@ -566,7 +566,7 @@ export default function SIMStatusCheckPage() {
       </div>
 
       {/* Results Section Dashboard */}
-      {results.length > 0 && (
+      {houseInfo && (
         <div className="space-y-6 animate-in slide-in-from-bottom duration-500">
 
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -757,7 +757,7 @@ export default function SIMStatusCheckPage() {
 
             {/* Results Table */}
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-slate-800/60 bg-gray-50/20 dark:bg-slate-900/10">
                     <th className="px-6 py-4 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
@@ -831,7 +831,7 @@ export default function SIMStatusCheckPage() {
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="p-5 border-t border-gray-100 dark:border-slate-800/80 bg-gray-50/20 dark:bg-slate-900/10 flex items-center justify-between">
+              <div className="p-5 border-t border-gray-100 dark:border-slate-800/80 bg-gray-50/20 dark:bg-slate-900/10 flex items-center justify-center gap-4">
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
@@ -840,26 +840,6 @@ export default function SIMStatusCheckPage() {
                   <ChevronLeft className="w-4 h-4 inline-block mr-1" />
                   {t("common.prev")}
                 </button>
-
-                <div className="flex gap-1">
-                  {Array.from({ length: totalPages }).map((_, i) => {
-                    const page = i + 1;
-                    return (
-                      <button
-                        key={page}
-                        onClick={() => handlePageChange(page)}
-                        className={cn(
-                          "w-8 h-8 text-xs font-bold rounded-xl transition-all",
-                          currentPage === page
-                            ? "bg-primary-500 text-white shadow-md shadow-primary-200 dark:shadow-none"
-                            : "text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-gray-800 dark:hover:text-gray-200"
-                        )}
-                      >
-                        {page}
-                      </button>
-                    );
-                  })}
-                </div>
 
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
