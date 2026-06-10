@@ -119,21 +119,24 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
 
       try {
         if (isEmployeesMode) {
-          const [empRes, configRes] = await Promise.all([
+          const [empRes, configRes, codesRes] = await Promise.all([
             apiClient.get<EmployeeGroupedResponse>("/employees/by-house-grouped", {
               params: { house_id: houseId },
             }),
-            apiClient.get<{ sections: Array<{ section_key: string; selected_employee_ids: number[] }> }>(
+            apiClient.get<{ sections: Array<{ section_key: string; selected_employee_ids: number[]; exclude_product_codes: string[] }> }>(
               "/ga-live/section-configs",
               { params: { house_id: houseId } }
             ),
+            apiClient.get<Array<{ id: number; product_code: string }>>("/product-exclusions"),
           ]);
 
           if (cancelled) return;
 
           setEmployeeGroups(empRes.data);
+          setProductCodes(codesRes.data.map((c) => c.product_code));
           const sectionConfig = configRes.data.sections.find((s) => s.section_key === sectionKey);
           setSelectedEmpIds(sectionConfig?.selected_employee_ids ?? []);
+          setSelectedCodes(sectionConfig?.exclude_product_codes ?? []);
         } else {
           const [codesRes, tagsRes, configRes] = await Promise.all([
             apiClient.get<Array<{ id: number; product_code: string }>>("/product-exclusions"),

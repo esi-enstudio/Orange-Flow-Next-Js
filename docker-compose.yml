@@ -17,7 +17,7 @@ services:
         limits:
           memory: 2G
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-orange_flow_dev_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
