@@ -51,6 +51,7 @@ from app.routers.todos import router as todos_router
 from app.routers.webhook import router as webhook_router
 from app.routers.app_settings import router as app_settings_router
 from app.routers.ga_section_configs import router as ga_section_configs_router
+from app.routers.dms import router as dms_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -82,6 +83,7 @@ app.include_router(todos_router)
 app.include_router(webhook_router)
 app.include_router(app_settings_router)
 app.include_router(ga_section_configs_router)
+app.include_router(dms_router)
 
 app.add_middleware(
     CORSMiddleware,

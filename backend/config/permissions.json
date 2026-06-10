@@ -64,6 +64,11 @@
             "name": "products",
             "display_name": "Products",
             "actions": ["view", "create", "edit", "delete", "import", "export"]
+        },
+        {
+            "name": "sim_status",
+            "display_name": "SIM Status Check",
+            "actions": ["view"]
         }
     ],
     "default_roles": [
@@ -77,19 +82,19 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["view_houses", "view_retailers", "view_employees", "view_bts", "view_reports"]
+            "permissions": ["view_houses", "view_retailers", "view_employees", "view_bts", "view_reports", "view_sim_status"]
         },
         {
             "name": "Manager",
-            "permissions": ["view_reports", "view_retailers", "view_employees", "view_bts"]
+            "permissions": ["view_reports", "view_retailers", "view_employees", "view_bts", "view_sim_status"]
         },
         {
             "name": "Supervisor",
-            "permissions": ["view_reports", "view_retailers"]
+            "permissions": ["view_reports", "view_retailers", "view_sim_status"]
         },
         {
             "name": "RSO",
-            "permissions": ["view_reports", "view_retailers"]
+            "permissions": ["view_reports", "view_retailers", "view_sim_status"]
         },
         {
             "name": "BP",
