@@ -373,6 +373,13 @@ export default function SIMIssuePage() {
                   setSelectedRetailer(null);
                   setRetailerSearch("");
                   setRetailers([]);
+                  setInputValue("");
+                  setResults([]);
+                  setIssueInfo(null);
+                  setSearchQuery("");
+                  setStatusFilter("All");
+                  setCurrentPage(1);
+                  setInputMethod("range");
                 }}
                 disabled={loading}
                 className="w-full pl-4 pr-10 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all cursor-pointer disabled:opacity-60 appearance-none"
@@ -497,6 +504,12 @@ export default function SIMIssuePage() {
                       setSelectedRetailer(null);
                       setRetailerSearch("");
                       setRetailers([]);
+                      setInputValue("");
+                      setResults([]);
+                      setIssueInfo(null);
+                      setSearchQuery("");
+                      setStatusFilter("All");
+                      setCurrentPage(1);
                     }}
                     className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"
                   >

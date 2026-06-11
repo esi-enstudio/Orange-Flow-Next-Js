@@ -7,3 +7,5 @@ from app.schemas.retailer import *
 from app.schemas.bts import *
 from app.schemas.activation import *
 from app.schemas.filter import *
+from app.schemas.product import *
+from app.schemas.lifting import *

@@ -21,21 +21,32 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { user, logout, hasPermission } = useAuth();
   const { t } = useLanguage();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [openNested, setOpenNested] = useState<string | null>(null);
   const { brand } = useBrand();
 
   // Filter items based on permissions - use memo to prevent mutation of constant
   const filteredNavItems = React.useMemo(() => {
+    function filterChildren(children: any[]): any[] {
+      return children
+        .filter(child => !child.permission || hasPermission(child.permission))
+        .map(child => {
+          if (child.children) {
+            const filtered = filterChildren(child.children);
+            return filtered.length > 0 ? { ...child, children: filtered } : { ...child, children: undefined };
+          }
+          return child;
+        });
+    }
+
     return navItems
       .map(item => ({ ...item })) // Shallow clone parent
       .filter(item => {
         // 1. If it has a direct permission, check it
         if (item.permission && !hasPermission(item.permission)) return false;
 
-        // 2. If it has children, check if any child is visible
+        // 2. If it has children, filter recursively
         if (item.children) {
-          const visibleChildren = item.children.filter(child => 
-            !child.permission || hasPermission(child.permission)
-          );
+          const visibleChildren = filterChildren(item.children);
           // If no children are visible, hide the parent
           if (visibleChildren.length === 0) return false;
           
@@ -50,15 +61,28 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   // Auto-open parent menu if a child is active
   React.useEffect(() => {
     const activeParent = filteredNavItems.find(item => 
-      item.children?.some(child => child.href === pathname)
+      item.children?.some(child => child.href === pathname || child.children?.some(sub => sub.href === pathname))
     );
     if (activeParent) {
       setOpenMenu(activeParent.title);
+    }
+    // Auto-open nested menu if a sub-child is active
+    for (const item of filteredNavItems) {
+      for (const child of (item.children || [])) {
+        if (child.children?.some(sub => sub.href === pathname)) {
+          setOpenNested(child.title);
+          return;
+        }
+      }
     }
   }, [pathname, filteredNavItems]);
 
   const toggleMenu = (title: string) => {
     setOpenMenu(prev => prev === title ? null : title);
+  };
+
+  const toggleNested = (title: string) => {
+    setOpenNested(prev => prev === title ? null : title);
   };
 
   const sidebarContent = (
@@ -88,7 +112,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           {filteredNavItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
             const isOpenMenu = openMenu === item.title;
-            const isParentActive = item.children?.some(c => c.href === pathname);
+            const isParentActive = item.children?.some(c => c.href === pathname || c.children?.some(sub => sub.href === pathname));
             const isDirectActive = item.href === pathname;
 
             return (
@@ -149,7 +173,79 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                     >
                       <div className="space-y-1 pt-1 pb-1">
                         {item.children?.map((child) => {
+                          const childHasNavChildren = child.children && child.children.length > 0;
                           const isChildActive = pathname === child.href;
+                          const isNestedOpen = openNested === child.title;
+                          const isNestedActive = child.children?.some(c => c.href === pathname);
+
+                          if (childHasNavChildren) {
+                            return (
+                              <div key={child.title} className="space-y-1">
+                                <div className={cn(
+                                  "flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all group/item",
+                                  isNestedActive || isChildActive
+                                    ? "text-primary-600 dark:text-primary-400 font-bold bg-primary-50/50 dark:bg-primary-500/5"
+                                    : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                                )}>
+                                  <Link
+                                    href={child.href || "#"}
+                                    onClick={() => { if (window.innerWidth < 768 && onClose) onClose(); }}
+                                    className="flex items-center gap-3 flex-1 min-w-0"
+                                  >
+                                    <div className={cn(
+                                      "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
+                                      isNestedActive || isChildActive
+                                        ? "bg-primary-500 scale-125"
+                                        : "bg-gray-300 dark:bg-slate-700 group-hover/item:bg-primary-300"
+                                    )} />
+                                    <span className="truncate">{child.translationKey ? t(child.translationKey) : child.title}</span>
+                                  </Link>
+                                  <button
+                                    onClick={() => toggleNested(child.title)}
+                                    className="p-1 rounded-md hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+                                  >
+                                    <ChevronDown className={cn(
+                                      "w-3 h-3 opacity-40 transition-transform duration-200",
+                                      isNestedOpen && "rotate-180"
+                                    )} />
+                                  </button>
+                                </div>
+                                <AnimatePresence>
+                                  {isNestedOpen && (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: "auto", opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.15, ease: "easeInOut" }}
+                                      className="overflow-hidden ml-4"
+                                    >
+                                      <div className="space-y-0.5 pt-0.5 pb-0.5">
+                                        {child.children?.map((sub) => {
+                                          const isSubActive = pathname === sub.href;
+                                          return (
+                                            <Link
+                                              key={sub.href}
+                                              href={sub.href}
+                                              onClick={() => { if (window.innerWidth < 768 && onClose) onClose(); }}
+                                              className={cn(
+                                                "flex items-center gap-3 px-3 py-1.5 rounded-lg text-[11px] transition-all group/sub",
+                                                isSubActive
+                                                  ? "text-primary-600 dark:text-primary-400 font-bold bg-primary-50/50 dark:bg-primary-500/5"
+                                                  : "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                                              )}
+                                            >
+                                              <div className="w-1 h-1 rounded-full bg-gray-300 dark:bg-slate-700 group-hover/sub:bg-primary-300" />
+                                              <span>{sub.translationKey ? t(sub.translationKey) : sub.title}</span>
+                                            </Link>
+                                          );
+                                        })}
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            );
+                          }
 
                           return (
                             <Link

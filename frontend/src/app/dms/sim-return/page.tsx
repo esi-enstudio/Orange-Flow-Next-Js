@@ -323,7 +323,16 @@ export default function SIMReturnPage() {
             <div className="relative">
               <select
                 value={selectedHouseId}
-                onChange={(e) => setSelectedHouseId(e.target.value === "" ? "" : Number(e.target.value))}
+                onChange={(e) => {
+                      setSelectedHouseId(e.target.value === "" ? "" : Number(e.target.value));
+                      setInputValue("");
+                      setResults([]);
+                      setHouseInfo(null);
+                      setSearchQuery("");
+                      setStatusFilter("All");
+                      setCurrentPage(1);
+                      setInputMethod("range");
+                    }}
                 disabled={loading}
                 className="w-full pl-4 pr-10 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer disabled:opacity-60 appearance-none"
               >

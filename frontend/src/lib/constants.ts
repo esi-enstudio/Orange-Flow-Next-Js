@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   Users2,
   Banknote,
+  Calculator,
   Zap,
   BarChart3,
   Shield,
@@ -86,7 +87,25 @@ export const navItems: NavItem[] = [
     color: "text-green-500",
     children: [
       { title: "GA Live Report", translationKey: "nav.reports", href: "/reports/ga-live", permission: "view_reports" },
-      { title: "Lifting & Commission", translationKey: "nav.lifting", href: "/commercial/lifting", permission: "view_lifting" },
+      {
+        title: "Lifting",
+        translationKey: "nav.lifting",
+        icon: Banknote,
+        color: "text-green-500",
+        permission: "view_lifting",
+        href: "/commercial/lifting",
+        children: [
+          { title: "Create Lifting", translationKey: "nav.lifting_create", href: "/commercial/lifting", permission: "view_lifting" },
+          { title: "Products", translationKey: "nav.products", href: "/commercial/lifting/products", permission: "view_products" },
+        ]
+      },
+      {
+        title: "Commission",
+        translationKey: "nav.commission",
+        icon: Calculator,
+        color: "text-green-500",
+        href: "/commercial/commission",
+      },
       { title: "Daily Expenses", translationKey: "nav.expenses", href: "/commercial/expenses", permission: "view_expenses" },
     ]
   },
@@ -144,8 +163,8 @@ export const navItems: NavItem[] = [
     children: [
       { title: "User Management", translationKey: "nav.users", href: "/users", permission: "view_users" },
       { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "view_retailers" },
-                      { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "view_reports" },
-                      { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "view_settings" },
+      { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "view_reports" },
+      { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "view_settings" },
     ]
   },
 ];

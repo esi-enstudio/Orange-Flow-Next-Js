@@ -21,6 +21,10 @@ async def seed_permissions():
         "view_reports", "download_reports",
         # Houses
         "view_houses", "create_houses", "edit_houses", "delete_houses", "import_houses", "export_houses",
+        # Products
+        "view_products", "create_products", "edit_products", "delete_products", "import_products", "export_products",
+        # Lifting
+        "view_lifting", "create_lifting", "edit_lifting", "delete_lifting", "approve_lifting", "import_lifting", "export_lifting",
     ]
     
     async with async_session() as session:
