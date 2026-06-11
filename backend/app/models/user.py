@@ -3,7 +3,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.models.base import Base
 
-# পিভট টেবিল (User <-> Role) - এটি অবশ্যই ক্লাসের আগে থাকতে হবে
+# Pivot table (User <-> Role) - must be defined before the class
 user_roles = Table(
     'users_roles',
     Base.metadata,
@@ -11,7 +11,7 @@ user_roles = Table(
     Column('role_id', Integer, ForeignKey('roles.id'))
 )
 
-# পিভট টেবিল (User <-> House)
+# Pivot table (User <-> House)
 user_houses = Table(
     'users_houses',
     Base.metadata,
@@ -33,23 +33,23 @@ class User(Base):
     profile_pic = Column(String, nullable=True)
     status = Column(String, default="Active", nullable=False)
 
-    # রিপোর্টিং লাইন (Self-referencing Foreign Key) ✅
+    # Reporting line (Self-referencing Foreign Key) ✅
     parent_id = Column(Integer, ForeignKey('users.id'), nullable=True)
 
-    # মেনি-টু-মেনি রিলেশনশিপ (রোল টেবিলের সাথে)
+    # Many-to-many relationship (with Role table)
     roles = relationship("Role", secondary=user_roles, back_populates="users", lazy="selectin")
 
-    # হাউজের সাথে রিলেশনশিপ
+    # Relationship with House
     houses = relationship("House", secondary=user_houses, back_populates="users", lazy="selectin")
 
-    # এমপ্লয়ী এর সাথে রিলেশনশিপ
+    # Relationship with Employee
     employee_profile = relationship("Employee", back_populates="user", uselist=False)
 
-    # রিপোর্টিং লাইন রিলেশনশিপ
+    # Reporting line relationship
     parent = relationship("User", remote_side=[id], backref="subordinates")
 
     todos = relationship("Todo", back_populates="user", lazy="selectin", cascade="all, delete-orphan")
 
-    # টাইমস্ট্যাম্প কলাম
+    # Timestamp columns
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

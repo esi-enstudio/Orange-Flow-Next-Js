@@ -7,10 +7,10 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { toast } from "react-hot-toast";
 import { cn } from "@/lib/utils";
 import {
-  Undo2,
+  SmartphoneNfc,
   Search,
   Loader2,
-  AlertTriangle,
+  AlertCircle,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -19,12 +19,12 @@ import {
   Clipboard,
   Database,
   Building,
+  Store,
   ShieldCheck,
-  FileX,
-  RotateCcw,
-  AlertCircle,
-  Smartphone,
-  ChevronDown
+  Tag,
+  ChevronDown,
+  X,
+  AlertTriangle
 } from "lucide-react";
 
 interface House {
@@ -34,10 +34,17 @@ interface House {
   display_name: string;
 }
 
-interface ReturnResultItem {
+interface Retailer {
+  id: number;
+  retailer_code: string;
+  name: string;
+  itop_number: string | null;
+}
+
+interface IssueResultItem {
   sim_no: string;
-  status: "Success" | "Failed" | "Already Returned";
-  remarks: string | null;
+  status: "Success" | "Skipped" | "Failed";
+  message: string | null;
 }
 
 const loadingTipsEn = [
@@ -45,12 +52,12 @@ const loadingTipsEn = [
   "Navigating to Banglalink DMS Portal...",
   "Authenticating with distributor credentials...",
   "Bypassing/verifying session credentials...",
-  "Navigating to SIM Return page...",
-  "Inputting SIM serial number queries...",
-  "Submitting return request to DMS engine...",
-  "Processing SIM return transactions...",
-  "Verifying return status with warehouse...",
-  "Finalizing return results..."
+  "Navigating to SIM Issue page...",
+  "Selecting targeted retailer code...",
+  "Uploading SIM serial numbers...",
+  "Running validation in DMS database...",
+  "Issuing SIMs to the retailer...",
+  "Finalizing issue results..."
 ];
 
 const loadingTipsBn = [
@@ -58,12 +65,12 @@ const loadingTipsBn = [
   "Navigating to Banglalink DMS portal...",
   "Logging in with distributor user ID...",
   "Verifying session credentials...",
-  "Navigating to SIM return page...",
-  "Inputting SIM serial numbers...",
-  "Submitting return request to DMS engine...",
-  "Processing SIM return transactions...",
-  "Verifying return status with warehouse...",
-  "Finalizing return results..."
+  "Loading SIM Issue page...",
+  "Selecting targeted retailer code...",
+  "Uploading SIM serial numbers...",
+  "Running validation in DMS database...",
+  "Issuing SIMs to the retailer...",
+  "Finalizing issue results..."
 ];
 
 const containerVariants = {
@@ -92,20 +99,31 @@ const cardVariants = {
   })
 };
 
-export default function SIMReturnPage() {
+export default function SIMIssuePage() {
   const { t, language } = useLanguage();
 
   const [houses, setHouses] = useState<House[]>([]);
   const [selectedHouseId, setSelectedHouseId] = useState<number | "">("");
+
+  const [retailerSearch, setRetailerSearch] = useState("");
+  const [retailers, setRetailers] = useState<Retailer[]>([]);
+  const [retailersLoading, setRetailersLoading] = useState(false);
+  const [selectedRetailer, setSelectedRetailer] = useState<Retailer | null>(null);
+
   const [inputMethod, setInputMethod] = useState<"range" | "list">("range");
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [tipIndex, setTipIndex] = useState(0);
-  const [results, setResults] = useState<ReturnResultItem[]>([]);
-  const [houseInfo, setHouseInfo] = useState<{ name: string; code: string } | null>(null);
+  const [results, setResults] = useState<IssueResultItem[]>([]);
+  const [issueInfo, setIssueInfo] = useState<{
+    houseName: string;
+    houseCode: string;
+    retailerCode: string;
+    retailerName: string;
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"All" | ReturnResultItem["status"]>("All");
+  const [statusFilter, setStatusFilter] = useState<"All" | IssueResultItem["status"]>("All");
   const [currentPage, setCurrentPage] = useState(1);
   const [showConfirm, setShowConfirm] = useState(false);
   const pageSize = 10;
@@ -124,6 +142,27 @@ export default function SIMReturnPage() {
     };
     fetchHouses();
   }, [language]);
+
+  useEffect(() => {
+    if (!selectedHouseId || retailerSearch.trim() === "") {
+      setRetailers([]);
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      setRetailersLoading(true);
+      try {
+        const res = await apiClient.get(
+          `retailers/by-house/${selectedHouseId}?search=${encodeURIComponent(retailerSearch)}`
+        );
+        setRetailers(res.data);
+      } catch {
+        // Silently handle
+      } finally {
+        setRetailersLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(delayDebounceFn);
+  }, [retailerSearch, selectedHouseId]);
 
   const parsedCount = useMemo(() => {
     if (!inputValue.trim()) return 0;
@@ -151,9 +190,7 @@ export default function SIMReturnPage() {
         }
       }
       const clean = trimmed.replace(/\D/g, "");
-      if (clean) {
-        total += 1;
-      }
+      if (clean) total += 1;
     }
     return total;
   }, [inputValue]);
@@ -175,15 +212,16 @@ export default function SIMReturnPage() {
 
   const activeTips = useMemo(() => (language === "bn" ? loadingTipsBn : loadingTipsEn), [language]);
 
-  const handleSearch = async (e: React.FormEvent) => {
+  const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedHouseId) { toast.error(t("sim_return.no_house")); return; }
-    if (!inputValue.trim()) { toast.error(t("sim_return.no_input")); return; }
-    if (parsedCount > 500) { toast.error(t("sim_return.range_too_large")); return; }
+    if (!selectedHouseId) { toast.error(t("sim_issue.no_house")); return; }
+    if (!selectedRetailer) { toast.error(t("sim_issue.no_retailer")); return; }
+    if (!inputValue.trim()) { toast.error(t("sim_issue.no_input")); return; }
+    if (parsedCount > 500) { toast.error(t("sim_issue.range_too_large")); return; }
     setShowConfirm(true);
   };
 
-  const confirmReturn = async () => {
+  const confirmIssue = async () => {
     setShowConfirm(false);
     setLoading(true);
     setResults([]);
@@ -191,15 +229,21 @@ export default function SIMReturnPage() {
     setStatusFilter("All");
 
     try {
-      const res = await apiClient.post("dms/sim-return", {
+      const res = await apiClient.post("dms/sim-issue", {
         house_id: Number(selectedHouseId),
+        retailer_id: selectedRetailer!.id,
         input_value: inputValue
       });
       setResults(res.data.results);
-      setHouseInfo({ name: res.data.house_name, code: res.data.house_code });
-      toast.success(`Successfully processed return for ${res.data.total_processed} SIM(s)!`);
+      setIssueInfo({
+        houseName: res.data.house_name,
+        houseCode: res.data.house_code,
+        retailerCode: res.data.retailer_code,
+        retailerName: res.data.retailer_name
+      });
+      toast.success(`Successfully issued ${res.data.total_success} SIM(s) to ${res.data.retailer_name}!`);
     } catch (err: any) {
-      const errMsg = err.response?.data?.detail || err.message || "Return query failed";
+      const errMsg = err.response?.data?.detail || err.message || "Issue process failed";
       toast.error(errMsg);
     } finally {
       setLoading(false);
@@ -209,21 +253,21 @@ export default function SIMReturnPage() {
   const stats = useMemo(() => {
     const total = results.length;
     const success = results.filter((r) => r.status === "Success").length;
+    const skipped = results.filter((r) => r.status === "Skipped").length;
     const failed = results.filter((r) => r.status === "Failed").length;
-    const alreadyReturned = results.filter((r) => r.status === "Already Returned").length;
-    return { total, success, failed, alreadyReturned };
+    return { total, success, skipped, failed };
   }, [results]);
 
   const exportToCSV = () => {
     if (results.length === 0) return;
-    const headers = ["SIM Serial", "Return Status", "Remarks"];
-    const rows = results.map((r) => [r.sim_no, r.status, r.remarks || "-"]);
+    const headers = ["SIM Serial", "Status", "Message"];
+    const rows = results.map((r) => [r.sim_no, r.status, r.message || "-"]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `sim-return-${houseInfo?.code || "export"}-${Date.now()}.csv`;
+    link.download = `sim-issue-${issueInfo?.retailerCode || "export"}-${Date.now()}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -235,7 +279,7 @@ export default function SIMReturnPage() {
       if (statusFilter !== "All" && row.status !== statusFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        return row.sim_no.toLowerCase().includes(q) || (row.remarks?.toLowerCase().includes(q) ?? false);
+        return row.sim_no.toLowerCase().includes(q) || (row.message?.toLowerCase().includes(q) ?? false);
       }
       return true;
     });
@@ -251,27 +295,27 @@ export default function SIMReturnPage() {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
   }, [totalPages]);
 
-  const getStatusBadge = (status: ReturnResultItem["status"]) => {
+  const getStatusBadge = (status: IssueResultItem["status"]) => {
     switch (status) {
       case "Success":
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400 border border-green-200 dark:border-green-500/20">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            {t("sim_return.success")}
+            {t("sim_issue.success")}
+          </span>
+        );
+      case "Skipped":
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            {t("sim_issue.skipped")}
           </span>
         );
       case "Failed":
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 border border-red-200 dark:border-red-500/20">
             <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-            {t("sim_return.failed")}
-          </span>
-        );
-      case "Already Returned":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-            {t("sim_return.already_returned")}
+            {t("sim_issue.failed")}
           </span>
         );
     }
@@ -300,16 +344,16 @@ export default function SIMReturnPage() {
               initial={{ rotate: -180, opacity: 0 }}
               animate={{ rotate: 0, opacity: 1 }}
               transition={{ duration: 0.6, type: "spring", stiffness: 120 }}
-              className="p-3.5 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-lg shadow-emerald-200 dark:shadow-none"
+              className="p-3.5 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-400 text-white shadow-lg shadow-orange-200 dark:shadow-none"
             >
-              <Undo2 className="w-6 h-6" />
+              <SmartphoneNfc className="w-6 h-6" />
             </motion.div>
             <div>
               <h1 className="text-2xl font-black tracking-tight text-gray-900 dark:text-gray-100">
-                {t("sim_return.title")}
+                {t("sim_issue.title")}
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
-                {t("sim_return.subtitle")}
+                {t("sim_issue.subtitle")}
               </p>
             </div>
           </div>
@@ -318,16 +362,22 @@ export default function SIMReturnPage() {
           <motion.div variants={itemVariants} className="flex flex-col gap-2 max-w-sm w-full">
             <label className="text-xs font-bold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
               <Building className="w-3.5 h-3.5" />
-              {t("sim_return.select_house")}
+              {t("sim_issue.select_house")}
             </label>
             <div className="relative">
               <select
                 value={selectedHouseId}
-                onChange={(e) => setSelectedHouseId(e.target.value === "" ? "" : Number(e.target.value))}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? "" : Number(e.target.value);
+                  setSelectedHouseId(val);
+                  setSelectedRetailer(null);
+                  setRetailerSearch("");
+                  setRetailers([]);
+                }}
                 disabled={loading}
-                className="w-full pl-4 pr-10 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer disabled:opacity-60 appearance-none"
+                className="w-full pl-4 pr-10 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all cursor-pointer disabled:opacity-60 appearance-none"
               >
-                <option value="">-- {t("sim_return.select_house")} --</option>
+                <option value="">-- {t("sim_issue.select_house")} --</option>
                 {houses.map((house) => (
                   <option key={house.id} value={house.id}>{house.display_name}</option>
                 ))}
@@ -340,142 +390,253 @@ export default function SIMReturnPage() {
         </motion.div>
 
         {/* Main Entry Card */}
-        <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm relative overflow-hidden">
+        <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm relative">
           {/* Glow decoration */}
           <motion.div
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 1.5 }}
-            className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"
+            className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 dark:bg-orange-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"
           />
 
           <form onSubmit={handleSearch} className="space-y-6 relative z-10">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <motion.div variants={itemVariants} className="flex flex-col gap-1.5">
-                <label className="text-xs font-black text-gray-500 dark:text-gray-400 tracking-wide uppercase">
-                  {t("sim_return.input_method")}
+            {/* No house selected placeholder */}
+            {!selectedHouseId ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center text-gray-400 dark:text-gray-500">
+                <Building className="w-12 h-12 mb-3 text-gray-200 dark:text-gray-800 animate-pulse" />
+                <p className="text-sm font-bold">{t("sim_issue.no_house")}</p>
+              </div>
+            ) : !selectedRetailer ? (
+              /* Step 1: Retailer Search - high-performance, no pre-load */
+              <div className="flex flex-col gap-2 w-full relative">
+                <label className="text-xs font-bold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                  <Store className="w-3.5 h-3.5" />
+                  {t("sim_issue.select_retailer")}
                 </label>
-                <div className="flex gap-1.5 p-1 bg-gray-100/80 dark:bg-slate-800 border border-gray-200/50 dark:border-slate-700 rounded-2xl">
-                  <button
-                    type="button"
-                    onClick={() => { setInputMethod("range"); setInputValue(""); }}
-                    disabled={loading}
-                    className={cn(
-                      "px-5 py-2 text-xs font-black rounded-xl transition-all",
-                      inputMethod === "range"
-                        ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
-                        : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-                    )}
-                  >
-                    {t("sim_return.method_range")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setInputMethod("list"); setInputValue(""); }}
-                    disabled={loading}
-                    className={cn(
-                      "px-5 py-2 text-xs font-black rounded-xl transition-all",
-                      inputMethod === "list"
-                        ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
-                        : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-                    )}
-                  >
-                    {t("sim_return.method_list")}
-                  </button>
-                </div>
-              </motion.div>
-
-              <div className="flex gap-3 text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => loadExample(inputMethod)}
-                  disabled={loading}
-                  className="text-emerald-500 hover:text-emerald-600 transition-colors flex items-center gap-1 border-b border-emerald-500/20 hover:border-emerald-600/50"
-                >
-                  <Clipboard className="w-3.5 h-3.5" />
-                  {"Load Example"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setInputValue("")}
-                  disabled={loading}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                >
-                  {t("common.reset")}
-                </button>
-              </div>
-            </div>
-
-            {/* Text Area Input */}
-            <div className="relative group">
-              <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                disabled={loading}
-                rows={5}
-                placeholder={
-                  inputMethod === "range"
-                    ? t("sim_return.placeholder_range")
-                    : t("sim_return.placeholder_list")
-                }
-                className={cn(
-                  "w-full px-5 py-4 border border-gray-200 dark:border-slate-800 rounded-3xl bg-gray-50/50 dark:bg-slate-800/30 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-wider leading-relaxed resize-none",
-                  parsedCount > 500
-                    ? "focus:ring-red-500 border-red-300 dark:border-red-500/20"
-                    : "focus:ring-emerald-500"
-                )}
-              />
-
-              <div className="absolute right-4 bottom-4 flex items-center gap-2">
-                <span
-                  className={cn(
-                    "text-xs font-black px-3 py-1.5 rounded-xl border",
-                    parsedCount === 0
-                      ? "bg-gray-100 text-gray-400 dark:bg-slate-800 dark:border-slate-700"
-                      : parsedCount > 500
-                        ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20"
-                        : "bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20"
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={retailerSearch}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setRetailerSearch(val);
+                      if (val.trim() === "") {
+                        setRetailers([]);
+                      }
+                    }}
+                    placeholder={t("sim_issue.search_retailer_placeholder")}
+                    autoComplete="off"
+                    className="w-full pl-10 pr-10 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                  />
+                  {retailersLoading && (
+                    <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
+                      <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                    </div>
                   )}
-                >
-                  {`Parsed: ${parsedCount} / 500`}
-                </span>
+
+                  {/* Dropdown - only shown when search has input and results available */}
+                  {retailerSearch.trim().length > 0 && (
+                    <div className="absolute left-0 right-0 mt-2 max-h-60 overflow-y-auto z-50 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xl divide-y divide-gray-50 dark:divide-slate-800/40">
+                      {retailers.length > 0 ? (
+                        retailers.map((r) => (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedRetailer(r);
+                              setRetailerSearch("");
+                              setRetailers([]);
+                            }}
+                            className="w-full text-left px-4 py-3 hover:bg-orange-50/50 dark:hover:bg-orange-500/5 flex items-center gap-3 transition-colors"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 flex items-center justify-center flex-shrink-0">
+                              <Store className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{r.name}</p>
+                              <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                                <span>Code: {r.retailer_code}</span>
+                                {r.itop_number && <span>• iTop: {r.itop_number}</span>}
+                              </p>
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-6 text-center text-xs text-gray-400 dark:text-gray-500">
+                          {retailersLoading ? "Searching..." : t("sim_issue.no_retailers_found")}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <>
+                {/* Step 2: Retailer Selected Preview Card */}
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 bg-orange-50/30 dark:bg-orange-500/5 border border-orange-200/50 dark:border-orange-500/20 rounded-2xl flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 flex items-center justify-center">
+                      <Store className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{selectedRetailer.name}</p>
+                      <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-0.5">
+                        Code: <span className="text-orange-600 dark:text-orange-400 font-bold">{selectedRetailer.retailer_code}</span>
+                        {selectedRetailer.itop_number && ` • iTop: ${selectedRetailer.itop_number}`}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRetailer(null);
+                      setRetailerSearch("");
+                      setRetailers([]);
+                    }}
+                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </motion.div>
 
-            {parsedCount > 500 && (
-              <motion.p
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="text-xs font-bold text-red-500 dark:text-red-400 flex items-center gap-1.5"
-              >
-                <AlertCircle className="w-4 h-4" />
-                {t("sim_return.range_too_large")}
-              </motion.p>
-            )}
+                {/* Step 3: Input Method and Helper Links */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 }}
+                  className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+                >
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-black text-gray-500 dark:text-gray-400 tracking-wide uppercase">
+                      {t("sim_issue.input_method")}
+                    </label>
+                    <div className="flex gap-1.5 p-1 bg-gray-100/80 dark:bg-slate-800 border border-gray-200/50 dark:border-slate-700 rounded-2xl">
+                      <button
+                        type="button"
+                        onClick={() => { setInputMethod("range"); setInputValue(""); }}
+                        disabled={loading}
+                        className={cn(
+                          "px-5 py-2 text-xs font-black rounded-xl transition-all",
+                          inputMethod === "range"
+                            ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                        )}
+                      >
+                        {t("sim_issue.method_range")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setInputMethod("list"); setInputValue(""); }}
+                        disabled={loading}
+                        className={cn(
+                          "px-5 py-2 text-xs font-black rounded-xl transition-all",
+                          inputMethod === "list"
+                            ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                        )}
+                      >
+                        {t("sim_issue.method_list")}
+                      </button>
+                    </div>
+                  </div>
 
-            {/* Submit Action Block */}
-            <div className="flex justify-end pt-2">
-              <motion.button
-                type="submit"
-                disabled={loading || parsedCount === 0 || parsedCount > 500 || !selectedHouseId}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="px-8 py-3.5 bg-gradient-to-tr from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:translate-y-[1px] shadow-emerald-200 dark:shadow-none flex items-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {t("sim_return.returning")}
-                  </>
-                ) : (
-                  <>
-                    <RotateCcw className="w-4 h-4" />
-                    {t("sim_return.return_button")}
-                    <ArrowRight className="w-4 h-4" />
-                  </>
+                  <div className="flex gap-3 text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={() => loadExample(inputMethod)}
+                      disabled={loading}
+                      className="text-orange-500 hover:text-orange-600 transition-colors flex items-center gap-1 border-b border-orange-500/20 hover:border-orange-600/50"
+                    >
+                      <Clipboard className="w-3.5 h-3.5" />
+                      {"Load Example"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInputValue("")}
+                      disabled={loading}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                    >
+                      {t("common.reset")}
+                    </button>
+                  </div>
+                </motion.div>
+
+                {/* SIM Serials Textarea */}
+                <div className="relative group">
+                  <textarea
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    disabled={loading}
+                    rows={5}
+                    placeholder={
+                      inputMethod === "range"
+                        ? t("sim_issue.placeholder_range")
+                        : t("sim_issue.placeholder_list")
+                    }
+                    className={cn(
+                      "w-full px-5 py-4 border border-gray-200 dark:border-slate-800 rounded-3xl bg-gray-50/50 dark:bg-slate-800/30 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-wider leading-relaxed resize-none",
+                      parsedCount > 500
+                        ? "focus:ring-red-500 border-red-300 dark:border-red-500/20"
+                        : "focus:ring-orange-500"
+                    )}
+                  />
+
+                  <div className="absolute right-4 bottom-4 flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "text-xs font-black px-3 py-1.5 rounded-xl border",
+                        parsedCount === 0
+                          ? "bg-gray-100 text-gray-400 dark:bg-slate-800 dark:border-slate-700"
+                          : parsedCount > 500
+                            ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20"
+                            : "bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20"
+                      )}
+                    >
+                      {`Parsed: ${parsedCount} / 500`}
+                    </span>
+                  </div>
+                </div>
+
+                {parsedCount > 500 && (
+                  <motion.p
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="text-xs font-bold text-red-500 dark:text-red-400 flex items-center gap-1.5"
+                  >
+                    <AlertCircle className="w-4 h-4" />
+                    {t("sim_issue.range_too_large")}
+                  </motion.p>
                 )}
-              </motion.button>
-            </div>
+
+                {/* Submit Block */}
+                <div className="flex justify-end pt-2">
+                  <motion.button
+                    type="submit"
+                    disabled={loading || parsedCount === 0 || parsedCount > 500 || !selectedHouseId || !selectedRetailer}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="px-8 py-3.5 bg-gradient-to-tr from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:translate-y-[1px] shadow-orange-200 dark:shadow-none flex items-center gap-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {t("sim_issue.issuing")}
+                      </>
+                    ) : (
+                      <>
+                        {t("sim_issue.issue_button")}
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </>
+            )}
           </form>
 
           {/* Loading Overlay */}
@@ -492,14 +653,14 @@ export default function SIMReturnPage() {
                   transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
                   className="relative mb-6"
                 >
-                  <div className="absolute inset-[-10px] rounded-full border border-emerald-500/20 dark:border-emerald-500/30 animate-ping" />
-                  <div className="w-16 h-16 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-500">
-                    <RotateCcw className="w-8 h-8" />
+                  <div className="absolute inset-[-10px] rounded-full border border-orange-500/20 dark:border-orange-500/30 animate-ping" />
+                  <div className="w-16 h-16 rounded-full bg-orange-500/10 dark:bg-orange-500/20 flex items-center justify-center text-orange-500">
+                    <SmartphoneNfc className="w-8 h-8" />
                   </div>
                 </motion.div>
 
                 <h4 className="text-lg font-black text-gray-800 dark:text-gray-200 tracking-tight">
-                  {t("sim_return.returning")}
+                  {t("sim_issue.issuing")}
                 </h4>
 
                 <div className="h-6 mt-2 overflow-hidden max-w-md">
@@ -521,7 +682,7 @@ export default function SIMReturnPage() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.5 }}
-                  className="mt-8 text-xs font-black text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 px-3.5 py-1.5 rounded-full flex items-center gap-1.5"
+                  className="mt-8 text-xs font-black text-orange-600 bg-orange-50 dark:text-orange-400 dark:bg-orange-500/10 border border-orange-100 dark:border-orange-500/20 px-3.5 py-1.5 rounded-full flex items-center gap-1.5"
                 >
                   <Activity className="w-3.5 h-3.5" />
                   {`Time Elapsed: ${elapsedTime}s`}
@@ -531,8 +692,8 @@ export default function SIMReturnPage() {
           </AnimatePresence>
         </motion.div>
 
-        {/* Results Section Dashboard */}
-        {houseInfo && (
+        {/* Results Section */}
+        {issueInfo && (
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -547,10 +708,10 @@ export default function SIMReturnPage() {
               className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
             >
               <motion.h2 variants={itemVariants} className="text-xl font-black text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                <Database className="w-5 h-5 text-emerald-500" />
-                {t("sim_return.results_title")}
+                <Database className="w-5 h-5 text-orange-500" />
+                {t("sim_issue.results_title")}
                 <span className="text-xs font-bold text-gray-500 dark:text-gray-400 font-mono">
-                  ({houseInfo?.name} - {houseInfo?.code})
+                  ({issueInfo?.retailerName} - {issueInfo?.retailerCode})
                 </span>
               </motion.h2>
 
@@ -564,56 +725,48 @@ export default function SIMReturnPage() {
               </motion.button>
             </motion.div>
 
-            {/* Stats Counter Cards Grid */}
+            {/* Stats Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
                 {
                   key: "All" as const,
-                  label: t("sim_return.total"),
+                  label: t("sim_issue.total"),
                   value: stats.total,
-                  color: "gray",
-                  icon: Smartphone,
-                  borderColor: "border-gray-300 dark:border-gray-600",
-                  activeColor: "border-gray-500 dark:border-gray-400 ring-2 ring-gray-500/20",
-                  iconColor: "text-gray-300 dark:text-gray-700 group-hover:text-gray-500",
+                  icon: SmartphoneNfc,
+                  activeColor: "border-orange-500 dark:border-orange-400 ring-2 ring-orange-500/20",
+                  iconColor: "text-gray-300 dark:text-gray-700 group-hover:text-orange-500",
                   valueColor: "text-gray-800 dark:text-gray-100",
                   percentColor: "text-gray-400"
                 },
                 {
                   key: "Success" as const,
-                  label: t("sim_return.success"),
+                  label: t("sim_issue.success"),
                   value: stats.success,
-                  color: "green",
                   icon: ShieldCheck,
-                  borderColor: "border-gray-100 dark:border-slate-800",
                   activeColor: "border-green-500 dark:border-green-400 ring-2 ring-green-500/20",
                   iconColor: "text-green-300 dark:text-green-950 group-hover:text-green-500",
                   valueColor: "text-green-600 dark:text-green-400",
                   percentColor: "text-green-500"
                 },
                 {
-                  key: "Failed" as const,
-                  label: t("sim_return.failed"),
-                  value: stats.failed,
-                  color: "red",
-                  icon: FileX,
-                  borderColor: "border-gray-100 dark:border-slate-800",
-                  activeColor: "border-red-500 dark:border-red-400 ring-2 ring-red-500/20",
-                  iconColor: "text-red-300 dark:text-red-950 group-hover:text-red-500",
-                  valueColor: "text-red-600 dark:text-red-400",
-                  percentColor: "text-red-500"
-                },
-                {
-                  key: "Already Returned" as const,
-                  label: t("sim_return.already_returned"),
-                  value: stats.alreadyReturned,
-                  color: "amber",
-                  icon: AlertTriangle,
-                  borderColor: "border-gray-100 dark:border-slate-800",
+                  key: "Skipped" as const,
+                  label: t("sim_issue.skipped"),
+                  value: stats.skipped,
+                  icon: Tag,
                   activeColor: "border-amber-500 dark:border-amber-400 ring-2 ring-amber-500/20",
                   iconColor: "text-amber-300 dark:text-amber-950 group-hover:text-amber-500",
                   valueColor: "text-amber-600 dark:text-amber-400",
                   percentColor: "text-amber-500"
+                },
+                {
+                  key: "Failed" as const,
+                  label: t("sim_issue.failed"),
+                  value: stats.failed,
+                  icon: AlertTriangle,
+                  activeColor: "border-red-500 dark:border-red-400 ring-2 ring-red-500/20",
+                  iconColor: "text-red-300 dark:text-red-950 group-hover:text-red-500",
+                  valueColor: "text-red-600 dark:text-red-400",
+                  percentColor: "text-red-500"
                 }
               ].map((card, i) => (
                 <motion.div
@@ -625,7 +778,9 @@ export default function SIMReturnPage() {
                   onClick={() => { setStatusFilter(card.key); setCurrentPage(1); }}
                   className={cn(
                     "p-5 rounded-2xl bg-white dark:bg-slate-900 border transition-all cursor-pointer select-none relative group hover:scale-[1.02]",
-                    statusFilter === card.key ? card.activeColor : card.borderColor + " hover:border-gray-300 dark:hover:border-slate-700"
+                    statusFilter === card.key
+                      ? card.activeColor
+                      : "border-gray-100 dark:border-slate-800 hover:border-gray-300 dark:hover:border-slate-700"
                   )}
                 >
                   <div className={cn("absolute top-4 right-4 transition-colors", card.iconColor)}>
@@ -657,8 +812,8 @@ export default function SIMReturnPage() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                    placeholder={"Search serial or remarks..."}
-                    className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium"
+                    placeholder={"Search serial or message..."}
+                    className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all font-medium"
                   />
                 </div>
 
@@ -673,13 +828,13 @@ export default function SIMReturnPage() {
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-slate-800/60 bg-gray-50/20 dark:bg-slate-900/10">
                       <th className="px-6 py-4 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                        {t("sim_return.table_serial")}
+                        {t("sim_issue.table_serial")}
                       </th>
                       <th className="px-6 py-4 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                        {t("sim_return.table_status")}
+                        {t("sim_issue.table_status")}
                       </th>
                       <th className="px-6 py-4 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                        {t("sim_return.table_remarks")}
+                        {t("sim_issue.table_message")}
                       </th>
                     </tr>
                   </thead>
@@ -695,12 +850,8 @@ export default function SIMReturnPage() {
                         <td className="px-6 py-4 font-mono font-bold text-gray-900 dark:text-gray-100 text-xs">
                           {row.sim_no}
                         </td>
-                        <td className="px-6 py-4">
-                          {getStatusBadge(row.status)}
-                        </td>
-                        <td className="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">
-                          {row.remarks || "-"}
-                        </td>
+                        <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
+                        <td className="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">{row.message || "-"}</td>
                       </motion.tr>
                     ))}
 
@@ -768,10 +919,12 @@ export default function SIMReturnPage() {
                   </motion.div>
 
                   <h3 className="text-xl font-black text-gray-900 dark:text-gray-100 mb-2">
-                    {t("sim_return.confirm_title")}
+                    {t("sim_issue.confirm_title")}
                   </h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                    {t("sim_return.confirm_desc").replace("{count}", String(parsedCount))}
+                    {t("sim_issue.confirm_desc")
+                      .replace("{count}", String(parsedCount))
+                      .replace("{retailer}", `${selectedRetailer?.name} (${selectedRetailer?.retailer_code})`)}
                   </p>
 
                   <div className="flex gap-3 w-full">
@@ -779,13 +932,13 @@ export default function SIMReturnPage() {
                       onClick={() => setShowConfirm(false)}
                       className="flex-1 px-5 py-3 border border-gray-200 dark:border-slate-700 rounded-2xl text-sm font-black text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                     >
-                      {t("sim_return.confirm_no")}
+                      {t("sim_issue.confirm_no")}
                     </button>
                     <button
-                      onClick={confirmReturn}
-                      className="flex-1 px-5 py-3 bg-gradient-to-tr from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white rounded-2xl text-sm font-black transition-all shadow-lg shadow-emerald-200 dark:shadow-none"
+                      onClick={confirmIssue}
+                      className="flex-1 px-5 py-3 bg-gradient-to-tr from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white rounded-2xl text-sm font-black transition-all shadow-lg shadow-orange-200 dark:shadow-none"
                     >
-                      {t("sim_return.confirm_yes")}
+                      {t("sim_issue.confirm_yes")}
                     </button>
                   </div>
                 </div>

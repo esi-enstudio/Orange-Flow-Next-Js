@@ -1,0 +1,9 @@
+
+> frontend@0.1.0 build
+> next build
+
+'\\wsl.localhost\Ubuntu-24.04\home\sadekinislam\projects\Orange-Flow-Next-Js\frontend'
+CMD.EXE was started with the above path as the current directory.
+UNC paths are not supported.  Defaulting to Windows directory.
+'next' is not recognized as an internal or external command,
+operable program or batch file.

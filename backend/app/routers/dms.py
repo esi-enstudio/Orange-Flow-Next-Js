@@ -1,6 +1,7 @@
 import logging
 import re
 import asyncio
+from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,9 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.routers.deps import get_db, has_permission
 from app.models.user import User
 from app.models.house import House
+from app.models.retailer import Retailer
+from app.models.sim_issue import SimIssue
 from app.utils.access_control import is_admin_user
 from app.core.session_manager import session_manager
 from app.services.Automation.dms_scraper import get_smart_search_results
+from app.services.Automation.Tasks.sim_issue import run_sim_issue_status, run_finalize_issue
 
 logger = logging.getLogger("app.routers.dms")
 
@@ -189,11 +193,11 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
     try:
         page, context = await session_manager.get_valid_page(credentials)
     except Exception as e:
-        logger.error(f"❌ [Task Error] {house_name} সেশন পেতে ব্যর্থ: {str(e)}")
+        logger.error(f"❌ [Task Error] {house_name} Failed to get session: {str(e)}")
         raise Exception(f"DMS session login failed: {str(e)}")
         
     try:
-        logger.info(f"🔍 [Task] {house_name} ({h_code}) এর জন্য {len(serials)}টি সিম চেক শুরু...")
+        logger.info(f"🔍 [Task] {house_name} ({h_code}): Starting check for {len(serials)} SIMs...")
         
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000) 
         await page.wait_for_selector("#SearchType", timeout=30000)
@@ -202,7 +206,7 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
         await page.fill("#SearchValue", "\n".join(serials))
         
         await page.click("button.btn-success")
-        logger.info(f"📡 {house_name}: সার্চ সাবমিট হয়েছে, ডাটা সংগ্রহের অপেক্ষা...")
+        logger.info(f"📡 {house_name}: Search submitted, waiting for data collection...")
 
         scanned_data, error = await get_smart_search_results(page)
 
@@ -216,14 +220,14 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
         return process_structured_results(scanned_data, credentials, serials)
 
     except Exception as e:
-        logger.error(f"❌ [Task Error] {house_name} ক্র্যাশ: {str(e)}", exc_info=True)
+        logger.error(f"❌ [Task Error] {house_name} crashed: {str(e)}", exc_info=True)
         raise e
     
     finally:
         try:
             if page: await page.close()
             if context: await context.close()
-            logger.info(f"🚪 [{house_name}] টাস্ক ট্যাব ও সেশন ক্লোজ করা হয়েছে।")
+            logger.info(f"🚪 [{house_name}] Task tab & session closed.")
         except:
             pass
 
@@ -373,11 +377,11 @@ async def run_sim_return_check(serials: list, credentials: dict):
     try:
         page, context = await session_manager.get_valid_page(credentials)
     except Exception as e:
-        logger.error(f"❌ [Task Error] {house_name} সেশন পেতে ব্যর্থ: {str(e)}")
+        logger.error(f"❌ [Task Error] {house_name} Failed to get session: {str(e)}")
         raise Exception(f"DMS session login failed: {str(e)}")
 
     try:
-        logger.info(f"🔙 [SIM Return] {house_name} ({h_code}) এর জন্য {len(serials)}টি সিম রিটার্ন চেক শুরু...")
+        logger.info(f"🔙 [SIM Return] {house_name} ({h_code}): Starting SIM return check for {len(serials)} SIMs...")
 
         await page.goto(SIM_RETURN_URL, wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_selector("#SearchType", timeout=30000)
@@ -386,7 +390,7 @@ async def run_sim_return_check(serials: list, credentials: dict):
         await page.fill("#SearchValue", "\n".join(serials))
 
         await page.click("button.btn-success")
-        logger.info(f"📡 {house_name}: সার্চ সাবমিট হয়েছে, ডাটা সংগ্রহের অপেক্ষা...")
+        logger.info(f"📡 {house_name}: Search submitted, waiting for data collection...")
 
         scanned_data, error = await get_smart_search_results(page)
 
@@ -400,13 +404,13 @@ async def run_sim_return_check(serials: list, credentials: dict):
         return process_return_results(scanned_data, credentials, serials)
 
     except Exception as e:
-        logger.error(f"❌ [Task Error] {house_name} রিটার্ন ক্র্যাশ: {str(e)}", exc_info=True)
+        logger.error(f"❌ [Task Error] {house_name} return crashed: {str(e)}", exc_info=True)
         raise e
     finally:
         try:
             if page: await page.close()
             if context: await context.close()
-            logger.info(f"🚪 [{house_name}] রিটার্ন টাস্ক ট্যাব ও সেশন ক্লোজ করা হয়েছে।")
+            logger.info(f"🚪 [{house_name}] Return task tab & session closed.")
         except:
             pass
 
@@ -480,5 +484,229 @@ async def return_sim(
         house_name=house.name,
         house_code=house.code,
         total_processed=len(serials),
+        results=results_list
+    )
+
+
+class SIMIssueRequest(BaseModel):
+    house_id: int = Field(..., description="ID of the distribution house")
+    retailer_id: int = Field(..., description="ID of the retailer")
+    input_value: str = Field(..., description="Range-based input or list of serials")
+
+class SIMIssueItem(BaseModel):
+    sim_no: str
+    status: str
+    message: Optional[str] = None
+
+class SIMIssueResponse(BaseModel):
+    house_id: int
+    house_name: str
+    house_code: str
+    retailer_code: str
+    retailer_name: str
+    total_processed: int
+    total_success: int
+    total_skipped: int
+    total_failed: int
+    results: List[SIMIssueItem]
+
+
+@router.post("/sim-issue", response_model=SIMIssueResponse)
+async def issue_sims(
+    payload: SIMIssueRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_sim_issue"))
+):
+    is_admin = is_admin_user(current_user)
+
+    # 1. Validate house
+    result = await db.execute(select(House).where(House.id == payload.house_id))
+    house = result.scalar_one_or_none()
+    if not house:
+        raise HTTPException(status_code=404, detail="Distribution house not found.")
+    if not is_admin:
+        user_house_ids = [h.id for h in current_user.houses]
+        if house.id not in user_house_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this distribution house.")
+
+    # 2. Validate retailer
+    result = await db.execute(
+        select(Retailer).where(Retailer.id == payload.retailer_id)
+    )
+    retailer = result.scalar_one_or_none()
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found.")
+    if retailer.house_id != house.id:
+        raise HTTPException(status_code=400, detail="Retailer does not belong to the selected house.")
+
+    # 3. Parse serial numbers
+    try:
+        serials = parse_serial_input(payload.input_value)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not serials:
+        return SIMIssueResponse(
+            house_id=house.id, house_name=house.name, house_code=house.code,
+            retailer_code=retailer.retailer_code, retailer_name=retailer.name,
+            total_processed=0, total_success=0, total_skipped=0, total_failed=0, results=[]
+        )
+
+    if not house.dms_user or not house.dms_pass or not house.dms_house_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DMS credentials are not configured for this distribution house. Please configure them in House Settings."
+        )
+
+    credentials = {
+        "user": house.dms_user,
+        "pass": house.dms_pass,
+        "house_id": house.dms_house_id,
+        "house_name": house.name,
+        "code": house.code
+    }
+
+    # 4. Check DMS status of serials
+    try:
+        scanned_data, error = await run_sim_issue_status(serials, credentials)
+        if error:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"DMS serial analysis failed: {error}"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DMS query automation failed: {str(e)}"
+        )
+
+    if not scanned_data:
+        scanned_data = []
+
+    # Map scanned results
+    scanned_map = {}
+    for d in scanned_data:
+        sim = d.get("SIM No", "").strip().replace("'", "")
+        if sim:
+            scanned_map[sim] = d
+
+    results_list = []
+    ready_serials = []
+    success_count = 0
+    skipped_count = 0
+    failed_count = 0
+
+    target_code = str(house.code).strip().upper()
+
+    for sim in serials:
+        if sim in scanned_map:
+            d = scanned_map[sim]
+            dms_distro = str(d.get("Distributor", "")).strip().upper()
+            retailer_val = str(d.get("Retailer", "")).strip()
+            act_date = str(d.get("Activation Date", "")).strip()
+            msisdn = d.get("MSISDN", d.get("Mobile No", ""))
+
+            if target_code not in dms_distro:
+                results_list.append({
+                    "sim_no": sim,
+                    "status": "Failed",
+                    "message": f"Belongs to other house ({d.get('Distributor')})"
+                })
+                failed_count += 1
+            elif act_date:
+                results_list.append({
+                    "sim_no": sim,
+                    "status": "Failed",
+                    "message": f"Already active (MSISDN: {msisdn})"
+                })
+                failed_count += 1
+            elif retailer_val and retailer_val != "Select" and retailer_val != "N/A":
+                # Check if it matches target retailer
+                if retailer.retailer_code in retailer_val or retailer.name in retailer_val:
+                    results_list.append({
+                        "sim_no": sim,
+                        "status": "Skipped",
+                        "message": f"Already issued to this retailer ({retailer_val})"
+                    })
+                    skipped_count += 1
+                else:
+                    results_list.append({
+                        "sim_no": sim,
+                        "status": "Failed",
+                        "message": f"Already issued to retailer: {retailer_val}"
+                    })
+                    failed_count += 1
+            else:
+                # Warehouse, ready to be issued
+                ready_serials.append(sim)
+        else:
+            results_list.append({
+                "sim_no": sim,
+                "status": "Failed",
+                "message": "Not found in DMS system"
+            })
+            failed_count += 1
+
+    # 5. Execute DMS issue if there are any ready serials
+    if ready_serials:
+        try:
+            finalize_res = await run_finalize_issue(ready_serials, retailer.retailer_code, credentials)
+            if finalize_res.startswith("✅"):
+                # Success: update status and save to local DB
+                today = date.today()
+                records_to_create = []
+                for sim in ready_serials:
+                    results_list.append({
+                        "sim_no": sim,
+                        "status": "Success",
+                        "message": f"Successfully issued to {retailer.retailer_code}"
+                    })
+                    success_count += 1
+                    
+                    records_to_create.append(SimIssue(
+                        issue_date=today,
+                        distributor_code=house.code,
+                        distributor_name=house.name,
+                        house_id=house.id,
+                        cluster_market=getattr(retailer, "district", None),
+                        retailer_code=retailer.retailer_code,
+                        retailer_name=retailer.name,
+                        retailer_id=retailer.id,
+                        sim_no=sim
+                    ))
+                
+                # Bulk insert new records in local DB
+                if records_to_create:
+                    try:
+                        db.add_all(records_to_create)
+                        await db.commit()
+                    except Exception as e:
+                        await db.rollback()
+                        logger.error(f"Failed to record SIM issues in database: {str(e)}")
+            else:
+                # Issue failed
+                for sim in ready_serials:
+                    results_list.append({
+                        "sim_no": sim,
+                        "status": "Failed",
+                        "message": f"DMS issue failed: {finalize_res}"
+                    })
+                    failed_count += 1
+        except Exception as e:
+            for sim in ready_serials:
+                results_list.append({
+                    "sim_no": sim,
+                    "status": "Failed",
+                    "message": f"DMS issue error: {str(e)}"
+                })
+                failed_count += 1
+
+    return SIMIssueResponse(
+        house_id=house.id, house_name=house.name, house_code=house.code,
+        retailer_code=retailer.retailer_code, retailer_name=retailer.name,
+        total_processed=len(serials),
+        total_success=success_count,
+        total_skipped=skipped_count,
+        total_failed=failed_count,
         results=results_list
     )

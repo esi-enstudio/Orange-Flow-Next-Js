@@ -3,93 +3,93 @@ import logging
 from app.services.Automation.dms_scraper import get_smart_search_results
 from app.core.session_manager import session_manager
 
-# লগিং সেটআপ
+# Logging Setup
 logger = logging.getLogger("app.services.Automation.Tasks")
 
-# ইউআরএল
+# URL
 SMART_SEARCH_URL = "https://blkdms.banglalink.net/SmartSearchReport"
 
 async def run_sim_status_check(serials: list, credentials: dict):
     """
-    সেশন ম্যানেজার (JSON Storage State) ব্যবহার করে সিম স্ট্যাটাস চেক।
-    এটি প্রতিটি কাজের জন্য আলাদা কনটেক্সট তৈরি করে এবং শেষে ক্লিনআপ করে।
+    SIM Status Check using Session Manager (JSON Storage State).
+    Creates a separate context for each task and cleans up at the end.
     """
     house_name = credentials.get('house_name', 'N/A')
     h_code = credentials.get('code', 'N/A')
     
-    # ১. সেশন ম্যানেজার থেকে সচল পেজ ও কন্টেক্সট নেওয়া
+    # 1. Get valid page and context from Session Manager
     try:
         page, context = await session_manager.get_valid_page(credentials)
     except Exception as e:
-        logger.error(f"❌ [Task Error] {house_name} সেশন পেতে ব্যর্থ: {str(e)}")
+        logger.error(f"❌ [Task Error] {house_name} session failed: {str(e)}")
         return f"{str(e)}"
     
-    final_report = "" # চূড়ান্ত রিপোর্টের জন্য ভেরিয়েবল
+    final_report = "" # Variable for final report
 
     try:
-        logger.info(f"🔍 [Task] {house_name} ({h_code}) এর জন্য {len(serials)}টি সিম চেক শুরু...")
+        logger.info(f"🔍 [Task] {house_name} ({h_code}) checking {len(serials)} SIMs...")
         
-        # ২. স্মার্ট সার্চ পেজে যাওয়া (domcontentloaded বেশি স্ট্যাবল) ✅
+        # 2. Go to Smart Search page (domcontentloaded is more stable) ✅
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000) 
 
-        # এলিমেন্ট আসা পর্যন্ত অপেক্ষা
+        # Wait for element to appear
         await page.wait_for_selector("#SearchType", timeout=30000)
         
-        # ৩. ইনপুট প্রদান
+        # 3. Provide Input
         await page.select_option("#SearchType", "1") # SIM Serial
         await page.fill("#SearchValue", "\n".join(serials))
         
-        # ৪. সার্চ বাটনে ক্লিক এবং রেজাল্টের অপেক্ষা
+        # 4. Click search button and Wait for Results
         await page.click("button.btn-success")
-        logger.info(f"📡 {house_name}: সার্চ সাবমিট হয়েছে, ডাটা সংগ্রহের অপেক্ষা...")
+        logger.info(f"📡 {house_name}: Search submitted, waiting for data...")
 
-        # ৫. সেন্ট্রাল স্ক্র্যাপার ব্যবহার করে ডাটা সংগ্রহ ✅
+        # 5. Use Central Scraper for data collection ✅
         scanned_data, error = await get_smart_search_results(page)
 
         if error:
             logger.warning(f"⚠️ {house_name}: {error}")
             final_report = error
         else:
-            # ডাটা পাওয়া গেলে সামারি জেনারেট করা
+            # Generate summary if data is available
             final_report = generate_sim_summary(scanned_data, credentials)
 
     except Exception as e:
-        logger.error(f"❌ [Task Error] {house_name} ক্র্যাশ: {str(e)}", exc_info=True)
-        final_report = f"❌ অটোমেশন এরর: {str(e).replace('_', ' ')}"
+        logger.error(f"❌ [Task Error] {house_name} Crash: {str(e)}", exc_info=True)
+        final_report = f"❌ Automation Error: {str(e).replace('_', ' ')}"
     
     finally:
-        # ৬. কাজ শেষে ট্যাব এবং কন্টেক্সট বন্ধ করা (RAM সাশ্রয়ের জন্য) ✅
+        # 6. Close tab and context after work (to save RAM) ✅
         try:
             if page: await page.close()
             if context: await context.close()
-            logger.info(f"🚪 [{house_name}] টাস্ক ট্যাব ও সেশন ক্লোজ করা হয়েছে।")
+            logger.info(f"🚪 [{house_name}] Task Close Tab & Session closed.")
         except:
             pass
 
-    # চূড়ান্ত রেজাল্ট রিটার্ন করা
+    # Return final result
     return final_report
 
 def generate_sim_summary(all_data, credentials):
-    """হাউজ কোড দিয়ে ভ্যালিডেশন এবং সামারি জেনারেশন ✅"""
+    """Validation and summary generation by House Code ✅"""
     active_map, issued_map = {}, {}
     warehouse_list, errors = [], []
     
-    # ১. টার্গেট হাউজ কোড বের করা (যেমন: RYZBRB01)
+    # 1. Get target House Code (e.g.: RYZBRB01)
     target_code = str(credentials.get('code', '')).strip().upper()
     house_name = credentials.get('house_name', 'N/A')
 
     for d in all_data:
         sim = d.get("SIM No", "").strip().replace("'", "")
-        # ডিএমএস থেকে প্রাপ্ত ডিস্ট্রিবিউটর ডাটাকে বড় হাতের করা
+        # Uppercase Distributor Data from DMS
         dms_distro = str(d.get("Distributor", "")).strip().upper()
         
         retailer = d.get("Retailer", "")
         act_date = d.get("Activation Date", "")
         msisdn = d.get("MSISDN", d.get("Mobile No", ""))
 
-        # ২. হাউজ ভ্যালিডেশন (কোড ভিত্তিক) ✅
+        # 2. House Validation (by code) ✅
         if target_code not in dms_distro:
-            errors.append(f"❌ <code>{sim}</code>: এটি অন্য হাউসের সিম। ({d.get('Distributor')})")
+            errors.append(f"❌ <code>{sim}</code>: This is another house's SIM. ({d.get('Distributor')})")
             continue
 
         if act_date:
@@ -104,8 +104,8 @@ def generate_sim_summary(all_data, credentials):
         else:
             warehouse_list.append(f"⚪ {sim}")
 
-    # --- ৩. মেসেজ ফরম্যাটিং ---
-    output = [f"📊 <b>সিম স্ট্যাটাস রিপোর্ট</b>", f"🏢 হাউজ: <b>{house_name}</b>\n"]
+    # --- 3. Message Formatting ---
+    output = [f"📊 <b>SIM Status Report</b>", f"🏢 House: <b>{house_name}</b>\n"]
 
     for date, lines in active_map.items():
         output.append("\n".join(lines) + f"\n📅 {date}\n")
@@ -118,4 +118,4 @@ def generate_sim_summary(all_data, credentials):
     if warehouse_list: output.append("\n" + "\n".join(warehouse_list))
     if errors: output.append("\n" + "\n".join(errors))
 
-    return "\n".join(output) if len(output) > 2 else "⚠️ কোনো তথ্য পাওয়া যায়নি।"
+    return "\n".join(output) if len(output) > 2 else "⚠️ No information found."

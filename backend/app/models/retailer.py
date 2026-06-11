@@ -10,7 +10,7 @@ class Retailer(Base):
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     employee_id = Column(Integer, ForeignKey('employees.id'), nullable=True)
 
-    # আপনার দেওয়া নির্দিষ্ট কলামসমূহ
+    # Specific columns you provided
     retailer_code = Column(String, unique=True, index=True) # RETAILER_CODE
     name = Column(String, nullable=False)          # RETAILER_NAME
     type = Column(String)                          # RETAILER_TYPE
@@ -35,10 +35,10 @@ class Retailer(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
-    # হাউজের সাথে রিলেশন
+    # Relation with House
     house = relationship("House", back_populates="retailers")
 
-    # রিলেশন:
+    # Relation:
     activations = relationship("Activation", back_populates="retailer")
     live_activations = relationship("LiveActivation", back_populates="retailer")
     employee = relationship("Employee", back_populates="retailers")

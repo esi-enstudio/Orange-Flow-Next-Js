@@ -76,6 +76,34 @@ async def get_retailers(
         output.append(item)
     return output
 
+@router.get("/by-house/{house_id}")
+async def get_retailers_by_house(
+    house_id: int,
+    search: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_retailers"))
+):
+    is_admin = is_admin_user(current_user)
+    if not is_admin:
+        user_house_ids = [h.id for h in current_user.houses]
+        if house_id not in user_house_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this house")
+    query = select(Retailer).where(Retailer.house_id == house_id)
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(
+            (Retailer.name.ilike(pattern)) |
+            (Retailer.retailer_code.ilike(pattern)) |
+            (Retailer.itop_number.ilike(pattern))
+        )
+    query = query.order_by(Retailer.name)
+    result = await db.execute(query)
+    retailers = result.scalars().all()
+    return [
+        {"id": r.id, "retailer_code": r.retailer_code, "name": r.name, "itop_number": r.itop_number}
+        for r in retailers
+    ]
+
 @router.post("/import")
 async def import_retailers(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("import_retailers"))):
     if not os.path.exists("temp_downloads"): os.makedirs("temp_downloads")

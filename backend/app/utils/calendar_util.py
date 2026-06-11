@@ -21,7 +21,7 @@ class MonthYearCalendar:
         builder.row(*row1)
 
         # Row 2: Select this month button
-        builder.row(InlineKeyboardButton(text="✅ এই মাসটি নির্বাচন করুন", callback_data=f"cal_select_{year}_{month}"))
+        builder.row(InlineKeyboardButton(text="✅ Select this month", callback_data=f"cal_select_{year}_{month}"))
 
         return builder.as_markup()
 

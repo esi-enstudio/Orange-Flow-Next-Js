@@ -4,41 +4,41 @@ from playwright.async_api import Page
 
 async def get_smart_search_results(page: Page):
     """
-    DMS স্মার্ট সার্চ রিপোর্টের রেজাল্ট স্ক্র্যাপ করার গ্লোবাল ফাংশন।
-    এটি Error, Card View এবং Table View (Pagination সহ) হ্যান্ডেল করে।
-    রিটার্ন করে: (data_list, error_message)
+    Scrapes results from DMS smart search report.
+    Handles Error, Card View & Table View (with Pagination).
+    Returns: (data_list, error_message)
     """
     results = []
     scanned_sims = set()
 
     try:
-        # ১. ৩টি জিনিসের জন্য একসাথে অপেক্ষা করা (Card, Table, Error)
+        # 1. Wait for card, table, or error element
         try:
             await page.wait_for_selector(".card-body, #dataTable_Smart_Search_Report, #errorMessage", timeout=20000)
         except:
-            return None, "⚠️ ডিএমএস থেকে রেসপন্স পেতে দেরি হচ্ছে বা কোনো ডাটা পাওয়া যায়নি।"
+            return None, "⚠️ DMS response timeout or no data found."
 
-        # ২. শুরুতেই এরর মেসেজ (Data not found) চেক করা
+        # 2. Check for error message (Data not found)
         error_element = await page.query_selector("#errorMessage")
         if error_element:
             error_text = (await error_element.inner_text()).strip()
             if "Data not found" in error_text:
-                return None, "⚠️ ডিএমএস থেকে জানানো হয়েছে: **ডাটা পাওয়া যায়নি (Data not found)**।"
+                return None, "⚠️ DMS: **No data found.**"
             
-            # যদি এটি পজিটিভ কনফার্মেশন হয় (Found/Success), তবে এটিকে এরর হিসেবে ধরবো না
+            # If positive confirmation (Found/Success), don't treat as error
             elif "Sim Details Information Found By Sim Serial" in error_text or "successfully" in error_text.lower():
-                # এটি কোনো এরর নয়, তাই প্রসেস চালিয়ে যাবে
+                # This is not an error, continue processing
                 pass
 
-            # অন্য কোনো আননোন এরর থাকলে সেটি দেখাবে
+            # Show any other unknown errors
             elif error_text:
-                return None, f"❌ ডিএমএস এরর: {error_text}"
+                return None, f"❌ DMS error: {error_text}"
 
-        # ৩. যদি এরর না থাকে, তবে ডাটা স্ক্র্যাপিং লুপ শুরু
+        # 3. If no error, start scraping loop
         while True:
             soup = BeautifulSoup(await page.content(), 'html.parser')
 
-            # --- কেস ১: সিঙ্গেল কার্ড ভিউ (Single Result) ---
+            # --- Case 1: Single card view (Single Result) ---
             single_card = soup.find("h3", string=lambda x: x and "Sim Information" in x)
             if single_card:
                 data = {}
@@ -55,12 +55,12 @@ async def get_smart_search_results(page: Page):
                         sim = data.get("SIM No", "").strip()
                         if sim and sim not in scanned_sims:
                             scanned_sims.add(sim)
-                            # MSISDN কী ইউনিফর্ম করা
+                            # MSISDN formatting
                             data['MSISDN'] = data.get("MSISDN", data.get("Mobile No", "N/A"))
                             results.append(data)
-                break # কার্ড ভিউতে পেজিনেশন থাকে না
+                break # Card view has no pagination
 
-            # --- কেস ২: টেবিল ভিউ (Multiple Results) ---
+            # --- Case 2: Table view (Multiple Results) ---
             multi_table = soup.find("table", id="dataTable_Smart_Search_Report")
             if multi_table:
                 rows = multi_table.find("tbody").find_all("tr")
@@ -79,18 +79,18 @@ async def get_smart_search_results(page: Page):
                             "MSISDN": cols[9].text.strip()
                         })
 
-            # --- ৪. পেজিনেশন (Next Button) হ্যান্ডেল করা ---
+            # --- 4. Pagination (Next Button) handling ---
             next_btn = await page.query_selector("#dataTable_Smart_Search_Report_next")
             if next_btn:
                 btn_class = await next_btn.get_attribute("class") or ""
                 if "disabled" not in btn_class:
                     await next_btn.click()
-                    await asyncio.sleep(2) # ডাটা রেন্ডার হওয়ার সময়
-                    continue # লুপের শুরুতে গিয়ে পরবর্তী পেজ স্ক্র্যাপ করবে
+                    await asyncio.sleep(2) # Short delay for data render
+                    continue # Scrape next page
             
-            break # আর পেজ না থাকলে লুপ থেকে বের হবে
+            break # Exit loop if no more pages
 
         return results, None
 
     except Exception as e:
-        return None, f"❌ স্ক্র্যাপিং এরর: {str(e)}"
+        return None, f"❌ Scraping error: {str(e)}"

@@ -13,7 +13,7 @@ from app.services.db_service import async_session
 
 logger = logging.getLogger(__name__)
 
-# কলাম লিস্ট (USERNAME যুক্ত করা হলো)
+# Column list (USERNAME added)
 EMP_COLUMNS = [
     'USERNAME', 'DD_CODE', 'DMS_CODE', 'AGENCY_ID', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
     'POOL_NUMBER', 'ASSISTED_RETAILER_CODE', 'SALARY', 'MARKET_TYPE', 
@@ -26,18 +26,18 @@ EMP_COLUMNS = [
 ]
 
 async def generate_emp_sample(file_path):
-    """স্যাম্পল এক্সেল ফাইল তৈরি"""
+    """Generate sample Excel file"""
     df = pd.DataFrame(columns=EMP_COLUMNS)
     df.to_excel(file_path, index=False)
     return file_path
 
 async def export_employees_excel(employees):
-    """রপ্তানির জন্য এক্সেল ফাইল তৈরি"""
+    """Create Excel file for export"""
     data = []
     for emp in employees:
         data.append({
             'USERNAME': emp.user.username if emp.user else "",
-            'DD_CODE': emp.house.code if emp.house else "", # হাউজ কোড (DD Code)
+            'DD_CODE': emp.house.code if emp.house else "", # House code (DD Code)
             'DMS_CODE': emp.dms_code,
             'AGENCY_ID': emp.agency_id,
             'ITOP_NUMBER': emp.itop_number,
@@ -82,16 +82,16 @@ async def export_employees_excel(employees):
     return output.getvalue()
 
 async def process_employee_excel(file_path, house_id=None, progress_callback=None):
-    """উন্নত বাল্ক প্রসেসিং এবং ইউজার ম্যাপিং লজিক ✅"""
+    """Advanced bulk processing with user mapping logic ✅"""
     try:
-        # ১. ডাটা লোড
+        # 1. Data load
         df = pd.read_excel(file_path, dtype=str)
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
         
         total_rows = len(df)
-        if total_rows == 0: return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+        if total_rows == 0: return 0, "No data found in file."
 
-        # ২. ক্লিন ফাংশন
+        # 2. Clean function
         def clean_val(val, col_name=None):
             if pd.isna(val):
                 return None
@@ -99,16 +99,16 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
             if v == "" or v.lower() in ["nan", "none", "null"]:
                 return None
 
-            # তারিখ কলাম হলে শুধু তারিখ অংশ রাখুন (সময় বাদ দিন)
+            # Keep only date part for date columns (remove time)
             if col_name in ['JOINING_DATE', 'RESIGNED_DATE', 'DOB']:
                 if ' ' in v and ':' in v:
-                    v = v.split(' ')[0]  # "2024-08-01 00:00:00" থেকে "2024-08-01"
+                    v = v.split(' ')[0]  # "2024-08-01 00:00:00" -> "2024-08-01"
 
             return v
 
         async with async_session() as session:
-            # পারফরম্যান্স অপ্টিমাইজেশন: সকল ইউজার ও হাউজ মেমরিতে লোড করা ✅
-            logger.info("⏳ ম্যাপ তৈরি হচ্ছে...")
+            # Performance optimization: load all users and houses in memory ✅
+            logger.info("⏳ Building map...")
             user_res = await session.execute(select(User.username, User.phone_number, User.id))
             user_all = user_res.all()
             user_username_map = {u.username.upper(): u.id for u in user_all if u.username}
@@ -121,7 +121,7 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
             batch_size = 50
             batch_data = []
             
-            # tqdm বার শুরু (টার্মিনাল প্রগ্রেসের জন্য)
+            # tqdm progress bar (terminal)
             pbar = tqdm(total=total_rows, desc="📤 Employee Uploading", unit="row")
 
             for index, row in df.iterrows():
@@ -131,25 +131,25 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
                     pbar.update(1)
                     continue
 
-                # ২.৫ হাউজ আইডি বের করা ✅
-                # মাল্টি-ট্যানেন্ট অ্যাপের জন্য এক্সেল থেকে ডিডি কোড দিয়ে হাউজ বের করা বাধ্যতামূলক।
+                # 2.5 Get house ID ✅
+                # Required: get house from DD Code in Excel for multi-tenant app.
                 dd_code_val = clean_val(row.get('DD_CODE'))
                 target_house_id = None
                 
                 if dd_code_val:
                     target_house_id = house_map.get(dd_code_val.upper())
                 
-                # যদি এক্সেল ফাইলে ডিডি কোড না থাকে, তবে প্যারামিটার (হেডার) থেকে আসা হাউজ আইডি ব্যবহার হবে।
+                # If no DD Code in Excel, use house ID from parameter.
                 if not target_house_id:
                     target_house_id = house_id
 
-                # যদি কোনো হাউজ আইডি না পাওয়া যায়, তবে এই রো স্কিপ করা হবে (মাল্টি-ট্যানেন্ট সেফটি)।
+                # Skip row if no house ID found (multi-tenant safety).
                 if not target_house_id:
                     logger.warning(f"⚠️ Row {index}: No House ID found for DD_CODE: {dd_code_val}. Skipping.")
                     pbar.update(1)
                     continue
 
-                # ৩. ইউজার ম্যাপিং ✅ (প্রথমে ইউজারনেম দিয়ে, তারপর ফোন নাম্বার দিয়ে)
+                # 3. User mapping ✅ (first by username, then by phone)
                 username_val = clean_val(row.get('USERNAME'))
                 target_user_id = None
                 
@@ -159,14 +159,14 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
                 if not target_user_id:
                     p_phone_raw = clean_val(row.get('PERSONAL_NUMBER'))
                     if p_phone_raw:
-                        # ফোন নাম্বারের শেষ ১০টি ডিজিট দিয়ে ম্যাচ করা
+                        # Match by last 10 digits of phone number
                         clean_p_phone = str(p_phone_raw).replace(".0", "")[-10:]
                         for u_phone, u_id in user_phone_map.items():
                             if u_phone and u_phone[-10:] == clean_p_phone:
                                 target_user_id = u_id
                                 break
 
-                # ৪. ডাটাবেজ ম্যাপ তৈরি
+                # 4. Data mapping
                 data_map = {
                     "user_id": target_user_id,
                     "house_id": target_house_id,
@@ -209,38 +209,38 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
 
                 batch_data.append(data_map)
 
-                # ৫. ব্যাচ আপসার্ট ✅
+                # 5. Batch upsert ✅
                 if len(batch_data) >= batch_size:
                     await do_bulk_upsert_emp(session, batch_data)
                     count += len(batch_data)
-                    pbar.update(len(batch_data)) # টার্মিনাল আপডেট
+                    pbar.update(len(batch_data)) # Terminal update
                     batch_data = []
                     if progress_callback:
                         await update_progress_emp(count, total_rows, progress_callback)
 
-            # অবশিষ্ট ডাটা
+            # Remaining data
             if batch_data:
                 await do_bulk_upsert_emp(session, batch_data)
                 count += len(batch_data)
-                pbar.update(len(batch_data)) # টার্মিনাল আপডেট
+                pbar.update(len(batch_data)) # Terminal update
                 if progress_callback:
                     await update_progress_emp(count, total_rows, progress_callback)
 
-            pbar.close() # প্রগ্রেস বার বন্ধ করা
+            pbar.close() # Close progress bar
             await session.commit()
             return count, None
 
     except Exception as e:
         logger.error(f"❌ Excel Processing Error: {str(e)}")
-        return 0, f"প্রসেসিং এরর: {str(e)}"
+        return 0, f"Processing error: {str(e)}"
 
 async def do_bulk_upsert_emp(session, batch_data):
-    """এমপ্লয়ীর জন্য বাল্ক আপসার্ট লজিক"""
+    """Bulk upsert logic for employees"""
     stmt = insert(Employee).values(batch_data)
     
-    # কনফ্লিক্ট হলে কি কি আপডেট হবে
+    # Which fields to update on conflict
     excluded = stmt.excluded
-    # dms_code বাদে বাকি সব আপডেট হবে
+    # All fields except dms_code will be updated
     update_cols = {
         col: getattr(excluded, col) 
         for col in batch_data[0].keys() 

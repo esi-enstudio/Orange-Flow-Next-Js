@@ -77,8 +77,8 @@ async def toggle_daily_sync(
     setting.is_daily_sync_enabled = 1 if data.enabled else 0
     await db.commit()
     await db.refresh(setting)
-    status = "🟢 চালু" if data.enabled else "🔴 বন্ধ"
-    logger.info(f"দৈনিক সিঙ্ক {status} করা হয়েছে")
+    status = "🟢 ON" if data.enabled else "🔴 OFF"
+    logger.info(f"Daily sync {status}")
     return {"enabled": bool(setting.is_daily_sync_enabled)}
 
 @router.get("/live-sync")
@@ -103,8 +103,8 @@ async def toggle_live_sync(
     setting.is_live_sync_enabled = 1 if data.enabled else 0
     await db.commit()
     await db.refresh(setting)
-    status = "🟢 চালু" if data.enabled else "🔴 বন্ধ"
-    logger.info(f"লাইভ সিঙ্ক {status} করা হয়েছে")
+    status = "🟢 ON" if data.enabled else "🔴 OFF"
+    logger.info(f"Live sync {status}")
     return {"enabled": bool(setting.is_live_sync_enabled)}
 
 @router.post("/brand/logo")

@@ -23,7 +23,7 @@ async def process_user_excel(file_path, progress_callback=None):
         
         total_rows = len(df)
         if total_rows == 0:
-            return 0, 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+            return 0, 0, "No data found in file."
 
         def clean(val):
             v = str(val).strip()

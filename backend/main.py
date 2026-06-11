@@ -187,23 +187,23 @@ async def master_automation_scheduler():
 
             # Midnight reset (00:00-00:05)
             if hour == 0 and minute < 5:
-                logger.info("🌙 [Scheduler] রাত ১২টা — ডেইলি রিসেট চলছে...")
+                logger.info("🌙 [Scheduler] 12:00 AM — Daily reset in progress...")
                 await reset_daily_activations()
                 await cleanup_old_dms_reports()
                 last_auto_sync_date = None
                 await asyncio.sleep(300)
                 continue
 
-            # 7:00 AM — দৈনিক রিপোর্ট সিঙ্ক (Activation, iTopUp, Scratch Card, SIM Issue)
+            # 7:00 AM — Daily report sync (Activation, iTopUp, Scratch Card, SIM Issue)
             if hour == 7 and last_auto_sync_date != today_date:
-                logger.info("🌅 [Scheduler] সকাল ৭টা — দৈনিক রিপোর্ট সিঙ্ক শুরু হচ্ছে...")
+                logger.info("🌅 [Scheduler] 7:00 AM — Daily report sync starting...")
                 await run_daily_auto_sync()
                 last_auto_sync_date = today_date
-                logger.info("✅ [Scheduler] দৈনিক রিপোর্ট সিঙ্ক সম্পন্ন।")
+                logger.info("✅ [Scheduler] Daily report sync completed.")
                 await asyncio.sleep(60)
                 continue
 
-            # সকাল ৮টা - রাত ১১:৫৯ — লাইভ অ্যাক্টিভেশন সিঙ্ক (প্রতি ৫ মিনিট)
+            # 8:00 AM - 11:59 PM — Live activation sync (every 5 minutes)
             if 8 <= hour < 24:
                 from app.models.app_setting import AppSetting
                 from sqlalchemy import select
@@ -220,10 +220,10 @@ async def master_automation_scheduler():
                 if live_sync_enabled:
                     await run_ga_live_sync()
                 else:
-                    logger.debug("⏸️ [Scheduler] লাইভ সিঙ্ক বন্ধ আছে (AppSettings)।")
+                    logger.debug("⏸️ [Scheduler] Live sync is disabled (AppSettings).")
                 await asyncio.sleep(300)
             else:
-                # রাত ১টা - সকাল ৬:৫৯ — প্রতি ১ মিনিট পর চেক (৭টা মিস না করতে)
+                # 1:00 AM - 6:59 AM — Check every 1 minute (so as not to miss 7:00 AM)
                 await asyncio.sleep(60)
 
         except Exception as e:

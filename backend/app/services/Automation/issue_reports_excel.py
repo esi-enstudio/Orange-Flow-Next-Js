@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def resilient_read_excel(file_path):
     """
-    বিভিন্ন ফরম্যাটের (xlsx, xls, html, csv) এক্সেল ফাইল পড়ার জন্য রেজিলিয়েন্ট ফাংশন।
+    Read various Excel formats (xlsx, xls, html, csv)
     """
     df = None
     file_ext = file_path.lower().split('.')[-1]
@@ -30,60 +30,60 @@ def resilient_read_excel(file_path):
     try:
         if file_ext in ['xls', 'xlsx']:
             try:
-                # ১. চেষ্টা: স্ট্যান্ডার্ড এক্সেল (xlrd for xls, openpyxl for xlsx)
+                # 1. Standard Excel (xlrd for xls, openpyxl for xlsx)
                 engine = 'xlrd' if file_ext == 'xls' else 'openpyxl'
                 df = pd.read_excel(file_path, dtype=str, engine=engine)
             except Exception:
                 try:
-                    # ২. চেষ্টা: DMS অনেক সময় HTML ফাইলকে .xls নামে সেভ করে
+                    # 2. DMS often names HTML files as .xls
                     dfs = pd.read_html(file_path)
                     if dfs:
                         df = dfs[0].astype(str)
                 except Exception:
-                    # ৩. চেষ্টা: অনেক সময় ফাইলটি আসলে CSV বা Tab-Separated হতে পারে
+                    # 3. File is actually CSV or Tab-Separated
                     try:
                         df = pd.read_csv(file_path, dtype=str)
                         if len(df.columns) <= 1:
                             df = pd.read_csv(file_path, sep='\t', dtype=str)
                     except Exception:
-                        # ৪. শেষ চেষ্টা: ইঞ্জিন ছাড়াই ট্রাই করো
+                        # 4. Final attempt: try without engine
                         df = pd.read_excel(file_path, dtype=str)
         else:
-            # অন্য কোনো এক্সটেনশন হলে
+            # Other extension
             df = pd.read_excel(file_path, dtype=str)
     except Exception as e:
         logger.error(f"Resilient Excel Read Error: {str(e)}")
         raise e
     
-    # NaN হ্যান্ডেলিং: সব NaN ভ্যালুকে None (NULL) দিয়ে রিপ্লেস করা
+    # NaN handling: replace all NaN with None (NULL)
     if df is not None:
         df = df.where(pd.notnull(df), None)
     
     return df
 
 def clean_val(val, default=None):
-    """ভ্যালু ক্লিনিং এবং NaN হ্যান্ডেলিং"""
+    """Value cleaning and NaN handling"""
     if val is None or str(val).lower() in ['nan', 'none', 'null', '']:
         return default
     return str(val).strip()
 
 async def process_scratch_card_excel(file_path, target_house_id=None, progress_callback=None):
     """
-    Scratch Card Issue রিপোর্ট প্রসেস করার প্রফেশনাল সার্ভিস।
+    Scratch Card Issue report processing service.
     """
     try:
-        # ১. এক্সেল লোড করা (Resilient)
+        # 1. Excel load (Resilient)
         print(f"\n{Fore.CYAN}{Style.BRIGHT}🚀 Scratch Card Processing Started...")
         df = resilient_read_excel(file_path)
         if df is None or df.empty:
-            return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+            return 0, "No data found in file."
         
-        # কলাম নাম ক্লিনিং
+        # Column name cleaning
         df.columns = [str(c).strip() for c in df.columns]
 
         async with async_session() as session:
-            # হাউজ এবং রিটেইলার ম্যাপ তৈরি
-            print(f"{Fore.YELLOW}⏳ হাউজ এবং রিটেইলার ডাটা লোড হচ্ছে...")
+            # Build house and retailer map
+            print(f"{Fore.YELLOW}⏳ Loading house and retailer data...")
             house_res = await session.execute(select(House.code, House.id))
             house_map = {h.code: h.id for h in house_res.all() if h.code}
             
@@ -110,7 +110,7 @@ async def process_scratch_card_excel(file_path, target_house_id=None, progress_c
 
                 retailer_id = retailer_map.get(ret_code)
                 
-                # তারিখ হ্যান্ডেলিং
+                # Date handling
                 try:
                     raw_issue = row.get('IssueDate')
                     issue_date = pd.to_datetime(raw_issue).date() if raw_issue else None
@@ -156,9 +156,9 @@ async def process_scratch_card_excel(file_path, target_house_id=None, progress_c
                 if progress_callback and (processed_rows % 50 == 0 or processed_rows == total_rows):
                     percent = round((processed_rows / total_rows) * 100)
                     await progress_callback(
-                        f"🎫 <b>SC প্রসেসিং:</b> {bn_num(percent)}%\n"
-                        f"📈 রো: <code>{bn_num(processed_rows)}</code> / <code>{bn_num(total_rows)}</code>\n"
-                        f"💾 সেভ: <code>{bn_num(inserted_records + len(batch_buffer))}</code> টি"
+                        f"🎫 <b>SC Processing:</b> {bn_num(percent)}%\n"
+                        f"📈 Row: <code>{bn_num(processed_rows)}</code> / <code>{bn_num(total_rows)}</code>\n"
+                        f"💾 Saved: <code>{bn_num(inserted_records + len(batch_buffer))}</code>"
                     )
 
             if batch_buffer:
@@ -177,19 +177,19 @@ async def process_scratch_card_excel(file_path, target_house_id=None, progress_c
 
 async def process_sim_issue_excel(file_path, target_house_id=None, progress_callback=None):
     """
-    SIM Issue রিপোর্ট প্রসেস করার প্রফেশনাল সার্ভিস।
+    SIM Issue report processing service.
     """
     try:
-        # ১. এক্সেল লোড করা (Resilient)
+        # 1. Excel load (Resilient)
         print(f"\n{Fore.CYAN}{Style.BRIGHT}🚀 SIM Issue Processing Started...")
         df = resilient_read_excel(file_path)
         if df is None or df.empty:
-            return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+            return 0, "No data found in file."
         
         df.columns = [str(c).strip().upper() for c in df.columns]
 
         async with async_session() as session:
-            print(f"{Fore.YELLOW}⏳ হাউজ এবং রিটেইলার ডাটা লোড হচ্ছে...")
+            print(f"{Fore.YELLOW}⏳ Loading house and retailer data...")
             house_res = await session.execute(select(House.code, House.id))
             house_map = {h.code: h.id for h in house_res.all() if h.code}
             
@@ -250,9 +250,9 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
                 if progress_callback and (processed_rows % 50 == 0 or processed_rows == total_rows):
                     percent = round((processed_rows / total_rows) * 100)
                     await progress_callback(
-                        f"📲 <b>SIM প্রসেসিং:</b> {bn_num(percent)}%\n"
-                        f"📈 রো: <code>{bn_num(processed_rows)}</code> / <code>{bn_num(total_rows)}</code>\n"
-                        f"💾 সেভ: <code>{bn_num(inserted_records + len(batch_buffer))}</code> টি"
+                        f"📲 <b>SIM Processing:</b> {bn_num(percent)}%\n"
+                        f"📈 Row: <code>{bn_num(processed_rows)}</code> / <code>{bn_num(total_rows)}</code>\n"
+                        f"💾 Saved: <code>{bn_num(inserted_records + len(batch_buffer))}</code>"
                     )
 
             if batch_buffer:

@@ -17,17 +17,17 @@ class LeaveRequest(Base):
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     employee_id = Column(Integer, ForeignKey('employees.id'), nullable=False)
     
-    # ছুটির বিস্তারিত
+    # Leave details
     leave_type = Column(String, nullable=False) # e.g., 'Sick', 'Casual', 'Emergency'
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     total_days = Column(Integer)
     reason = Column(Text, nullable=True)
     
-    # এপ্রুভাল প্রসেস
+    # Approval process
     status = Column(String, default="Pending") # Pending, Approved, Rejected
-    approved_by = Column(Integer, ForeignKey('users.id'), nullable=True) # কোন ম্যানেজার এপ্রুভ করেছেন
-    admin_remarks = Column(Text, nullable=True) # এপ্রুভ বা রিজেক্ট করার কারণ
+    approved_by = Column(Integer, ForeignKey('users.id'), nullable=True) # Which manager approved
+    admin_remarks = Column(Text, nullable=True) # Reason for approval or rejection
     
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

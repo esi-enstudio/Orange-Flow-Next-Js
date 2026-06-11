@@ -13,12 +13,12 @@ class SubscriptionPackage(Base):
     __tablename__ = "subscription_packages"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)  # বাংলা নাম
+    name = Column(String, nullable=False)  # Name (Bangla)
     tier = Column(Enum(SubscriptionTier), nullable=False, unique=True)  # basic/standard/premium
-    duration_days = Column(Integer, nullable=False)  # কত দিনের প্যাকেজ
-    price = Column(Numeric(10, 2), nullable=False)  # দাম
-    description = Column(Text, nullable=True)  # বিবরণ
-    features = Column(Text, nullable=True)  # কী কী ফিচার আছে (JSON string)
+    duration_days = Column(Integer, nullable=False)  # Package duration (days)
+    price = Column(Numeric(10, 2), nullable=False)  # Price
+    description = Column(Text, nullable=True)  # Description
+    features = Column(Text, nullable=True)  # Features (JSON string)
 
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
@@ -39,7 +39,7 @@ class HouseSubscription(Base):
     end_date = Column(DateTime, nullable=False)
     is_active = Column(Boolean, default=True)
 
-    auto_renew = Column(Boolean, default=False)  # অটো রিনিউ চালু আছে কিনা
+    auto_renew = Column(Boolean, default=False)  # Auto-renew enabled
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
@@ -54,14 +54,14 @@ class SubscriptionRenewal(Base):
     subscription_id = Column(Integer, ForeignKey("house_subscriptions.id"), nullable=True)
     subscription = relationship("HouseSubscription", back_populates="renewals")
 
-    old_end_date = Column(DateTime, nullable=True)  # আগের মেয়াদ
-    new_start_date = Column(DateTime, nullable=False)  # নতুন শুরু
-    new_end_date = Column(DateTime, nullable=False)  # নতুন শেষ
+    old_end_date = Column(DateTime, nullable=True)  # Previous expiry
+    new_start_date = Column(DateTime, nullable=False)  # New start
+    new_end_date = Column(DateTime, nullable=False)  # New end
 
-    days_added = Column(Integer, nullable=False)  # কত দিন যোগ করা হয়েছে
-    package_id = Column(Integer, nullable=True)  # কোন প্যাকেজে রিনিউ (None = ম্যানুয়াল)
+    days_added = Column(Integer, nullable=False)  # Days added
+    package_id = Column(Integer, nullable=True)  # Renewed package (None = manual)
 
-    renewed_by = Column(BigInteger, nullable=False)  # কে রিনিউ করল (Telegram ID)
+    renewed_by = Column(BigInteger, nullable=False)  # Renewed by (Telegram ID)
     renewed_at = Column(DateTime, server_default=func.now())
 
-    notes = Column(Text, nullable=True)  # নোট
+    notes = Column(Text, nullable=True)  # Notes

@@ -8,30 +8,30 @@ class Employee(Base):
 
     id = Column(Integer, primary_key=True)
     
-    # ইউজার টেবিলের সাথে রিলেশন (বট ইউজার আইডি) ✅
-    # এটি থাকলে আরএসও বা বিপি যখন নিজের জিএ চেক করবে, তখন বট তাকে চিনতে পারবে।
+    # Relation with User table (bot user ID) ✅
+    # This helps the bot identify RSO or BP when checking their GA.
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  
     assisted_retailer_code = Column(String, nullable=True, index=True) # R026588  
-    agency_id = Column(String, nullable=True) # এজেন্সির ডাটা থাকলে
+    agency_id = Column(String, nullable=True) # If agency data exists
     
-    # বেসিক ইনফো
+    # Basic info
     dms_code = Column(String, unique=True, index=True) # DMS Code (R642686)
     itop_number = Column(String, index=True)  # unique=True removed
     personal_number = Column(String)  # unique=True removed
     pool_number = Column(String)  # unique=False removed (default is False)
     status = Column(String, default="Active") # 'Active', 'Resigned', 'Suspended'
     
-    # ব্যাংক ইনফো
+    # Bank info
     bank_name = Column(String)
     bank_account = Column(String)
     branch_name = Column(String)
     routing_number = Column(String)
     
-    # পার্সোনাল ডিটেইলস
+    # Personal details
     home_town = Column(String)
     emergency_contact_person_name = Column(String)
     emergency_contact_person_number = Column(String)
-    emergency_person_relationship = Column(String) # ইমারজেন্সি কন্টাক্টের সাথে সম্পর্ক
+    emergency_person_relationship = Column(String) # Relationship with emergency contact
     last_education = Column(String)
     institution_name = Column(String)
     blood_group = Column(String)
@@ -43,7 +43,7 @@ class Employee(Base):
     dob = Column(String) # Date of Birth
     nid = Column(String)
     
-    # প্রফেশনাল ডিটেইলস
+    # Professional details
     previous_company_name = Column(String)
     previous_company_salary = Column(String)
     motor_bike = Column(String) # Yes/No
@@ -60,10 +60,10 @@ class Employee(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
-    # রিলেশনশিপসমূহ
+    # Relationships
     house = relationship("House", backref="employees")
 
-    # রিলেশন: এক এমপ্লয়ীর আন্ডারে অনেক রিটেইলার থাকতে পারে
+    # Relation: One employee can have many retailers
     retailers = relationship("Retailer", back_populates="employee")
 
-    user = relationship("User", back_populates="employee_profile") # ইউজারের সাথে লিঙ্ক
+    user = relationship("User", back_populates="employee_profile") # Link with User

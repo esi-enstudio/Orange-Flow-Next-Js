@@ -73,28 +73,28 @@ async def seed_system_data(session=None):
         # --- 3. Subscription Packages ---
         packages_data = [
             {
-                "name": "बेসিক",
+                "name": "Basic",
                 "tier": SubscriptionTier.BASIC,
                 "duration_days": 30,
                 "price": 5000.00,
-                "description": "ছোট দলের জন্য মৌলিক সুবিধা",
-                "features": "হাউজ ম্যানেজমেন্ট, রিটেইলার ম্যানেজমেন্ট, বেসিক রিপোর্ট"
+"description": "Basic features for small teams",
+"features": "House management, Retailer management, Basic reports"
             },
             {
-                "name": "স্ট্যান্ডার্ড",
+                "name": "Standard",
                 "tier": SubscriptionTier.STANDARD,
                 "duration_days": 30,
                 "price": 10000.00,
-                "description": "মাঝারি দলের জন্য উন্নত সুবিধা",
-                "features": "বেসিক সব + ফিল্ড ফোর্স ম্যানেজমেন্ট, এক্সেল ইমপোর্ট, এসএমএস সিঙ্ক"
+"description": "Advanced features for mid-sized teams",
+"features": "All Basic + Field force management, Excel import, SMS sync"
             },
             {
-                "name": "প্রিমিয়াম",
+                "name": "Premium",
                 "tier": SubscriptionTier.PREMIUM,
                 "duration_days": 30,
                 "price": 20000.00,
-                "description": "বড় দলের জন্য পূর্ণ সুবিধা",
-                "features": "স্ট্যান্ডার্ড সব + ডিএমএস ইন্টিগ্রেশন, অটোমেশন, প্রিমিয়াম সাপোর্ট"
+"description": "Full features for large teams",
+"features": "All Standard + DMS integration, Automation, Premium support"
             },
         ]
 

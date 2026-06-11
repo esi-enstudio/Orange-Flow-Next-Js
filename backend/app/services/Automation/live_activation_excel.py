@@ -44,7 +44,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
         print(f"\n{Fore.CYAN}{Style.BRIGHT}🚀 Live Activation Processing Started...")
         df = resilient_read_excel(file_path)
         if df is None or df.empty:
-            return 0, "ফাইলটি খালি।"
+            return 0, "File is empty."
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
         total_rows = len(df)
 
@@ -141,7 +141,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
 
             if today_count == 0:
                 pbar.close()
-                return 0, f"আজকের ({today_date}) তারিখের কোন ডাটা ফাইলে নেই। শুধুমাত্র আজকের ডাটা ইম্পোর্ট করা যাবে।"
+                return 0, f"No data for today ({today_date}) in file. Only today's data can be imported."
 
             if batch_buffer:
                 unique = {item['sim_no']: item for item in batch_buffer}.values()
@@ -151,9 +151,9 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                 inserted_count += len(unique)
             await session.commit()
             pbar.close()
-            msg = f"✅ {inserted_count} টি রেকর্ড ইম্পোর্ট করা হয়েছে (আজকের {today_date})"
+            msg = f"✅ {inserted_count} records imported (today's {today_date})"
             if skipped_count:
-                msg += f" | {skipped_count} টি রেকর্ড বাদ দেওয়া হয়েছে (আজকের তারিখ নয়)"
+                msg += f" | {skipped_count} records skipped (not today's date)"
             print(f"{Fore.GREEN}{msg}\n")
             return inserted_count, None
     except Exception as e:

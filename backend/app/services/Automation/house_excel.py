@@ -20,14 +20,14 @@ HOUSE_COLUMNS = [
 ]
 
 async def process_house_excel(file_path, progress_callback=None):
-    """হাউজ বাল্ক প্রসেসিং লজিক (রিবিল্ট ভার্সন) ✅"""
+    """House bulk processing logic (rebuilt version) ✅"""
     try:
         df = pd.read_excel(file_path, dtype=str)
-        # হেডার ক্লিন করা (স্পেসকে আন্ডারস্কোর করা এবং আপারকেস)
+        # Header clean (spaces to underscores, uppercase)
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
         
         total_rows = len(df)
-        if total_rows == 0: return 0, [], "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+        if total_rows == 0: return 0, [], "No data found in file."
 
         def clean(val):
             if pd.isna(val): return None
@@ -42,7 +42,7 @@ async def process_house_excel(file_path, progress_callback=None):
             pbar = tqdm(total=total_rows, desc="🏠 House Uploading", unit="row")
 
             for index, row in df.iterrows():
-                # হেডার ডিটেকশন আরও ফ্লেক্সিবল করা হলো ✅
+                # More flexible header detection ✅
                 code = clean(row.get('DISTRIBUTOR_CODE')) or clean(row.get('CODE')) or clean(row.get('DISTRIBUTOR_CODE_'))
                 name = clean(row.get('DISTRIBUTOR_NAME')) or clean(row.get('NAME')) or clean(row.get('DISTRIBUTOR_NAME_'))
                 
@@ -51,7 +51,7 @@ async def process_house_excel(file_path, progress_callback=None):
                     pbar.update(1)
                     continue
 
-                # ডাটা ম্যাপ (Excel Header -> DB Column)
+                # Data map (Excel Header -> DB Column)
                 data_values = {
                     "cluster": clean(row.get('CLUSTER')),
                     "region": clean(row.get('REGION')),
@@ -78,7 +78,7 @@ async def process_house_excel(file_path, progress_callback=None):
                 
                 stmt = insert(House).values(data_values)
 
-                # কনফ্লিক্ট হলে আপডেট
+                # Update on conflict
                 excluded = stmt.excluded
                 update_cols = {
                     col: getattr(excluded, col) 
@@ -94,7 +94,7 @@ async def process_house_excel(file_path, progress_callback=None):
                 
                 await session.execute(stmt)
                 
-                # আইডি সংগ্রহ
+                # Collect IDs
                 h_res = await session.execute(select(House.id).where(House.code == code))
                 h_id = h_res.scalar()
                 if h_id: created_house_ids.append(h_id)
@@ -110,7 +110,7 @@ async def process_house_excel(file_path, progress_callback=None):
 
     except Exception as e:
         logger.error(f"❌ House Excel Processing Error: {str(e)}")
-        return 0, [], f"প্রসেসিং এরর: {str(e)}"
+        return 0, [], f"Processing error: {str(e)}"
 
 async def update_progress_house(count, total_rows, progress_callback):
     percent = round((count / total_rows) * 100)

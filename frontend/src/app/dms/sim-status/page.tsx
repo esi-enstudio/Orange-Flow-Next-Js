@@ -56,16 +56,16 @@ const loadingTipsEn = [
 ];
 
 const loadingTipsBn = [
-  "অটোমেটেড ব্রাউজার ইনস্ট্যান্স শুরু হচ্ছে...",
-  "বাংলালিংক ডিএমএস পোর্টালে যাওয়া হচ্ছে...",
-  "ডিস্ট্রিবিউটর ইউজার আইডি দিয়ে লগইন করা হচ্ছে...",
-  "সেশন ক্রেডেনশিয়াল পরীক্ষা করা হচ্ছে...",
-  "স্মার্ট সার্চ রিপোর্ট পেজ লোড হচ্ছে...",
-  "সিম সিরিয়াল নাম্বারসমূহ ইনপুট দেওয়া হচ্ছে...",
-  "ডিএমএস ইঞ্জিনে কুয়েরি সাবমিট করা হচ্ছে...",
-  "সিম ডাটা টেবিল স্ক্র্যাপ করা হচ্ছে...",
-  "টার্গেট ডিস্ট্রিবিউটর এলোকেশন যাচাই করা হচ্ছে...",
-  "স্ট্যাটাস কোড এবং মোবাইল নাম্বারের ম্যাপিং চলছে..."
+  "Starting automated browser instance...",
+  "Navigating to Banglalink DMS portal...",
+  "Logging in with distributor user ID...",
+  "Verifying session credentials...",
+  "Loading Smart Search Report page...",
+  "Inputting SIM serial numbers...",
+  "Submitting query to DMS engine...",
+  "Scraping SIM data tables...",
+  "Filtering target distributor allocations...",
+  "Parsing status codes and MSISDN mapping..."
 ];
 
 export default function SIMStatusCheckPage() {
@@ -99,7 +99,7 @@ export default function SIMStatusCheckPage() {
           setSelectedHouseId(res.data[0].id);
         }
       } catch (err) {
-        toast.error(language === "bn" ? "হাউস তালিকা লোড করতে ব্যর্থ।" : "Failed to load houses list.");
+        toast.error("Failed to load houses list.");
       }
     };
     fetchHouses();
@@ -204,11 +204,7 @@ export default function SIMStatusCheckPage() {
         code: res.data.house_code
       });
 
-      toast.success(
-        language === "bn"
-          ? `সফলভাবে ${res.data.total_checked}টি সিমের তথ্য পাওয়া গেছে!`
-          : `Successfully retrieved status for ${res.data.total_checked} SIMs!`
-      );
+      toast.success(`Successfully retrieved status for ${res.data.total_checked} SIMs!`);
     } catch (err: any) {
       const errMsg = err.response?.data?.detail || err.message || "Query failed";
       toast.error(errMsg);
@@ -438,7 +434,7 @@ export default function SIMStatusCheckPage() {
                 className="text-primary-500 hover:text-primary-600 transition-colors flex items-center gap-1 border-b border-primary-500/20 hover:border-primary-600/50"
               >
                 <Clipboard className="w-3.5 h-3.5" />
-                {language === "bn" ? "উদাহরণ লোড করুন" : "Load Example"}
+                {"Load Example"}
               </button>
               <button
                 type="button"
@@ -483,7 +479,7 @@ export default function SIMStatusCheckPage() {
                       : "bg-primary-50 text-primary-600 border-primary-100 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/20"
                 )}
               >
-                {language === "bn" ? `পার্সড: ${parsedCount} / ৫০০` : `Parsed: ${parsedCount} / 500`}
+                {`Parsed: ${parsedCount} / 500`}
               </span>
             </div>
           </div>
@@ -558,7 +554,7 @@ export default function SIMStatusCheckPage() {
               {/* Elapsed Timer */}
               <span className="mt-8 text-xs font-black text-primary-600 bg-primary-50 dark:text-primary-400 dark:bg-primary-500/10 border border-primary-100 dark:border-primary-500/20 px-3.5 py-1.5 rounded-full flex items-center gap-1.5">
                 <Activity className="w-3.5 h-3.5" />
-                {language === "bn" ? `সময় অতিবাহিত: ${elapsedTime} সে.` : `Time Elapsed: ${elapsedTime}s`}
+                {`Time Elapsed: ${elapsedTime}s`}
               </span>
             </motion.div>
           )}
@@ -583,7 +579,7 @@ export default function SIMStatusCheckPage() {
               className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-black transition-colors flex items-center gap-2"
             >
               <Download className="w-4 h-4" />
-              {language === "bn" ? "ফলাফল এক্সপোর্ট (CSV)" : "Export Results (CSV)"}
+              {"Export Results (CSV)"}
             </button>
           </div>
 
@@ -742,16 +738,14 @@ export default function SIMStatusCheckPage() {
                     setSearchQuery(e.target.value);
                     setCurrentPage(1);
                   }}
-                  placeholder={language === "bn" ? "সিরিয়াল, মোবাইল বা রিটেইলার খুঁজুন..." : "Search serial, mobile, or retailer..."}
+                    placeholder={"Search serial, mobile, or retailer..."}
                   className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all font-medium"
                 />
               </div>
 
               {/* Status helper info */}
               <span className="text-xs font-bold text-gray-400 dark:text-gray-500">
-                {language === "bn"
-                  ? `ফলাফল দেখানো হচ্ছে: ${processedRows.length} এর মধ্যে ${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, processedRows.length)}`
-                  : `Showing results: ${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, processedRows.length)} of ${processedRows.length}`}
+                {`Showing results: ${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, processedRows.length)} of ${processedRows.length}`}
               </span>
             </div>
 
@@ -821,7 +815,7 @@ export default function SIMStatusCheckPage() {
                   {paginatedRows.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center text-gray-400 dark:text-gray-500">
-                        {language === "bn" ? "কোন ফলাফল পাওয়া যায়নি।" : "No results found."}
+                          {"No results found."}
                       </td>
                     </tr>
                   )}

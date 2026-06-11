@@ -12,7 +12,7 @@ export function LanguageSwitcher() {
 
   const languages = [
     { code: 'en', label: 'English', flag: '🇺🇸' },
-    { code: 'bn', label: 'বাংলা', flag: '🇧🇩' },
+    { code: 'bn', label: 'Bengali', flag: '🇧🇩' },
   ] as const;
 
   return (
@@ -24,7 +24,7 @@ export function LanguageSwitcher() {
       >
         <Globe className="w-5 h-5" />
         <span className="text-xs font-bold hidden sm:inline-block">
-          {language === 'en' ? 'EN' : 'বাং'}
+                    {language === 'en' ? 'EN' : 'BN'}
         </span>
       </button>
 

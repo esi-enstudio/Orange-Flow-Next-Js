@@ -25,7 +25,7 @@ class House(Base):
     longitude = Column(String) # Longitude
     bts_id = Column(String) # BTS ID
 
-    # DMS Credentials (নিজেদের প্রয়োজনের জন্য রাখা হলো)
+    # DMS Credentials (for internal use)
     dms_user = Column(String, nullable=True)
     dms_pass = Column(String, nullable=True)
     dms_house_id = Column(String, nullable=True)
@@ -36,10 +36,10 @@ class House(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
-    # User মডেলের সাথে রিলেশন
+    # Relation with User model
     users = relationship(
         "User", 
-        secondary=user_houses, # এটি যোগ করা বাধ্যতামূলক ✅
+        secondary=user_houses, # Mandatory to add ✅
         back_populates="houses"
     )
     
@@ -48,5 +48,5 @@ class House(Base):
 
     @property
     def display_name(self):
-        """হাউজের নাম এবং কোড রিটার্ন করবে (যেমন: Patwary Telecom (MYMVAI01))"""
+        """Returns house name and code (e.g., Patwary Telecom (MYMVAI01))"""
         return f"{self.name} ({self.code})"

@@ -22,7 +22,7 @@ class OTPManager:
     async def wait_for_fresh_otp(self, target_id: str, request_time: float, timeout=110):
         start_wait = time.time()
         target_id = str(target_id).strip().upper()
-        logger.info(f"⏳ [OTP] {target_id} এর ওটিপি খুঁজছি...")
+        logger.info(f"⏳ [OTP] Waiting for OTP for {target_id}...")
         while time.time() - start_wait < timeout:
             for otp_data in self.otp_pool:
                 if not otp_data["is_used"] and \
@@ -31,10 +31,10 @@ class OTPManager:
                    (otp_data["received_at"] >= request_time - 2):
                     otp_code = otp_data["code"]
                     otp_data["is_used"] = True
-                    logger.info(f"✅ [OTP] {target_id} এর জন্য ম্যাচ পাওয়া গেছে: {otp_code}")
+                    logger.info(f"✅ [OTP] Match found for {target_id}: {otp_code}")
                     return otp_code
             await asyncio.sleep(1)
-        logger.error(f"❌ [OTP] ওটিপি পাওয়ার সময় শেষ (Timeout) হাউজ: {target_id}")
+        logger.error(f"❌ [OTP] OTP timeout for house: {target_id}")
         return None
 
     def _cleanup_old_otps(self):

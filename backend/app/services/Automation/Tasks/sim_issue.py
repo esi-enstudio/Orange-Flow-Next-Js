@@ -6,75 +6,75 @@ from app.core.session_manager import session_manager
 from app.services.Automation.dms_scraper import get_smart_search_results
 from app.utils.helpers import bn_num
 
-# লগিং কনফিগারেশন
+# Logging Configuration
 logger = logging.getLogger("app.services.Automation.Tasks")
 
-# ইউআরএল সমূহ
+# URLs
 SMART_SEARCH_URL = "https://blkdms.banglalink.net/SmartSearchReport"
 ISSUE_URL = "https://blkdms.banglalink.net/IssueSimToRetailer/IssueSim"
 
 async def run_sim_issue_status(serials: list, credentials: dict):
     """
-    ধাপ ১: সিমগুলোর বর্তমান অবস্থা চেক করা।
-    এটি সেশন ম্যানেজার ব্যবহার করে সচল পেজ নিশ্চিত করবে।
+    Step 1: Check current status of SIMs.
+    Uses Session Manager to ensure an active page.
     """
     house_name = credentials.get('house_name', 'N/A')
-    logger.info(f"🚀 [{house_name}] সিম ইস্যু এনালাইসিস শুরু হচ্ছে...")
+    logger.info(f"🚀 [{house_name}] SIM Issue Analysis starting...")
 
-    # ১. সেশন ম্যানেজার থেকে সচল পেজ সংগ্রহ (এটি অটো-লগইন হ্যান্ডেল করবে)
+    # 1. Get active page from Session Manager (handles auto-login)
     page, context = await session_manager.get_valid_page(credentials)
     
     try:
-        # ২. স্মার্ট সার্চ পেজে যাওয়া
-        logger.info(f"🔍 [{house_name}] স্মার্ট সার্চ পেজে নেভিগেট করা হচ্ছে...")
+        # 2. Go to Smart Search page
+        logger.info(f"🔍 [{house_name}] Navigating to Smart Search page...")
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_selector("#SearchType", timeout=30000)
         
-        # ৩. সার্চ ফরম পূরণ ও সাবমিট
-        await page.select_option("#SearchType", "1") # SIM Serial নির্বাচন
+        # 3. Fill and submit search form
+        await page.select_option("#SearchType", "1") # Select SIM Serial
         await page.fill("#SearchValue", "\n".join(serials))
         await page.click("button.btn-success")
-        logger.info(f"📡 সার্চ রিকোয়েস্ট পাঠানো হয়েছে, রেজাল্ট স্ক্র্যাপ করছি...")
+        logger.info(f"📡 Search request sent, scraping results...")
 
-        # ৪. সেন্ট্রাল স্ক্র্যাপার কল করা (Error, Card, Table হ্যান্ডেল করবে)
+        # 4. Call Central Scraper (handles Error, Card, Table)
         scanned_data, error = await get_smart_search_results(page)
         return scanned_data, error
         
     except Exception as e:
-        logger.error(f"❌ এনালাইসিস ক্র্যাশ: {str(e)}", exc_info=True)
-        return None, f"❌ স্ট্যাটাস চেক এরর: {str(e)}"
+        logger.error(f"❌ Analysis Crash: {str(e)}", exc_info=True)
+        return None, f"❌ Status Check Error: {str(e)}"
     finally:
-        # ৫. শুধু ট্যাব বন্ধ করা হবে যাতে প্রোফাইলটি মেমোরিতে সচল থাকে ✅
+        # 5. Close only the tab so the profile stays in memory ✅
         if page:
             await page.close()
-            logger.info(f"🚪 [{house_name}] এনালাইসিস ট্যাব বন্ধ হয়েছে।")
+            logger.info(f"🚪 [{house_name}] Analysis tab closed.")
 
 async def run_finalize_issue(serials: list, retailer_code: str, credentials: dict):
     """
-    ধাপ ২: চূড়ান্তভাবে ডিএমএস-এ সিম ইস্যু সাবমিট করা।
-    এটিও সেশন ম্যানেজার ব্যবহার করবে যাতে সেশন ফেইল না করে। ✅
+    Step 2: Final SIM issue submission in DMS.
+    Also uses Session Manager to prevent session failure. ✅
     """
     house_name = credentials.get('house_name', 'N/A')
-    logger.info(f"📤 [{house_name}] রিটেইলার `{retailer_code}` এর জন্য সাবমিশন শুরু...")
+    logger.info(f"📤 [{house_name}] Starting submission for retailer `{retailer_code}`...")
 
-    # ১. সেশন ম্যানেজার থেকে পেজ সংগ্রহ (এটি নিশ্চিত করবে সেশন এখনো সচল আছে)
+    # 1. Get page from Session Manager (ensures session is still active)
     page, context = await session_manager.get_valid_page(credentials)
     
     try:
-        # ২. ইস্যু পেজে যাওয়া
-        logger.info(f"🌐 ইস্যু পেজে যাওয়া হচ্ছে...")
+        # 2. Go to issue page
+        logger.info(f"🌐 Navigating to issue page...")
         await page.goto(ISSUE_URL, wait_until="domcontentloaded", timeout=60000)
         
-        # ৩. তারিখ সেট করা (আজকের তারিখ)
+        # 3. Set date (today's date)
         await page.wait_for_selector("#IssueDate", timeout=30000)
         today = datetime.now().strftime('%Y-%m-%d')
         await page.evaluate(f"document.getElementById('IssueDate').value = '{today}';")
-        logger.info(f"📅 তারিখ সেট করা হয়েছে: {today}")
+        logger.info(f"📅 Date set: {today}")
 
-        # ৪. রিটেইলার ড্রপডাউন হ্যান্ডলিং (Attached স্টেট ব্যবহার করা হয়েছে কারণ এটি অনেক সময় লুকানো থাকে)
+        # 4. Retailer Dropdown handling (using "attached" state as it is often hidden)
         await page.wait_for_selector("#Retailer", state="attached", timeout=30000)
         
-        # নিখুঁত সিলেকশন লজিক (jQuery ও Native ইভেন্টসহ)
+        # Precise selection logic (jQuery & Native events)
         js_select = """
             (code) => {
                 let select = document.getElementById('Retailer');
@@ -95,67 +95,67 @@ async def run_finalize_issue(serials: list, retailer_code: str, credentials: dic
         """
         selection_success = await page.evaluate(js_select, retailer_code)
         if not selection_success:
-            logger.error(f"❌ রিটেইলার `{retailer_code}` ড্রপডাউনে পাওয়া যায়নি!")
-            return f"❌ এরর: রিটেইলার কোড `{retailer_code}` ড্রপডাউনে পাওয়া যায়নি।"
+            logger.error(f"❌ Retailer `{retailer_code}` not found in dropdown!")
+            return f"❌ Error: Retailer code `{retailer_code}` not found in dropdown."
 
-        await asyncio.sleep(1.5) # ড্রপডাউন প্রসেসিং এর জন্য বিরতি
+        await asyncio.sleep(1.5) # Pause for dropdown processing
 
-        # ৫. সিম লিস্ট ইনপুট ও অ্যাড বাটনে ক্লিক
-        logger.info(f"📝 সিম লিস্ট ইনপুট দেওয়া হচ্ছে...")
+        # 5. SIM List Input and click Add button
+        logger.info(f"📝 Providing SIM List Input...")
         await page.fill("#SimList", "\n".join(serials), force=True)
         await page.click("#AddBtn")
-        logger.info(f"➕ সিম লিস্ট অ্যাড করা হয়েছে। প্রসেসিং বাফার...")
+        logger.info(f"➕ SIM list added. Processing buffer...")
 
-        await asyncio.sleep(1) # এই ছোট বিরতিটি দিলে বাটন ক্লিক অনেক বেশি স্ট্যাবল হবে ✅
+        await asyncio.sleep(1) # Brief pause makes button click more stable ✅
 
 
 
-        # ৬. ডিএমএস ওয়ার্নিং মোডাল (SweetAlert2) হ্যান্ডলিং
+        # 6. DMS warning modal (SweetAlert2) handling
         try:
             confirm_btn = "button.swal2-confirm"
             await page.wait_for_selector(confirm_btn, state="visible", timeout=8000)
             await page.click(confirm_btn)
             await asyncio.sleep(1)
         except: 
-            pass # মোডাল না আসলে সমস্যা নেই
+            pass # No modal is fine
 
-        # ৭. ফাইনাল ইস্যু বাটন ক্লিক
-        logger.info(f"💾 চূড়ান্ত সাবমিট বাটন খুঁজছি...")
+        # 7. Click final issue button
+        logger.info(f"💾 Looking for final Submit Button...")
         try:
-            # বাটনটি দৃশ্যমান হওয়া পর্যন্ত অপেক্ষা
+            # Wait for button to be visible
             await page.wait_for_selector("#SimIssueBtn", state="visible", timeout=90000)
             await page.click("#SimIssueBtn")
-            logger.info(f"💾 সাবমিট বাটনে ক্লিক করা হয়েছে।")
+            logger.info(f"💾 Clicked Submit Button.")
         except Exception:
-            return "❌ 'Issue' বাটনটি নির্দিষ্ট সময়ের মধ্যে পাওয়া যায়নি। ডিএমএস স্লো হতে পারে।"
+            return "❌ 'Issue' button not found within timeout. DMS may be slow."
 
-        # ৮. সাকসেস কনফার্মেশন (okBtn) হ্যান্ডলিং
+        # 8. Success confirmation (okBtn) handling
         try:
             await page.wait_for_selector("#okBtn", state="visible", timeout=25000)
             await page.click("#okBtn")
-            logger.info(f"✅ [{house_name}] সিম ইস্যু সফল হয়েছে!")
-            return f"✅ সফলভাবে `{retailer_code}` কোডে {bn_num(len(serials))}টি সিম ইস্যু সম্পন্ন হয়েছে।"
+            logger.info(f"✅ [{house_name}] SIM Issue Successful!")
+            return f"✅ Successfully issued {bn_num(len(serials))} SIMs to `{retailer_code}`."
         except Exception as e:
-            logger.warning(f"⚠️ সাকসেস কনফার্মেশন বাটন পাওয়া যায়নি: {str(e)}")
-            return f"⚠️ প্রসেস শেষ হয়েছে, কিন্তু সাকসেস কনফার্মেশন পাওয়া যায়নি। ডিএমএস চেক করুন।"
+            logger.warning(f"⚠️ Success confirmation button not found: {str(e)}")
+            return f"⚠️ Process completed but success confirmation not found. Check DMS."
 
     except Exception as e:
-        logger.error(f"💥 ইস্যু সাবমিশন এরর: {str(e)}", exc_info=True)
-        return f"❌ ইস্যু সাবমিশন এরর: {str(e)}"
+        logger.error(f"💥 Issue submission error: {str(e)}", exc_info=True)
+        return f"❌ Issue submission error: {str(e)}"
     
     finally:
-        # ৯. কাজ শেষে শুধু ট্যাব এবং কন্টেক্সট বন্ধ করা ✅
-        # যেহেতু এটি টার্মিনাল অ্যাকশন (শেষ ধাপ), তাই এখানে কন্টেক্সট বন্ধ করা নিরাপদ।
+        # 9. Close only tab and context after work ✅
+        # Since this is a terminal action (last step), closing context is safe.
         if page: await page.close()
         if context: await context.close()
-        logger.info(f"🚪 [{house_name}] ইস্যু প্রসেস ক্লিনআপ সম্পন্ন।")
+        logger.info(f"🚪 [{house_name}] Issue process Cleanup completed.")
 
 def process_issue_summary(all_data, house_info):
-    """সিম ইস্যু এনালাইসিস (কোড ভিত্তিক ম্যাপিং) ✅"""
+    """SIM Issue Analysis (code-based mapping) ✅"""
     active_map, issued_map = {}, {}
     warehouse_list, ready_serials_only, errors = [], [], []
 
-    # হাউজ কোড (RYZBRB01)
+    # House Code (RYZBRB01)
     target_code = str(house_info.get('code', '')).strip().upper()
     target_name = str(house_info.get('house_name', '')).strip()
 
@@ -167,15 +167,15 @@ def process_issue_summary(all_data, house_info):
         act_date = d.get("Activation Date", "")
         msisdn = d.get("MSISDN", d.get("Mobile No", "N/A"))
 
-        # ১. হাউজ ভ্যালিডেশন (কোড দিয়ে) ✅
+        # 1. House Validation (by code) ✅
         if target_code not in dms_distro:
-            errors.append(f"❌ <code>{sim}</code>: এটি অন্য হাউসের সিম।")
+            errors.append(f"❌ <code>{sim}</code>: This is another house's SIM.")
             continue
 
         if act_date:
             if act_date not in active_map: active_map[act_date] = []
             clean_msisdn = f"0{msisdn}" if len(msisdn) == 10 else msisdn
-            active_map[act_date].append(f"🔴 {sim}\n📱 {clean_msisdn} (এক্টিভ)")
+            active_map[act_date].append(f"🔴 {sim}\n📱 {clean_msisdn} (Active)")
 
         elif retailer and retailer.strip() and "Select" not in retailer:
             if retailer not in issued_map: issued_map[retailer] = []
@@ -185,19 +185,19 @@ def process_issue_summary(all_data, house_info):
             warehouse_list.append(f"⚪ {sim}")
             ready_serials_only.append(sim)
 
-    # --- রিপোর্ট ফরম্যাটিং ---
-    final_output = ["📝 <b>সিম ইস্যু এনালাইসিস রিপোর্ট:</b>\n"]
+    # --- Report Formatting ---
+    final_output = ["📝 <b>SIM Issue Analysis Report:</b>\n"]
     if active_map:
         for date, lines in active_map.items():
             final_output.append("\n".join(lines) + f"\n📅 {date}\n")
     if issued_map:
         final_output.append("----------------------------")
         for ret, sims in issued_map.items():
-            final_output.append("\n".join(sims) + f"\n••••••••••••••••••••••\n🏪 {ret} (ইতিমধ্যে ইস্যু করা)\n")
+            final_output.append("\n".join(sims) + f"\n••••••••••••••••••••••\n🏪 {ret} (Already issued)\n")
     if warehouse_list:
         final_output.append("\n".join(warehouse_list))
-        final_output.append(f"✅ এই <b>{bn_num(len(warehouse_list))}টি</b> সিম ইস্যু করা সম্ভব।\n")
+        final_output.append(f"✅ These <b>{bn_num(len(warehouse_list))}</b> SIMs Can be issued.\n")
     if errors:
         final_output.append("\n" + "\n".join(errors))
 
-    return "\n".join(final_output) if len(final_output) > 1 else "⚠️ কোনো তথ্য পাওয়া যায়নি。", ready_serials_only
+    return "\n".join(final_output) if len(final_output) > 1 else "⚠️ No information found.", ready_serials_only

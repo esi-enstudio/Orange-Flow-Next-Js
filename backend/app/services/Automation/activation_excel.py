@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def resilient_read_excel(file_path):
     """
-    বিভিন্ন ফরম্যাটের (xlsx, xls, html, csv) এক্সেল ফাইল পড়ার জন্য রেজিলিয়েন্ট ফাংশন।
+    Read Excel files of various formats (xlsx, xls, html, csv)
     """
     df = None
     file_ext = file_path.lower().split('.')[-1]
@@ -48,20 +48,20 @@ def resilient_read_excel(file_path):
         logger.error(f"Resilient Excel Read Error: {str(e)}")
         raise e
     
-    # NaN হ্যান্ডেলিং
+    # NaN handling
     if df is not None:
         df = df.where(pd.notnull(df), None)
         
     return df
 
 async def process_activation_excel(file_path, house_id, progress_callback):
-    """উন্নত বাল্ক প্রসেসিং লজিক (৯,৫০০+ ডাটার জন্য অপ্টিমাইজড) ✅"""
+    """Advanced bulk processing logic (optimized for 9,500+ data) ✅"""
     try:
-        # ১. ডাটা লোড (Resilient)
+        # 1. Data load (Resilient)
         print(f"\n{Fore.CYAN}{Style.BRIGHT}🚀 Activation Processing Started...")
         df = resilient_read_excel(file_path)
         if df is None or df.empty:
-            return 0, "ফাইলটি খালি।"
+            return 0, "File is empty."
 
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
         total_rows = len(df)
@@ -69,26 +69,26 @@ async def process_activation_excel(file_path, house_id, progress_callback):
         def clean(val):
             if val is None: return None
             v = str(val).strip()
-            # Excel এ leading single quote থাকলে তা সরানো
+            # Remove leading single quote in Excel
             if v.startswith("'"):
                 v = v[1:]
             v = v.replace("'", "")
             if v == "" or v.lower() in ["nan", "none", "null"]:
                 return None
 
-            # তারিখ থেকে সময় বাদ দেওয়া
+            # Remove time from date
             if ' ' in v and '-' in v:
                 v = v.split(' ')[0]  # "2026-04-21 00:00:00" -> "2026-04-21"
 
             return v if v else None
 
         async with async_session() as session:
-            # হাউজ কোড খুঁজে বের করা
+            # Find house code
             house_res = await session.execute(select(House.code).where(House.id == house_id))
             house_code = house_res.scalar() or str(house_id)
 
-            # ২. পারফরম্যান্স বুস্ট: সব রিটেইলারকে মেমরিতে নিয়ে আসা ✅
-            print(f"{Fore.YELLOW}⏳ হাউজ {house_code} এর রিটেইলার ম্যাপ তৈরি হচ্ছে...")
+            # 2. Performance boost: all retailers in memory ✅
+            print(f"{Fore.YELLOW}⏳ Building retailer map for house {house_code}...")
             ret_res = await session.execute(
                 select(Retailer.retailer_code, Retailer.id).where(Retailer.house_id == house_id)
             )
@@ -97,12 +97,12 @@ async def process_activation_excel(file_path, house_id, progress_callback):
             processed_count = 0
             inserted_count = 0
             batch_buffer = []
-            batch_size = 500  # ৫০০ রেকর্ডের ব্যাচ
+            batch_size = 500  # Batch of 500 records
 
             # Terminal Progress Bar
             pbar = tqdm(total=total_rows, desc=f"{Fore.GREEN}{Style.BRIGHT}GA Processing", unit="row", colour='green')
 
-            # ৩. ডাটা প্রসেসিং লুপ
+            # 3. Data processing loop
             for _, row in df.iterrows():
                 sim_no = clean(row.get('SIM_NO'))
                 if not sim_no:
@@ -113,14 +113,14 @@ async def process_activation_excel(file_path, house_id, progress_callback):
                 r_code = clean(row.get('RETAILER_CODE'))
                 target_retailer_id = retailer_map.get(r_code) if r_code else None
 
-                # তারিখ প্রসেসিং
+                # Date processing
                 try:
                     raw_date = row.get('ACTIVATION_DATE')
                     act_date = pd.to_datetime(raw_date).date() if raw_date else None
                 except:
                     act_date = None
 
-                # ডাটা ম্যাপ
+                # Data map
                 data_map = {
                     "house_id": house_id,
                     "retailer_id": target_retailer_id,
@@ -151,9 +151,9 @@ async def process_activation_excel(file_path, house_id, progress_callback):
                 batch_buffer.append(data_map)
 
                 if len(batch_buffer) >= batch_size:
-                    # ৪. PostgreSQL Bulk Upsert (Deduplication within batch is required)
-                    # একই ব্যাচে একই sim_no থাকলে CardinalityViolationError দেয়।
-                    # তাই ব্যাচটিকে ডিকশনারি ম্যাপ ব্যবহার করে ইউনিক করছি।
+                    # 4. PostgreSQL Bulk Upsert (Deduplication within batch is required)
+                    # CardinalityViolationError if same sim_no in same batch
+                    # Deduplicate batch via dictionary map
                     unique_batch = {item['sim_no']: item for item in batch_buffer}.values()
                     
                     insert_stmt = insert(Activation).values(list(unique_batch))
@@ -169,7 +169,7 @@ async def process_activation_excel(file_path, house_id, progress_callback):
                 processed_count += 1
                 pbar.update(1)
 
-                # ৫. টেলিগ্রাম প্রগ্রেস আপডেট (থ্রোটলিং)
+                # 5. Telegram progress update (throttling)
                 if processed_count % 200 == 0 or processed_count == total_rows:
                     percent = round((processed_count / total_rows) * 100)
                     await progress_callback(
@@ -178,7 +178,7 @@ async def process_activation_excel(file_path, house_id, progress_callback):
                         f"💾 Saved: {inserted_count + len(batch_buffer)} records"
                     )
             
-            # অবশিষ্টাংশ সেভ করা
+            # Save remaining
             if batch_buffer:
                 unique_batch = {item['sim_no']: item for item in batch_buffer}.values()
                 insert_stmt = insert(Activation).values(list(unique_batch))

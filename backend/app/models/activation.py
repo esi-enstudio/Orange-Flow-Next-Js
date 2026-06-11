@@ -10,8 +10,8 @@ class Activation(Base):
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     retailer_id = Column(Integer, ForeignKey('retailers.id'), nullable=True)
     
-    # সকল কলাম (লাইভ এক্টিভেশনের মতো)
-    activation_date = Column(Date, index=True) # ক্যালকুলেশনের জন্য Date টাইপ ✅
+    # All columns (like live activation)
+    activation_date = Column(Date, index=True) # Date type for calculations ✅
     activation_time = Column(String)
     retailer_code = Column(String, index=True)
     retailer_name = Column(String)
@@ -20,7 +20,7 @@ class Activation(Base):
     promotion = Column(String)
     product_code = Column(String)
     product_name = Column(String)
-    sim_no = Column(String, unique=True, index=True) # ইউনিক আইডেন্টিফায়ার
+    sim_no = Column(String, unique=True, index=True) # Unique identifier
     msisdn = Column(String)
     selling_price = Column(String)
     bp_flag = Column(String)

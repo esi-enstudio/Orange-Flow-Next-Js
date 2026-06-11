@@ -9,7 +9,7 @@ class BTS(Base):
     id = Column(Integer, primary_key=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False, index=True)
     
-    # এক্সেল হেডার অনুযায়ী কলামসমূহ
+    # Columns as per Excel header
     site_id = Column(String, unique=True, index=True) # Site ID
     bts_code = Column(String, unique=True, index=True) # BTS Code
     site_type = Column(String)                        # Site Type

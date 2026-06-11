@@ -83,7 +83,7 @@ export default function ImportSupervisorTargetsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setImporting(true);
-    setImportProgress({ percent: 0, message: "ফাইল আপলোড হচ্ছে..." });
+    setImportProgress({ percent: 0, message: "Uploading file..." });
     try {
       const form = new FormData();
       form.append("file", file);
@@ -157,13 +157,13 @@ export default function ImportSupervisorTargetsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100">
-                    {summaryType === "success" ? "ইম্পোর্ট সম্পন্ন" : "ইম্পোর্ট ব্যর্থ"}
+                    {summaryType === "success" ? "Import Complete" : "Import Failed"}
                   </h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 break-words">{summaryData.message}</p>
                   {summaryType === "success" && (
                     <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg">
                       <span className="text-sm font-semibold text-emerald-600">{summaryData.count}</span>
-                      <span className="text-xs text-emerald-500">টি রেকর্ড</span>
+                      <span className="text-xs text-emerald-500">records</span>
                     </div>
                   )}
                 </div>
@@ -205,7 +205,7 @@ export default function ImportSupervisorTargetsPage() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-rose-600" />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">ইম্পোর্ট প্রোগ্রেস</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Import Progress</span>
             </div>
             <span className="text-sm font-semibold text-rose-600">{importProgress.percent}%</span>
           </div>

@@ -5,30 +5,30 @@ from app.services.db_service import async_session
 
 async def process_mela_excel(file_path, house_id):
     try:
-        # এক্সেল রিড করা
+        # Excel read
         df = pd.read_excel(file_path, dtype=str)
         df.columns = df.columns.str.strip()
         
         total_rows = len(df)
-        if total_rows == 0: return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+        if total_rows == 0: return 0, "No data found in file."
 
         async with async_session() as session:
             for _, row in df.iterrows():
-                # ১. তারিখ ফরম্যাট ঠিক করা
+                # 1. Fix date format
                 raw_date = row.get('Activity Date (MM-DD-YYYY)')
                 if not raw_date or str(raw_date).lower() == 'nan': continue
                 
                 try:
-                    # pd.to_datetime অনেক বেশি ফ্লেক্সিবল
+                    # pd.to_datetime is very flexible
                     act_date = pd.to_datetime(raw_date).date()
                 except:
                     continue
 
-                # ২. বিটিএস কোডগুলো জড়ো করা
+                # 2. Collect BTS codes
                 bts_list = [row.get(f'BTS Code {i}') for i in range(1, 6)]
                 bts_list = [str(b).strip() for b in bts_list if b and str(b).strip() not in ["0", "nan", "None"]]
                 
-                # ৩. নতুন মেলা এন্ট্রি
+                # 3. New mela entry
                 new_mela = Mela(
                     house_id=house_id,
                     activity_date=act_date,
@@ -39,9 +39,9 @@ async def process_mela_excel(file_path, house_id):
                     bts_codes=",".join(bts_list)
                 )
                 session.add(new_mela)
-                await session.flush() # আইডি জেনারেট করার জন্য
+                await session.flush() # Generate ID
 
-                # ৪. এসাইনমেন্ট প্রসেসিং (RSO, BP, SSO/Shopkeeper)
+                # 4. Assignment processing (RSO, BP, SSO/Shopkeeper)
                 assignments = []
                 
                 # RSO Codes (1-5)

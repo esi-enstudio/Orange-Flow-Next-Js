@@ -1,15 +1,15 @@
 """
 GA Live Report — Section-wise Filter Configuration.
 
-প্রতিটি সেকশনের জন্য কোন ফিল্টার লাগবে তা এখানে define করা আছে।
-নতুন সেকশন বা নতুন ফিল্টার যোগ করলে শুধু এখানে এন্ট্রি যোগ করলেই হবে।
+Which filters are needed for each section are defined here.
+Add entry here when adding new section or filter.
 """
 
 from typing import Optional
 
 
 class SectionConfig:
-    """একটি সেকশনের ফিল্টার কনফিগারেশন"""
+    """Filter configuration for a section"""
 
     def __init__(
         self,
@@ -22,14 +22,14 @@ class SectionConfig:
     ):
         self.key = key
         self.label = label
-        self.exclude_products = exclude_products     # ExcludedProductCode টেবিল ব্যবহার করবে?
-        self.exclude_retailer_tags = exclude_retailer_tags or []  # কোন ট্যাগের retailer বাদ দেবে?
-        self.employee_role = employee_role           # শুধু কোন role দেখাবে? (None = সব)
-        self.group_by = group_by                     # GROUP BY clause (যদি লাগে)
+        self.exclude_products = exclude_products     # Use ExcludedProductCode table?
+        self.exclude_retailer_tags = exclude_retailer_tags or []  # Which tag's retailers to exclude?
+        self.employee_role = employee_role           # Show only which role? (None = all)
+        self.group_by = group_by                     # GROUP BY clause (if needed)
 
 
 # ─── Master section definitions ───
-# নতুন সেকশন বা নতুন ফিল্টার যোগ করতে শুধু নিচের list টি edit করুন।
+# Edit the list below to add new sections or filters.
 
 GA_LIVE_SECTIONS = {
     "executive_summary": SectionConfig(
@@ -37,7 +37,7 @@ GA_LIVE_SECTIONS = {
         label="Executive Summary",
         exclude_products=True,
         exclude_retailer_tags=["DRC"],
-        employee_role=None,  # সব employee type
+        employee_role=None,  # All employee types
     ),
     "distribution": SectionConfig(
         key="distribution",

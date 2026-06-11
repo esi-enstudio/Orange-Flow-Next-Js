@@ -7,84 +7,84 @@ from app.services.Automation.dms_scraper import get_smart_search_results
 from app.core.session_manager import session_manager
 from app.utils.helpers import bn_num
 
-# লগিং কনফিগারেশন
+# Logging Configuration
 logger = logging.getLogger("app.services.Automation.Tasks")
 
-# ডিএমএস ইউআরএল সমূহ
+# DMS URLs
 SMART_SEARCH_URL = "https://blkdms.banglalink.net/SmartSearchReport"
 RECEIVE_URL = "https://blkdms.banglalink.net/ReceiveSimsFromRetailersSubmit"
 
 async def run_sim_return_task(serials: list, credentials: dict, bot, chat_id):
     """
-    সেশন ম্যানেজার ব্যবহার করে সিম রিটার্ন অটোমেশন।
-    এটি প্রথমে সিমগুলোর স্ট্যাটাস চেক করে এবং পরে রিটেইলার অনুযায়ী সাবমিট করে।
+    SIM Return Automation using Session Manager.
+    It first checks the SIM statuses and then submits per retailer.
     """
     house_name = credentials.get('house_name', 'N/A')
     
-    # ১. সেশন ম্যানেজার থেকে সচল ব্রাউজার পেজ এবং কন্টেক্সট নেওয়া
-    logger.info(f"🚀 [{house_name}] সিম রিটার্ন প্রসেস শুরু হচ্ছে...")
+    # 1. Get valid browser page and context from Session Manager
+    logger.info(f"🚀 [{house_name}] SIM Return process starting...")
     try:
         page, context = await session_manager.get_valid_page(credentials)
     except Exception as e:
-        logger.error(f"❌ সেশন তৈরি করতে ব্যর্থ: {e}")
-        return f"❌ এরর: {str(e)}"
+        logger.error(f"❌ Session creation failed: {e}")
+        return f"❌ Error: {str(e)}"
     
     try:
-        # ২. স্মার্ট সার্চ পেজে নেভিগেট করা
-        logger.info(f"🌐 [{house_name}] স্মার্ট সার্চ রিপোর্টে যাওয়া হচ্ছে...")
+        # 2. Navigate to Smart Search page
+        logger.info(f"🌐 [{house_name}] Navigating to Smart Search Report...")
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000)
         
-        # ৩. সার্চ ফরম পূরণ করা (সিম সিরিয়াল অপশন সিলেক্ট)
+        # 3. Fill search form (select SIM Serial option)
         await page.wait_for_selector("#SearchType", timeout=30000)
         await page.select_option("#SearchType", "1") 
         await page.fill("#SearchValue", "\n".join(serials))
         
-        # ৪. সার্চ বাটনে ক্লিক এবং রেজাল্টের অপেক্ষা
+        # 4. Click search button and wait for results
         await page.click("button.btn-success")
-        logger.info(f"📡 সার্চ সাবমিট করা হয়েছে, ডাটা স্ক্র্যাপ করা হচ্ছে...")
+        logger.info(f"📡 Search submitted, scraping data...")
 
-        # ৫. সেন্ট্রাল স্ক্র্যাপার (dms_scraper.py) কল করা
+        # 5. Call Central Scraper (dms_scraper.py)
         scanned_data, error = await get_smart_search_results(page)
 
         if error:
-            logger.error(f"❌ ডিএমএস স্ক্র্যাপিং এরর: {error}")
+            logger.error(f"❌ DMS scraping error: {error}")
             return error 
 
-        # ৬. স্ক্র্যাপ করা ডাটা এনালাইসিস করে রিপোর্ট এবং গ্রুপিং তৈরি করা
+        # 6. Analyze scraped data to create report and grouping
         summary_msg, grouped_return_data = process_return_summary(scanned_data, credentials)
         
-        # ইউজারকে টেলিগ্রামে এনালাইসিস সামারি পাঠানো (HTML মোডে)
+        # Send analysis summary to user via Telegram (HTML mode)
         await bot.send_message(chat_id, summary_msg, parse_mode="HTML")
 
-        # যদি কোনো সিম রিটার্ন করার যোগ্য না থাকে
+        # If no SIMs are returnable
         if not grouped_return_data:
-            logger.info("🏁 কোনো রিটার্নযোগ্য (ইস্যু করা) সিম পাওয়া যায়নি।")
-            return "🏁 <b>রিটার্নযোগ্য কোনো সিরিয়াল পাওয়া যায়নি। প্রসেস শেষ।</b>"
+            logger.info("🏁 No returnable (issued) SIMs found.")
+            return "🏁 <b>No returnable serials found. Process ended.</b>"
 
-        # ৭. রিটেইলার ভিত্তিক সাবমিশন শুরু (অ্যাকশন ফেজ)
+        # 7. Start per-retailer submission (action phase)
         total_retailers = len(grouped_return_data)
-        logger.info(f"🛠 মোট {bn_num(total_retailers)}টি রিটেইলারের জন্য সাবমিশন শুরু হচ্ছে...")
+        logger.info(f"🛠 Starting submission for {bn_num(total_retailers)} retailers...")
         
         count = 1
         for retailer_code, sims in grouped_return_data.items():
-            logger.info(f"🔄 [{bn_num(count)}/{bn_num(total_retailers)}] রিটেইলার `{retailer_code}` প্রসেস হচ্ছে...")
+            logger.info(f"🔄 [{bn_num(count)}/{bn_num(total_retailers)}] Processing retailer `{retailer_code}`...")
             
-            # রিটার্ন সাবমিশন পেজে যাওয়া
+            # Navigate to return submission page
             await page.goto(RECEIVE_URL, wait_until="domcontentloaded", timeout=60000)
             
-            # ৮. রিটেইলার ড্রপডাউন নিশ্চিত করা (Attached স্টেট ব্যবহার করা হয়েছে কারণ এটি লুকানো থাকে)
+            # 8. Ensure retailer dropdown (using "attached" state since it's hidden)
             try:
                 await page.wait_for_selector("#Retailer", state="attached", timeout=30000)
             except:
-                logger.error(f"❌ ড্রপডাউন পাওয়া যায়নি রিটেইলার: {retailer_code}")
-                await bot.send_message(chat_id, f"❌ এরর: <b>{retailer_code}</b> এর জন্য ড্রপডাউন লোড হয়নি।")
+                logger.error(f"❌ Dropdown not found for retailer: {retailer_code}")
+                await bot.send_message(chat_id, f"❌ Error: Dropdown not loaded for <b>{retailer_code}</b>.")
                 continue
 
-            # ৯. তারিখ ইনপুট (আজকের তারিখ)
+            # 9. Date input (today's date)
             today = datetime.now().strftime('%Y-%m-%d')
             await page.evaluate(f"document.getElementById('IssueDate').value = '{today}';")
 
-            # ১০. জাভাস্ক্রিপ্টের মাধ্যমে 'Chosen' ড্রপডাউন থেকে রিটেইলার সিলেক্ট করা
+            # 10. Select retailer from 'Chosen' dropdown via JavaScript
             js_select = """
                 (code) => {
                     let select = document.getElementById('Retailer');
@@ -105,53 +105,53 @@ async def run_sim_return_task(serials: list, credentials: dict, bot, chat_id):
             """
             
             if not await page.evaluate(js_select, retailer_code):
-                logger.warning(f"⚠️ রিটেইলার {retailer_code} ড্রপডাউনে নেই।")
-                await bot.send_message(chat_id, f"⚠️ রিটেইলার কোড <code>{retailer_code}</code> ড্রপডাউনে পাওয়া যায়নি।")
+                logger.warning(f"⚠️ Retailer {retailer_code} not in dropdown.")
+                await bot.send_message(chat_id, f"⚠️ Retailer code <code>{retailer_code}</code> not found in dropdown.")
                 continue
 
-            # ১১. সিম সিরিয়াল ইনপুট এবং সেভ বাটনে ক্লিক
-            await asyncio.sleep(1.5) # সিলেকশন প্রসেস হওয়ার বিরতি
+            # 11. Input SIM serials and click save button
+            await asyncio.sleep(1.5) # Wait for selection processing
             await page.fill("#SimList", "\n".join(sims), force=True) 
             await page.click("#SaveBtn")
-            logger.info(f"💾 {retailer_code} এর জন্য সাবমিট বাটনে ক্লিক করা হয়েছে।")
+            logger.info(f"💾 Submit button clicked for {retailer_code}.")
 
-            # ১২. SweetAlert2 কনফার্মেশন মোডাল হ্যান্ডলিং
+            # 12. SweetAlert2 confirmation modal handling
             try:
                 confirm_btn = "button.swal2-confirm"
                 await page.wait_for_selector(confirm_btn, state="visible", timeout=15000)
                 await page.click(confirm_btn)
                 
-                logger.info(f"✅ {retailer_code} রিটার্ন সফল।")
-                status_text = f"✅ [{bn_num(count)}/{bn_num(total_retailers)}] <b>{retailer_code}</b> এর {bn_num(len(sims))}টি সিম রিটার্ন সফল।"
+                logger.info(f"✅ {retailer_code} return successful.")
+                status_text = f"✅ [{bn_num(count)}/{bn_num(total_retailers)}] <b>{retailer_code}</b> {bn_num(len(sims))} SIM Return Successful."
                 await bot.send_message(chat_id, status_text, parse_mode="HTML")
             except:
-                logger.warning(f"⚠️ {retailer_code} এর কনফার্মেশন মোডাল আসেনি।")
-                await bot.send_message(chat_id, f"⚠️ <b>{retailer_code}</b> এর রিটার্ন কনফার্মেশন পাওয়া যায়নি। ডিএমএস চেক করুন।")
+                logger.warning(f"⚠️ Confirmation modal did not appear for {retailer_code}.")
+                await bot.send_message(chat_id, f"⚠️ Return confirmation not found for <b>{retailer_code}</b>. Check DMS.")
             
             count += 1
-            await asyncio.sleep(2) # সার্ভার লোড ব্যালেন্স করতে বিরতি
+            await asyncio.sleep(2) # Pause for server load balancing
 
-        logger.info(f"🏁 [{house_name}] সকল কাজ সফলভাবে সম্পন্ন।")
-        return "🏁 <b>সিম রিটার্ন প্রসেস সফলভাবে সম্পন্ন হয়েছে।</b>"
+        logger.info(f"🏁 [{house_name}] All tasks completed successfully.")
+        return "🏁 <b>SIM Return process completed successfully.</b>"
 
     except Exception as e:
-        logger.error(f"💥 ক্রিকাল এরর: {str(e)}", exc_info=True)
-        return f"❌ অটোমেশন এরর: {str(e).replace('_', ' ')}"
+        logger.error(f"💥 Critical error: {str(e)}", exc_info=True)
+        return f"❌ Automation Error: {str(e).replace('_', ' ')}"
     
     finally:
-        # ১৩. কাজ শেষে পেজ এবং সেশন কন্টেক্সট বন্ধ করা (মেমোরি সেভ করার জন্য)
+        # 13. Close page and session context (to save memory)
         if page: await page.close()
         if context: await context.close()
-        logger.info(f"🚪 [{house_name}] টাস্ক সেশন ক্লোজ করা হয়েছে।")
+        logger.info(f"🚪 [{house_name}] Task session closed.")
 
 
 def process_return_summary(scanned_data, credentials):
-    """হাউজ কোড দিয়ে রিটার্নযোগ্য সিম ফিল্টারিং ✅"""
+    """Filter returnable SIMs by House Code ✅"""
     active_map, issued_map = {}, {}
     warehouse_list, errors = [], []
     grouped_return_data = {} 
 
-    # টার্গেট হাউজ কোড
+    # Target House Code
     target_code = str(credentials.get('code', '')).strip().upper() 
     target_name = credentials.get('house_name', 'N/A')
 
@@ -163,15 +163,15 @@ def process_return_summary(scanned_data, credentials):
         act_date = d.get("Activation Date", "")
         msisdn = d.get("MSISDN", d.get("Mobile No", "N/A"))
 
-        # ১. হাউজ ভ্যালিডেশন (কোড দিয়ে) ✅
+        # 1. House Validation (by code) ✅
         if target_code not in dms_distro:
-            errors.append(f"❌ <code>{sim}</code>: এটি অন্য হাউসের সিম।")
+            errors.append(f"❌ <code>{sim}</code>: This is another house's SIM.")
             continue
 
         if act_date:
             if act_date not in active_map: active_map[act_date] = []
             clean_msisdn = f"0{msisdn}" if len(msisdn) == 10 else msisdn
-            active_map[act_date].append(f"🔴 {sim} | 📱 {clean_msisdn} (এক্টিভ)")
+            active_map[act_date].append(f"🔴 {sim} | 📱 {clean_msisdn} (Active)")
 
         elif retailer and retailer.strip() and "Select" not in retailer:
             if retailer not in issued_map: issued_map[retailer] = []
@@ -182,10 +182,10 @@ def process_return_summary(scanned_data, credentials):
             if code not in grouped_return_data: grouped_return_data[code] = []
             grouped_return_data[code].append(sim)
         else:
-            warehouse_list.append(f"⚪ {sim} (ওয়্যারহাউসে আছে)")
+            warehouse_list.append(f"⚪ {sim} (In warehouse)")
 
-    # ২. রিপোর্ট টেক্সট ফরম্যাটিং (HTML)
-    output = [f"📊 <b>সিম রিটার্ন এনালাইসিস রিপোর্ট</b>", f"🏢 হাউজ: <b>{target_name}</b>\n"]
+    # 2. Report text formatting (HTML)
+    output = [f"📊 <b>SIM Return Analysis Report</b>", f"🏢 House: <b>{target_name}</b>\n"]
 
     if active_map:
         for date, lines in active_map.items():
@@ -194,7 +194,7 @@ def process_return_summary(scanned_data, credentials):
     if issued_map:
         if len(output) > 2: output.append("----------------------------")
         for ret, sims in issued_map.items():
-            output.append("\n".join(sims) + f"\n••••••••••••••••••••••\n🏪 {ret} (রিটার্ন হবে)\n")
+            output.append("\n".join(sims) + f"\n••••••••••••••••••••••\n🏪 {ret} (Will be returned)\n")
 
     if warehouse_list: output.append("\n".join(warehouse_list))
     if errors: output.append("\n" + "\n".join(errors))

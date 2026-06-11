@@ -83,7 +83,7 @@ export default function SettingsPage() {
     try {
       await apiClient.put("settings/daily-sync", { enabled: next });
       setDailySyncEnabled(next);
-      toast.success(next ? "দৈনিক সিঙ্ক চালু করা হয়েছে" : "দৈনিক সিঙ্ক বন্ধ করা হয়েছে");
+      toast.success(next ? "Daily sync enabled" : "Daily sync disabled");
     } catch { toast.error("Toggle failed"); }
     finally { setTogglingSync(false); }
   };
@@ -265,7 +265,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Daily Auto Sync</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">প্রতিদিন সকাল ৭টায় DMS থেকে রিপোর্ট ডাউনলোড</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Download reports from DMS daily at 7:00 AM</p>
                       <div className="flex flex-wrap gap-2 mt-2">
                         {["Activation", "iTopUp", "Scratch Card", "SIM Issue"].map(label => (
                           <span key={label} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400">
@@ -274,7 +274,7 @@ export default function SettingsPage() {
                         ))}
                       </div>
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                        {dailySyncEnabled ? "সিঙ্ক চালু আছে — প্রতিদিন সকাল ৭টায় স্বয়ংক্রিয়ভাবে ডাউনলোড হবে" : "সিঙ্ক বন্ধ আছে — কোনো ডাটা ডাউনলোড হবে না"}
+                        {dailySyncEnabled ? "Sync is on — will auto-download daily at 7:00 AM" : "Sync is off — no data will be downloaded"}
                       </p>
                     </div>
                   </div>

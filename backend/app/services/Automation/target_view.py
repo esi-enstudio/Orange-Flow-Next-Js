@@ -268,15 +268,15 @@ async def get_house_target_summary(month, year, house_code=None):
         if house_code:
             h_res = await session.execute(select(House).where(House.code == house_code))
             house = h_res.scalar_one_or_none()
-            if not house: return None, "হাউজ পাওয়া যায়নি।"
-            stmt = stmt.where(HouseTarget.house_id == house.id)
-            
+            if not house: return None, "House not found."
+
+        stmt = stmt.where(HouseTarget.house_id == house.id)
+        
         result = await session.execute(stmt)
         targets = result.scalars().all()
         
     if not targets:
-        return None, f"{month}/{year} মাসের জন্য কোনো হাউজ টার্গেট পাওয়া যায়নি।"
-    
+        return None, f"No house target found for {month}/{year}."
     text = f"🏠 **House Target Summary ({month}/{year})**\n━━━━━━━━━━━━━━━━━━━━━\n"
     for t in targets:
         text += (
@@ -306,7 +306,7 @@ async def get_supervisor_target_summary(month, year, house_code=None):
         targets = result.scalars().all()
         
     if not targets:
-        return None, f"{month}/{year} মাসের জন্য কোনো সুপারভাইজার টার্গেট পাওয়া যায়নি।"
+        return None, f"No supervisor target found for {month}/{year}."
     
     text = f"👨‍💼 **Supervisor Target Summary ({month}/{year})**\n━━━━━━━━━━━━━━━━━━━━━\n"
     for t in targets:
@@ -332,7 +332,7 @@ async def get_rso_target_summary(month, year, supervisor_msisdn=None, house_code
         if house_code:
             h_res = await session.execute(select(House).where(House.code == house_code))
             house = h_res.scalar_one_or_none()
-            if not house: return None, "হাউজ পাওয়া যায়নি।"
+            if not house: return None, "House not found."
             stmt = stmt.where(RSOTarget.house_id == house.id)
             
         # Limit text summary to top 10 for RSO to avoid long messages
@@ -340,7 +340,7 @@ async def get_rso_target_summary(month, year, supervisor_msisdn=None, house_code
         targets = result.scalars().all()
         
     if not targets:
-        return None, f"{month}/{year} মাসের জন্য কোনো RSO টার্গেট পাওয়া যায়নি।"
+        return None, f"No RSO target found for {month}/{year}."
     
     text = f"👤 **RSO Target Summary ({month}/{year})**\n"
     text += "━━━━━━━━━━━━━━━━━━━━━\n"
@@ -354,7 +354,7 @@ async def get_rso_target_summary(month, year, supervisor_msisdn=None, house_code
             f"━━━━━━━━━━━━━━━━━━━━━\n"
         )
     if len(targets) == 10:
-        text += "*(শুধু প্রথম ১০ জনের তথ্য দেখানো হয়েছে, সম্পূর্ণ দেখতে এক্সেল ডাউনলোড করুন)*"
+        text += "*(Only first 10 shown, download Excel for full list)*"
     
     return targets, text
 

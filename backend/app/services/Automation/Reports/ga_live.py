@@ -7,14 +7,14 @@ from datetime import date, datetime
 from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert
 
-# কোর মডিউল ইম্পোর্ট
+# Core module imports
 from app.models.house import House
 from app.models.live_activation import LiveActivation
 from app.services.db_service import async_session
 from app.core.session_manager import session_manager
 from app.models.retailer import Retailer
 
-# openpyxl ওয়ার্নিং সাইলেন্ট করা
+# Silence openpyxl warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 REPORT_URL = "https://blkdms.banglalink.net/ActivationReport"
@@ -23,32 +23,32 @@ TEMP_DIR = "temp_downloads"
 logger = logging.getLogger("app.services.Automation.GA")
 
 async def run_ga_live_sync():
-    """সবগুলো হাউজের জন্য জিএ লাইভ ডাটা সিঙ্ক করার মেইন ফাংশন"""
+    """Main function to sync GA live data for all houses"""
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR)
 
     async with async_session() as session:
-        # শুধুমাত্র যাদের DMS ক্রেডেনশিয়াল আছে তাদের তথ্য নেওয়া
+        # Fetch only houses with DMS credentials
         result = await session.execute(select(House).where(House.dms_user != None))
         houses = result.scalars().all()
 
     if not houses:
-        logger.info("ℹ️ সিঙ্ক করার মতো কোনো হাউজ পাওয়া যায়নি।")
+        logger.info("ℹ️ No houses found to sync.")
         return
 
-    logger.info(f"🕒 [GA Sync] শুরু হয়েছে {len(houses)}টি হাউজের জন্য...")
+    logger.info(f"🕒 [GA Sync] Started for {len(houses)} houses...")
 
     for house in houses:
         try:
-            # প্রতিটি হাউজের ডাটা আলাদাভাবে সিঙ্ক করা
+            # Sync data for each house separately
             await sync_house_data(house)
-            # প্রসেসিং গ্যাপ যাতে ডিএমএস ব্লক না করে
+            # Processing gap to avoid DMS block
             await asyncio.sleep(5) 
         except Exception as e:
             logger.error(f"❌ [GA Sync Error] {house.name}: {str(e)}")
 
 async def sync_house_data(house):
-    """সেশন ম্যানেজার ব্যবহার করে রিপোর্ট ডাউনলোড"""
+    """Download report using session manager"""
     
     credentials = {
         "user": house.dms_user,
@@ -58,78 +58,78 @@ async def sync_house_data(house):
         "code": house.code
     }
 
-    # ১. সেশন ম্যানেজার থেকে সচল পেজ সংগ্রহ
+    # Get valid page from session manager
     page, context = await session_manager.get_valid_page(credentials)
     
     file_path = os.path.join(TEMP_DIR, f"ga_{house.code}.xlsx")
     
     try:
-        logger.info(f"🚀 [GA Sync] {house.name} রিপোর্ট ডাউনলোড শুরু হচ্ছে...")
+        logger.info(f"🚀 [GA Sync] {house.name} Report download starting...")
         
-        # ২. রিপোর্ট পেজে যাওয়া (domcontentloaded বেশি স্ট্যাবল)
+        # Navigate to report page (domcontentloaded is more stable)
         await page.goto(REPORT_URL, wait_until="domcontentloaded", timeout=60000)
         
-        # ৩. তারিখ ফিল্ড আসা পর্যন্ত অপেক্ষা এবং ইনপুট
+        # Wait for date field and input
         await page.wait_for_selector("#StartDate", timeout=30000)
         
         today_str = date.today().strftime("%Y-%m-%d")
         
-        # সরাসরি টাইপ করার বদলে evaluate ব্যবহার করা নিরাপদ তারিখের জন্য
+        # Using evaluate instead of direct type for safer date input
         await page.evaluate(f"document.getElementById('StartDate').value = '{today_str}';")
         await page.evaluate(f"document.getElementById('EndDate').value = '{today_str}';")
         
-        await asyncio.sleep(1) # ইনপুট প্রসেসিং গ্যাপ
+        await asyncio.sleep(1) # Input processing gap
 
-        # ৪. ডাউনলোড প্রসেস (Export Details বাটনে ক্লিক)
+        # Download process (click Export Details button)
         async with page.expect_download() as download_info:
-            # বাটনটি দৃশ্যমান হওয়া পর্যন্ত অপেক্ষা
+            # Wait until button is visible
             await page.wait_for_selector("button:has-text('Export Details')", state="visible")
             await page.click("button:has-text('Export Details')")
         
         download = await download_info.value
         await download.save_as(file_path)
 
-        # ৫. ডাটাবেজ আপডেট কল করা
+        # Call database update
         await process_and_save_data(file_path, house.id)
         
-        logger.info(f"✅ [GA Sync] {house.name} ডাটাবেজ আপডেট সফল।")
+        logger.info(f"✅ [GA Sync] {house.name} database update successful.")
 
     finally:
-        # ৬. কাজ শেষে ট্যাব এবং কন্টেক্সট বন্ধ করা ✅
+        # Close tab and context after work ✅
         if page:
             await page.close()
         if context:
             await context.close()
         
-        # এখানে 'house_name' এর বদলে 'house.name' ব্যবহার করা হয়েছে ✅
-        logger.info(f"🚪 [{house.name}] টাস্ক ক্লিনআপ সম্পন্ন।")
+        # Using 'house.name' instead of 'house_name' ✅
+        logger.info(f"🚪 [{house.name}] Task cleanup completed.")
 
         
-        # টেম্প ফাইল ক্লিনআপ
+        # Temp file cleanup
         if os.path.exists(file_path):
             os.remove(file_path)
 
 
 
 async def process_and_save_data(file_path, house_id):
-    """সবগুলো কলাম ম্যাপ করে এবং রিটেইলার আইডি লিঙ্ক করে ডাটা সেভ করার লজিক (ON CONFLICT DO UPDATE সহ)"""
+    """Map all columns and link retailer IDs for data save (with ON CONFLICT DO UPDATE)"""
     try:
-        # ১. ফাইল রিড করা
+        # Read file
         df = pd.read_excel(file_path, dtype=str)
         if df.empty:
-            logger.info(f"ℹ️ {file_path} ফাইলে কোনো ডাটা পাওয়া যায়নি।")
+            logger.info(f"ℹ️ {file_path} No data found in file.")
             return
 
-        # ২. সকল NaN এবং খালি ভ্যালু পরিষ্কার করা
+        # Clean all NaN and empty values
         df = df.fillna("")
         df = df.replace({pd.NA: "", "nan": "", "NaN": ""})
 
         async with async_session() as session:
-            # হাউজ কোড খুঁজে বের করা
+            # Find house code
             house_res = await session.execute(select(House.code).where(House.id == house_id))
             house_code = house_res.scalar() or str(house_id)
 
-            # ৩. ফাস্ট পারফরম্যান্সের জন্য ওই হাউজের সকল রিটেইলারের কোড এবং আইডি ম্যাপ তৈরি করা
+            # Build retailer code-to-ID map for fast performance
             ret_res = await session.execute(
                 select(Retailer.retailer_code, Retailer.id).where(Retailer.house_id == house_id)
             )
@@ -189,19 +189,19 @@ async def process_and_save_data(file_path, house_id):
                     "customer_second_contact": get_val('CUSTOMER_SECOND_CONTACT'),
                 })
 
-            # ৭. বাল্ক আপসার্ট (ON CONFLICT DO UPDATE) — ডুপ্লিকেট sim_no নিরাপদে হ্যান্ডেল করে
+            # Bulk upsert (ON CONFLICT DO UPDATE) — safely handles duplicate sim_no
             if records:
                 unique = {r['sim_no']: r for r in records}.values()
                 stmt = insert(LiveActivation).values(list(unique))
                 update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no']}
                 await session.execute(stmt.on_conflict_do_update(index_elements=['sim_no'], set_=update_cols))
                 await session.commit()
-                logger.info(f"📊 [Sync] হাউজ {house_code}: {len(unique)}টি ডাটা আপসার্ট করা হয়েছে।")
+                logger.info(f"📊 [Sync] House {house_code}: {len(unique)} records upserted.")
             else:
-                logger.info(f"ℹ️ হাউজ {house_code}: নতুন কোনো ডাটা পাওয়ার যায়নি।")
+                logger.info(f"ℹ️ House {house_code}: No new data found.")
 
     except Exception as e:
-        logger.error(f"❌ [Process Error] ডাটা প্রসেসিং সমস্যা: {str(e)}", exc_info=True)
+        logger.error(f"❌ [Process Error] Data processing error: {str(e)}", exc_info=True)
 
 
 
@@ -213,11 +213,11 @@ async def process_and_save_data(file_path, house_id):
 
 
 async def reset_daily_activations():
-    """রাত ১২টায় ডাটা ডিলিট করার লজিক"""
+    """Logic to delete data at midnight"""
     async with async_session() as session:
         try:
             await session.execute(delete(LiveActivation))
             await session.commit()
-            logger.info("🧹 [Reset] Live Activation টেবিল সফলভাবে পরিষ্কার করা হয়েছে।")
+            logger.info("🧹 [Reset] Live Activation table cleaned successfully.")
         except Exception as e:
-            logger.error(f"❌ [Reset Error] ডাটা রিসেট ব্যর্থ: {str(e)}")
+            logger.error(f"❌ [Reset Error] Data reset failed: {str(e)}")

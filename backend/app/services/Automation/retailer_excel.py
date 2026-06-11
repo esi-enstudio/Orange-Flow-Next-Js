@@ -7,13 +7,13 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
 
 from app.models.retailer import Retailer
-from app.models.employee import Employee # অটো-লিঙ্কিং এর জন্য জরুরি
+from app.models.employee import Employee # Essential for auto-linking
 from app.models.house import House
 from app.services.db_service import async_session
 
 logger = logging.getLogger(__name__)
 
-# এক্সেল হেডার এবং ডাটাবেজ কলামের ম্যাপিং (সকল কলাম অন্তর্ভুক্ত করা হলো)
+# Excel header to database column mapping (all columns included)
 COLUMN_MAP = {
     'DISTRIBUTOR_CODE': 'dd_code',
     'RETAILER_CODE': 'retailer_code',
@@ -72,16 +72,16 @@ async def export_retailers_excel(retailers):
     return output.getvalue()
 
 async def process_retailer_excel(file_path, progress_callback=None):
-    """উন্নত বাল্ক প্রসেসিং এবং মেমরি ম্যাপিং লজিক ✅"""
+    """Advanced bulk processing with memory mapping ✅"""
     try:
-        # ১. ডাটা লোড
+        # 1. Data load
         df = pd.read_excel(file_path, dtype=str)
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
         logger.info(f"📊 Excel Columns found: {df.columns.tolist()}")
         
         total_rows = len(df)
         if total_rows == 0:
-            return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+            return 0, "No data found in file."
 
         def clean(val):
             v = str(val).strip().replace("'", "")
@@ -92,7 +92,7 @@ async def process_retailer_excel(file_path, progress_callback=None):
             return v
 
         async with async_session() as session:
-            # ২. পারফরম্যান্স অপ্টিমাইজেশন: সকল হাউজ এবং আরএসও মেমরিতে লোড করা ✅
+            # 2. Performance optimization: load all houses and RSOs in memory ✅
             house_res = await session.execute(select(House.id, House.code))
             house_map = {h.code.upper(): h.id for h in house_res.all() if h.code}
             logger.info(f"🏠 Loaded {len(house_map)} houses by code")
@@ -114,11 +114,11 @@ async def process_retailer_excel(file_path, progress_callback=None):
                     pbar.update(1)
                     continue
 
-                # ৩. মেমরি ম্যাপ থেকে আরএসও আইডি খুঁজে বের করা
+                # 3. Lookup RSO ID from memory map
                 itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
                 linked_emp_id = rso_map.get(itop_sr_no) if itop_sr_no else None
                 
-                # ৪. DISTRIBUTOR_CODE (DD Code) দিয়ে হাউজ আইডি বের করা
+                # 4. Get house ID via DISTRIBUTOR_CODE (DD Code)
                 distributor_code_val = clean(row.get('DISTRIBUTOR_CODE'))
                 house_id = None
                 if distributor_code_val:
@@ -129,7 +129,7 @@ async def process_retailer_excel(file_path, progress_callback=None):
                     pbar.update(1)
                     continue
 
-                # ৫. ইনসার্ট ডাটা ডিকশনারি তৈরি
+                # 5. Build insert data dictionary
                 values_to_insert = {
                     "house_id": house_id,
                     "employee_id": linked_emp_id,
@@ -142,7 +142,7 @@ async def process_retailer_excel(file_path, progress_callback=None):
 
                 batch_data.append(values_to_insert)
 
-                # ৬. ব্যাচ প্রসেসিং এবং প্রগ্রেস আপডেট
+                # 6. Batch processing and progress update
                 if len(batch_data) >= batch_size:
                     await do_bulk_upsert(session, batch_data)
                     count += len(batch_data)
@@ -151,7 +151,7 @@ async def process_retailer_excel(file_path, progress_callback=None):
                     if progress_callback:
                         await update_progress(count, total_rows, progress_callback)
 
-            # অবশিষ্ট ডাটা প্রসেস করা
+            # Process remaining data
             if batch_data:
                 await do_bulk_upsert(session, batch_data)
                 count += len(batch_data)
@@ -160,27 +160,27 @@ async def process_retailer_excel(file_path, progress_callback=None):
                     await update_progress(count, total_rows, progress_callback)
 
             pbar.close()
-            # সব শেষে একবারই কমিট ✅
+            # Single commit at the end ✅
             await session.commit()
             logger.info(f"✅ {count} retailers processed successfully. Skipped: {skipped_count}")
             return count, None
 
     except Exception as e:
         logger.error(f"❌ Retailer Excel Processing Error: {str(e)}")
-        return 0, f"প্রসেসিং এরর: {str(e)}"
+        return 0, f"Processing error: {str(e)}"
 
 async def do_bulk_upsert(session, batch_data):
     """PostgreSQL Bulk Upsert Logic"""
     stmt = insert(Retailer).values(batch_data)
     
-    # কনফ্লিক্ট হলে কি কি আপডেট হবে
+    # Fields to update on conflict
     excluded = stmt.excluded
     update_cols = {
         col: excluded[col] 
         for col in COLUMN_MAP.values() 
         if col not in ['retailer_code', 'dd_code']
     }
-    # house_id এবং employee_id আপডেট হবে ✅
+    # house_id and employee_id will be updated ✅
     update_cols['house_id'] = excluded.house_id
     update_cols['employee_id'] = excluded.employee_id
     update_cols['updated_at'] = func.now()

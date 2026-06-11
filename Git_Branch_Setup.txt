@@ -1,19 +1,19 @@
-ধাপ ১: গিট ব্রাঞ্চিং সেটআপ (একবার করলেই হবে)
-সবচেয়ে ভালো পদ্ধতি হলো দুটি ব্রাঞ্চ রাখা: main (লাইভ কোডের জন্য) এবং dev (ডেভেলপমেন্টের জন্য)।
+Step 1: Git Branching Setup (One-time setup)
+The best approach is to maintain two branches: main (for live code) and dev (for development).
 
-১. আপনার OrangeFlow_Dev ফোল্ডারে গিয়ে টার্মিনাল খুলুন এবং ব্রাঞ্চ তৈরি করুন:
+1. Go to your OrangeFlow_Dev folder, open the terminal, and create the branch:
 git checkout -b dev
 
-২. আপনার OrangeFlow_Live ফোল্ডারে গিয়ে নিশ্চিত করুন আপনি main ব্রাঞ্চে আছেন:
+2. Go to your OrangeFlow_Live folder and ensure you are on the main branch:
 git checkout main
 
 
 
-ধাপ ২: ডেভেলপমেন্ট ফ্লো (আপনার প্রতিদিনের কাজ)
-আপনি যখন নতুন কোনো মডিউল (যেমন: মেলা মডিউল) তৈরি করবেন, তখন এই সিরিয়ালটি ফলো করবেন:
+Step 2: Development Flow (Your daily work)
+When you create a new module (e.g., Mela module), follow this sequence:
 
-OrangeFlow_Dev ফোল্ডারে কাজ করা:
-নতুন কোড লেখা শেষ হলে এবং টেস্ট বট দিয়ে পরীক্ষা করার পর যখন দেখবেন সব ঠিক আছে, তখন গিট-এ সেভ করবেন:
+Working in OrangeFlow_Dev folder:
+Once you finish writing new code and testing with the test bot, when everything looks good, save it in Git:
 
 git add .
 git commit -m "feat: added mela report module"
@@ -23,32 +23,28 @@ git push origin dev
 
 
 
+Step 3: Code Merge (Moving from Dev to Main)
+Now you need to bring your dev branch code into the main branch so the live folder can receive it. You can do this from the GitHub website (Pull Request) or via the command line:
 
+While in OrangeFlow_Dev folder:
 
-ধাপ ৩: কোড মার্জ করা (Dev থেকে Main-এ নেওয়া)
-এখন আপনার dev ব্রাঞ্চের কোডগুলো main ব্রাঞ্চে নিয়ে আসতে হবে যাতে লাইভ ফোল্ডার সেটি পেতে পারে। এটি আপনি গিটহাবের ওয়েবসাইট (Pull Request) থেকে করতে পারেন অথবা কমান্ড লাইন দিয়ে:
-
-OrangeFlow_Dev ফোল্ডারে থাকা অবস্থায়:
-
-git checkout main        # মেইন ব্রাঞ্চে যান
-git merge dev            # ডেভ ব্রাঞ্চের কাজগুলো মেইনে নিয়ে আসুন
-git push origin main     # গিটহাবে আপডেট মেইন ব্রাঞ্চ পুশ করুন
-git checkout dev         # আবার ডেভ ব্রাঞ্চে ফিরে গিয়ে নতুন কাজ শুরু করুন
-
+git checkout main        # Switch to main branch
+git merge dev            # Merge dev branch work into main
+git push origin main     # Push updated main branch to GitHub
+git checkout dev         # Return to dev branch to start new work
 
 
 
 
 
+Step 4: Updating the Live Folder (Deployment)
+Now go to your OrangeFlow_Live folder and pull the new code:
 
-ধাপ ৪: লাইভ ফোল্ডার আপডেট করা (Deployment)
-এখন আপনার OrangeFlow_Live ফোল্ডারে গিয়ে নতুন কোডটি নামিয়ে নিতে হবে:
-
-OrangeFlow_Live টার্মিনালে:
+In OrangeFlow_Live terminal:
 git pull origin main
 
-বট রিস্টার্ট দেওয়া:
-যেহেতু আপনি নতুন মডিউল বা রাউটার যোগ করেছেন, তাই লাইভ বটটি একবার বন্ধ করে আবার চালু করতে হবে:
+Restarting the bot:
+Since you have added new modules or routers, you need to stop and restart the live bot:
 
 python main.py
 
@@ -56,11 +52,9 @@ python main.py
 
 
 
+Database Table Update:
+If you created new tables (e.g., Mela table), after running git pull in the live folder, when the bot runs for the first time, your code's await init_db() will automatically create the new tables in the live database. You don't need to do anything manually.
 
 
-ডাটাবেজ টেবিল আপডেট:
-যদি আপনি নতুন কোনো টেবিল তৈরি করেন (যেমন Mela টেবিল), তবে লাইভ ফোল্ডারে git pull করার পর প্রথমবার বট রান করলে আপনার কোডের await init_db() অটোমেটিক লাইভ ডাটাবেজে নতুন টেবিলগুলো তৈরি করে নিবে। আপনাকে ম্যানুয়ালি কিছু করতে হবে না।
-
-
-ফাইল পাথ:
-কোড লেখার সময় সব সময় Relative Path ব্যবহার করবেন (যেমন: os.path.join("sessions", "file.json"))। সরাসরি C:\Users\... এভাবে পাথ লিখবেন না, কারণ আপনার পিসির পাথ এবং সার্ভারের পাথ আলাদা হতে পারে।
+File Paths:
+Always use relative paths when writing code (e.g., os.path.join("sessions", "file.json")). Do not write paths like C:\Users\... directly, because your PC path and the server path may differ.

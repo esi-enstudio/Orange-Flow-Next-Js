@@ -159,7 +159,7 @@ from app.models.house import House
 from app.models.employee import Employee
 
 async def process_target_excel_unified(file_path, target_date, progress_callback=None):
-    """Excel ফাইলের প্রতিটি শিট চেক করে অটোমেটিক প্রসেস করার লজিক ✅"""
+    """Auto-process each sheet in Excel file ✅"""
     try:
         xl = pd.ExcelFile(file_path)
         sheet_names = xl.sheet_names
@@ -220,7 +220,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                 df.columns = clean_cols
                 col_name_map = dict(zip(clean_cols, orig_cols))
 
-                # টার্গেট টাইপ ডিটেকশন (Refined)
+                # Target type detection (Refined)
                 target_type = None
                 if sheet_name == "Supervisor Target":
                     target_type = 'supervisor'
@@ -246,7 +246,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     continue
 
                 if progress_callback:
-                    await progress_callback(f"⏳ প্রসেস হচ্ছে: <b>{sheet_name}</b> ({target_type})...")
+                    await progress_callback(f"⏳ Processing: <b>{sheet_name}</b> ({target_type})...")
 
                 count = 0
                 batch_data = []
@@ -256,7 +256,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     excel_values = {}
                     extra_targets = {}
                     
-                    # ১. ম্যাপিং অনুযায়ী ভ্যালু সংগ্রহ
+                    # 1. Collect values per mapping
                     mapped_excel_cols = set()
                     for excel_header, db_field in col_map.items():
                         if excel_header in clean_cols:
@@ -267,7 +267,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                             else:
                                 excel_values[db_field] = clean_val(row.get(excel_header))
 
-                    # ২. এক্সট্রা কলাম প্রসেসিং
+                    # 2. Extra column processing
                     for col in clean_cols:
                         if col not in mapped_excel_cols and col not in meta_cols:
                             val = row.get(col)
@@ -275,10 +275,10 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                                 extra_targets[col_name_map[col]] = val
                     values['extra_targets'] = extra_targets
 
-                    # ৩. আইডি লুকআপ এবং ভ্যালিডেশন
+                    # 3. ID lookup and validation
                     h_code_raw = excel_values.get('house_code')
                     h_id = house_map.get(normalize_code(h_code_raw))
-                    if not h_id: continue # House না পাওয়া গেলে স্কিপ
+                    if not h_id: continue # Skip if House not found
                     values['house_id'] = h_id
 
                     if target_type == 'house':
@@ -288,7 +288,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     elif target_type == 'supervisor':
                         s_msisdn = normalize_msisdn(excel_values.get('supervisor_msisdn'))
                         emp_id = sup_map_active_pool.get(s_msisdn)
-                        if not emp_id: continue # Active এবং Pool Number ম্যাচ না করলে স্কিপ
+                        if not emp_id: continue # Skip if Active and Pool Number don't match
                         values['employee_id'] = emp_id
                         for k, v in excel_values.items():
                             if k not in ['house_code', 'supervisor_msisdn']:
@@ -322,7 +322,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     await do_bulk_upsert_target(session, model, batch_data, conflict_elements)
                     count += len(batch_data)
                 
-                results.append(f"✅ {sheet_name}: {bn_num(count)} টি")
+                results.append(f"✅ {sheet_name}: {bn_num(count)} records")
                 total_processed += count
 
             await session.commit()
@@ -334,7 +334,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
         return 0, f"Error: {str(e)}"
 
 async def do_bulk_upsert_target(session, model, batch_data, conflict_elements):
-    """টার্গেটের জন্য বাল্ক আপসার্ট লজিক"""
+    """Bulk upsert logic for targets"""
     stmt = insert(model).values(batch_data)
     excluded = stmt.excluded
     update_dict = {
@@ -351,11 +351,11 @@ async def do_bulk_upsert_target(session, model, batch_data, conflict_elements):
     await session.execute(stmt)
 
 async def update_progress_target(count, total_rows, target_type, progress_callback):
-    """টার্গেট প্রগ্রেস আপডেট হেল্পার"""
+    """Target progress update helper"""
     percent = round((count / total_rows) * 100)
     await progress_callback(
-        f"📊 <b>টার্গেট আপলোড ({target_type}):</b> {bn_num(percent)}%\n"
-        f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
+        f"📊 <b>Target Upload ({target_type}):</b> {bn_num(percent)}%\n"
+        f"📈 Processed: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
     )
 
 

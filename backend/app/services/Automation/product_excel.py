@@ -24,7 +24,7 @@ async def process_product_excel(file_path, progress_callback=None):
         
         total_rows = len(df)
         if total_rows == 0:
-            return 0, "ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"
+            return 0, "No data found in file."
 
         def clean(val):
             v = str(val).strip().replace("'", "")
@@ -76,7 +76,7 @@ async def process_product_excel(file_path, progress_callback=None):
 
     except Exception as e:
         logger.error(f"❌ Product Excel Processing Error: {str(e)}")
-        return 0, f"প্রসেসিং এরর: {str(e)}"
+        return 0, f"Processing error: {str(e)}"
 
 async def do_bulk_upsert(session, batch_data):
     stmt = insert(Product).values(batch_data)
@@ -99,8 +99,8 @@ async def do_bulk_upsert(session, batch_data):
 async def update_progress(count, total_rows, progress_callback):
     percent = round((count / total_rows) * 100)
     await progress_callback(
-        f"📊 <b>প্রোডাক্ট আপলোড প্রগ্রেস:</b> {bn_num(percent)}%\n"
-        f"📈 প্রসেস হয়েছে: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
+        f"📊 <b>Product Upload Progress:</b> {bn_num(percent)}%\n"
+        f"📈 Processed: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
     )
 
 def generate_product_sample_excel(file_path):

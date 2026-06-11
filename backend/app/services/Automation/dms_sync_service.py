@@ -32,7 +32,7 @@ URL_MAP = {
 }
 
 def get_date_ranges(missing_dates):
-    """মিসিং তারিখগুলোকে রেঞ্জ (Start, End) হিসেবে গ্রুপ করবে"""
+    """Group missing dates into ranges (Start, End)"""
     if not missing_dates:
         return []
     
@@ -47,7 +47,7 @@ def get_date_ranges(missing_dates):
     return ranges
 
 async def get_missing_dates(session, house_id, model, date_column, dms_type=None, module_key=None, house_code=None):
-    """চলতি মাসের গ্যাপ থাকা তারিখগুলো খুঁজে বের করবে (SyncHistory সহ)"""
+    """Find gap dates in current month (with SyncHistory)"""
     today = date.today()
     start_of_month = today.replace(day=1)
     yesterday = today - timedelta(days=1)
@@ -55,7 +55,7 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
     if yesterday < start_of_month:
         return []
 
-    # ১. ডাটাবেজে থাকা তারিখগুলো
+    # 1. Dates in database
     conditions = [
         getattr(model, "house_id") == house_id,
         getattr(model, date_column) >= start_of_month,
@@ -68,7 +68,7 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
     result = await session.execute(stmt)
     existing_data_dates = {r[0] for r in result.all() if r[0]}
 
-    # ২. সিঙ্ক হিস্ট্রিতে থাকা (সফল বা নো-ডাটা) তারিখগুলো
+    # 2. Dates in sync history (success or no-data)
     m_key = module_key or model.__tablename__.replace("_issues", "_issue").replace("_reports", "_report")
     if dms_type: m_key = f"dms_report_{dms_type}"
     
@@ -83,7 +83,7 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
     sync_result = await session.execute(sync_stmt)
     synced_dates = {r[0] for r in sync_result.all() if r[0]}
 
-    # কম্বাইনড লিস্ট
+    # Combined list
     covered_dates = existing_data_dates.union(synced_dates)
     
     h_display = house_code or house_id
@@ -102,20 +102,20 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
     return missing_dates
 
 async def run_daily_auto_sync():
-    """মেইন অটো-সিঙ্ক ফাংশন"""
+    """Main auto-sync function"""
     from app.models.app_setting import AppSetting
 
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR, exist_ok=True)
 
     async with async_session() as session:
-        # গ্লোবাল সেটিংস চেক (সুপার এডমিন/এডমিন চালু/বন্ধ করতে পারে)
+        # Check global settings (super admin/admin can toggle)
         setting_result = await session.execute(
             select(AppSetting).where(AppSetting.id == 1)
         )
         app_setting = setting_result.scalar_one_or_none()
         if app_setting and not app_setting.is_daily_sync_enabled:
-            logger.info("ℹ️ [Auto Sync] দৈনিক সিঙ্ক বন্ধ আছে (AppSettings)।")
+            logger.info("ℹ️ [Auto Sync] Daily sync is disabled (AppSettings).")
             return
 
         result = await session.execute(
@@ -128,19 +128,19 @@ async def run_daily_auto_sync():
         houses = result.scalars().all()
 
     if not houses:
-        logger.info("ℹ️ [Auto Sync] সিঙ্ক করার মতো কোনো হাউজ পাওয়া যায়নি।")
+        logger.info("ℹ️ [Auto Sync] No houses found to sync.")
         return
 
     for house in houses:
         try:
-            print(f"\n{Fore.CYAN}{Style.BRIGHT}🏠 House: {house.name} এর জন্য অটো-সিঙ্ক শুরু হচ্ছে...")
+            print(f"\n{Fore.CYAN}{Style.BRIGHT}🏠 Auto-sync starting for {house.name}...")
             await sync_house_modules(house)
             await asyncio.sleep(5) 
         except Exception as e:
             logger.error(f"❌ [Auto Sync Error] {house.name}: {str(e)}")
 
 async def mark_sync_complete(house_id, module_name, start_date, end_date, status="success"):
-    """সিঙ্ক হিস্ট্রিতে ডাটা রেকর্ড করা"""
+    """Save sync record"""
     async with async_session() as session:
         current_date = start_date
         while current_date <= end_date:
@@ -158,7 +158,7 @@ async def mark_sync_complete(house_id, module_name, start_date, end_date, status
         await session.commit()
 
 async def sync_house_modules(house):
-    """হাউজের মিসিং রেঞ্জগুলো ডাউনলোড করবে - ইম্প্রুভড স্পিড (সেশন রি-ইউজ)"""
+    """Download missing ranges for house - improved speed (session reuse)"""
     modules = [
         {"name": "Activation", "model": Activation, "date_col": "activation_date", "process_fn": process_activation_excel, "key": "activation"},
         {"name": "ITopUp Detail", "model": ITopUpDetail, "date_col": "report_date", "sub_types": ["C2C", "C2S", "Balance"]},
@@ -177,7 +177,7 @@ async def sync_house_modules(house):
     try:
         async with async_session() as session:
             for mod in modules:
-                # মডিউল অনুযায়ী মিসিং তারিখ বের করা
+                # Find missing dates per module
                 all_ranges = []
                 if 'sub_types' in mod:
                     for sub_type in mod['sub_types']:
@@ -194,7 +194,7 @@ async def sync_house_modules(house):
                 if not all_ranges:
                     continue
 
-                # যদি কোনো ডাউনলোড করার মতো থাকে, তবেই ব্রাউজার ওপেন করবে (একবার)
+                # Only open browser if there's something to download (once)
                 if page is None:
                     page, context = await session_manager.get_valid_page(credentials)
 
@@ -205,7 +205,7 @@ async def sync_house_modules(house):
                         task['fn'], sub_type=task.get('sub_type')
                     )
                     
-                    # সিঙ্ক রেকর্ড সেভ করা
+                    # Save sync record
                     status = "success"
                     if res == "no_data": status = "no_data"
                     await mark_sync_complete(house.id, task['url_key'], task['start_d'], task['end_d'], status)
@@ -217,14 +217,14 @@ async def sync_house_modules(house):
         if context: await context.close()
 
 async def handle_swal_popup(page, house_name):
-    """SweetAlert2 পপআপ হ্যান্ডেল করবে"""
+    """Handle SweetAlert2 popup"""
     try:
         swal = await page.query_selector(".swal2-container")
         if swal and await swal.is_visible():
             text = await page.inner_text(".swal2-content") or await page.inner_text(".swal2-html-container") or ""
-            logger.info(f"ℹ️ [{house_name}] DMS পপআপ: {text.strip()}")
+            logger.info(f"ℹ️ [{house_name}] DMS popup: {text.strip()}")
             
-            # কনফার্ম বাটন ক্লিক করে পপআপ বন্ধ করা
+            # Close popup by clicking confirm button
             confirm_btn = await page.query_selector("button.swal2-confirm")
             if confirm_btn:
                 await confirm_btn.click()
@@ -238,23 +238,23 @@ async def handle_swal_popup(page, house_name):
     return None
 
 async def download_and_process(page, house, url_key, start_date, end_date, process_fn, sub_type=None):
-    """রেঞ্জ অনুযায়ী ডাটা ডাউনলোড (Existing Page ব্যবহার করে) - ইম্প্রুভড স্পিড ও স্ট্যাবিলিটি"""
+    """Download data by range (using existing page) - improved speed & stability"""
     s_date_str = start_date.strftime("%Y-%m-%d")
     e_date_str = end_date.strftime("%Y-%m-%d")
     file_path = os.path.join(TEMP_DIR, f"sync_{url_key}_{house.code}_{s_date_str}_to_{e_date_str}.xlsx")
     
     try:
         url = URL_MAP.get(url_key)
-        logger.info(f"🚀 [{house.name}] {url_key} ({s_date_str} to {e_date_str}) ডাউনলোড শুরু...")
+        logger.info(f"🚀 [{house.name}] {url_key} ({s_date_str} to {e_date_str}) download starting...")
         
-        # পেজ নেভিগেশন
+        # Page navigation
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
         except:
             await page.goto(url, wait_until="load", timeout=60000)
         
         await page.wait_for_selector("#StartDate", timeout=30000)
-        # তারিখ সেট করা এবং 'change' ইভেন্ট ট্রিগার করা (নিশ্চিত হওয়ার জন্য)
+        # Set date and trigger 'change' event (for certainty)
         await page.evaluate(f"""
             const sd = document.getElementById('StartDate');
             const ed = document.getElementById('EndDate');
@@ -263,13 +263,13 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
         """)
         await asyncio.sleep(2)
 
-        # ১. পপআপ চেক (যদি আগে থেকেই থাকে)
+        # 1. Check popup (if already present)
         if await handle_swal_popup(page, house.name) == "no_data":
             return "no_data"
 
-        # ২. ডাউনলোড প্রসেস
+        # 2. Download process
         if "scratch_card" in url_key:
-            # Scratch Card এর জন্য View Detail করা বাধ্যতামূলক
+            # View Detail is mandatory for Scratch Card
             await page.click("button:has-text('View Detail')")
             if await handle_swal_popup(page, house.name) == "no_data":
                 return "no_data"
@@ -278,7 +278,7 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
                 await page.wait_for_selector("#DMSdatatableTest", timeout=20000)
                 empty_msg = await page.query_selector("td.dataTables_empty")
                 if empty_msg and "No data found" in await empty_msg.inner_text():
-                    logger.info(f"ℹ️ [{house.name}] Scratch Card: {s_date_str}-{e_date_str} এ ডাটা নেই।")
+                    logger.info(f"ℹ️ [{house.name}] Scratch Card: No data for {s_date_str}-{e_date_str}.")
                     return "no_data"
                 
                 async with page.expect_download(timeout=180000) as download_info:
@@ -289,7 +289,7 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
                 logger.error(f"❌ [{house.name}] Scratch Card check failed: {str(e)}")
                 return "error"
         else:
-            # অন্যান্য রিপোর্টের জন্য সরাসরি এক্সপোর্ট
+            # Direct export for other reports
             selector = "input[value='Export to Excel']"
             if "sim_issue" in url_key: selector = "button:has-text('Export Detail')"
             elif "activation" in url_key: selector = "button:has-text('Export Details')"
@@ -298,7 +298,7 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
                 try:
                     await page.click(selector, timeout=15000, no_wait_after=True)
                 except Exception as e:
-                    # পপআপ হ্যান্ডেল করে আবার চেষ্টা
+                    # Handle popup and retry
                     if await handle_swal_popup(page, house.name) == "no_data":
                         return "no_data"
                     await page.click(selector, no_wait_after=True)
@@ -307,7 +307,7 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
         
         await download.save_as(file_path)
 
-        # ৪. প্রসেসিং শুরু
+        # 4. Processing started
         async def silent_progress(text): pass
         if sub_type:
             count, err = await process_fn(file_path, sub_type, house.id, silent_progress)
@@ -315,15 +315,15 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
             count, err = await process_fn(file_path, house.id, silent_progress)
             
         if err: 
-            if "কোনো ডাটা পাওয়া যায়নি" in str(err): return "no_data"
-            logger.error(f"❌ [{house.name}] প্রসেসিং এরর: {err}")
+            if "No data found" in str(err): return "no_data"
+            logger.error(f"❌ [{house.name}] Processing error: {err}")
             return "error"
         else: 
-            logger.info(f"✅ [{house.name}] {url_key} সফল। মোট: {count}")
+            logger.info(f"✅ [{house.name}] {url_key} success. Total: {count}")
             return "success"
 
     except Exception as e:
-        logger.error(f"💥 [{house.name}] {url_key} ফেইলড: {str(e)}")
+        logger.error(f"💥 [{house.name}] {url_key} failed: {str(e)}")
         return "error"
     finally:
         if os.path.exists(file_path): os.remove(file_path)

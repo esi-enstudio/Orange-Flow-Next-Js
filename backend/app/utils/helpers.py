@@ -5,17 +5,17 @@ from app.models.house import House
 from app.services.db_service import async_session
 
 async def get_dms_credentials(house_id: int):
-    """হাউজ আইডি দিয়ে ডিএমএস ক্রেডেনশিয়াল সংগ্রহ করার কমন ফাংশন"""
+    """Common function to get DMS credentials by house ID"""
     async with async_session() as session:
-        # সরাসরি হাউজ টেবিল থেকে আইডি দিয়ে ডাটা নেওয়া হচ্ছে
+        # Fetching data directly from house table by ID
         house = await session.get(House, house_id)
         
         if not house:
-            return None, "❌ হাউজটি খুঁজে পাওয়া যায়নি।"
+            return None, "❌ House not found."
 
-        # প্রয়োজনীয় ডিএমএস তথ্যগুলো আছে কি না চেক করা
+        # Check required DMS information
         if not all([house.dms_user, house.dms_pass, house.dms_house_id]):
-            return None, f"❌ হাউজ '{house.name}' এর জন্য DMS Credentials সেট করা নেই।"
+            return None, f"❌ DMS Credentials not set for house '{house.name}'."
 
         return {
             "user": house.dms_user,
@@ -26,7 +26,7 @@ async def get_dms_credentials(house_id: int):
         }, None
 
 async def get_user_houses(telegram_id: int):
-    """ইউজারের সাথে যুক্ত সকল হাউজ লিস্ট পাওয়ার ফাংশন"""
+    """Function to get all houses linked to user"""
     async with async_session() as session:
         result = await session.execute(
             select(User).options(selectinload(User.houses)).where(User.telegram_id == telegram_id)
@@ -34,151 +34,146 @@ async def get_user_houses(telegram_id: int):
         user = result.scalar_one_or_none()
         
         if not user:
-            return [], "❌ ইউজার খুঁজে পাওয়া যায়নি।"
+            return [], "❌ User not found."
         
         if not user.houses:
-            return [], "❌ আপনার সাথে কোনো হাউজ যুক্ত নেই।"
+            return [], "❌ No houses linked to your account."
 
         return user.houses, None
     
 def bn_num(number):
-    """ইংরেজি সংখ্যাকে বাংলায় রূপান্তর করার কমন মেথড"""
-    en_digits = "0123456789"
-    bn_digits = "০১২৩৪৫৬৭৮৯"
-    
-    # কনভার্সন টেবিল তৈরি
-    table = str.maketrans(en_digits, bn_digits)
-    return str(number).translate(table)
+    """Convert number to string"""
+    return str(number)
 
 
 
 
 
 def get_employee_full_profile_text(m):
-    """এমপ্লয়ী বিস্তারিত প্রোফাইল HTML ফরম্যাটে সাজিয়ে দেওয়ার ফাংশন"""
+    """Format employee detailed profile in HTML"""
     def clean(val):
         return str(val) if val and str(val).lower() != 'nan' else "N/A"
     
     return (
-        f"👥 **এমপ্লয়ী বিস্তারিত প্রোফাইল**\n"
+        f"👥 **Employee Profile Details**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>🆔 প্রাথমিক পরিচয় (Basic Info):</b>\n"
-        f"🔹 নাম: {m.user.name if m.user else m.dms_code}\n"
-        f"🔹 ডিএমএস কোড: `{m.dms_code}`\n"
-        f"🔹 নিজের কোড: `{clean(m.assisted_retailer_code)}`\n"
-        f"🔹 আইটপ নাম্বার: {clean(m.itop_number)}\n"
-        f"🔹 পার্সোনাল নং: {clean(m.personal_number)}\n"
-        f"🔹 পুল নম্বর: {clean(m.pool_number)}\n"
-        f"🔹 স্ট্যাটাস: {m.status}\n\n"
+        f"<b>🆔 Basic Info:</b>\n"
+        f"🔹 Name: {m.user.name if m.user else m.dms_code}\n"
+        f"🔹 DMS Code: `{m.dms_code}`\n"
+        f"🔹 Own Code: `{clean(m.assisted_retailer_code)}`\n"
+        f"🔹 ITop Number: {clean(m.itop_number)}\n"
+        f"🔹 Personal No: {clean(m.personal_number)}\n"
+        f"🔹 Pool Number: {clean(m.pool_number)}\n"
+        f"🔹 Status: {m.status}\n\n"
         
-        f"<b>🏦 ব্যাংক তথ্য (Bank Details):</b>\n"
-        f"🔹 ব্যাংক: {clean(m.bank_name)}\n"
-        f"🔹 অ্যাকাউন্ট: {clean(m.bank_account)}\n"
-        f"🔹 ব্রাঞ্চ: {clean(m.branch_name)}\n"
-        f"🔹 রাউটিং নং: {clean(m.routing_number)}\n\n"
+        f"<b>🏦 Bank Details:</b>\n"
+        f"🔹 Bank: {clean(m.bank_name)}\n"
+        f"🔹 Account: {clean(m.bank_account)}\n"
+        f"🔹 Branch: {clean(m.branch_name)}\n"
+        f"🔹 Routing No: {clean(m.routing_number)}\n\n"
         
-        f"<b>👤 ব্যক্তিগত তথ্য (Personal):</b>\n"
-        f"🔹 বাবার নাম: {clean(m.fathers_name)}\n"
-        f"🔹 মায়ের নাম: {clean(m.mothers_name)}\n"
-        f"🔹 রক্তের গ্রুপ: {clean(m.blood_group)}\n"
-        f"🔹 ধর্ম: {clean(m.religion)} | এনআইডি: {clean(m.nid)}\n"
-        f"🔹 জন্মতারিখ: {clean(m.dob)}\n"
-        f"🔹 হোম টাউন: {clean(m.home_town)}\n\n"
+        f"<b>👤 Personal Info:</b>\n"
+        f"🔹 Father's Name: {clean(m.fathers_name)}\n"
+        f"🔹 Mother's Name: {clean(m.mothers_name)}\n"
+        f"🔹 Blood Group: {clean(m.blood_group)}\n"
+        f"🔹 Religion: {clean(m.religion)} | NID: {clean(m.nid)}\n"
+        f"🔹 Date of Birth: {clean(m.dob)}\n"
+        f"🔹 Home Town: {clean(m.home_town)}\n\n"
         
-        f"<b>🎓 শিক্ষা ও অভিজ্ঞতা (Pro):</b>\n"
-        f"🔹 শেষ শিক্ষা: {clean(m.last_education)}\n"
-        f"🔹 প্রতিষ্ঠান: {clean(m.institution_name)}\n"
-        f"🔹 পূর্বের কোম্পানি: {clean(m.previous_company_name)}\n"
-        f"🔹 পূর্বের স্যালারি: {clean(m.previous_company_salary)}\n\n"
+        f"<b>🎓 Education & Experience:</b>\n"
+        f"🔹 Last Education: {clean(m.last_education)}\n"
+        f"🔹 Institution: {clean(m.institution_name)}\n"
+        f"🔹 Previous Company: {clean(m.previous_company_name)}\n"
+        f"🔹 Previous Salary: {clean(m.previous_company_salary)}\n\n"
         
-        f"<b>🛠 অফিসিয়াল ও অন্যান্য:</b>\n"
-        f"🔹 জয়েনিং: {clean(m.joining_date)}\n"
-        f"🔹 স্যালারি: {clean(m.salary)}\n"
-        f"🔹 মার্কেট টাইপ: {clean(m.market_type)}\n"
-        f"🔹 বাইক: {clean(m.motor_bike)} | সাইকেল: {clean(m.bicyle)}\n"
-        f"🔹 লাইসেন্স: {clean(m.driving_license)}\n"
-        f"🔹 ঠিকানা: {clean(m.present_address)}\n"
+        f"<b>🛠 Official & Others:</b>\n"
+        f"🔹 Joining: {clean(m.joining_date)}\n"
+        f"🔹 Salary: {clean(m.salary)}\n"
+        f"🔹 Market Type: {clean(m.market_type)}\n"
+        f"🔹 Bike: {clean(m.motor_bike)} | Cycle: {clean(m.bicyle)}\n"
+        f"🔹 License: {clean(m.driving_license)}\n"
+        f"🔹 Address: {clean(m.present_address)}\n"
         f"━━━━━━━━━━━━━━━━━━━━"
     )
 
 
 def get_retailer_full_profile_text(r):
-    """রিটেইলারের সকল ডাটা এমপ্লয়ী স্টাইলে সাজিয়ে দেওয়ার ফাংশন"""
+    """Format all retailer data in employee style"""
     def clean(val):
         return str(val) if val and str(val).lower() != 'nan' else "N/A"
     
-    # আরএসও (SR) এর নাম বের করা (যদি লিঙ্ক থাকে)
-    sr_name = r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else "অ্যাসাইন করা নেই")
+    # Get RSO (SR) name (if linked)
+    sr_name = r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else "Not Assigned")
 
     return (
-        f"🏪 **রিটেইলার বিস্তারিত প্রোফাইল**\n"
+        f"🏪 **Retailer Profile Details**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>🆔 প্রাথমিক পরিচয় (Identity):</b>\n"
-        f"🔹 নাম: {r.name}\n"
-        f"🔹 কোড: `{r.retailer_code}`\n"
-        f"🔹 দায়িত্বপ্রাপ্ত SR: <b>{sr_name}</b>\n"
-        f"🔹 রিটেইলার টাইপ: {clean(r.type)}\n"
-        f"🔹 সচল (Enabled): {clean(r.enabled)}\n\n"
+        f"<b>🆔 Basic Info:</b>\n"
+        f"🔹 Name: {r.name}\n"
+        f"🔹 Code: `{r.retailer_code}`\n"
+        f"🔹 Assigned SR: <b>{sr_name}</b>\n"
+        f"🔹 Retailer Type: {clean(r.type)}\n"
+        f"🔹 Active: {clean(r.enabled)}\n\n"
         
-        f"<b>📞 যোগাযোগ ও মোবাইল (Contact):</b>\n"
-        f"🔹 ফোন নং: {clean(r.contact_no)}\n"
+        f"<b>📞 Contact & Mobile:</b>\n"
+        f"🔹 Phone No: {clean(r.contact_no)}\n"
         f"🔹 iTop Number: {clean(r.itop_number)}\n"
         f"🔹 iTop SR No: {clean(r.itop_sr_number)}\n"
         f"🔹 Tran Mobile: {clean(r.tran_mobile_no)}\n\n"
         
-        f"<b>📍 ঠিকানা ও লোকেশন (Location):</b>\n"
-        f"🔹 থানা: {clean(r.thana)}\n"
-        f"🔹 জেলা: {clean(r.district)}\n"
-        f"🔹 রুট: {clean(r.route)}\n"
-        f"🔹 পূর্ণ ঠিকানা: {clean(r.address)}\n\n"
+        f"<b>📍 Address & Location:</b>\n"
+        f"🔹 Thana: {clean(r.thana)}\n"
+        f"🔹 District: {clean(r.district)}\n"
+        f"🔹 Route: {clean(r.route)}\n"
+        f"🔹 Full Address: {clean(r.address)}\n\n"
         
-        f"<b>💼 বিজনেস ও ব্যক্তিগত (Business):</b>\n"
-        f"🔹 মালিকের নাম: {clean(r.owner_name)}\n"
-        f"🔹 এনআইডি (NID): {clean(r.nid)}\n"
-        f"🔹 জন্ম তারিখ: {clean(r.dob)}\n"
-        f"🔹 ক্যাটাগরি: {clean(r.category)}\n"
-        f"🔹 সার্ভিস পয়েন্ট: {clean(r.service_point)}\n"
-        f"🔹 সিম সেলার: {clean(r.sim_seller)}\n\n"
+        f"<b>💼 Business & Personal:</b>\n"
+        f"🔹 Owner's Name: {clean(r.owner_name)}\n"
+        f"🔹 NID: {clean(r.nid)}\n"
+        f"🔹 Date of Birth: {clean(r.dob)}\n"
+        f"🔹 Category: {clean(r.category)}\n"
+        f"🔹 Service Point: {clean(r.service_point)}\n"
+        f"🔹 SIM Seller: {clean(r.sim_seller)}\n\n"
         
-        f"<b>👷‍♂️ বিপি (BP) কানেকশন:</b>\n"
-        f"🔹 BP কোড: {clean(r.bp_code)}\n"
-        f"🔹 BP নম্বর: {clean(r.bp_number)}\n"
+        f"<b>👷‍♂️ BP Connection:</b>\n"
+        f"🔹 BP Code: {clean(r.bp_code)}\n"
+        f"🔹 BP Number: {clean(r.bp_number)}\n"
         f"━━━━━━━━━━━━━━━━━━━━"
     )
     
     
 def get_house_full_profile_text(h):
-    """হাউজের সকল ডাটা রিটেইলার ও ফিল্ড ফোর্সের স্টাইলে সাজিয়ে দেওয়ার ফাংশন"""
+    """Format all house data in retailer & field force style"""
     def clean(val):
         return str(val) if val and str(val).lower() != 'nan' else "N/A"
     
-    # স্ট্যাটাস এবং সাবস্ক্রিপশন ডেট ফরম্যাটিং
+    # Status and subscription date formatting
     status = "Active ✅" if h.is_active else "Deactive ❌"
     sub_date = h.subscription_date.strftime('%d-%m-%Y') if h.subscription_date else "N/A"
 
     return (
-        f"🏢 <b>হাউজ বিস্তারিত প্রোফাইল</b>\n"
+        f"🏢 <b>House Profile Details</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>🆔 প্রাথমিক পরিচয় (Identity):</b>\n"
-        f"🔹 নাম: {h.name}\n"
-        f"🔹 কোড: <code>{h.code}</code>\n"
-        f"🔹 স্ট্যাটাস: {status}\n\n"
+        f"<b>🆔 Basic Info:</b>\n"
+        f"🔹 Name: {h.name}\n"
+        f"🔹 Code: <code>{h.code}</code>\n"
+        f"🔹 Status: {status}\n\n"
         
-        f"<b>📍 অবস্থান ও ক্লাস্টার (Geography):</b>\n"
-        f"🔹 ক্লাস্টার: {clean(h.cluster)}\n"
-        f"🔹 রিজিয়ন: {clean(h.region)}\n\n"
+        f"<b>📍 Location & Cluster:</b>\n"
+        f"🔹 Cluster: {clean(h.cluster)}\n"
+        f"🔹 Region: {clean(h.region)}\n\n"
         
-        f"<b>📞 যোগাযোগ ও ঠিকানা (Contact):</b>\n"
-        f"🔹 কন্টাক্ট নং: {clean(h.contact)}\n"
-        f"🔹 ইমেইল: {clean(h.email)}\n"
-        f"🔹 ঠিকানা: {clean(h.address)}\n\n"
+        f"<b>📞 Contact & Address:</b>\n"
+        f"🔹 Contact No: {clean(h.contact)}\n"
+        f"🔹 Email: {clean(h.email)}\n"
+        f"🔹 Address: {clean(h.address)}\n\n"
         
-        f"<b>🔐 ডিএমএস ক্রেডেনশিয়াল (DMS):</b>\n"
-        f"🔹 ইউজারনেম: <code>{clean(h.dms_user)}</code>\n"
-        f"🔹 পাসওয়ার্ড: <code>{clean(h.dms_pass)}</code>\n"
-        f"🔹 হাউজ আইডি: <code>{clean(h.dms_house_id)}</code>\n\n"
+        f"<b>🔐 DMS Credentials:</b>\n"
+        f"🔹 Username: <code>{clean(h.dms_user)}</code>\n"
+        f"🔹 Password: <code>{clean(h.dms_pass)}</code>\n"
+        f"🔹 House ID: <code>{clean(h.dms_house_id)}</code>\n\n"
         
-        f"<b>📅 সাবস্ক্রিপশন (Subscription):</b>\n"
-        f"🔹 মেয়াদ শেষ: <b>{sub_date}</b>\n"
+        f"<b>📅 Subscription:</b>\n"
+        f"🔹 Expiry: <b>{sub_date}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━"
     )

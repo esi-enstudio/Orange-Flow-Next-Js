@@ -1,40 +1,40 @@
 # OrangeFlow Telegram Mini App (TMA) Setup
 
-এই প্রজেক্টে এখন একটি আধুনিক **Next.js** ফ্রন্টএন্ড এবং **FastAPI** ব্যাকএন্ড যুক্ত করা হয়েছে।
+This project now includes a modern **Next.js** frontend and a **FastAPI** backend.
 
-## ১. ব্যাকএন্ড (Python API)
-আপনার বিদ্যমান ডেটাবেস থেকে ডাটা সাপ্লাই করার জন্য এটি প্রয়োজন।
+## 1. Backend (Python API)
+This is needed to supply data from your existing database.
 
-**চালু করার কমান্ড:**
+**Command to run:**
 ```bash
 python api_main.py
 ```
-এটি `http://localhost:8000` এ চলবে।
+It will run at `http://localhost:8000`.
 
-## ২. ফ্রন্টএন্ড (Next.js)
-এটি আপনার টেলিগ্রাম মিনি অ্যাপের ইন্টারফেস।
+## 2. Frontend (Next.js)
+This is the interface for your Telegram Mini App.
 
-**চালু করার কমান্ড:**
+**Command to run:**
 ```bash
 cd frontend
 npm run dev
 ```
-এটি `http://localhost:3000` এ চলবে।
+It will run at `http://localhost:3000`.
 
-## ৩. টেলিগ্রামে কানেক্ট করা
-টেলিগ্রাম বটে এই মিনি অ্যাপটি যুক্ত করতে হলে:
-1.  **BotFather** এ যান।
-2.  আপনার বট সিলেক্ট করুন এবং `Menu Button` বা একটি বাটন তৈরি করুন।
-3.  URL হিসেবে আপনার ফ্রন্টএন্ড ইউআরএল দিন। (লোকাল টেস্টের জন্য **ngrok** ব্যবহার করতে পারেন)।
+## 3. Connecting to Telegram
+To add this Mini App to your Telegram bot:
+1. Go to **BotFather**.
+2. Select your bot and create a `Menu Button` or a button.
+3. Enter your frontend URL as the URL. (Use **ngrok** for local testing).
 
-### Ngrok দিয়ে লোকাল টেস্ট:
+### Local Testing with Ngrok:
 ```bash
 ngrok http 3000
 ```
-অতঃপর ngrok এর দেওয়া `https` ইউআরএলটি BotFather এ সেট করুন।
+Then set the `https` URL provided by ngrok in BotFather.
 
 ---
-**টেকনিক্যাল ডিটেইলস:**
+**Technical Details:**
 - **Framework:** Next.js 15 (App Router)
 - **Styling:** Tailwind CSS (Telegram Theme Integrated)
 - **SDK:** @twa-dev/sdk
