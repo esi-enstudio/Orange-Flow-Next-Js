@@ -82,14 +82,20 @@ services:
   frontend:
     image: node:20-slim
     container_name: orange_flow_frontend
+    restart: always
+    stdin_open: true
+    tty: true
     working_dir: /app
     volumes:
       - ./frontend:/app
+      - /app/node_modules
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
       - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=1
+      - WATCHPACK_POLLING=true
     command: >
       sh -c "npm install && npm run dev"
     depends_on:
