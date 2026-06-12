@@ -95,7 +95,7 @@ export const navItems: NavItem[] = [
         permission: "view_lifting",
         href: "/commercial/lifting",
         children: [
-          { title: "Create Lifting", translationKey: "nav.lifting_create", href: "/commercial/lifting", permission: "view_lifting" },
+          { title: "Lifting Records", translationKey: "nav.lifting_records", href: "/commercial/lifting/records", permission: "view_lifting" },
           { title: "Products", translationKey: "nav.products", href: "/commercial/lifting/products", permission: "view_products" },
         ]
       },

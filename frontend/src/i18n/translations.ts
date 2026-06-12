@@ -36,6 +36,7 @@ export const translations = {
       username_required: "Username is required",
       email_required: "Email is required",
       password_required: "Password is required",
+      error: "Something went wrong",
     },
     nav: {
       dashboard: "Dashboard",
@@ -73,6 +74,7 @@ export const translations = {
       sales: "Commercial & Sales",
       lifting: "Lifting",
       lifting_create: "Create Lifting",
+      lifting_records: "Liftings",
       products: "Products",
       commission: "Commission",
       expenses: "Daily Expenses",
@@ -785,6 +787,7 @@ export const translations = {
       username_required: "Username is required",
       email_required: "Email is required",
       password_required: "Password is required",
+      error: "Something went wrong",
     },
     nav: {
       dashboard: "Dashboard",
@@ -822,6 +825,7 @@ export const translations = {
       sales: "Commercial & Sales",
       lifting: "Lifting",
       lifting_create: "Create Lifting",
+      lifting_records: "Liftings",
       products: "Products",
       commission: "Commission",
       expenses: "Daily Expenses",

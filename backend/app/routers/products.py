@@ -1,6 +1,8 @@
+import os
+import shutil
 import logging
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile, Response
 from sqlalchemy import select, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,6 +11,8 @@ from app.routers.deps import get_db, has_permission, has_any_permission
 from app.schemas.product import ProductSchema, ProductCreate, ProductUpdate
 from app.models.product import Product, ProductCategory, ProductCodeHistory
 from app.models.user import User
+from app.utils.validation import safe_filename, validate_excel
+from app.services.Automation.product_excel import process_product_excel, export_products_excel, generate_product_sample_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +79,74 @@ async def get_product_filter_options(
         "subcategories": subcategories,
         "statuses": ["Active", "Inactive"],
     }
+
+
+@router.post("/import")
+async def import_products(
+    file: UploadFile = File(...),
+    current_user: User = Depends(has_permission("import_products")),
+):
+    if not os.path.exists("temp_downloads"):
+        os.makedirs("temp_downloads")
+    filename = file.filename or "upload.xlsx"
+    if not validate_excel(filename):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only .xlsx and .xls files are allowed.")
+    file_path = f"temp_downloads/{safe_filename(filename)}"
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        count, error = await process_product_excel(file_path)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        return {"message": f"Successfully imported {count} products", "count": count}
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+
+@router.get("/export")
+async def export_products(
+    search: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["view_products", "export_products"])),
+):
+    query = select(Product).order_by(Product.category, Product.product_name)
+    conditions = []
+    if search:
+        pattern = f"%{search}%"
+        conditions.append(or_(
+            Product.product_code.ilike(pattern),
+            Product.product_name.ilike(pattern),
+            Product.category.ilike(pattern),
+        ))
+    if category:
+        conditions.append(Product.category == category)
+    if status:
+        conditions.append(Product.status == status)
+    if conditions:
+        query = query.where(and_(*conditions))
+    result = await db.execute(query)
+    products = result.scalars().all()
+    excel_data = await export_products_excel(products)
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=products_export.xlsx"}
+    )
+
+
+@router.get("/sample")
+async def download_sample_product_excel(
+    current_user: User = Depends(has_any_permission(["view_products", "import_products"])),
+):
+    excel_data = generate_product_sample_bytes()
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=products_sample.xlsx"}
+    )
 
 
 @router.post("", response_model=ProductSchema, status_code=status.HTTP_201_CREATED)

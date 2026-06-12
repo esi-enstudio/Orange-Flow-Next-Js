@@ -77,6 +77,7 @@ class HouseSchema(BaseModel):
     id: int
     name: str
     code: str
+    display_name: str
 
     class Config:
         from_attributes = True

@@ -181,17 +181,16 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                           if (childHasNavChildren) {
                             return (
                               <div key={child.title} className="space-y-1">
-                                <div className={cn(
-                                  "flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all group/item",
-                                  isNestedActive || isChildActive
-                                    ? "text-primary-600 dark:text-primary-400 font-bold bg-primary-50/50 dark:bg-primary-500/5"
-                                    : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
-                                )}>
-                                  <Link
-                                    href={child.href || "#"}
-                                    onClick={() => { if (window.innerWidth < 768 && onClose) onClose(); }}
-                                    className="flex items-center gap-3 flex-1 min-w-0"
-                                  >
+                                <button
+                                  onClick={() => { toggleNested(child.title); if (window.innerWidth < 768 && onClose) onClose(); }}
+                                  className={cn(
+                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all group/item text-left",
+                                    isNestedActive || isChildActive
+                                      ? "text-primary-600 dark:text-primary-400 font-bold bg-primary-50/50 dark:bg-primary-500/5"
+                                      : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                                  )}
+                                >
+                                  <div className="flex items-center gap-3 flex-1 min-w-0">
                                     <div className={cn(
                                       "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
                                       isNestedActive || isChildActive
@@ -199,17 +198,12 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                                         : "bg-gray-300 dark:bg-slate-700 group-hover/item:bg-primary-300"
                                     )} />
                                     <span className="truncate">{child.translationKey ? t(child.translationKey) : child.title}</span>
-                                  </Link>
-                                  <button
-                                    onClick={() => toggleNested(child.title)}
-                                    className="p-1 rounded-md hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
-                                  >
-                                    <ChevronDown className={cn(
-                                      "w-3 h-3 opacity-40 transition-transform duration-200",
-                                      isNestedOpen && "rotate-180"
-                                    )} />
-                                  </button>
-                                </div>
+                                  </div>
+                                  <ChevronDown className={cn(
+                                    "w-3 h-3 opacity-40 transition-transform duration-200 shrink-0",
+                                    isNestedOpen && "rotate-180"
+                                  )} />
+                                </button>
                                 <AnimatePresence>
                                   {isNestedOpen && (
                                     <motion.div

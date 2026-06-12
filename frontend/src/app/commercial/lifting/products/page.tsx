@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import apiClient from "@/lib/api";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import { Loader2, Plus, Search, Trash2, Pencil, Save, X } from "lucide-react";
+import { Loader2, Plus, Search, Trash2, Pencil, Save, X, Upload, Download, FileDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ProductCategory = "SIM" | "Scratch Card" | "Device" | "Other";
@@ -58,6 +58,65 @@ export default function ProductsPage() {
 
     const [submitting, setSubmitting] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+
+    const [importing, setImporting] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setImporting(true);
+        try {
+            const form = new FormData();
+            form.append("file", file);
+            const res = await apiClient.post("products/import", form);
+            toast.success(res.data.message || `Imported ${res.data.count} products`);
+            await fetchProducts();
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail || "Import failed");
+        } finally {
+            setImporting(false);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+        }
+    };
+
+    const handleExport = async () => {
+        try {
+            const res = await apiClient.get("products/export", {
+                params: {
+                    search: search.trim() || undefined,
+                    category: category || undefined,
+                    status: status || undefined,
+                },
+                responseType: "blob",
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "products_export.xlsx";
+            a.click();
+            window.URL.revokeObjectURL(url);
+            toast.success("Products exported");
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail || "Export failed");
+        }
+    };
+
+    const handleDownloadSample = async () => {
+        try {
+            const res = await apiClient.get("products/sample", {
+                responseType: "blob",
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "products_sample.xlsx";
+            a.click();
+            window.URL.revokeObjectURL(url);
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail || "Sample download failed");
+        }
+    };
 
     const filteredProducts = useMemo(() => {
         return products.filter((p) => {
@@ -430,6 +489,44 @@ export default function ProductsPage() {
                         >
                             {products.length}
                         </span>
+
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls"
+                            ref={fileInputRef}
+                            onChange={handleImport}
+                            className="hidden"
+                        />
+                        <div className="flex items-center gap-1 ml-2">
+                            {hasPermission("import_products") && (
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={importing}
+                                    className="p-1.5 rounded-lg text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-all disabled:opacity-50"
+                                    title="Import products from Excel"
+                                >
+                                    {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                                </button>
+                            )}
+                            {hasPermission("view_products") && (
+                                <button
+                                    onClick={handleExport}
+                                    className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-all"
+                                    title="Export products to Excel"
+                                >
+                                    <Download className="w-4 h-4" />
+                                </button>
+                            )}
+                            {hasPermission("import_products") && (
+                                <button
+                                    onClick={handleDownloadSample}
+                                    className="p-1.5 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-all"
+                                    title="Download sample Excel template"
+                                >
+                                    <FileDown className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     <div className="relative w-full sm:w-56">

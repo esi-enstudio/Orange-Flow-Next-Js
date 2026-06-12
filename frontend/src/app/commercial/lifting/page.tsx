@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
@@ -50,6 +51,7 @@ type PreviewData = {
 };
 
 export default function CreateLiftingPage() {
+    const router = useRouter();
     const { hasPermission, loading: authLoading } = useAuth();
     const { t } = useLanguage();
 
@@ -195,7 +197,7 @@ export default function CreateLiftingPage() {
                 })),
             });
             toast.success("Lifting record created successfully");
-            resetForm();
+            router.push("/commercial/lifting/records");
         } catch (err: any) {
             toast.error(err?.response?.data?.detail || "Failed to create lifting record");
         } finally {
