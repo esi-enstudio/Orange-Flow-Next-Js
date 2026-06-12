@@ -69,6 +69,11 @@
             "name": "sim_status",
             "display_name": "SIM Status Check",
             "actions": ["view"]
+        },
+        {
+            "name": "commission",
+            "display_name": "Commission",
+            "actions": ["view", "manage", "import", "export"]
         }
     ],
     "default_roles": [

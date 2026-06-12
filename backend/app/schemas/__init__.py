@@ -9,3 +9,4 @@ from app.schemas.activation import *
 from app.schemas.filter import *
 from app.schemas.product import *
 from app.schemas.lifting import *
+from app.schemas.commission import *

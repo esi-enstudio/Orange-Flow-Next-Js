@@ -94,8 +94,7 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
       - NODE_ENV=development
-      - CHOKIDAR_USEPOLLING=1
-      - WATCHPACK_POLLING=true
+
     command: >
       sh -c "npm install && npm run dev"
     depends_on:

@@ -54,6 +54,7 @@ from app.routers.ga_section_configs import router as ga_section_configs_router
 from app.routers.dms import router as dms_router
 from app.routers.products import router as products_router
 from app.routers.lifting import router as lifting_router
+from app.routers.commission import router as commission_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -88,6 +89,7 @@ app.include_router(ga_section_configs_router)
 app.include_router(dms_router)
 app.include_router(products_router)
 app.include_router(lifting_router)
+app.include_router(commission_router)
 
 app.add_middleware(
     CORSMiddleware,

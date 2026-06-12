@@ -54,6 +54,10 @@ class Employee(Base):
     market_type = Column(String) # Rural/Urban
     salary = Column(String)
     
+    # Employee classification
+    employee_type = Column(String(30), default='unknown')  # rso, manager, supervisor, bp, bsp, rbsp
+    employee_id = Column(String(50), unique=True, index=True)  # Business-facing ID like RSO-001, MGR-002
+
     # Hierarchy
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     

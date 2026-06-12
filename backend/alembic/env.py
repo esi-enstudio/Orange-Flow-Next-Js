@@ -35,6 +35,10 @@ from app.models.leave_management import LeaveRequest
 from app.models.product import Product
 from app.models.ga_section_config import GaSectionConfig
 from app.models.app_setting import AppSetting
+from app.models.commission import (
+    StatementBatch, CampaignType, CampaignTransaction,
+    FinancialEntry, CommissionAuditLog, CommissionStaging,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

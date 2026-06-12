@@ -20,6 +20,26 @@ from app.services.Automation.employee_excel import process_employee_excel, expor
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
+PREFIX_MAP = {
+    "rso": "RSO", "manager": "MGR", "supervisor": "SUP",
+    "bp": "BP", "bsp": "BSP", "rbsp": "RBSP", "unknown": "EMP",
+}
+
+async def generate_employee_id(db: AsyncSession, employee_type: str | None) -> str:
+    prefix = PREFIX_MAP.get(employee_type or "unknown", "EMP")
+    result = await db.execute(
+        select(Employee.employee_id)
+        .where(Employee.employee_id.like(f"{prefix}-%"))
+        .order_by(Employee.employee_id.desc())
+        .limit(1)
+    )
+    last_id = result.scalar_one_or_none()
+    if last_id:
+        num = int(last_id.split("-")[1]) + 1
+    else:
+        num = 1
+    return f"{prefix}-{num:04d}"
+
 
 @router.get("/by-house-grouped")
 async def list_employees_by_house_grouped(
@@ -225,7 +245,12 @@ async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(g
         user = await db.get(User, emp_data.user_id)
         if not user:
             raise HTTPException(status_code=422, detail=[{"loc": ["body", "user_id"], "msg": "User not found", "type": "value_error"}])
-    new_emp = Employee(**emp_data.model_dump())
+    data = emp_data.model_dump()
+    employee_type = data.get("employee_type") or "unknown"
+    employee_id = await generate_employee_id(db, employee_type)
+    data["employee_id"] = employee_id
+    data["employee_type"] = employee_type
+    new_emp = Employee(**data)
     db.add(new_emp)
     await db.commit()
     await db.refresh(new_emp)
