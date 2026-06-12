@@ -44,6 +44,8 @@ class LiftingProduct(Base):
     id = Column(Integer, primary_key=True, index=True)
     lifting_record_id = Column(Integer, ForeignKey("lifting_records.id", ondelete="CASCADE"), nullable=False)
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    product_code = Column(String, nullable=False)
+    product_name = Column(String, nullable=False)
     quantity = Column(Integer, default=0)
     unit_price = Column(Float, default=0.0)
     total_price = Column(Float, default=0.0)

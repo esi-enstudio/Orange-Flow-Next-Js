@@ -9,7 +9,7 @@ services:
       POSTGRES_DB: ${DB_NAME:-orange_flow_dev_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+      # - ./backend/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
     ports:
       - "5433:5432"
     deploy:

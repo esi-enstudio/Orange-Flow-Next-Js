@@ -5,9 +5,9 @@ from sqlalchemy import select, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.routers.deps import get_db, has_permission
+from app.routers.deps import get_db, has_permission, has_any_permission
 from app.schemas.product import ProductSchema, ProductCreate, ProductUpdate
-from app.models.product import Product, ProductCategory
+from app.models.product import Product, ProductCategory, ProductCodeHistory
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ async def list_products(
     category: Optional[str] = Query(None, description="Filter by category"),
     status: Optional[str] = Query(None, description="Filter by status"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_products")),
+    current_user: User = Depends(has_any_permission(["view_products", "view_lifting"])),
 ):
     query = select(Product).order_by(Product.category, Product.product_name)
 
@@ -129,6 +129,13 @@ async def update_product(
                 status_code=422,
                 detail=[{"loc": ["body", "product_code"], "msg": "Product code already in use", "type": "value_error"}]
             )
+
+        db.add(ProductCodeHistory(
+            product_id=product.id,
+            old_code=product.product_code,
+            new_code=product_data.product_code,
+            changed_by=current_user.id,
+        ))
 
     update_data = product_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():

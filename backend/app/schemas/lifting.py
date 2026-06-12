@@ -19,6 +19,8 @@ class LiftingProductSchema(BaseModel):
     id: int
     lifting_record_id: int
     product_id: int
+    product_code: str
+    product_name: str
     quantity: int
     unit_price: float
     total_price: float

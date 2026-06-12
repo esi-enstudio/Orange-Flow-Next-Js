@@ -155,6 +155,8 @@ async def create_lifting(
         record.products.append(
             LiftingProduct(
                 product_id=product.id,
+                product_code=product.product_code,
+                product_name=product.product_name,
                 quantity=quantity,
                 unit_price=dd_price,
                 total_price=dd_price * quantity,
@@ -162,7 +164,18 @@ async def create_lifting(
         )
 
     await db.commit()
-    await db.refresh(record)
 
-    # Ensure relationships are usable if needed by response
-    return record
+    # Eagerly load the relationships to prevent MissingGreenlet errors during serialization
+    stmt = (
+        select(LiftingRecord)
+        .options(
+            selectinload(LiftingRecord.house),
+            selectinload(LiftingRecord.products).selectinload(LiftingProduct.product)
+        )
+        .where(LiftingRecord.id == record.id)
+    )
+    result = await db.execute(stmt)
+    refreshed_record = result.scalar_one()
+
+    return refreshed_record
+

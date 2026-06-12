@@ -15,7 +15,7 @@ from app.models.supervisor_target import SupervisorTarget
 from app.models.rso_target import RSOTarget
 from app.models.subscription import SubscriptionPackage, HouseSubscription
 from app.models.mela import Mela
-from app.models.product import Product
+from app.models.product import Product, ProductCodeHistory
 from app.models.lifting import LiftingRecord, LiftingProduct
 from app.models.leave_management import LeaveRequest
 from app.models.ga_filter import GAProductFilter, FilterTag, RetailerFilter

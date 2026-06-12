@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.models.base import Base
 import enum
@@ -31,3 +32,18 @@ class Product(Base):
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
+
+    code_history = relationship("ProductCodeHistory", back_populates="product", order_by="ProductCodeHistory.changed_at.desc()")
+
+
+class ProductCodeHistory(Base):
+    __tablename__ = "product_code_history"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    old_code = Column(String, nullable=False)
+    new_code = Column(String, nullable=False)
+    changed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    changed_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    product = relationship("Product", back_populates="code_history")

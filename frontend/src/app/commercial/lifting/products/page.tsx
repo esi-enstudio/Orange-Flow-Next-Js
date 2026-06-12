@@ -54,6 +54,7 @@ export default function ProductsPage() {
     const [formMode, setFormMode] = useState<"create" | "edit">("create");
     const [editingId, setEditingId] = useState<number | null>(null);
     const [form, setForm] = useState({ ...emptyForm });
+    const [allowCodeEdit, setAllowCodeEdit] = useState(false);
 
     const [submitting, setSubmitting] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -113,11 +114,13 @@ export default function ProductsPage() {
         setForm({ ...emptyForm });
         setFormMode("create");
         setEditingId(null);
+        setAllowCodeEdit(false);
     };
 
     const startEdit = (p: Product) => {
         setFormMode("edit");
         setEditingId(p.id);
+        setAllowCodeEdit(false);
         setForm({
             product_code: p.product_code,
             category: (p.category as ProductCategory) || "SIM",
@@ -241,15 +244,42 @@ export default function ProductsPage() {
                             Product Code *
                         </label>
                         <input
-                            disabled={formMode === "edit"}
                             value={form.product_code}
                             onChange={(e) => setForm((s) => ({ ...s, product_code: e.target.value }))}
                             placeholder="e.g. SIM001"
-                            className={cn(
-                                "w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 outline-none transition-all text-sm",
-                                formMode === "edit" ? "opacity-60 cursor-not-allowed" : "border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                            )}
+                            disabled={formMode === "edit" && !allowCodeEdit}
+                            className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 outline-none transition-all text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-slate-800/50"
                         />
+                        {formMode === "edit" && !allowCodeEdit && (
+                            <p className="text-[10px] text-gray-400 mt-1">
+                                Product code cannot be changed directly. Use the option below if a code update is required alongside price changes.
+                            </p>
+                        )}
+                        {formMode === "edit" && (
+                            <label className="flex items-center gap-2 mt-2 cursor-pointer group">
+                                <input
+                                    type="checkbox"
+                                    checked={allowCodeEdit}
+                                    onChange={(e) => {
+                                        setAllowCodeEdit(e.target.checked);
+                                        if (!e.target.checked) {
+                                            // Reset to original code when unchecking
+                                            const original = products.find((p) => p.id === editingId);
+                                            if (original) setForm((s) => ({ ...s, product_code: original.product_code }));
+                                        }
+                                    }}
+                                    className="w-3.5 h-3.5 rounded border-gray-300 dark:border-slate-600 text-amber-500 focus:ring-amber-400"
+                                />
+                                <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors">
+                                    Also update the product code
+                                </span>
+                            </label>
+                        )}
+                        {formMode === "edit" && allowCodeEdit && (
+                            <p className="text-[10px] text-amber-500 mt-1">
+                                This will change the product code for future transactions. Existing lifting records retain their original snapshotted data. The previous code is logged in the audit history.
+                            </p>
+                        )}
                     </div>
 
                     <div>
