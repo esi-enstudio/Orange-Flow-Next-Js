@@ -6,6 +6,7 @@ import type {
   FilterOptions,
   ImportResponse,
   CommissionTransaction,
+  CommissionTransactionUpdate,
 } from "@/types/commission";
 
 export async function fetchCommissionData(
@@ -117,4 +118,31 @@ export function buildFilterPayload(
   if (filters.search) payload.search = filters.search;
 
   return payload;
+}
+
+export async function updateCommissionTransaction(
+  transactionId: number,
+  data: CommissionTransactionUpdate
+): Promise<CommissionTransaction> {
+  const response = await apiClient.put(
+    `/commission/transactions/${transactionId}`,
+    data
+  );
+  return response.data;
+}
+
+export async function deleteCommissionTransaction(
+  transactionId: number
+): Promise<{ message: string }> {
+  const response = await apiClient.delete(
+    `/commission/transactions/${transactionId}`
+  );
+  return response.data;
+}
+
+export async function deleteCommissionBatch(
+  batchId: number
+): Promise<{ message: string }> {
+  const response = await apiClient.delete(`/commission/batches/${batchId}`);
+  return response.data;
 }

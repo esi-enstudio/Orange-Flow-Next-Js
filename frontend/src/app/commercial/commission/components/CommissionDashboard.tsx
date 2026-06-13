@@ -148,6 +148,7 @@ export default function CommissionDashboard({ filters, onFiltersChange }: Props)
                   data={data}
                   page={page}
                   onPageChange={setPage}
+                  onRefresh={loadData}
                 />
               )}
             </>

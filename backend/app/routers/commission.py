@@ -17,7 +17,7 @@ from app.models.house import House
 from app.models.employee import Employee
 from app.schemas.commission import (
     CommissionFilterRequest, CampaignTypeCreate, CampaignTypeSchema, StatementBatchSchema,
-    CampaignTransactionSchema,
+    CampaignTransactionSchema, CampaignTransactionUpdate,
     PaginatedResponse, CommissionImportResponse,
     DashboardAnalytics, CommissionSummary,
     CampaignPerformance, HousePerformance,
@@ -323,3 +323,122 @@ async def export_commission(
 @router.get("/health")
 async def commission_health():
     return {"status": "ok", "module": "commission"}
+
+
+@router.put("/transactions/{transaction_id}", response_model=CampaignTransactionSchema)
+async def update_transaction(
+    transaction_id: int,
+    data: CampaignTransactionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("commission.manage")),
+):
+    result = await db.execute(
+        select(CampaignTransaction).where(CampaignTransaction.id == transaction_id)
+    )
+    txn = result.scalar_one_or_none()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    old_values = {
+        "campaign_type_id": txn.campaign_type_id,
+        "participant_type": txn.participant_type,
+        "participant_ref": txn.participant_ref,
+        "participant_name": txn.participant_name,
+        "purpose": txn.purpose,
+        "amount": float(txn.amount),
+    }
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(txn, field, value)
+
+    new_values = {k: v for k, v in update_data.items()}
+
+    log = CommissionAuditLog(
+        table_name="campaign_transactions",
+        record_id=txn.id,
+        action="UPDATE",
+        old_values=old_values,
+        new_values=new_values,
+        changed_by=current_user.id,
+    )
+    db.add(log)
+
+    await db.commit()
+    await db.refresh(txn)
+    return txn
+
+
+@router.delete("/transactions/{transaction_id}")
+async def delete_transaction(
+    transaction_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("commission.manage")),
+):
+    result = await db.execute(
+        select(CampaignTransaction).where(CampaignTransaction.id == transaction_id)
+    )
+    txn = result.scalar_one_or_none()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    log = CommissionAuditLog(
+        table_name="campaign_transactions",
+        record_id=txn.id,
+        action="DELETE",
+        old_values={
+            "campaign_type_id": txn.campaign_type_id,
+            "participant_type": txn.participant_type,
+            "participant_ref": txn.participant_ref,
+            "participant_name": txn.participant_name,
+            "purpose": txn.purpose,
+            "amount": float(txn.amount),
+            "house_id": txn.house_id,
+            "statement_batch_id": txn.statement_batch_id,
+        },
+        changed_by=current_user.id,
+    )
+    db.add(log)
+
+    await db.delete(txn)
+    await db.commit()
+    return {"message": "Transaction deleted successfully"}
+
+
+@router.delete("/batches/{batch_id}")
+async def delete_batch(
+    batch_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("commission.manage")),
+):
+    result = await db.execute(
+        select(StatementBatch).where(StatementBatch.id == batch_id)
+    )
+    batch = result.scalar_one_or_none()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    txn_count_result = await db.execute(
+        select(CampaignTransaction).where(CampaignTransaction.statement_batch_id == batch_id)
+    )
+    txn_count = len(txn_count_result.scalars().all())
+
+    log = CommissionAuditLog(
+        table_name="statement_batches",
+        record_id=batch.id,
+        action="DELETE",
+        old_values={
+            "batch_reference": batch.batch_reference,
+            "statement_date": str(batch.statement_date),
+            "house_id": batch.house_id,
+            "total_records": batch.total_records,
+            "status": batch.status,
+            "transactions_deleted": txn_count,
+        },
+        changed_by=current_user.id,
+    )
+    db.add(log)
+
+    await db.delete(batch)
+    await db.commit()
+    return {"message": f"Batch '{batch.batch_reference}' and {txn_count} transactions deleted"}

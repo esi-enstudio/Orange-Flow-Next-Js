@@ -59,6 +59,15 @@ class CampaignTransactionBase(BaseModel):
 class CampaignTransactionCreate(CampaignTransactionBase):
     pass
 
+class CampaignTransactionUpdate(BaseModel):
+    campaign_type_id: Optional[int] = None
+    participant_type: Optional[str] = None
+    participant_ref: Optional[str] = Field(None, max_length=100)
+    participant_name: Optional[str] = None
+    purpose: Optional[str] = None
+    amount: Optional[Decimal] = Field(None, ge=0)
+    extra_data: Optional[dict] = None
+
 class CampaignTransactionSchema(CampaignTransactionBase):
     id: int
     statement_batch_id: int

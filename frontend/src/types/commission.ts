@@ -120,6 +120,16 @@ export interface ImportResponse {
   errors?: { row: number; errors: string[] }[];
 }
 
+export interface CommissionTransactionUpdate {
+  campaign_type_id?: number;
+  participant_type?: string;
+  participant_ref?: string;
+  participant_name?: string;
+  purpose?: string;
+  amount?: number;
+  extra_data?: Record<string, unknown>;
+}
+
 export const DEFAULT_FILTER_STATE: CommissionFilterState = {
   date: { from: "", to: "" },
   houseIds: [],
