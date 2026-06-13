@@ -108,7 +108,7 @@ class CommissionQueryBuilder:
             selectinload(CampaignTransaction.statement_batch),
             selectinload(CampaignTransaction.house),
             selectinload(CampaignTransaction.campaign_type),
-            selectinload(CampaignTransaction.employee),
+            selectinload(CampaignTransaction.employee).joinedload(Employee.user),
         ).join(
             StatementBatch, CampaignTransaction.statement_batch_id == StatementBatch.id
         ).join(
@@ -383,18 +383,21 @@ class CommissionImportService:
             employee = None
             if row.participant_type and row.participant_type != "distributor" and row.participant_ref:
                 emp_result = await self.session.execute(
-                    select(Employee).where(Employee.employee_id == row.participant_ref).limit(1)
+                    select(Employee)
+                    .options(joinedload(Employee.user))
+                    .where(Employee.employee_id == row.participant_ref)
+                    .limit(1)
                 )
                 employee = emp_result.scalar_one_or_none()
 
-            employee_name = employee.employee_id if employee else None
+            user_name = employee.user.name if (employee and employee.user) else None
             txn = CampaignTransaction(
                 statement_batch_id=batch.id,
                 house_id=house.id,
                 campaign_type_id=campaign_type.id,
                 participant_type=row.participant_type or "distributor",
                 participant_ref=row.participant_ref or row.house_code,
-                participant_name=employee_name or row.participant_name or row.house_name,
+                participant_name=row.participant_name or user_name or row.house_name,
                 employee_id=employee.id if employee else None,
                 purpose=row.purpose,
                 amount=row.amount,

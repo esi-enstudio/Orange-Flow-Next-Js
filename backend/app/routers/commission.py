@@ -55,7 +55,7 @@ async def filter_commission(
             "employee_id": t.employee.id if t.employee else None,
             "employee_employee_id": t.employee.employee_id if t.employee else None,
             "employee_dms_code": t.employee.dms_code if t.employee else None,
-            "employee_name": t.employee.employee_id if t.employee else None,
+            "employee_name": t.employee.user.name if (t.employee and t.employee.user) else None,
             "purpose": t.purpose,
             "amount": float(t.amount),
             "extra_data": t.extra_data,

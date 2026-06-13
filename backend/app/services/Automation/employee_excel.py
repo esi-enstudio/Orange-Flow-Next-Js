@@ -5,6 +5,7 @@ import logging
 from tqdm import tqdm
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.models.employee import Employee
 from app.models.user import User         
@@ -107,12 +108,35 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
             return v
 
         async with async_session() as session:
+            # Get current max numbers for each prefix
+            max_nums = {}
+            for employee_type, prefix in [
+                ("rso", "RSO"), ("manager", "MGR"), ("supervisor", "SUP"),
+                ("bp", "BP"), ("bsp", "BSP"), ("rbsp", "RBSP"), ("unknown", "EMP")
+            ]:
+                res = await session.execute(
+                    select(Employee.employee_id)
+                    .where(Employee.employee_id.like(f"{prefix}-%"))
+                    .order_by(Employee.employee_id.desc())
+                    .limit(1)
+                )
+                last_id = res.scalar_one_or_none()
+                if last_id:
+                    try:
+                        max_nums[prefix] = int(last_id.split("-")[1])
+                    except (IndexError, ValueError):
+                        max_nums[prefix] = 0
+                else:
+                    max_nums[prefix] = 0
+
             # Performance optimization: load all users and houses in memory ✅
             logger.info("⏳ Building map...")
-            user_res = await session.execute(select(User.username, User.phone_number, User.id))
-            user_all = user_res.all()
-            user_username_map = {u.username.upper(): u.id for u in user_all if u.username}
-            user_phone_map = {u.phone_number: u.id for u in user_all if u.phone_number}
+            user_res = await session.execute(
+                select(User).options(selectinload(User.roles))
+            )
+            user_all = user_res.scalars().all()
+            user_username_map = {u.username.upper(): u for u in user_all if u.username}
+            user_phone_map = {u.phone_number: u for u in user_all if u.phone_number}
 
             house_res = await session.execute(select(House.code, House.id))
             house_map = {h.code.upper(): h.id for h in house_res.all() if h.code}
@@ -151,26 +175,52 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
 
                 # 3. User mapping ✅ (first by username, then by phone)
                 username_val = clean_val(row.get('USERNAME'))
-                target_user_id = None
+                target_user = None
                 
                 if username_val:
-                    target_user_id = user_username_map.get(username_val.upper())
+                    target_user = user_username_map.get(username_val.upper())
                 
-                if not target_user_id:
+                if not target_user:
                     p_phone_raw = clean_val(row.get('PERSONAL_NUMBER'))
                     if p_phone_raw:
                         # Match by last 10 digits of phone number
                         clean_p_phone = str(p_phone_raw).replace(".0", "")[-10:]
-                        for u_phone, u_id in user_phone_map.items():
+                        for u_phone, u_obj in user_phone_map.items():
                             if u_phone and u_phone[-10:] == clean_p_phone:
-                                target_user_id = u_id
+                                target_user = u_obj
                                 break
+
+                target_user_id = target_user.id if target_user else None
+
+                # Determine employee type and generate unique employee ID
+                employee_type = "unknown"
+                if target_user and target_user.roles:
+                    user_roles = [r.name.lower() for r in target_user.roles]
+                    valid_types = {"rso", "manager", "supervisor", "bp", "bsp", "rbsp"}
+                    matched_role = next((r for r in user_roles if r in valid_types), None)
+                    if matched_role:
+                        employee_type = matched_role
+
+                # Check if there is an explicit EMPLOYEE_TYPE column in the row
+                excel_type = clean_val(row.get('EMPLOYEE_TYPE') or row.get('TYPE'))
+                if excel_type and excel_type.lower() in ["rso", "manager", "supervisor", "bp", "bsp", "rbsp", "unknown"]:
+                    employee_type = excel_type.lower()
+
+                PREFIX_MAP = {
+                    "rso": "RSO", "manager": "MGR", "supervisor": "SUP",
+                    "bp": "BP", "bsp": "BSP", "rbsp": "RBSP", "unknown": "EMP",
+                }
+                prefix = PREFIX_MAP.get(employee_type, "EMP")
+                max_nums[prefix] += 1
+                employee_id = f"{prefix}-{max_nums[prefix]:04d}"
 
                 # 4. Data mapping
                 data_map = {
                     "user_id": target_user_id,
                     "house_id": target_house_id,
                     "dms_code": dms_code_val,
+                    "employee_type": employee_type,
+                    "employee_id": employee_id,
                     "assisted_retailer_code": clean_val(row.get('ASSISTED_RETAILER_CODE')),
                     "agency_id": clean_val(row.get('AGENCY_ID')),
                     "itop_number": clean_val(row.get('ITOP_NUMBER')),
@@ -240,11 +290,11 @@ async def do_bulk_upsert_emp(session, batch_data):
     
     # Which fields to update on conflict
     excluded = stmt.excluded
-    # All fields except dms_code will be updated
+    # All fields except dms_code, employee_id, and employee_type will be updated
     update_cols = {
         col: getattr(excluded, col) 
         for col in batch_data[0].keys() 
-        if col not in ['dms_code']
+        if col not in ['dms_code', 'employee_id', 'employee_type']
     }
     update_cols['updated_at'] = func.now()
 
