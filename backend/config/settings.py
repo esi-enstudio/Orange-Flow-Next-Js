@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from urllib.parse import quote_plus
 from typing import Optional
 
@@ -43,10 +43,22 @@ class Settings(BaseSettings):
     APP_URL: str = "http://localhost:3000"
 
     # JWT Authentication
-    SECRET_KEY: str = "your-secret-key-change-it-in-env"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080 # 7 days
     PASSWORD_RESET_EXPIRE_MINUTES: int = 30
+
+    @model_validator(mode="after")
+    def validate_secret_key(self) -> "Settings":
+        insecure_defaults = {"your-secret-key-change-it-in-env", ""}
+        if self.SECRET_KEY in insecure_defaults:
+            raise ValueError(
+                "SECRET_KEY is insecure. Set a strong random value in .env file. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        if len(self.SECRET_KEY) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long.")
+        return self
 
     @computed_field
     @property
