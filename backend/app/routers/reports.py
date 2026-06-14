@@ -584,7 +584,7 @@ async def get_activation_daily_stats(
     return result
 
 
-@router.get("/reports/ga-live")
+@router.get("/reports/live-activations")
 async def get_ga_live_report(
     house_id: Optional[int] = Query(None),
     start_date: Optional[str] = Query(None),

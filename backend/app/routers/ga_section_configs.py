@@ -11,7 +11,7 @@ from app.models.house import House
 from app.models.ga_section_config import GaSectionConfig
 from app.utils.access_control import is_admin_user
 
-router = APIRouter(prefix="/api/ga-live/section-configs", tags=["ga-live"])
+router = APIRouter(prefix="/api/live-activations/section-configs", tags=["live-activations"])
 
 
 class SectionConfigUpdate(BaseModel):

@@ -9,7 +9,6 @@ import {
   Activity,
   CreditCard,
   Smartphone,
-  Radio,
   X,
   ChevronRight,
 } from "lucide-react";
@@ -17,11 +16,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
 
 const reportItems = [
-  {
-    key: "report_ga_live",
-    href: "/reports/ga-live",
-    icon: Radio,
-  },
   {
     key: "report_activations",
     href: "/reports/activations",

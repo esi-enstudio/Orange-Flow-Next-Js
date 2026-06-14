@@ -124,7 +124,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
               params: { house_id: houseId },
             }),
             apiClient.get<{ sections: Array<{ section_key: string; selected_employee_ids: number[]; exclude_product_codes: string[] }> }>(
-              "/ga-live/section-configs",
+              "/live-activations/section-configs",
               { params: { house_id: houseId } }
             ),
             apiClient.get<Array<{ id: number; product_code: string }>>("/product-exclusions"),
@@ -144,7 +144,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
               params: { house_id: houseId },
             }),
             apiClient.get<{ sections: Array<{ section_key: string; exclude_product_codes: string[]; exclude_retailer_tags: string[]; selected_employee_ids: number[] }> }>(
-              "/ga-live/section-configs",
+              "/live-activations/section-configs",
               { params: { house_id: houseId } }
             ),
           ]);
@@ -258,7 +258,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
     setSaving(true);
     setError(null);
     try {
-      await apiClient.put(`/ga-live/section-configs/${sectionKey}`, {
+      await apiClient.put(`/live-activations/section-configs/${sectionKey}`, {
         exclude_product_codes: selectedCodes,
         exclude_retailer_tags: selectedTags,
         selected_employee_ids: isEmployeesMode ? selectedEmpIds : undefined,

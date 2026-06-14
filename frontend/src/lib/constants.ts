@@ -86,7 +86,6 @@ export const navItems: NavItem[] = [
     icon: Banknote,
     color: "text-green-500",
     children: [
-      { title: "GA Live Report", translationKey: "nav.reports", href: "/reports/ga-live", permission: "view_reports" },
       {
         title: "Lifting",
         translationKey: "nav.lifting",
