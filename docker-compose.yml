@@ -79,7 +79,11 @@ services:
     # Production: uvicorn with multiple workers
     # command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --loop asyncio
 
+  # Dev: run frontend directly on WSL2 host (avoids Docker filesystem bottleneck)
+  #   cd frontend && npm install && npm run dev
+  # Production: uncomment profiles line and use the command below
   frontend:
+    profiles: ["production"]
     image: node:20-slim
     container_name: orange_flow_frontend
     restart: always
@@ -94,17 +98,13 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
       - NODE_ENV=development
-
-    command: >
-      sh -c "npm install && npm run dev"
+    command: sh -c "npm install && npm run build && npm start"
     depends_on:
       - backend
     deploy:
       resources:
         limits:
-          memory: 1G
-    # Production: use built app
-    # command: sh -c "npm run build && npm start"
+          memory: 2G
 
 volumes:
   postgres_data:
