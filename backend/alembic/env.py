@@ -39,6 +39,7 @@ from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,
     FinancialEntry, CommissionAuditLog, CommissionStaging,
 )
+from app.models.bp_retailer_code import BpRetailerCode
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

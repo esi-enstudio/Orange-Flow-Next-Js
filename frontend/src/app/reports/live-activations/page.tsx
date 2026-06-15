@@ -553,13 +553,9 @@ export default function GaLiveReportPage() {
   ].filter((d) => d.value > 0);
 
   const supBarData = [...supervisors].sort((a, b) => b.total_activation - a.total_activation).slice(0, 10);
-  const supStackData = supBarData.map((s) => ({
-    name: s.name.length > 10 ? s.name.slice(0, 10) + "..." : s.name,
-    Employee: s.employee_activation,
-    Market: s.market_activation,
-  }));
 
   const rsoBarData = [...rsos].sort((a, b) => b.total_activation - a.total_activation).slice(0, 10);
+  const bpBarData = [...bps].sort((a, b) => b.own_activation - a.own_activation).slice(0, 10);
 
   return (
     <div className="p-4 md:p-6 space-y-8 max-w-7xl mx-auto pb-32">
@@ -676,11 +672,12 @@ export default function GaLiveReportPage() {
       </section>
 
       {/* ────── Activation Distribution ────── */}
-      <div className="group relative">
+      <div className="relative">
       <section>
-        <SectionHeader title="Activation Distribution" subtitle="Employee vs Market breakdown and contribution analysis" onEdit={isAdmin ? () => setEditingSection("distribution") : undefined} />
+        <SectionHeader title="Activation Distribution" subtitle="Employee vs Market breakdown and contribution analysis" />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Donut */}
+          <div className="relative group">
           <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Employee vs Market</h3>
             {donutData.length === 0 ? (
@@ -707,44 +704,74 @@ export default function GaLiveReportPage() {
                 </div>
               ))}
             </div>
+            {isAdmin && (
+              <button
+                onClick={() => setEditingSection("distribution")}
+                className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
+                title="Configure Employee vs Market"
+              >
+                <Pencil className="w-3 h-3 text-gray-400" />
+              </button>
+            )}
+          </div>
           </div>
 
-          {/* Horizontal Bar - Supervisor Contribution */}
+          {/* Horizontal Bar - RSO Contribution */}
+          <div className="relative group">
           <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Supervisor Contribution</h3>
-            {supBarData.length === 0 ? (
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">RSO Contribution</h3>
+            {rsoBarData.length === 0 ? (
               <div className="flex items-center justify-center h-56 text-gray-400 text-sm">No data</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={supBarData} layout="vertical" margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
+                <BarChart data={rsoBarData} layout="vertical" margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis type="number" tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="total_activation" fill="#8b5cf6" radius={[0, 4, 4, 0]} name="Activation" />
+                  <Bar dataKey="total_activation" fill="#3b82f6" radius={[0, 4, 4, 0]} name="Activation" />
                 </BarChart>
               </ResponsiveContainer>
             )}
+            {isAdmin && (
+              <button
+                onClick={() => setEditingSection("rsos")}
+                className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
+                title="Configure RSO Contribution"
+              >
+                <Pencil className="w-3 h-3 text-gray-400" />
+              </button>
+            )}
+          </div>
           </div>
 
-          {/* Stacked Bar - Team Distribution */}
+          {/* Horizontal Bar - BP Contribution */}
+          <div className="relative group">
           <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Team Distribution</h3>
-            {supStackData.length === 0 ? (
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">BP Contribution</h3>
+            {bpBarData.length === 0 ? (
               <div className="flex items-center justify-center h-56 text-gray-400 text-sm">No data</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={supStackData} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
+                <BarChart data={bpBarData} layout="vertical" margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="Employee" stackId="a" fill="#8b5cf6" name="Employee" />
-                  <Bar dataKey="Market" stackId="a" fill="#f59e0b" name="Market" />
+                  <Bar dataKey="own_activation" fill="#10b981" radius={[0, 4, 4, 0]} name="Activation" />
                 </BarChart>
               </ResponsiveContainer>
             )}
+            {isAdmin && (
+              <button
+                onClick={() => setEditingSection("bps")}
+                className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
+                title="Configure BP Contribution"
+              >
+                <Pencil className="w-3 h-3 text-gray-400" />
+              </button>
+            )}
+          </div>
           </div>
         </div>
       </section>
@@ -1216,9 +1243,9 @@ export default function GaLiveReportPage() {
         onClose={() => setEditingSection(null)}
         onSaved={() => setConfigVersion((v) => v + 1)}
         mode={
-          editingSection === "total_activation" || editingSection === "market_activation"
+          editingSection === "total_activation" || editingSection === "market_activation" || editingSection === "distribution"
             ? "full"
-            : editingSection === "employee_activation"
+            : editingSection === "employee_activation" || editingSection === "rsos" || editingSection === "bps"
               ? "employees_only"
               : "products_only"
         }

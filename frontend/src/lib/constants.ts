@@ -131,6 +131,7 @@ export const navItems: NavItem[] = [
       { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permission: "view_reports" },
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permission: "view_reports" },
       { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permission: "view_reports" },
+      { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "view_reports" },
     ]
   },
   {

@@ -31,7 +31,8 @@ import {
   EyeOff,
   Upload,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  SlidersHorizontal
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
@@ -39,31 +40,8 @@ import { useRef } from "react";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
-
-interface Role {
-  id: number;
-  name: string;
-}
-
-interface House {
-  id: number;
-  name: string;
-  code: string;
-}
-
-interface User {
-  id: number;
-  username: string;
-  name: string;
-  email: string;
-  phone_number?: string;
-  telegram_id?: number | string;
-  status: string;
-  roles?: Role[];
-  houses?: House[];
-  parent_id?: number;
-  created_at?: string;
-}
+import UserMasterFilter, { defaultFilters } from "@/components/users/UserMasterFilter";
+import type { User, Role, House, UserFilters } from "@/types/user";
 
 export default function UsersPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
@@ -73,7 +51,8 @@ export default function UsersPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<UserFilters>(defaultFilters);
+  const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(0);
   
   // Modal States
@@ -317,11 +296,31 @@ export default function UsersPage() {
     }
   };
 
-  const filteredUsers = users.filter(u => 
-    u.name?.toLowerCase().includes(search.toLowerCase()) || 
-    u.username?.toLowerCase().includes(search.toLowerCase()) ||
-    u.email?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredUsers = users.filter(u => {
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      const matchesSearch = 
+        u.name?.toLowerCase().includes(q) ||
+        u.username?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        u.phone_number?.toLowerCase().includes(q) ||
+        String(u.telegram_id ?? "").includes(q);
+      if (!matchesSearch) return false;
+    }
+    if (filters.status && u.status !== filters.status) return false;
+    if (filters.role_ids.length > 0) {
+      const userRoleIds = u.roles?.map(r => r.id) || [];
+      if (!filters.role_ids.some(id => userRoleIds.includes(id))) return false;
+    }
+    if (filters.house_ids.length > 0) {
+      const userHouseIds = u.houses?.map(h => h.id) || [];
+      if (!filters.house_ids.some(id => userHouseIds.includes(id))) return false;
+    }
+    if (filters.parent_id !== null && u.parent_id !== filters.parent_id) return false;
+    if (filters.phone_number && !u.phone_number?.toLowerCase().includes(filters.phone_number.toLowerCase())) return false;
+    if (filters.telegram_id && !String(u.telegram_id ?? "").includes(filters.telegram_id)) return false;
+    return true;
+  });
 
   const paginatedUsers = filteredUsers.slice(page * limit, (page + 1) * limit);
   const totalPages = Math.ceil(filteredUsers.length / limit);
@@ -428,21 +427,52 @@ export default function UsersPage() {
       </div>
 
       {/* DataTable Container */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
-        <div className="p-4 border-b border-gray-50 dark:border-slate-800">
-          <div className="relative max-w-md">
+      <div className="flex gap-4 md:gap-6 items-start">
+        {/* Filter Sidebar */}
+        <div className={cn(
+          "w-full md:w-72 shrink-0 transition-all duration-300 ease-in-out overflow-hidden",
+          showFilters ? "max-h-[2000px] md:max-h-none opacity-100" : "max-h-0 md:max-h-none md:opacity-100 opacity-0"
+        )}>
+          <UserMasterFilter
+            filters={filters}
+            onChange={(f) => { setFilters(f); setPage(0); }}
+            onClear={() => { setFilters(defaultFilters); setPage(0); }}
+            houses={houses}
+            roles={roles}
+          />
+        </div>
+
+      <div className="flex-1 min-w-0 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
+        <div className="p-4 border-b border-gray-50 dark:border-slate-800 flex items-center gap-3">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={cn(
+              "p-2 rounded-xl border transition-all",
+              showFilters
+                ? "bg-primary-50 dark:bg-primary-500/10 border-primary-200 dark:border-primary-500/30 text-primary-600"
+                : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-400 hover:text-gray-600"
+            )}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
             <input 
               type="text" 
               placeholder={t('users.search_placeholder')} 
               className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
-              value={search}
+              value={filters.search}
               onChange={(e) => {
-                setSearch(e.target.value);
+                setFilters({ ...filters, search: e.target.value });
                 setPage(0);
               }}
             />
           </div>
+          {filteredUsers.length > 0 && JSON.stringify(filters) !== JSON.stringify(defaultFilters) && (
+            <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 whitespace-nowrap">
+              {filteredUsers.length} result{filteredUsers.length !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
 
         {loading ? (
@@ -540,6 +570,7 @@ export default function UsersPage() {
             </div>
           </>
         )}
+      </div>
       </div>
 
       {/* User Add/Edit Modal */}

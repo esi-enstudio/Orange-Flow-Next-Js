@@ -3,12 +3,12 @@ import shutil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, get_house_context
-from app.schemas.user import UserSchema, UserUpdate
+from app.schemas.user import UserSchema, UserUpdate, UserFilterParams
 from app.models.user import User
 from app.models.role import Role
 from app.models.house import House
@@ -24,9 +24,10 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("view_users")),
     house_id: Optional[int] = Depends(get_house_context),
-    unassigned: bool = Query(False)
+    unassigned: bool = Query(False),
+    filters: UserFilterParams = Depends(),
 ):
-    query = select(User).options(joinedload(User.roles), joinedload(User.houses))
+    query = select(User).options(joinedload(User.roles), joinedload(User.houses), joinedload(User.employee_profile))
     is_admin = is_admin_user(current_user)
     if house_id:
         query = query.join(User.houses).where(House.id == house_id)
@@ -41,8 +42,70 @@ async def list_users(
     if unassigned:
         subq = select(Employee.user_id).where(Employee.user_id.isnot(None))
         query = query.where(~User.id.in_(subq))
+
+    # --- Master filter logic ---
+    if filters.search:
+        pattern = f"%{filters.search}%"
+        query = query.where(
+            User.name.ilike(pattern) |
+            User.username.ilike(pattern) |
+            User.email.ilike(pattern) |
+            User.phone_number.ilike(pattern) |
+            User.telegram_id.cast(type=str).ilike(pattern)
+        )
+    if filters.status:
+        query = query.where(User.status == filters.status)
+    if filters.role_ids:
+        query = query.where(User.roles.any(Role.id.in_(filters.role_ids)))
+    if filters.house_ids:
+        query = query.where(User.houses.any(House.id.in_(filters.house_ids)))
+    if filters.parent_id is not None:
+        query = query.where(User.parent_id == filters.parent_id)
+    if filters.phone_number:
+        query = query.where(User.phone_number.ilike(f"%{filters.phone_number}%"))
+    if filters.telegram_id:
+        query = query.where(User.telegram_id.cast(type=str).ilike(f"%{filters.telegram_id}%"))
+    if filters.has_employee_profile is True:
+        query = query.where(User.employee_profile.has())
+    elif filters.has_employee_profile is False:
+        query = query.where(~User.employee_profile.has())
+    if filters.created_from:
+        query = query.where(User.created_at >= filters.created_from)
+    if filters.created_to:
+        query = query.where(User.created_at <= filters.created_to)
+    if filters.updated_from:
+        query = query.where(User.updated_at >= filters.updated_from)
+    if filters.updated_to:
+        query = query.where(User.updated_at <= filters.updated_to)
+    # --- End filter logic ---
+
     result = await db.execute(query.order_by(User.id.desc()))
     return result.unique().scalars().all()
+
+
+@router.get("/filter-options")
+async def get_user_filter_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("view_users")),
+):
+    """Return dynamic filter option lists for the UserMasterFilter component."""
+    from sqlalchemy import distinct
+    statuses_result = await db.execute(select(distinct(User.status)))
+    statuses = [r[0] for r in statuses_result.all() if r[0]]
+
+    roles_result = await db.execute(select(Role).order_by(Role.name))
+    roles = [{"id": r.id, "name": r.name} for r in roles_result.scalars().all()]
+
+    parents_result = await db.execute(
+        select(User.id, User.name, User.username).where(User.id != current_user.id).order_by(User.name)
+    )
+    parents = [{"id": r.id, "name": r.name, "username": r.username} for r in parents_result.all()]
+
+    return {
+        "statuses": statuses,
+        "roles": roles,
+        "parents": parents,
+    }
 
 @router.put("/{user_id}", response_model=UserSchema)
 async def update_user(

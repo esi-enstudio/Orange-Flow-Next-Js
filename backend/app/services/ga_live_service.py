@@ -11,7 +11,9 @@ from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
+from app.models.role import Role
 from app.models.ga_filter import RetailerFilter, FilterTag
+from app.models.bp_retailer_code import BpRetailerCode
 from app.models.ga_section_config import GaSectionConfig
 from app.utils.activation_rules import get_excluded_codes, exclude_clause
 from app.services.cache_service import cache_service
@@ -183,19 +185,24 @@ class GaLiveQueryBuilder:
     async def get_employee_market_count(self, section_key: str) -> dict:
         base = await self._build_base_query(section_key)
 
-        ret_rows = await self.db.execute(
-            select(Retailer.id).where(
-                Retailer.house_id == self.house_id,
-                Retailer.employee_id != None,
+        emp_codes = await self.db.execute(
+            select(Employee.assisted_retailer_code).where(
+                Employee.house_id == self.house_id,
+                Employee.assisted_retailer_code != None,
             )
         )
-        emp_retailer_ids = {row[0] for row in ret_rows.all()}
+        assisted_codes = [row[0] for row in emp_codes.all() if row[0]]
 
         total = (await self.db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
 
         emp_count = 0
-        if emp_retailer_ids:
-            emp_q = base.where(LiveActivation.retailer_id.in_(emp_retailer_ids))
+        if assisted_codes:
+            emp_q = base.where(
+                and_(
+                    LiveActivation.retailer_code != None,
+                    LiveActivation.retailer_code.in_(assisted_codes),
+                )
+            )
             emp_count = (await self.db.execute(select(func.count()).select_from(emp_q.subquery()))).scalar() or 0
 
         market_count = total - emp_count
@@ -213,6 +220,8 @@ class GaLiveQueryBuilder:
         self, section_key: str
     ) -> tuple[list, list, list, list, dict, dict, dict, dict, dict]:
         base_act = await self._build_base_query(section_key)
+        base_act_rso = await self._build_base_query("rsos")
+        base_act_bps = await self._build_base_query("bps")
 
         ret_rows = await self.db.execute(
             select(Retailer.id, Retailer.employee_id).where(Retailer.house_id == self.house_id)
@@ -225,6 +234,14 @@ class GaLiveQueryBuilder:
         )
         employees_raw = emp_rows.all()
         emp_id_to_user = {e.id: (e.user_id, e.dms_code, e.itop_number, e.personal_number) for e in employees_raw}
+
+        emp_code_rows = await self.db.execute(
+            select(Employee.id, Employee.assisted_retailer_code).where(
+                Employee.house_id == self.house_id,
+                Employee.assisted_retailer_code != None,
+            )
+        )
+        emp_id_to_code = {r.id: r.assisted_retailer_code for r in emp_code_rows.all()}
 
         user_ids = [u[0] for u in emp_id_to_user.values() if u[0]]
         user_role_map: dict[int, list[str]] = {}
@@ -245,6 +262,36 @@ class GaLiveQueryBuilder:
             for role_name in role_uids:
                 if role_name in roles:
                     role_uids[role_name].add(uid)
+
+        if not role_uids["bp"]:
+            bp_direct = await self.db.execute(
+                select(User).options(selectinload(User.roles)).where(User.roles.any(Role.name.ilike("bp")))
+            )
+            for u in bp_direct.unique().scalars().all():
+                role_uids["bp"].add(u.id)
+
+        if not role_uids["bp"]:
+            bp_emps = await self.db.execute(
+                select(Employee.user_id).where(
+                    Employee.house_id == self.house_id,
+                    Employee.employee_type == "bp",
+                    Employee.user_id != None,
+                )
+            )
+            for (uid,) in bp_emps.all():
+                role_uids["bp"].add(uid)
+
+        # ── Load BP retailer codes ──
+        bp_code_rows = await self.db.execute(
+            select(BpRetailerCode.bp_employee_id, BpRetailerCode.retailer_code).where(
+                BpRetailerCode.house_id == self.house_id,
+            )
+        )
+        bp_retailer_code_map: dict[int, list[str]] = {}
+        all_bp_codes_for_house: set[str] = set()
+        for bp_emp_id, r_code in bp_code_rows.all():
+            bp_retailer_code_map.setdefault(bp_emp_id, []).append(r_code)
+            all_bp_codes_for_house.add(r_code)
 
         emp_retailer_ids = {rid for rid, eid in retailer_employee_map.items() if eid and eid in emp_id_to_user}
         active_emp_retailers = set()
@@ -305,29 +352,35 @@ class GaLiveQueryBuilder:
                     sub_retailer_ids.add(rid)
 
             all_retailers = sup_own_retailers | sub_retailer_ids
+
+            def _exclude_bp_codes(q):
+                if all_bp_codes_for_house:
+                    return q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
+                return q
+
             sup_total = 0
             if all_retailers:
-                sup_count = await self.db.execute(
-                    select(func.count()).where(
-                        LiveActivation.retailer_id.in_(all_retailers),
-                        LiveActivation.house_id == self.house_id,
-                        LiveActivation.activation_date >= self.start_date,
-                        LiveActivation.activation_date <= self.end_date,
-                    )
+                sup_q = select(func.count()).where(
+                    LiveActivation.retailer_id.in_(all_retailers),
+                    LiveActivation.house_id == self.house_id,
+                    LiveActivation.activation_date >= self.start_date,
+                    LiveActivation.activation_date <= self.end_date,
                 )
+                sup_q = _exclude_bp_codes(sup_q)
+                sup_count = await self.db.execute(sup_q)
                 sup_total = sup_count.scalar() or 0
 
             employee_retailers_in_team = sup_own_retailers | sub_retailer_ids
             emp_team_active = set()
             if employee_retailers_in_team:
-                team_res = await self.db.execute(
-                    select(LiveActivation.retailer_id).distinct().where(
-                        LiveActivation.retailer_id.in_(employee_retailers_in_team),
-                        LiveActivation.house_id == self.house_id,
-                        LiveActivation.activation_date >= self.start_date,
-                        LiveActivation.activation_date <= self.end_date,
-                    )
+                team_q = select(LiveActivation.retailer_id).distinct().where(
+                    LiveActivation.retailer_id.in_(employee_retailers_in_team),
+                    LiveActivation.house_id == self.house_id,
+                    LiveActivation.activation_date >= self.start_date,
+                    LiveActivation.activation_date <= self.end_date,
                 )
+                team_q = _exclude_bp_codes(team_q)
+                team_res = await self.db.execute(team_q)
                 emp_team_active = {r[0] for r in team_res.all()}
             sup_emp = len([r for r in emp_team_active if r in employee_retailers_in_team])
             sup_market = sup_total - sup_emp
@@ -357,16 +410,23 @@ class GaLiveQueryBuilder:
                 for rid, eid in retailer_employee_map.items():
                     if eid == rso_emp_id:
                         rso_ret_ids.add(rid)
+            rso_code = emp_id_to_code.get(rso_emp_id) if rso_emp_id else None
             rso_total = 0
             if rso_ret_ids:
-                res = await self.db.execute(
-                    select(func.count()).where(
-                        LiveActivation.retailer_id.in_(rso_ret_ids),
-                        LiveActivation.house_id == self.house_id,
-                        LiveActivation.activation_date >= self.start_date,
-                        LiveActivation.activation_date <= self.end_date,
+                if rso_code:
+                    rso_q = base_act_rso.where(
+                        and_(
+                            LiveActivation.retailer_code == rso_code,
+                            LiveActivation.retailer_id.in_(rso_ret_ids),
+                        )
                     )
-                )
+                else:
+                    rso_q = base_act_rso.where(LiveActivation.retailer_id.in_(rso_ret_ids))
+                if all_bp_codes_for_house:
+                    rso_q = rso_q.where(
+                        LiveActivation.retailer_code.notin_(all_bp_codes_for_house)
+                    )
+                res = await self.db.execute(select(func.count()).select_from(rso_q.subquery()))
                 rso_total = res.scalar() or 0
             rso_data.append({
                 "id": rso_uid,
@@ -386,22 +446,15 @@ class GaLiveQueryBuilder:
             if not bp_user:
                 continue
             bp_emp_id = emp_user_id_to_emp_id.get(bp_uid)
-            bp_ret_ids = set()
-            if bp_emp_id:
-                for rid, eid in retailer_employee_map.items():
-                    if eid == bp_emp_id:
-                        bp_ret_ids.add(rid)
             bp_total = 0
-            if bp_ret_ids:
-                res = await self.db.execute(
-                    select(func.count()).where(
-                        LiveActivation.retailer_id.in_(bp_ret_ids),
-                        LiveActivation.house_id == self.house_id,
-                        LiveActivation.activation_date >= self.start_date,
-                        LiveActivation.activation_date <= self.end_date,
+            if bp_emp_id:
+                bp_codes = bp_retailer_code_map.get(bp_emp_id, [])
+                if bp_codes:
+                    bp_q = base_act_bps.where(
+                        LiveActivation.retailer_code.in_(bp_codes)
                     )
-                )
-                bp_total = res.scalar() or 0
+                    res = await self.db.execute(select(func.count()).select_from(bp_q.subquery()))
+                    bp_total = res.scalar() or 0
             bp_data.append({
                 "id": bp_uid,
                 "name": bp_user.name or f"BP #{bp_uid}",

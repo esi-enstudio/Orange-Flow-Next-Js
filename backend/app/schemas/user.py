@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
+from datetime import date
 from app.schemas.role import RoleSchema
 from app.schemas.house import HouseSchema
 
@@ -39,3 +40,17 @@ class UserUpdate(BaseModel):
     role_ids: Optional[List[int]] = None
     house_ids: Optional[List[int]] = None
     parent_id: Optional[int] = None
+
+class UserFilterParams(BaseModel):
+    search: Optional[str] = None
+    status: Optional[str] = None
+    role_ids: Optional[List[int]] = None
+    house_ids: Optional[List[int]] = None
+    parent_id: Optional[int] = None
+    phone_number: Optional[str] = None
+    telegram_id: Optional[str] = None
+    has_employee_profile: Optional[bool] = None
+    created_from: Optional[date] = None
+    created_to: Optional[date] = None
+    updated_from: Optional[date] = None
+    updated_to: Optional[date] = None

@@ -26,6 +26,7 @@ from app.models.todo import Todo
 from app.models.product_exclusion import ExcludedProductCode
 from app.models.app_setting import AppSetting
 from app.models.ga_section_config import GaSectionConfig
+from app.models.bp_retailer_code import BpRetailerCode
 from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,
     FinancialEntry, CommissionAuditLog, CommissionStaging,
