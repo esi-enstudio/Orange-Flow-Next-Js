@@ -1216,7 +1216,7 @@ export default function GaLiveReportPage() {
         onClose={() => setEditingSection(null)}
         onSaved={() => setConfigVersion((v) => v + 1)}
         mode={
-          editingSection === "total_activation"
+          editingSection === "total_activation" || editingSection === "market_activation"
             ? "full"
             : editingSection === "employee_activation"
               ? "employees_only"

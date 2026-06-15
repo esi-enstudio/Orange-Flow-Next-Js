@@ -21,12 +21,14 @@ router = APIRouter(prefix="/api", tags=["filters"])
 async def list_filter_tags(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("view_retailers")),
-    house_id: Optional[int] = Depends(get_house_context)
+    house_context: Optional[int] = Depends(get_house_context),
+    house_id: Optional[int] = Query(None)
 ):
     query = select(FilterTag)
     is_admin = is_admin_user(current_user)
-    if house_id:
-        query = query.where(FilterTag.house_id == house_id)
+    effective_house_id = house_id or house_context
+    if effective_house_id:
+        query = query.where(FilterTag.house_id == effective_house_id)
     elif not is_admin:
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:

@@ -106,9 +106,9 @@ export default function RetailerMarkingPage() {
   useEffect(() => {
     if (!authLoading && hasPermission("view_retailers")) {
       setLoading(true);
-      Promise.all([fetchTags(), fetchHouses()]).finally(() => setLoading(false));
+      fetchHouses().finally(() => setLoading(false));
     }
-  }, [authLoading, hasPermission, fetchTags, fetchHouses]);
+  }, [authLoading, hasPermission, fetchHouses]);
 
   useEffect(() => {
     fetchTags(selectedHouseId || undefined);
@@ -227,10 +227,17 @@ export default function RetailerMarkingPage() {
               <Tag className="w-5 h-5 text-primary-600" /> {t('retailer_marking.manage_tags')}
               <span className="text-xs font-bold bg-primary-50 dark:bg-primary-500/10 text-primary-600 px-2 py-0.5 rounded-full">{tags.length}</span>
             </h2>
-            <button onClick={() => setShowAddTag(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-100">
-              <Plus className="w-4 h-4" /> {t('retailer_marking.add_tag')}
-            </button>
+            <div className="flex items-center gap-3">
+              <select value={selectedHouseId} onChange={e => setSelectedHouseId(e.target.value ? Number(e.target.value) : "")}
+                className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none">
+                <option value="">{t('retailer_marking.filter_by_house')}</option>
+                {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+              </select>
+              <button onClick={() => setShowAddTag(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-100">
+                <Plus className="w-4 h-4" /> {t('retailer_marking.add_tag')}
+              </button>
+            </div>
           </div>
 
           {showAddTag && (
@@ -282,6 +289,7 @@ export default function RetailerMarkingPage() {
                     </div>
                   <div>
                     <p className="font-semibold text-gray-900 dark:text-gray-100">{tag.name}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{houses.find(h => h.id === tag.house_id)?.code || "—"}</p>
                   </div>
                   </div>
                   <button onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: tag.id, name: tag.name }); }}
