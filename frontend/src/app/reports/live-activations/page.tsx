@@ -66,6 +66,7 @@ interface GaLiveData {
     name: string;
     dms_code: string;
     itop_number: string;
+    assisted_code: string;
     total_activation: number;
     own_activation: number;
     market_activation: number;
@@ -1077,26 +1078,27 @@ export default function GaLiveReportPage() {
           ) : (
             <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm border-collapse whitespace-nowrap">
                   <thead>
-                    <tr className="border-b border-gray-100 dark:border-slate-700/50">
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400">Name</th>
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400">ID</th>
-                      <th className="text-right px-5 py-3 font-semibold text-gray-600 dark:text-gray-400">Own Activation</th>
-                      <th className="text-right px-5 py-3 font-semibold text-gray-600 dark:text-gray-400">Market Activation</th>
-                      <th className="text-right px-5 py-3 font-semibold text-gray-600 dark:text-gray-400">Total</th>
-                      <th className="text-right px-5 py-3 font-semibold text-gray-600 dark:text-gray-400">Contribution</th>
+                    <tr>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">Name</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Own Activation</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Market Activation</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Total</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Contribution</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rsos.map((rso) => (
-                      <tr key={rso.id} className="border-b border-gray-50 dark:border-slate-700/30 hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
-                        <td className="px-5 py-3 font-medium text-gray-900 dark:text-gray-100">{rso.name}</td>
-                        <td className="px-5 py-3 text-gray-500 dark:text-gray-400">{rso.dms_code || rso.itop_number || `#${rso.id}`}</td>
-                        <td className="px-5 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{rso.own_activation.toLocaleString()}</td>
-                        <td className="px-5 py-3 text-right text-amber-600 dark:text-amber-400">{rso.market_activation.toLocaleString()}</td>
-                        <td className="px-5 py-3 text-right font-bold text-primary-600 dark:text-primary-400">{rso.total_activation.toLocaleString()}</td>
-                        <td className="px-5 py-3 text-right">
+                      <tr key={rso.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
+                        <td className="px-5 py-3 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">
+                          <p className="font-medium text-gray-900 dark:text-gray-100">{rso.name}</p>
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">{rso.dms_code ? `${rso.dms_code}${rso.itop_number ? ` • ${rso.itop_number.slice(-3)}` : ''}${rso.assisted_code ? ` • ${rso.assisted_code}` : ''}` : `#${rso.id}`}</p>
+                        </td>
+                        <td className="px-2 py-3 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">{rso.own_activation.toLocaleString()}</td>
+                        <td className="px-2 py-3 text-center text-amber-600 dark:text-amber-400 border border-gray-200 dark:border-slate-600">{rso.market_activation.toLocaleString()}</td>
+                        <td className="px-2 py-3 text-center font-bold text-primary-600 dark:text-primary-400 border border-gray-200 dark:border-slate-600">{rso.total_activation.toLocaleString()}</td>
+                        <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600">
                           <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
                             {rso.contribution}%
                           </span>
@@ -1247,8 +1249,10 @@ export default function GaLiveReportPage() {
         mode={
           editingSection === "total_activation" || editingSection === "market_activation" || editingSection === "distribution"
             ? "full"
-            : editingSection === "employee_activation" || editingSection === "rsos" || editingSection === "bps"
+            : editingSection === "employee_activation"
               ? "employees_only"
+              : editingSection === "rsos" || editingSection === "bps"
+                ? "full"
               : "products_only"
         }
       />

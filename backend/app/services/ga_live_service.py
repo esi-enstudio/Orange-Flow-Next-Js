@@ -411,34 +411,38 @@ class GaLiveQueryBuilder:
                     if eid == rso_emp_id:
                         rso_ret_ids.add(rid)
             rso_code = emp_id_to_code.get(rso_emp_id) if rso_emp_id else None
+            rso_own = 0
             rso_total = 0
             if rso_ret_ids:
+                total_q = base_act_rso.where(LiveActivation.retailer_id.in_(rso_ret_ids))
+                if all_bp_codes_for_house:
+                    total_q = total_q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
+                res = await self.db.execute(select(func.count()).select_from(total_q.subquery()))
+                rso_total = res.scalar() or 0
                 if rso_code:
-                    rso_q = base_act_rso.where(
+                    own_q = base_act_rso.where(
                         and_(
                             LiveActivation.retailer_code == rso_code,
                             LiveActivation.retailer_id.in_(rso_ret_ids),
                         )
                     )
-                else:
-                    rso_q = base_act_rso.where(LiveActivation.retailer_id.in_(rso_ret_ids))
-                if all_bp_codes_for_house:
-                    rso_q = rso_q.where(
-                        LiveActivation.retailer_code.notin_(all_bp_codes_for_house)
-                    )
-                res = await self.db.execute(select(func.count()).select_from(rso_q.subquery()))
-                rso_total = res.scalar() or 0
+                    if all_bp_codes_for_house:
+                        own_q = own_q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
+                    res = await self.db.execute(select(func.count()).select_from(own_q.subquery()))
+                    rso_own = res.scalar() or 0
+            rso_info = emp_id_to_user.get(rso_emp_id) if rso_emp_id else None
             rso_data.append({
                 "id": rso_uid,
                 "name": rso_user.name or f"RSO #{rso_uid}",
-                "dms_code": emp_id_to_user.get(rso_emp_id, ("", "", "", ""))[1] if rso_emp_id else "",
-                "itop_number": emp_id_to_user.get(rso_emp_id, ("", "", "", ""))[2] if rso_emp_id else "",
+                "dms_code": rso_info[1] if rso_info else "",
+                "itop_number": rso_info[2] if rso_info else "",
+                "assisted_code": rso_info[4] if rso_info else "",
                 "total_activation": rso_total,
-                "own_activation": rso_total,
-                "market_activation": 0,
+                "own_activation": rso_own if rso_code else rso_total,
+                "market_activation": (rso_total - rso_own) if rso_code else 0,
                 "contribution": 0,
             })
-        rso_data.sort(key=lambda x: x["total_activation"], reverse=True)
+        rso_data.sort(key=lambda x: x["itop_number"] or "")
 
         bp_data = []
         for bp_uid in role_uids["bp"]:
