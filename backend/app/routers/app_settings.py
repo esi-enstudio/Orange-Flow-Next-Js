@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
-from app.routers.deps import get_db, has_permission
+from app.routers.deps import get_db, has_permission, get_current_user
 from app.models.app_setting import AppSetting
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,10 @@ class DailySyncToggle(BaseModel):
     enabled: bool
 
 @router.get("/brand")
-async def get_brand_settings(db: AsyncSession = Depends(get_db)):
+async def get_brand_settings(
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
     if not setting:
@@ -38,7 +41,7 @@ async def get_brand_settings(db: AsyncSession = Depends(get_db)):
 async def update_brand_settings(
     data: AppSettingUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("manage_settings")),
+    current_user = Depends(has_permission("app_settings.manage")),
 ):
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
@@ -56,7 +59,10 @@ async def update_brand_settings(
     }
 
 @router.get("/daily-sync")
-async def get_daily_sync_status(db: AsyncSession = Depends(get_db)):
+async def get_daily_sync_status(
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
     if not setting:
@@ -67,7 +73,7 @@ async def get_daily_sync_status(db: AsyncSession = Depends(get_db)):
 async def toggle_daily_sync(
     data: DailySyncToggle,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("manage_settings")),
+    current_user = Depends(has_permission("app_settings.manage")),
 ):
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
@@ -82,7 +88,10 @@ async def toggle_daily_sync(
     return {"enabled": bool(setting.is_daily_sync_enabled)}
 
 @router.get("/live-sync")
-async def get_live_sync_status(db: AsyncSession = Depends(get_db)):
+async def get_live_sync_status(
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
     if not setting:
@@ -93,7 +102,7 @@ async def get_live_sync_status(db: AsyncSession = Depends(get_db)):
 async def toggle_live_sync(
     data: DailySyncToggle,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("manage_settings")),
+    current_user = Depends(has_permission("app_settings.manage")),
 ):
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
@@ -111,7 +120,7 @@ async def toggle_live_sync(
 async def upload_logo(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("manage_settings")),
+    current_user = Depends(has_permission("app_settings.manage")),
 ):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename)[1] if file.filename else ".png"

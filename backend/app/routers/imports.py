@@ -65,37 +65,37 @@ async def _import_file_stream(file: UploadFile, processor, permission: str, curr
         if os.path.exists(file_path): os.remove(file_path)
 
 @router.post("/activations/import")
-async def import_activations(file: UploadFile = File(...), current_user: User = Depends(has_permission("import_activations")), house_id: Optional[int] = Depends(get_house_context)):
+async def import_activations(file: UploadFile = File(...), current_user: User = Depends(has_permission("activations.import")), house_id: Optional[int] = Depends(get_house_context)):
     effective_house = house_id or 1
-    return StreamingResponse(_import_file_stream(file, process_activation_excel, "import_activations", current_user, house_id=effective_house), media_type="text/event-stream")
+    return StreamingResponse(_import_file_stream(file, process_activation_excel, "activations.import", current_user, house_id=effective_house), media_type="text/event-stream")
 
 @router.post("/itopup-details/import")
-async def import_itopup_details(file: UploadFile = File(...), report_type: str = Form("C2C"), current_user: User = Depends(has_permission("import_itopup")), house_id: Optional[int] = Depends(get_house_context)):
-    return StreamingResponse(_import_file_stream(file, process_dms_report_excel, "import_itopup", current_user, report_type=report_type, target_house_id=house_id), media_type="text/event-stream")
+async def import_itopup_details(file: UploadFile = File(...), report_type: str = Form("C2C"), current_user: User = Depends(has_permission("itopup.import")), house_id: Optional[int] = Depends(get_house_context)):
+    return StreamingResponse(_import_file_stream(file, process_dms_report_excel, "itopup.import", current_user, report_type=report_type, target_house_id=house_id), media_type="text/event-stream")
 
 @router.post("/live-activations/import")
-async def import_live_activations(file: UploadFile = File(...), current_user: User = Depends(has_permission("import_live_activations"))):
-    return StreamingResponse(_import_file_stream(file, process_live_activation_excel, "import_live_activations", current_user), media_type="text/event-stream")
+async def import_live_activations(file: UploadFile = File(...), current_user: User = Depends(has_permission("live_activations.import"))):
+    return StreamingResponse(_import_file_stream(file, process_live_activation_excel, "live_activations.import", current_user), media_type="text/event-stream")
 
 @router.post("/scratch-card/import")
-async def import_scratch_card(file: UploadFile = File(...), current_user: User = Depends(has_permission("import_scratch_card"))):
-    return StreamingResponse(_import_file_stream(file, process_scratch_card_excel, "import_scratch_card", current_user), media_type="text/event-stream")
+async def import_scratch_card(file: UploadFile = File(...), current_user: User = Depends(has_permission("scratch_card.import"))):
+    return StreamingResponse(_import_file_stream(file, process_scratch_card_excel, "scratch_card.import", current_user), media_type="text/event-stream")
 
 @router.post("/sim-issues/import")
-async def import_sim_issues(file: UploadFile = File(...), current_user: User = Depends(has_permission("import_sim_issues"))):
-    return StreamingResponse(_import_file_stream(file, process_sim_issue_excel, "import_sim_issues", current_user), media_type="text/event-stream")
+async def import_sim_issues(file: UploadFile = File(...), current_user: User = Depends(has_permission("sim_issues.import"))):
+    return StreamingResponse(_import_file_stream(file, process_sim_issue_excel, "sim_issues.import", current_user), media_type="text/event-stream")
 
 @router.post("/house-targets/import")
-async def import_house_targets(file: UploadFile = File(...), current_user: User = Depends(has_permission("import_targets"))):
+async def import_house_targets(file: UploadFile = File(...), current_user: User = Depends(has_permission("targets.import"))):
     from datetime import datetime
-    return StreamingResponse(_import_file_stream(file, process_target_excel_unified, "import_targets", current_user, target_date=datetime.now()), media_type="text/event-stream")
+    return StreamingResponse(_import_file_stream(file, process_target_excel_unified, "targets.import", current_user, target_date=datetime.now()), media_type="text/event-stream")
 
 @router.post("/supervisor-targets/import")
-async def import_supervisor_targets(file: UploadFile = File(...), current_user: User = Depends(has_permission("import_targets"))):
+async def import_supervisor_targets(file: UploadFile = File(...), current_user: User = Depends(has_permission("targets.import"))):
     from datetime import datetime
-    return StreamingResponse(_import_file_stream(file, process_target_excel_unified, "import_targets", current_user, target_date=datetime.now()), media_type="text/event-stream")
+    return StreamingResponse(_import_file_stream(file, process_target_excel_unified, "targets.import", current_user, target_date=datetime.now()), media_type="text/event-stream")
 
 @router.post("/rso-targets/import")
-async def import_rso_targets(file: UploadFile = File(...), current_user: User = Depends(has_permission("import_targets"))):
+async def import_rso_targets(file: UploadFile = File(...), current_user: User = Depends(has_permission("targets.import"))):
     from datetime import datetime
-    return StreamingResponse(_import_file_stream(file, process_target_excel_unified, "import_targets", current_user, target_date=datetime.now()), media_type="text/event-stream")
+    return StreamingResponse(_import_file_stream(file, process_target_excel_unified, "targets.import", current_user, target_date=datetime.now()), media_type="text/event-stream")

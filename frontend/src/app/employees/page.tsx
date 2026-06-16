@@ -260,7 +260,7 @@ export default function EmployeesPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_employees")) {
+    if (!authLoading && hasPermission("employees.view")) {
       fetchData();
     }
   }, [selectedHouse, authLoading, hasPermission]);
@@ -609,7 +609,7 @@ export default function EmployeesPage() {
   const paginatedMembers = sortedMembers.slice(page * limit, (page + 1) * limit);
 
   if (authLoading) return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500"/></div>;
-  if (!hasPermission("view_employees")) return <AccessDenied />;
+  if (!hasPermission("employees.view")) return <AccessDenied />;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">

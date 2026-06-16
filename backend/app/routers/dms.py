@@ -235,7 +235,7 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
 async def check_sim_status(
     payload: SIMStatusCheckRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_sim_status"))
+    current_user: User = Depends(has_permission("dms.sim_status"))
 ):
     # 1. Access validation for distributor house
     from app.routers.deps import get_current_user
@@ -419,7 +419,7 @@ async def run_sim_return_check(serials: list, credentials: dict):
 async def return_sim(
     payload: SIMReturnRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_sim_return"))
+    current_user: User = Depends(has_permission("dms.sim_return"))
 ):
     is_admin = is_admin_user(current_user)
 
@@ -515,7 +515,7 @@ class SIMIssueResponse(BaseModel):
 async def issue_sims(
     payload: SIMIssueRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_sim_issue"))
+    current_user: User = Depends(has_permission("dms.sim_issue"))
 ):
     is_admin = is_admin_user(current_user)
 

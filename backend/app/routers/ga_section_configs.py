@@ -39,7 +39,7 @@ def get_section_keys():
 async def list_section_configs(
     house_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_live_activations")),
+    current_user: User = Depends(has_permission("live_activations.view")),
 ):
     house = await db.get(House, house_id)
     if not house:
@@ -76,7 +76,7 @@ async def update_section_config(
     data: SectionConfigUpdate,
     house_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_reports")),
+    current_user: User = Depends(has_permission("ga_section_configs.edit")),
 ):
     if section_key not in get_section_keys():
         raise HTTPException(status_code=400, detail=f"Invalid section_key: {section_key}")

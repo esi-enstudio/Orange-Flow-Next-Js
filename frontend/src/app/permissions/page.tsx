@@ -41,7 +41,7 @@ export default function PermissionsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("view_permissions")) {
+    if (!authLoading && !hasPermission("permissions.view")) {
       const timer = setTimeout(() => {
         router.push("/");
       }, 5000);
@@ -65,7 +65,7 @@ export default function PermissionsPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_permissions")) {
+    if (!authLoading && hasPermission("permissions.view")) {
       fetchPermissions();
     }
   }, [authLoading, hasPermission]);
@@ -132,7 +132,7 @@ export default function PermissionsPage() {
     return diffInHours <= 24;
   };
 
-  if (!authLoading && !hasPermission("view_permissions")) {
+  if (!authLoading && !hasPermission("permissions.view")) {
     return <AccessDenied />;
   }
 

@@ -1,81 +1,33 @@
 {
-    "modules": [
-        {
-            "name": "houses",
-            "display_name": "Houses",
-            "actions": ["view", "create", "edit", "delete", "import", "export"]
-        },
-        {
-            "name": "users",
-            "display_name": "Users",
-            "actions": ["view", "create", "edit", "delete", "import", "export"]
-        },
-        {
-            "name": "roles",
-            "display_name": "Roles",
-            "actions": ["view", "create", "edit", "delete"]
-        },
-        {
-            "name": "permissions",
-            "display_name": "Permissions",
-            "actions": ["view", "create", "edit", "delete"]
-        },
-        {
-            "name": "retailers",
-            "display_name": "Retailers",
-            "actions": ["view", "create", "edit", "delete", "import", "export"]
-        },
-        {
-            "name": "employees",
-            "display_name": "Employees",
-            "actions": ["view", "create", "edit", "delete", "import", "export"]
-        },
-        {
-            "name": "bts",
-            "display_name": "BTS",
-            "actions": ["view", "create", "edit", "delete", "import", "export"]
-        },
-        {
-            "name": "mela",
-            "display_name": "Mela",
-            "actions": ["view", "create", "edit", "delete", "settings", "import", "export"]
-        },
-        {
-            "name": "lifting",
-            "display_name": "Lifting",
-            "actions": ["view", "create", "edit", "delete", "approve", "import", "export"]
-        },
-        {
-            "name": "reports",
-            "display_name": "Reports",
-            "actions": ["view", "edit", "download", "dms_access"]
-        },
-        {
-            "name": "automation",
-            "display_name": "Automation",
-            "actions": ["ga_sync", "dms_sync", "settings"]
-        },
-        {
-            "name": "leaves",
-            "display_name": "Leaves",
-            "actions": ["view", "create", "edit", "delete", "import", "export"]
-        },
-        {
-            "name": "products",
-            "display_name": "Products",
-            "actions": ["view", "create", "edit", "delete", "import", "export"]
-        },
-        {
-            "name": "sim_status",
-            "display_name": "SIM Status Check",
-            "actions": ["view"]
-        },
-        {
-            "name": "commission",
-            "display_name": "Commission",
-            "actions": ["view", "manage", "import", "export"]
-        }
-    ],
+    "modules": {
+        "houses": { "display_name": "Houses", "permissions": ["houses.view", "houses.create", "houses.edit", "houses.delete", "houses.import", "houses.export"] },
+        "users": { "display_name": "Users", "permissions": ["users.view", "users.create", "users.edit", "users.delete", "users.import", "users.export"] },
+        "roles": { "display_name": "Roles", "permissions": ["roles.view", "roles.create", "roles.edit", "roles.delete"] },
+        "permissions": { "display_name": "Permissions", "permissions": ["permissions.view", "permissions.create", "permissions.edit", "permissions.delete"] },
+        "retailers": { "display_name": "Retailers", "permissions": ["retailers.view", "retailers.create", "retailers.edit", "retailers.delete", "retailers.import", "retailers.export", "retailers.marking"] },
+        "employees": { "display_name": "Employees", "permissions": ["employees.view", "employees.create", "employees.edit", "employees.delete", "employees.import", "employees.export"] },
+        "bts": { "display_name": "BTS", "permissions": ["bts.view", "bts.create", "bts.edit", "bts.delete", "bts.import", "bts.export"] },
+        "lifting": { "display_name": "Lifting", "permissions": ["lifting.view", "lifting.create", "lifting.edit", "lifting.delete", "lifting.approve", "lifting.import", "lifting.export"] },
+        "reports": { "display_name": "Reports", "permissions": ["reports.view", "reports.edit", "reports.download", "reports.dms_access"] },
+        "products": { "display_name": "Products", "permissions": ["products.view", "products.create", "products.edit", "products.delete", "products.import", "products.export"] },
+        "commission": { "display_name": "Commission", "permissions": ["commission.view", "commission.manage", "commission.import", "commission.export"] },
+        "sim_status": { "display_name": "SIM Status Check", "permissions": ["sim_status.view"] },
+        "activations": { "display_name": "Activations", "permissions": ["activations.view", "activations.export", "activations.import"] },
+        "itopup": { "display_name": "iTopUp Details", "permissions": ["itopup.view", "itopup.export", "itopup.import"] },
+        "live_activations": { "display_name": "Live Activations", "permissions": ["live_activations.view", "live_activations.export", "live_activations.import"] },
+        "scratch_card": { "display_name": "Scratch Card", "permissions": ["scratch_card.view", "scratch_card.export", "scratch_card.import"] },
+        "sim_issues": { "display_name": "SIM Issues", "permissions": ["sim_issues.view", "sim_issues.export", "sim_issues.import"] },
+        "targets": { "display_name": "Targets", "permissions": ["targets.view", "targets.export", "targets.import"] },
+        "dms": { "display_name": "DMS Automation", "permissions": ["dms.sim_status", "dms.sim_return", "dms.sim_issue"] },
+        "app_settings": { "display_name": "App Settings", "permissions": ["app_settings.manage"] },
+        "bp_retailer_codes": { "display_name": "BP Retailer Codes", "permissions": ["bp_retailer_codes.edit"] },
+        "ga_section_configs": { "display_name": "Section Configs", "permissions": ["ga_section_configs.edit"] },
+        "filters": { "display_name": "Filters", "permissions": ["filters.edit"] },
+        "automation": { "display_name": "Automation", "permissions": ["automation.ga_sync", "automation.dms_sync", "automation.settings"] },
+        "leaves": { "display_name": "Leaves", "permissions": ["leaves.view", "leaves.create", "leaves.edit", "leaves.delete", "leaves.import", "leaves.export"] },
+        "mela": { "display_name": "Mela", "permissions": ["mela.view", "mela.create", "mela.edit", "mela.delete", "mela.settings", "mela.import", "mela.export"] },
+        "navigation": { "display_name": "Navigation", "permissions": ["imports.data", "settings.view", "expenses.view", "attendance.view"] }
+    },
     "default_roles": [
         {
             "name": "Super Admin",
@@ -87,27 +39,27 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["view_houses", "view_retailers", "view_employees", "view_bts", "view_reports", "view_sim_status"]
+            "permissions": ["houses.view", "retailers.view", "employees.view", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "imports.data"]
         },
         {
             "name": "Manager",
-            "permissions": ["view_reports", "view_retailers", "view_employees", "view_bts", "view_sim_status"]
+            "permissions": ["reports.view", "retailers.view", "employees.view", "bts.view", "sim_status.view", "activations.view", "live_activations.view"]
         },
         {
             "name": "Supervisor",
-            "permissions": ["view_reports", "view_retailers", "view_sim_status"]
+            "permissions": ["reports.view", "retailers.view", "sim_status.view", "activations.view"]
         },
         {
             "name": "RSO",
-            "permissions": ["view_reports", "view_retailers", "view_sim_status"]
+            "permissions": ["reports.view", "retailers.view", "sim_status.view"]
         },
         {
             "name": "BP",
-            "permissions": ["view_reports"]
+            "permissions": ["reports.view"]
         },
         {
             "name": "Cc",
-            "permissions": ["view_reports"]
+            "permissions": ["reports.view"]
         }
     ]
 }

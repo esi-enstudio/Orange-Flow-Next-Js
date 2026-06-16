@@ -5,6 +5,8 @@ import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database,
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Record {
   id: number; report_type: string; report_date: string; daily_value: number;
@@ -16,6 +18,7 @@ const REPORT_TYPES = ["C2C", "C2S", "Balance"] as const;
 
 export default function ImportItopUpPage() {
   const { t } = useLanguage();
+  const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<Record[]>([]);
   const [search, setSearch] = useState("");
   const [initialLoading, setInitialLoading] = useState(true);
@@ -146,6 +149,8 @@ export default function ImportItopUpPage() {
       toast.success("Exported");
     } catch { toast.error("Export failed"); }
   };
+
+  if (!authLoading && !hasPermission("itopup.import")) { return <AccessDenied />; }
 
   return (
     <div className="p-6 space-y-6">

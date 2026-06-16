@@ -78,7 +78,7 @@ async def list_lifting_records(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(["view_lifting", "view_products"])),
+    current_user: User = Depends(has_any_permission(["lifting.view", "products.view"])),
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
     is_admin = is_admin_user(current_user)
@@ -133,7 +133,7 @@ async def list_lifting_records(
 async def get_lifting_record(
     record_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_lifting")),
+    current_user: User = Depends(has_permission("lifting.view")),
 ):
     result = await db.execute(
         select(LiftingRecord)
@@ -153,7 +153,7 @@ async def get_lifting_record(
 async def preview_lifting(
     lifting_data: LiftingRecordCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_lifting")),
+    current_user: User = Depends(has_permission("lifting.view")),
 ):
     if not lifting_data.products:
         raise HTTPException(status_code=422, detail="At least one product must be selected.")
@@ -190,7 +190,7 @@ async def preview_lifting(
 async def create_lifting(
     lifting_data: LiftingRecordCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("create_lifting")),
+    current_user: User = Depends(has_permission("lifting.create")),
 ):
     if not lifting_data.products:
         raise HTTPException(status_code=422, detail="At least one product must be selected.")

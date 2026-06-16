@@ -27,7 +27,7 @@ async def get_bts(
     thana: Optional[str] = None,
     filter_house_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_bts")),
+    current_user: User = Depends(has_permission("bts.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     effective_house_id = filter_house_id or house_id
@@ -56,7 +56,7 @@ async def get_bts(
     return result.scalars().all()
 
 @router.post("/import")
-async def import_bts(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("import_bts"))):
+async def import_bts(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("bts.import"))):
     if not os.path.exists("temp_downloads"): os.makedirs("temp_downloads")
     filename = file.filename or "upload.xlsx"
     if not validate_excel(filename):
@@ -76,7 +76,7 @@ async def import_bts(file: UploadFile = File(...), db: AsyncSession = Depends(ge
 @router.get("/export")
 async def export_bts(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("export_bts")),
+    current_user: User = Depends(has_permission("bts.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(BTS)
@@ -101,7 +101,7 @@ async def export_bts(
 @router.get("/filters")
 async def get_bts_filters(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_bts")),
+    current_user: User = Depends(has_permission("bts.view")),
     filter_house_id: Optional[int] = Query(None),
     house_id: Optional[int] = Depends(get_house_context)
 ):

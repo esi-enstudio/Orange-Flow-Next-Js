@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserSchema)
-async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_users"))):
+async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("users.create"))):
     existing_user = (await db.execute(select(User).where((User.username == user_data.username) | (User.email == user_data.email)))).scalar_one_or_none()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username or Email already registered")

@@ -9,6 +9,8 @@ import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import LiveActivationsFilter, { LiveActivationFilters, defaultLiveActivationFilters } from "@/components/live-activations/LiveActivationsFilter";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface ActivationRecord {
   id: number; sim_no: string; activation_date: string; activation_time: string;
@@ -19,6 +21,7 @@ interface ActivationRecord {
 
 export default function ImportLiveActivationsPage() {
   const { t } = useLanguage();
+  const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<ActivationRecord[]>([]);
   const [filters, setFilters] = useState<LiveActivationFilters>({ ...defaultLiveActivationFilters });
   const [showFilters, setShowFilters] = useState(false);
@@ -177,6 +180,8 @@ export default function ImportLiveActivationsPage() {
   };
 
   const totalPages = Math.ceil(totalRecords / limit);
+
+  if (!authLoading && !hasPermission("live_activations.import")) { return <AccessDenied />; }
 
   return (
     <div className="p-6 space-y-6">

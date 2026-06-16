@@ -4,6 +4,8 @@ import { Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, Chec
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Record {
   id: number; ev_c2c_target: number; sc_primary_target: number; total_recharge_target: number;
@@ -13,6 +15,7 @@ interface Record {
 }
 
 export default function ImportHouseTargetsPage() {
+  const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<Record[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -133,6 +136,8 @@ export default function ImportHouseTargetsPage() {
   };
 
   const totalPages = Math.ceil(totalRecords / limit);
+
+  if (!authLoading && !hasPermission("targets.import")) { return <AccessDenied />; }
 
   return (
     <div className="p-6 space-y-6">

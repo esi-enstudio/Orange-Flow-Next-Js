@@ -3,12 +3,12 @@ import shutil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, get_house_context
-from app.schemas.retailer import RetailerSchema
+from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
@@ -20,38 +20,46 @@ router = APIRouter(prefix="/api/retailers", tags=["retailers"])
 
 @router.get("")
 async def get_retailers(
-    search: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 5000,
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_retailers")),
+    current_user: User = Depends(has_permission("retailers.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    query = select(Retailer).options(
+    base_query = select(Retailer).options(
         joinedload(Retailer.house),
         joinedload(Retailer.employee).selectinload(Employee.user)
     )
     is_admin = is_admin_user(current_user)
     if house_id:
-        query = query.where(Retailer.house_id == house_id)
+        base_query = base_query.where(Retailer.house_id == house_id)
     elif is_admin:
         pass
     else:
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
-            query = query.where(Retailer.house_id.in_(user_house_ids))
+            base_query = base_query.where(Retailer.house_id.in_(user_house_ids))
         else:
-            query = query.where(Retailer.house_id == -1)
-    if search:
-        search_pattern = f"%{search}%"
-        query = query.where(
+            base_query = base_query.where(Retailer.house_id == -1)
+    if pagination.search:
+        search_pattern = f"%{pagination.search}%"
+        base_query = base_query.where(
             (Retailer.name.ilike(search_pattern)) |
             (Retailer.retailer_code.ilike(search_pattern)) |
             (Retailer.itop_number.ilike(search_pattern))
         )
-    result = await db.execute(query.offset(skip).limit(limit).order_by(Retailer.id.desc()))
+
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    sort_column = getattr(Retailer, pagination.sort_by, Retailer.id)
+    order = sort_column.asc() if pagination.sort_order == "asc" else sort_column.desc()
+    offset = (pagination.page - 1) * pagination.per_page
+    result = await db.execute(base_query.offset(offset).limit(pagination.per_page).order_by(order))
     retailers = result.scalars().unique().all()
-    output = []
+
+    total_pages = max(1, -(-total // pagination.per_page))
+    data = []
     for r in retailers:
         item = {
             "id": r.id, "house_id": r.house_id, "retailer_code": r.retailer_code,
@@ -73,15 +81,27 @@ async def get_retailers(
                 "itop_number": r.employee.itop_number,
                 "dms_code": r.employee.dms_code
             }
-        output.append(item)
-    return output
+        data.append(item)
+
+    return PaginatedResponse(
+        success=True,
+        data=data,
+        pagination=PaginationMeta(
+            page=pagination.page,
+            per_page=pagination.per_page,
+            total=total,
+            total_pages=total_pages,
+            has_next=pagination.page < total_pages,
+            has_prev=pagination.page > 1
+        )
+    )
 
 @router.get("/by-house/{house_id}")
 async def get_retailers_by_house(
     house_id: int,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_retailers"))
+    current_user: User = Depends(has_permission("retailers.view"))
 ):
     is_admin = is_admin_user(current_user)
     if not is_admin:
@@ -105,7 +125,7 @@ async def get_retailers_by_house(
     ]
 
 @router.post("/import")
-async def import_retailers(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("import_retailers"))):
+async def import_retailers(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("retailers.import"))):
     if not os.path.exists("temp_downloads"): os.makedirs("temp_downloads")
     filename = file.filename or "upload.xlsx"
     if not validate_excel(filename):
@@ -123,7 +143,7 @@ async def import_retailers(file: UploadFile = File(...), db: AsyncSession = Depe
 @router.get("/export")
 async def export_retailers(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("export_retailers")),
+    current_user: User = Depends(has_permission("retailers.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(Retailer).options(

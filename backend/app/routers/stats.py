@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api", tags=["stats"])
 @router.get("/stats")
 async def get_stats(
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("view_reports")),
+    current_user = Depends(has_permission("reports.view")),
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
@@ -141,7 +141,7 @@ async def get_stats(
 @router.get("/stats/daily-activations")
 async def get_daily_activations(
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("view_reports")),
+    current_user = Depends(has_permission("reports.view")),
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):

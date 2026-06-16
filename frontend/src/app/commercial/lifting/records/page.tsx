@@ -115,7 +115,7 @@ export default function LiftingRecordsPage() {
     }, [houseId, dateFrom, dateTo, statusFilter, search, t]);
 
     useEffect(() => {
-        if (!authLoading && hasPermission("view_lifting")) {
+        if (!authLoading && hasPermission("lifting.view")) {
             fetchHouses();
             fetchRecords({ silent: true });
         }
@@ -177,7 +177,7 @@ export default function LiftingRecordsPage() {
         );
     }
 
-    if (!hasPermission("view_lifting")) {
+    if (!hasPermission("lifting.view")) {
         return <AccessDenied />;
     }
 

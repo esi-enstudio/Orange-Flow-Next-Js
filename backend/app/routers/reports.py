@@ -33,7 +33,7 @@ async def get_activations(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_activations")),
+    current_user: User = Depends(has_permission("activations.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(Activation)
@@ -56,7 +56,7 @@ async def export_activations(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("export_activations")),
+    current_user: User = Depends(has_permission("activations.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(Activation).options(joinedload(Activation.house))
@@ -85,7 +85,7 @@ async def get_itopup_details(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_itopup")),
+    current_user: User = Depends(has_permission("itopup.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(ITopUpDetail).options(joinedload(ITopUpDetail.house), joinedload(ITopUpDetail.retailer))
@@ -107,7 +107,7 @@ async def export_itopup_details(
     end_date: Optional[str] = None,
     report_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("export_itopup")),
+    current_user: User = Depends(has_permission("itopup.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(ITopUpDetail)
@@ -159,7 +159,7 @@ async def get_live_activations(
     service_class: Optional[str] = None,
     customer_second_contact: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_live_activations")),
+    current_user: User = Depends(has_permission("live_activations.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(LiveActivation).options(joinedload(LiveActivation.house))
@@ -213,7 +213,7 @@ async def get_live_activations(
 @router.get("/live-activations/filter-options")
 async def get_live_activation_filter_options(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_live_activations")),
+    current_user: User = Depends(has_permission("live_activations.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     base = select(LiveActivation)
@@ -246,7 +246,7 @@ async def export_live_activations(
     end_date: Optional[str] = None,
     house_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("export_live_activations")),
+    current_user: User = Depends(has_permission("live_activations.export")),
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
     if not house_id:
@@ -273,7 +273,7 @@ async def export_live_activations(
 @router.delete("/live-activations/truncate")
 async def truncate_live_activations(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("import_live_activations")),
+    current_user: User = Depends(has_permission("live_activations.import")),
 ):
     await db.execute(LiveActivation.__table__.delete())
     await db.commit()
@@ -285,7 +285,7 @@ async def get_scratch_card(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_scratch_card")),
+    current_user: User = Depends(has_permission("scratch_card.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(ScratchCardIssue)
@@ -308,7 +308,7 @@ async def export_scratch_card(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("export_scratch_card")),
+    current_user: User = Depends(has_permission("scratch_card.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(ScratchCardIssue)
@@ -336,7 +336,7 @@ async def get_sim_issues(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_sim_issues")),
+    current_user: User = Depends(has_permission("sim_issues.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(SimIssue)
@@ -360,7 +360,7 @@ async def export_sim_issues(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("export_sim_issues")),
+    current_user: User = Depends(has_permission("sim_issues.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(SimIssue)
@@ -391,7 +391,7 @@ async def get_activation_report(
     page_size: int = Query(50, ge=1, le=500),
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_reports")),
+    current_user: User = Depends(has_permission("reports.view")),
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
@@ -513,7 +513,7 @@ async def get_activation_daily_stats(
     exclude_tags: Optional[str] = Query(None),
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_reports")),
+    current_user: User = Depends(has_permission("reports.view")),
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
@@ -590,7 +590,7 @@ async def get_ga_live_report(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_live_activations")),
+    current_user: User = Depends(has_permission("live_activations.view")),
 ):
     from app.services.ga_live_service import GaLiveQueryBuilder
 

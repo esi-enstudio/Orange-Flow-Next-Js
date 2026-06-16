@@ -6,6 +6,8 @@ import apiClient from "@/lib/api";
 import { useLanguage } from "@/i18n/useLanguage";
 import { toast } from "react-hot-toast";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 import {
   SmartphoneNfc,
   Search,
@@ -100,6 +102,7 @@ const cardVariants = {
 };
 
 export default function SIMIssuePage() {
+  const { hasPermission, loading: authLoading } = useAuth();
   const { t, language } = useLanguage();
 
   const [houses, setHouses] = useState<House[]>([]);
@@ -328,6 +331,10 @@ export default function SIMIssuePage() {
       setInputValue("898803992145808574\n898803992145808575\n898803992145808580");
     }
   };
+
+  if (!authLoading && !hasPermission("dms.sim_issue")) {
+    return <AccessDenied />;
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12">

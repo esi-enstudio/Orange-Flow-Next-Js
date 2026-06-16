@@ -49,7 +49,7 @@ export default function RolesPage() {
   const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("view_roles")) {
+    if (!authLoading && !hasPermission("roles.view")) {
       const timer = setTimeout(() => {
         router.push("/");
       }, 5000);
@@ -74,7 +74,7 @@ export default function RolesPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_roles")) {
+    if (!authLoading && hasPermission("roles.view")) {
       fetchData();
     }
   }, [authLoading, hasPermission]);
@@ -149,7 +149,7 @@ export default function RolesPage() {
     return acc;
   }, {} as Record<string, Permission[]>);
 
-  if (!authLoading && !hasPermission("view_roles")) {
+  if (!authLoading && !hasPermission("roles.view")) {
     return <AccessDenied />;
   }
 

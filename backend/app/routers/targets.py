@@ -25,7 +25,7 @@ async def get_house_targets(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("view_targets")),
+    current_user = Depends(has_permission("targets.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(HouseTarget).options(joinedload(HouseTarget.house))
@@ -40,7 +40,7 @@ async def get_house_targets(
     return {"total": total_count, "data": records}
 
 @router.get("/house-targets/export")
-async def export_house_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("export_targets")), house_id: Optional[int] = Depends(get_house_context)):
+async def export_house_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("targets.export")), house_id: Optional[int] = Depends(get_house_context)):
     query = select(HouseTarget).options(joinedload(HouseTarget.house))
     if house_id: query = query.where(HouseTarget.house_id == house_id)
     result = await db.execute(query.order_by(HouseTarget.id.desc()))
@@ -55,7 +55,7 @@ async def get_supervisor_targets(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("view_targets")),
+    current_user = Depends(has_permission("targets.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(SupervisorTarget).options(joinedload(SupervisorTarget.house))
@@ -70,7 +70,7 @@ async def get_supervisor_targets(
     return {"total": total_count, "data": records}
 
 @router.get("/supervisor-targets/export")
-async def export_supervisor_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("export_targets")), house_id: Optional[int] = Depends(get_house_context)):
+async def export_supervisor_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("targets.export")), house_id: Optional[int] = Depends(get_house_context)):
     query = select(SupervisorTarget).options(joinedload(SupervisorTarget.house))
     if house_id: query = query.where(SupervisorTarget.house_id == house_id)
     result = await db.execute(query.order_by(SupervisorTarget.id.desc()))
@@ -85,7 +85,7 @@ async def get_rso_targets(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("view_targets")),
+    current_user = Depends(has_permission("targets.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(RSOTarget).options(joinedload(RSOTarget.house))
@@ -100,7 +100,7 @@ async def get_rso_targets(
     return {"total": total_count, "data": records}
 
 @router.get("/rso-targets/export")
-async def export_rso_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("export_targets")), house_id: Optional[int] = Depends(get_house_context)):
+async def export_rso_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("targets.export")), house_id: Optional[int] = Depends(get_house_context)):
     query = select(RSOTarget).options(joinedload(RSOTarget.house))
     if house_id: query = query.where(RSOTarget.house_id == house_id)
     result = await db.execute(query.order_by(RSOTarget.id.desc()))

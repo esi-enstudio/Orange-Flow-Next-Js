@@ -28,7 +28,7 @@ async def get_accessible_houses(
     ]
 
 @router.get("", response_model=list[HouseSchema])
-async def list_houses(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_any_permission(["view_houses", "view_users", "edit_users"]))):
+async def list_houses(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_any_permission(["houses.view", "users.view", "users.edit"]))):
     is_admin = is_admin_user(current_user)
     if is_admin:
         result = await db.execute(select(House).order_by(House.name))
@@ -36,7 +36,7 @@ async def list_houses(db: AsyncSession = Depends(get_db), current_user: User = D
     return current_user.houses
 
 @router.post("", response_model=HouseSchema)
-async def create_house(house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_houses"))):
+async def create_house(house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("houses.create"))):
     existing = (await db.execute(select(House).where(House.code == house_data.code))).scalar_one_or_none()
     if existing: raise HTTPException(status_code=400, detail="House with this code already exists")
     new_house = House(**house_data.model_dump())
@@ -46,7 +46,7 @@ async def create_house(house_data: HouseCreate, db: AsyncSession = Depends(get_d
     return new_house
 
 @router.put("/{house_id}", response_model=HouseSchema)
-async def update_house(house_id: int, house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("edit_houses"))):
+async def update_house(house_id: int, house_data: HouseCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("houses.edit"))):
     result = await db.execute(select(House).where(House.id == house_id))
     house = result.scalar_one_or_none()
     if not house: raise HTTPException(status_code=404, detail="House not found")
@@ -61,7 +61,7 @@ async def update_house(house_id: int, house_data: HouseCreate, db: AsyncSession 
     return house
 
 @router.delete("/{house_id}")
-async def delete_house(house_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_houses"))):
+async def delete_house(house_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("houses.delete"))):
     result = await db.execute(select(House).where(House.id == house_id))
     house = result.scalar_one_or_none()
     if not house: raise HTTPException(status_code=404, detail="House not found")

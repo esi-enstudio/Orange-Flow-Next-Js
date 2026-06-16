@@ -4,6 +4,8 @@ import Cookies from "js-cookie";
 import { Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Record {
   id: number; issue_date: string; distributor_code: string; distributor_name: string;
@@ -12,6 +14,7 @@ interface Record {
 }
 
 export default function ImportSimIssuesPage() {
+  const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<Record[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -124,6 +127,8 @@ export default function ImportSimIssuesPage() {
       toast.success("Exported");
     } catch { toast.error("Export failed"); }
   };
+
+  if (!authLoading && !hasPermission("sim_issues.import")) { return <AccessDenied />; }
 
   return (
     <div className="p-6 space-y-6">

@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Todo {
   id: number;
@@ -33,6 +35,7 @@ interface Todo {
 }
 
 export default function TodosPage() {
+  const { user, loading: authLoading } = useAuth();
   const { t } = useLanguage();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,6 +159,10 @@ export default function TodosPage() {
       default: return "text-amber-600 bg-amber-50 dark:bg-amber-500/10";
     }
   };
+
+  if (!authLoading && !user) {
+    return <AccessDenied />;
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">

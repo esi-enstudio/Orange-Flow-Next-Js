@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 import apiClient from "@/lib/api";
 import { toast } from "react-hot-toast";
 import { 
@@ -140,7 +141,7 @@ interface EmployeeProfile {
 }
 
 export default function ProfilePage() {
-  const { user, refreshStatus } = useAuth();
+  const { user, loading: authLoading, refreshStatus } = useAuth();
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [empLoading, setEmpLoading] = useState(false);
@@ -304,7 +305,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (!user) return null;
+  if (!authLoading && !user) return <AccessDenied />;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">

@@ -50,7 +50,7 @@ export default function ProductExclusionsPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_reports")) fetchCodes();
+    if (!authLoading && hasPermission("reports.view")) fetchCodes();
   }, [authLoading, hasPermission]);
 
   const handleAdd = async () => {
@@ -89,7 +89,7 @@ export default function ProductExclusionsPage() {
     );
   }
 
-  if (!hasPermission("view_reports")) {
+  if (!hasPermission("reports.view")) {
     return <AccessDenied />;
   }
 

@@ -25,7 +25,7 @@ async def list_products(
     category: Optional[str] = Query(None, description="Filter by category"),
     status: Optional[str] = Query(None, description="Filter by status"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(["view_products", "view_lifting"])),
+    current_user: User = Depends(has_any_permission(["products.view", "lifting.view"])),
 ):
     query = select(Product).order_by(Product.category, Product.product_name)
 
@@ -57,7 +57,7 @@ async def list_products(
 @router.get("/categories")
 async def get_categories(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_products")),
+    current_user: User = Depends(has_permission("products.view")),
 ):
     categories = [c.value for c in ProductCategory]
     return {"categories": categories}
@@ -66,7 +66,7 @@ async def get_categories(
 @router.get("/filter-options")
 async def get_product_filter_options(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_products")),
+    current_user: User = Depends(has_permission("products.view")),
 ):
     result = await db.execute(select(Product.category).distinct())
     categories = [row[0] for row in result.all() if row[0]]
@@ -84,7 +84,7 @@ async def get_product_filter_options(
 @router.post("/import")
 async def import_products(
     file: UploadFile = File(...),
-    current_user: User = Depends(has_permission("import_products")),
+    current_user: User = Depends(has_permission("products.import")),
 ):
     if not os.path.exists("temp_downloads"):
         os.makedirs("temp_downloads")
@@ -110,7 +110,7 @@ async def export_products(
     category: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(["view_products", "export_products"])),
+    current_user: User = Depends(has_any_permission(["products.view", "products.export"])),
 ):
     query = select(Product).order_by(Product.category, Product.product_name)
     conditions = []
@@ -139,7 +139,7 @@ async def export_products(
 
 @router.get("/sample")
 async def download_sample_product_excel(
-    current_user: User = Depends(has_any_permission(["view_products", "import_products"])),
+    current_user: User = Depends(has_any_permission(["products.view", "products.import"])),
 ):
     excel_data = generate_product_sample_bytes()
     return Response(
@@ -153,7 +153,7 @@ async def download_sample_product_excel(
 async def create_product(
     product_data: ProductCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("create_products")),
+    current_user: User = Depends(has_permission("products.create")),
 ):
     existing = (await db.execute(select(Product).where(Product.product_code == product_data.product_code))).scalar_one_or_none()
     if existing:
@@ -173,7 +173,7 @@ async def create_product(
 async def get_product(
     product_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_products")),
+    current_user: User = Depends(has_permission("products.view")),
 ):
     result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()
@@ -187,7 +187,7 @@ async def update_product(
     product_id: int,
     product_data: ProductUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_products")),
+    current_user: User = Depends(has_permission("products.edit")),
 ):
     result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()
@@ -222,7 +222,7 @@ async def update_product(
 async def delete_product(
     product_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("delete_products")),
+    current_user: User = Depends(has_permission("products.delete")),
 ):
     result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()

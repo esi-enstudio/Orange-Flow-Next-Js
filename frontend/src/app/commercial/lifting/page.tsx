@@ -91,7 +91,7 @@ export default function CreateLiftingPage() {
 
     const selectedProductIds = useMemo(() => new Set(selectedProducts.map((sp) => sp.product.id)), [selectedProducts]);
 
-    const canCreate = hasPermission("create_lifting");
+    const canCreate = hasPermission("lifting.create");
 
     const fetchData = async () => {
         setLoading(true);
@@ -120,7 +120,7 @@ export default function CreateLiftingPage() {
     };
 
     useEffect(() => {
-        if (!authLoading && hasPermission("view_lifting")) {
+        if (!authLoading && hasPermission("lifting.view")) {
             fetchData();
         }
     }, [authLoading, hasPermission]);
@@ -225,7 +225,7 @@ export default function CreateLiftingPage() {
         );
     }
 
-    if (!hasPermission("view_lifting")) {
+    if (!hasPermission("lifting.view")) {
         return <AccessDenied />;
     }
 

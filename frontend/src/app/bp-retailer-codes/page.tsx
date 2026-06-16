@@ -40,7 +40,7 @@ export default function BpRetailerCodesPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<BpCodeRecord | null>(null);
 
-  const isAdmin = hasPermission("edit_reports");
+  const isAdmin = hasPermission("bp_retailer_codes.edit");
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -118,7 +118,7 @@ export default function BpRetailerCodesPage() {
 
   const selectedBp = bpEmployees.find((e) => e.id === selectedBpId);
 
-  if (!hasPermission("view_reports")) {
+  if (!hasPermission("reports.view")) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">

@@ -5,6 +5,8 @@ import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database,
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Activation {
   id: number;
@@ -37,6 +39,7 @@ function formatDate(dateStr: string): string {
 
 export default function ImportActivationsPage() {
   const { t } = useLanguage();
+  const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<Activation[]>([]);
   const [search, setSearch] = useState("");
   const [initialLoading, setInitialLoading] = useState(true);
@@ -183,6 +186,8 @@ export default function ImportActivationsPage() {
   };
 
   const todayStr = new Date().toISOString().split("T")[0];
+
+  if (!authLoading && !hasPermission("activations.import")) { return <AccessDenied />; }
 
   return (
     <div className="p-6 space-y-6">

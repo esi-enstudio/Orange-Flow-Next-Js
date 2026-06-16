@@ -18,19 +18,19 @@ import { ReportsSheet } from "./ReportsSheet";
 import { DMSSheet } from "./DMSSheet";
 
 const reportPermissions = [
-  "view_reports",
-  "view_activations",
-  "view_itopup",
-  "view_live_activations",
-  "view_scratch_card",
-  "view_sim_issue",
+  "reports.view",
+  "activations.view",
+  "itopup.view",
+  "live_activations.view",
+  "scratch_card.view",
+  "dms.sim_issue",
 ];
 
 const dmsPermissions = [
-  "view_sim_issue",
-  "view_sim_status",
-  "view_sim_return",
-  "view_scratch_card",
+  "dms.sim_issue",
+  "dms.sim_status",
+  "dms.sim_return",
+  "scratch_card.view",
 ];
 
 export function MobileNav() {
@@ -44,7 +44,7 @@ export function MobileNav() {
   const canViewAnyDms = dmsPermissions.some(p => hasPermission(p));
 
   const linkItems = [
-    { key: "employees", title: t('nav.employees'), href: "/employees", icon: Users,   permission: "view_employees" },
+    { key: "employees", title: t('nav.employees'), href: "/employees", icon: Users,   permission: "employees.view" },
     { key: "more",      title: t('nav.more'),      href: "/more",      icon: Menu },
   ].filter(item => !item.permission || hasPermission(item.permission));
 

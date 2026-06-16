@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 @router.get("", response_model=list[UserSchema])
 async def list_users(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_users")),
+    current_user: User = Depends(has_permission("users.view")),
     house_id: Optional[int] = Depends(get_house_context),
     unassigned: bool = Query(False),
     filters: UserFilterParams = Depends(),
@@ -86,7 +86,7 @@ async def list_users(
 @router.get("/filter-options")
 async def get_user_filter_options(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_users")),
+    current_user: User = Depends(has_permission("users.view")),
 ):
     """Return dynamic filter option lists for the UserMasterFilter component."""
     from sqlalchemy import distinct
@@ -112,7 +112,7 @@ async def update_user(
     user_id: int,
     user_data: UserUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_users"))
+    current_user: User = Depends(has_permission("users.edit"))
 ):
     result = await db.execute(
         select(User).options(selectinload(User.roles), selectinload(User.houses))
@@ -162,7 +162,7 @@ async def update_user(
     return user
 
 @router.delete("/{user_id}")
-async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_users"))):
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("users.delete"))):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user: raise HTTPException(status_code=404, detail="User not found")
@@ -171,7 +171,7 @@ async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_
     return {"message": "User deleted successfully"}
 
 @router.post("/import")
-async def import_users(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("import_users"))):
+async def import_users(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("users.import"))):
     if not os.path.exists("temp_downloads"): os.makedirs("temp_downloads")
     filename = file.filename or "upload.xlsx"
     if not validate_excel(filename):
@@ -187,7 +187,7 @@ async def import_users(file: UploadFile = File(...), db: AsyncSession = Depends(
         if os.path.exists(file_path): os.remove(file_path)
 
 @router.get("/export")
-async def export_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("export_users"))):
+async def export_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("users.export"))):
     query = select(User).options(joinedload(User.roles), joinedload(User.houses))
     result = await db.execute(query.order_by(User.id.desc()))
     users = result.unique().scalars().all()

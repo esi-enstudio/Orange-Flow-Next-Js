@@ -4,6 +4,8 @@ import { Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, Chec
 import { toast } from "react-hot-toast";
 import Cookies from "js-cookie";
 import axios from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Record {
   id: number; cluster_name: string; region: string; issue_date: string; distributor_code: string;
@@ -12,6 +14,7 @@ interface Record {
 }
 
 export default function ImportScratchCardPage() {
+  const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<Record[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -124,6 +127,8 @@ export default function ImportScratchCardPage() {
       toast.success("Exported");
     } catch { toast.error("Export failed"); }
   };
+
+  if (!authLoading && !hasPermission("scratch_card.import")) { return <AccessDenied />; }
 
   return (
     <div className="p-6 space-y-6">

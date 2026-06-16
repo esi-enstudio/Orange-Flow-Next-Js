@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -18,7 +18,8 @@ import {
   Download,
   FileSpreadsheet,
   Eye,
-  X
+  X,
+  ArrowUpDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
@@ -52,19 +53,30 @@ interface Retailer {
   employee?: { name: string, itop_number: string, dms_code: string, user?: { name: string } };
 }
 
+interface PaginationMeta {
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
 export default function RetailersPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
   const router = useRouter();
   const { t } = useLanguage();
   const [retailers, setRetailers] = useState<Retailer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pageLoading, setPageLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(0);
-  const limit = 5;
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<PaginationMeta | null>(null);
+  const [sortBy, setSortBy] = useState("id");
+  const [sortOrder, setSortOrder] = useState("desc");
+  const perPage = 5;
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("view_retailers")) {
+    if (!authLoading && !hasPermission("retailers.view")) {
       const timer = setTimeout(() => {
         router.push("/");
       }, 5000);
@@ -77,24 +89,51 @@ export default function RetailersPage() {
   const [importProgress, setImportProgress] = useState(0);
   const [viewingRetailer, setViewingRetailer] = useState<Retailer | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const retRes = await apiClient.get("retailers");
-      setRetailers(retRes.data);
+      const params: Record<string, any> = {
+        page,
+        per_page: perPage,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      };
+      if (search) params.search = search;
+      const retRes = await apiClient.get("retailers", { params });
+      setRetailers(retRes.data.data || []);
+      setPagination(retRes.data.pagination || null);
     } catch (err) {
       console.error("Failed to fetch data", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, search, sortBy, sortOrder]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_retailers")) {
+    if (!authLoading && hasPermission("retailers.view")) {
       fetchData();
     }
-  }, [selectedHouse, authLoading, hasPermission]);
+  }, [selectedHouse, page, sortBy, sortOrder, authLoading, hasPermission, fetchData]);
+
+  const handleSearch = (value: string) => {
+    setSearch(value);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      setPage(1);
+    }, 400);
+  };
+
+  const toggleSort = (field: string) => {
+    if (sortBy === field) {
+      setSortOrder(prev => prev === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(field);
+      setSortOrder("desc");
+    }
+    setPage(1);
+  };
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -152,29 +191,7 @@ export default function RetailersPage() {
     }
   };
 
-  const filteredRetailers = retailers.filter(r =>
-    r.name?.toLowerCase().includes(search.toLowerCase()) ||
-    r.retailer_code?.toLowerCase().includes(search.toLowerCase()) ||
-    r.itop_number?.includes(search)
-  );
-
-  const paginatedRetailers = filteredRetailers.slice(page * limit, (page + 1) * limit);
-  const totalPages = Math.ceil(filteredRetailers.length / limit);
-
-  const pageLoadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const triggerPageLoading = () => {
-    setPageLoading(true);
-
-    if (pageLoadingTimeoutRef.current) {
-      clearTimeout(pageLoadingTimeoutRef.current);
-    }
-
-    // data is already in memory; keep it brief to match "slight loading" UX
-    pageLoadingTimeoutRef.current = setTimeout(() => setPageLoading(false), 180);
-  };
-
-  if (!authLoading && !hasPermission("view_retailers")) {
+  if (!authLoading && !hasPermission("retailers.view")) {
     return <AccessDenied />;
   }
 
@@ -238,22 +255,39 @@ export default function RetailersPage() {
               placeholder={t('retailers.search_placeholder')}
               className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
               value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(0);
-                triggerPageLoading();
-              }}
+              onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
         </div>
 
-        {loading || pageLoading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-4">
-            <div className="flex items-center justify-center">
-              <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
-            </div>
+        {loading ? (
+          <div className="divide-y divide-gray-50 dark:divide-slate-800">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-6 py-5 animate-pulse">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                  <div className="space-y-2">
+                    <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  </div>
+                </div>
+                <div className="hidden sm:block flex-1 space-y-2">
+                  <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+                <div className="hidden md:block flex-1 space-y-2">
+                  <div className="h-4 w-14 bg-gray-200 dark:bg-slate-700 rounded-full" />
+                  <div className="h-3 w-10 bg-gray-100 dark:bg-slate-800 rounded-full" />
+                </div>
+                <div className="hidden lg:block flex-1 space-y-2">
+                  <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-14 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+                <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-slate-700 shrink-0" />
+              </div>
+            ))}
           </div>
-        ) : filteredRetailers.length === 0 ? (
+        ) : !pagination || pagination.total === 0 ? (
           <div className="py-20 text-center">
             <Store className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
             <p className="text-gray-500 dark:text-gray-400 font-medium">{t('retailers.no_retailers')}</p>
@@ -264,15 +298,25 @@ export default function RetailersPage() {
               <table className="w-full text-left min-w-[900px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
-                    <th className="px-6 py-4">{t('retailers.table_name')}</th>
+                    <th className="px-6 py-4">
+                      <button onClick={() => toggleSort("name")} className="flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300">
+                        {t('retailers.table_name')}
+                        <ArrowUpDown className="w-3 h-3" />
+                      </button>
+                    </th>
                     <th className="px-6 py-4">{t('retailers.table_rso')}</th>
                     <th className="px-6 py-4">{t('retailers.table_status')}</th>
-                    <th className="px-6 py-4">{t('retailers.table_house')}</th>
+                    <th className="px-6 py-4">
+                      <button onClick={() => toggleSort("house_id")} className="flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300">
+                        {t('retailers.table_house')}
+                        <ArrowUpDown className="w-3 h-3" />
+                      </button>
+                    </th>
                     <th className="px-6 py-4"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
-                  {paginatedRetailers.map((r) => (
+                  {retailers.map((r) => (
                     <tr key={r.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -352,19 +396,26 @@ export default function RetailersPage() {
 
             <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between">
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {t('retailers.showing_results', { start: filteredRetailers.length === 0 ? 0 : (page * limit) + 1, end: Math.min((page + 1) * limit, filteredRetailers.length), total: filteredRetailers.length })}
+                {t('retailers.showing_results', {
+                  start: pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.per_page + 1,
+                  end: Math.min(pagination.page * pagination.per_page, pagination.total),
+                  total: pagination.total
+                })}
               </p>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => { triggerPageLoading(); setPage(p => Math.max(0, p - 1)); }}
-                  disabled={page === 0}
+                  onClick={() => setPage(p => p - 1)}
+                  disabled={!pagination.has_prev}
                   className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+                  {pagination.page} / {pagination.total_pages}
+                </span>
                 <button
-                  onClick={() => { triggerPageLoading(); setPage(p => p + 1); }}
-                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={!pagination.has_next}
                   className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
                 >
                   <ChevronRight className="w-4 h-4" />

@@ -45,7 +45,7 @@ async def generate_employee_id(db: AsyncSession, employee_type: str | None) -> s
 async def list_employees_by_house_grouped(
     house_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_employees")),
+    current_user: User = Depends(has_permission("employees.view")),
 ):
     """List employees with assisted_retailer_code, grouped by role (RSO/BP/CC)."""
     is_admin = is_admin_user(current_user)
@@ -114,7 +114,7 @@ async def list_employees(
     salary_min: Optional[float] = Query(None, description="Minimum salary filter"),
     salary_max: Optional[float] = Query(None, description="Maximum salary filter"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_employees")),
+    current_user: User = Depends(has_permission("employees.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(Employee).options(joinedload(Employee.house), joinedload(Employee.user).selectinload(User.roles))
@@ -214,7 +214,7 @@ async def list_employees(
 @router.get("/filter-options")
 async def get_employee_filter_options(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_employees")),
+    current_user: User = Depends(has_permission("employees.view")),
 ):
     """Return distinct values for filter dropdowns."""
     async def _distinct(column):
@@ -234,7 +234,7 @@ async def get_employee_filter_options(
     }
 
 @router.post("", response_model=EmployeeSchema)
-async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("create_employees"))):
+async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.create"))):
     house = await db.get(House, emp_data.house_id)
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
@@ -262,7 +262,7 @@ async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(g
     return result.unique().scalar_one()
 
 @router.put("/{emp_id}", response_model=EmployeeSchema)
-async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("edit_employees"))):
+async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.edit"))):
     result = await db.execute(select(Employee).where(Employee.id == emp_id))
     emp = result.scalar_one_or_none()
     if not emp: raise HTTPException(status_code=404, detail="Employee not found")
@@ -295,7 +295,7 @@ class ReassignRequest(BaseModel):
 async def get_employee_retailer_count(
     emp_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_employees"))
+    current_user: User = Depends(has_permission("employees.view"))
 ):
     result = await db.execute(select(Employee).where(Employee.id == emp_id))
     emp = result.scalar_one_or_none()
@@ -312,7 +312,7 @@ async def reassign_employee_retailers(
     emp_id: int,
     req: ReassignRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_employees"))
+    current_user: User = Depends(has_permission("employees.edit"))
 ):
     result = await db.execute(select(Employee).where(Employee.id == emp_id))
     emp = result.scalar_one_or_none()
@@ -337,7 +337,7 @@ async def reassign_employee_retailers(
     return {"message": f"Transferred retailers to {new_emp.dms_code or new_emp.id} and status set to {req.status}"}
 
 @router.delete("/{emp_id}")
-async def delete_employee(emp_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("delete_employees"))):
+async def delete_employee(emp_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.delete"))):
     result = await db.execute(select(Employee).where(Employee.id == emp_id))
     emp = result.scalar_one_or_none()
     if not emp: raise HTTPException(status_code=404, detail="Employee member not found")
@@ -383,7 +383,7 @@ async def import_employees(
     file: UploadFile = File(...),
     house_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("import_employees"))
+    current_user: User = Depends(has_permission("employees.import"))
 ):
     if not os.path.exists("temp_downloads"): os.makedirs("temp_downloads")
     filename = file.filename or "upload.xlsx"
@@ -402,7 +402,7 @@ async def import_employees(
 @router.get("/export")
 async def export_employees(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("export_employees")),
+    current_user: User = Depends(has_permission("employees.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(Employee).options(joinedload(Employee.user))

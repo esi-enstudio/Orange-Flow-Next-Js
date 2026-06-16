@@ -65,7 +65,7 @@ export default function Dashboard() {
   const { t } = useLanguage();
 
   const fetchStats = (houseId: string) => {
-    if (!hasPermission("view_reports")) return;
+    if (!hasPermission("reports.view")) return;
     const params: any = {};
     if (houseId) params.house_id = houseId;
     apiClient.get("stats", { params })
@@ -83,7 +83,7 @@ export default function Dashboard() {
         if (housesData.length <= 1) {
           setSelectedHouseId("");
         }
-        if (hasPermission("view_reports")) {
+        if (hasPermission("reports.view")) {
           fetchStats("");
         }
       } catch (err) {
@@ -96,7 +96,7 @@ export default function Dashboard() {
   }, [authLoading]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_reports")) {
+    if (!authLoading && hasPermission("reports.view")) {
       const params: any = {};
       if (selectedHouseId) params.house_id = selectedHouseId;
       apiClient.get("stats", { params })
@@ -121,7 +121,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_reports")) {
+    if (!authLoading && hasPermission("reports.view")) {
       const params: any = {};
       if (selectedHouseId) params.house_id = selectedHouseId;
       apiClient.get("stats/daily-activations", { params })

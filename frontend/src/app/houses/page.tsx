@@ -70,7 +70,7 @@ export default function HousesPage() {
   const limit = 5;
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("view_houses")) {
+    if (!authLoading && !hasPermission("houses.view")) {
       const timer = setTimeout(() => {
         router.push("/");
       }, 5000);
@@ -123,7 +123,7 @@ export default function HousesPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_houses")) {
+    if (!authLoading && hasPermission("houses.view")) {
       fetchHouses();
     }
   }, [authLoading, hasPermission]);
@@ -280,7 +280,7 @@ export default function HousesPage() {
   const paginatedHouses = filteredHouses.slice(page * limit, (page + 1) * limit);
   const totalPages = Math.ceil(filteredHouses.length / limit);
 
-  if (!authLoading && !hasPermission("view_houses")) {
+  if (!authLoading && !hasPermission("houses.view")) {
     return <AccessDenied />;
   }
 

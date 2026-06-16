@@ -37,7 +37,7 @@ class BpRetailerCodeOut(BaseModel):
 @router.get("/bp-employees")
 async def list_bp_employees(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_reports")),
+    current_user: User = Depends(has_permission("reports.view")),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     is_admin = is_admin_user(current_user)
@@ -80,7 +80,7 @@ async def list_bp_employees(
 async def list_bp_retailer_codes(
     house_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_reports")),
+    current_user: User = Depends(has_permission("reports.view")),
 ):
     is_admin = is_admin_user(current_user)
     user_house_ids = [h.id for h in current_user.houses]
@@ -127,7 +127,7 @@ async def list_bp_retailer_codes(
 async def create_bp_retailer_code(
     body: BpRetailerCodeCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_reports")),
+    current_user: User = Depends(has_permission("bp_retailer_codes.edit")),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     emp = await db.get(Employee, body.bp_employee_id)
@@ -165,7 +165,7 @@ async def create_bp_retailer_code(
 async def delete_bp_retailer_code(
     record_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_reports")),
+    current_user: User = Depends(has_permission("bp_retailer_codes.edit")),
 ):
     record = await db.get(BpRetailerCode, record_id)
     if not record:

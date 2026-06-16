@@ -59,7 +59,7 @@ export default function RetailerMarkingPage() {
   const selectedTagName = tags.find(t => t.id === selectedTagId)?.name || "";
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("view_retailers")) {
+    if (!authLoading && !hasPermission("retailers.view")) {
       const timer = setTimeout(() => router.push("/"), 5000);
       return () => clearTimeout(timer);
     }
@@ -90,8 +90,8 @@ export default function RetailerMarkingPage() {
     if (!query.trim()) { setSearchResults([]); setSearching(false); return; }
     setSearching(true);
     try {
-      const res = await apiClient.get("retailers", { params: { search: query.trim(), limit: 100 } });
-      setSearchResults(res.data);
+      const res = await apiClient.get("retailers", { params: { search: query.trim(), per_page: 100 } });
+      setSearchResults(res.data.data || res.data);
     } catch { setSearchResults([]); }
     finally { setSearching(false); }
   }, []);
@@ -104,7 +104,7 @@ export default function RetailerMarkingPage() {
   }, [search, searchRetailers]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_retailers")) {
+    if (!authLoading && hasPermission("retailers.view")) {
       setLoading(true);
       fetchHouses().finally(() => setLoading(false));
     }
@@ -193,7 +193,7 @@ export default function RetailerMarkingPage() {
   };
 
   if (authLoading) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>;
-  if (!hasPermission("view_retailers")) return <AccessDenied />;
+  if (!hasPermission("retailers.view")) return <AccessDenied />;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">

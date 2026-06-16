@@ -25,6 +25,8 @@ import {
   RefreshCw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface House {
   id: number;
@@ -69,6 +71,7 @@ const loadingTipsBn = [
 ];
 
 export default function SIMStatusCheckPage() {
+  const { hasPermission, loading: authLoading } = useAuth();
   const { t, language } = useLanguage();
 
   const [houses, setHouses] = useState<House[]>([]);
@@ -332,6 +335,10 @@ export default function SIMStatusCheckPage() {
       setInputValue("898803992145808574\n898803992145808575\n898803992145808580");
     }
   };
+
+  if (!authLoading && !hasPermission("dms.sim_status")) {
+    return <AccessDenied />;
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12 animate-in fade-in duration-500">

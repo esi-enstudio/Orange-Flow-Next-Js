@@ -413,7 +413,7 @@ export default function GaLiveReportPage() {
   const [liveSyncEnabled, setLiveSyncEnabled] = useState(true);
   const [liveSyncLoading, setLiveSyncLoading] = useState(false);
 
-  const isAdmin = hasPermission("edit_reports");
+  const isAdmin = hasPermission("ga_section_configs.edit");
 
   function todayStr() {
     const d = new Date();
@@ -505,7 +505,7 @@ export default function GaLiveReportPage() {
 
   /* auth guard */
   if (authLoading) return <LoadingSkeleton />;
-  if (!hasPermission("view_live_activations")) {
+  if (!hasPermission("live_activations.view")) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">

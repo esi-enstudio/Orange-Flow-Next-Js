@@ -89,7 +89,7 @@ export default function UsersPage() {
 
   // Permission Check
   useEffect(() => {
-    if (!authLoading && !hasPermission("view_users")) {
+    if (!authLoading && !hasPermission("users.view")) {
       const timer = setTimeout(() => {
         router.push("/");
       }, 5000);
@@ -117,7 +117,7 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_users")) {
+    if (!authLoading && hasPermission("users.view")) {
       fetchData();
     }
   }, [selectedHouse, authLoading, hasPermission]);
@@ -325,7 +325,7 @@ export default function UsersPage() {
   const paginatedUsers = filteredUsers.slice(page * limit, (page + 1) * limit);
   const totalPages = Math.ceil(filteredUsers.length / limit);
 
-  if (!authLoading && !hasPermission("view_users")) {
+  if (!authLoading && !hasPermission("users.view")) {
     return <AccessDenied />;
   }
 
@@ -338,7 +338,7 @@ export default function UsersPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t('users.description')}</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          {hasPermission("export_users") && (
+          {hasPermission("users.export") && (
             <button 
               onClick={handleExport}
               disabled={isExporting}
@@ -348,7 +348,7 @@ export default function UsersPage() {
               {t('users.export_list')}
             </button>
           )}
-          {hasPermission("import_users") && (
+          {hasPermission("users.import") && (
             <>
               <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
               <button 
@@ -361,7 +361,7 @@ export default function UsersPage() {
               </button>
             </>
           )}
-          {hasPermission("create_users") && (
+          {hasPermission("users.create") && (
             <button 
               onClick={openAddModal}
               className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none"

@@ -59,14 +59,14 @@ export const navItems: NavItem[] = [
     icon: Upload,
     color: "text-emerald-500",
     children: [
-      { title: "Houses", translationKey: "nav.houses", href: "/houses", permission: "view_houses" },
-      { title: "Retailers", translationKey: "nav.retailers", href: "/retailers", permission: "view_retailers" },
-      { title: "BTS", translationKey: "nav.bts", href: "/bts", permission: "view_bts" },
-      { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "import_data" },
-      { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "import_data" },
-      { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "import_data" },
-      { title: "Scratch Card", translationKey: "nav.import_scratch_card", href: "/import/scratch-card", permission: "import_data" },
-      { title: "SIM Issues", translationKey: "nav.import_sim_issue", href: "/import/sim-issues", permission: "import_data" },
+      { title: "Houses", translationKey: "nav.houses", href: "/houses", permission: "houses.view" },
+      { title: "Retailers", translationKey: "nav.retailers", href: "/retailers", permission: "retailers.view" },
+      { title: "BTS", translationKey: "nav.bts", href: "/bts", permission: "bts.view" },
+      { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "imports.data" },
+      { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "imports.data" },
+      { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "imports.data" },
+      { title: "Scratch Card", translationKey: "nav.import_scratch_card", href: "/import/scratch-card", permission: "imports.data" },
+      { title: "SIM Issues", translationKey: "nav.import_sim_issue", href: "/import/sim-issues", permission: "imports.data" },
     ]
   },
   {
@@ -75,9 +75,9 @@ export const navItems: NavItem[] = [
     icon: Users2,
     color: "text-purple-500",
     children: [
-      { title: "Employee Management", translationKey: "nav.employees", href: "/employees", permission: "view_employees" },
-      { title: "KPI Reports (GA/C2C)", translationKey: "nav.reports", href: "/reports/kpi", permission: "view_reports" },
-      { title: "Attendance", translationKey: "nav.attendance", href: "/attendance", permission: "view_attendance" },
+      { title: "Employee Management", translationKey: "nav.employees", href: "/employees", permission: "employees.view" },
+      { title: "KPI Reports (GA/C2C)", translationKey: "nav.reports", href: "/reports/kpi", permission: "reports.view" },
+      { title: "Attendance", translationKey: "nav.attendance", href: "/attendance", permission: "attendance.view" },
     ]
   },
   {
@@ -91,11 +91,11 @@ export const navItems: NavItem[] = [
         translationKey: "nav.lifting",
         icon: Banknote,
         color: "text-green-500",
-        permission: "view_lifting",
+        permission: "lifting.view",
         href: "/commercial/lifting",
         children: [
-          { title: "Lifting Records", translationKey: "nav.lifting_records", href: "/commercial/lifting/records", permission: "view_lifting" },
-          { title: "Products", translationKey: "nav.products", href: "/commercial/lifting/products", permission: "view_products" },
+          { title: "Lifting Records", translationKey: "nav.lifting_records", href: "/commercial/lifting/records", permission: "lifting.view" },
+          { title: "Products", translationKey: "nav.products", href: "/commercial/lifting/products", permission: "products.view" },
         ]
       },
       {
@@ -103,9 +103,10 @@ export const navItems: NavItem[] = [
         translationKey: "nav.commission",
         icon: Calculator,
         color: "text-green-500",
+        permission: "commission.view",
         href: "/commercial/commission",
       },
-      { title: "Daily Expenses", translationKey: "nav.expenses", href: "/commercial/expenses", permission: "view_expenses" },
+      { title: "Daily Expenses", translationKey: "nav.expenses", href: "/commercial/expenses", permission: "expenses.view" },
     ]
   },
   {
@@ -114,10 +115,10 @@ export const navItems: NavItem[] = [
     icon: Zap,
     color: "text-yellow-500",
     children: [
-      { title: "SIM Issue", translationKey: "nav.sim_issue", href: "/dms/sim-issue", permission: "view_sim_issue" },
-      { title: "SIM Status Check", translationKey: "nav.sim_status", href: "/dms/sim-status", permission: "view_sim_status" },
-      { title: "SIM Return", translationKey: "nav.sim_return", href: "/dms/sim-return", permission: "view_sim_return" },
-      { title: "Scratch Card Issue", translationKey: "nav.scratch_card", href: "/dms/scratch-card", permission: "view_scratch_card" },
+      { title: "SIM Issue", translationKey: "nav.sim_issue", href: "/dms/sim-issue", permission: "dms.sim_issue" },
+      { title: "SIM Status Check", translationKey: "nav.sim_status", href: "/dms/sim-status", permission: "dms.sim_status" },
+      { title: "SIM Return", translationKey: "nav.sim_return", href: "/dms/sim-return", permission: "dms.sim_return" },
+      { title: "Scratch Card Issue", translationKey: "nav.scratch_card", href: "/dms/scratch-card", permission: "scratch_card.view" },
     ]
   },
   {
@@ -126,12 +127,12 @@ export const navItems: NavItem[] = [
     icon: BarChart3,
     color: "text-primary-500",
     children: [
-      { title: "Activations", translationKey: "nav.report_activations", href: "/reports/activations", permission: "view_reports" },
-      { title: "iTopUp Details", translationKey: "nav.report_itopup", href: "/reports/itopup-details", permission: "view_reports" },
-      { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permission: "view_reports" },
-      { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permission: "view_reports" },
-      { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permission: "view_reports" },
-      { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "view_reports" },
+      { title: "Activations", translationKey: "nav.report_activations", href: "/reports/activations", permission: "reports.view" },
+      { title: "iTopUp Details", translationKey: "nav.report_itopup", href: "/reports/itopup-details", permission: "reports.view" },
+      { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permission: "reports.view" },
+      { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permission: "reports.view" },
+      { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permission: "reports.view" },
+      { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
     ]
   },
   {
@@ -140,9 +141,9 @@ export const navItems: NavItem[] = [
     icon: Crosshair,
     color: "text-rose-500",
     children: [
-      { title: "House Targets", translationKey: "nav.house_targets", href: "/targets/house", permission: "view_targets" },
-      { title: "Supervisor Targets", translationKey: "nav.supervisor_targets", href: "/targets/supervisor", permission: "view_targets" },
-      { title: "RSO Targets", translationKey: "nav.rso_targets", href: "/targets/rso", permission: "view_targets" },
+      { title: "House Targets", translationKey: "nav.house_targets", href: "/targets/house", permission: "targets.view" },
+      { title: "Supervisor Targets", translationKey: "nav.supervisor_targets", href: "/targets/supervisor", permission: "targets.view" },
+      { title: "RSO Targets", translationKey: "nav.rso_targets", href: "/targets/rso", permission: "targets.view" },
     ]
   },
   {
@@ -151,8 +152,8 @@ export const navItems: NavItem[] = [
     icon: Shield,
     color: "text-red-500",
     children: [
-      { title: "Roles", translationKey: "nav.roles", href: "/roles", permission: "view_roles" },
-      { title: "Permissions", translationKey: "nav.permissions", href: "/permissions", permission: "view_permissions" },
+      { title: "Roles", translationKey: "nav.roles", href: "/roles", permission: "roles.view" },
+      { title: "Permissions", translationKey: "nav.permissions", href: "/permissions", permission: "permissions.view" },
     ]
   },
   {
@@ -161,10 +162,10 @@ export const navItems: NavItem[] = [
     icon: ShieldCheck,
     color: "text-cyan-500",
     children: [
-      { title: "User Management", translationKey: "nav.users", href: "/users", permission: "view_users" },
-      { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "view_retailers" },
-      { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "view_reports" },
-      { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "view_settings" },
+      { title: "User Management", translationKey: "nav.users", href: "/users", permission: "users.view" },
+      { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "retailers.view" },
+      { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },
+      { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "settings.view" },
     ]
   },
 ];

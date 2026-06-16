@@ -162,7 +162,7 @@ export default function ProductsPage() {
     };
 
     useEffect(() => {
-        if (!authLoading && hasPermission("view_products")) {
+        if (!authLoading && hasPermission("products.view")) {
             fetchFilterOptions();
             fetchProducts();
         }
@@ -249,13 +249,13 @@ export default function ProductsPage() {
         );
     }
 
-    if (!hasPermission("view_products")) {
+    if (!hasPermission("products.view")) {
         return <AccessDenied />;
     }
 
-    const canCreate = hasPermission("create_products");
-    const canEdit = hasPermission("edit_products");
-    const canDelete = hasPermission("delete_products");
+    const canCreate = hasPermission("products.create");
+    const canEdit = hasPermission("products.edit");
+    const canDelete = hasPermission("products.delete");
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
@@ -498,7 +498,7 @@ export default function ProductsPage() {
                             className="hidden"
                         />
                         <div className="flex items-center gap-1 ml-2">
-                            {hasPermission("import_products") && (
+                            {hasPermission("products.import") && (
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
                                     disabled={importing}
@@ -508,7 +508,7 @@ export default function ProductsPage() {
                                     {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                                 </button>
                             )}
-                            {hasPermission("view_products") && (
+                            {hasPermission("products.view") && (
                                 <button
                                     onClick={handleExport}
                                     className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-all"
@@ -517,7 +517,7 @@ export default function ProductsPage() {
                                     <Download className="w-4 h-4" />
                                 </button>
                             )}
-                            {hasPermission("import_products") && (
+                            {hasPermission("products.import") && (
                                 <button
                                     onClick={handleDownloadSample}
                                     className="p-1.5 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-all"

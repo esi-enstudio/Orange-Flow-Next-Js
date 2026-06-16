@@ -83,7 +83,7 @@ export default function BTSPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("view_bts")) {
+    if (!authLoading && !hasPermission("bts.view")) {
       const timer = setTimeout(() => {
         router.push("/");
       }, 5000);
@@ -116,13 +116,13 @@ export default function BTSPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_bts")) {
+    if (!authLoading && hasPermission("bts.view")) {
       fetchBTS();
     }
   }, [filterHouse, filterThana, authLoading, hasPermission]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_bts")) {
+    if (!authLoading && hasPermission("bts.view")) {
       const timer = setTimeout(() => fetchBTS(), 400);
       return () => clearTimeout(timer);
     }
@@ -183,7 +183,7 @@ export default function BTSPage() {
   const paginatedList = btsList.slice(page * limit, (page + 1) * limit);
   const totalPages = Math.ceil(btsList.length / limit);
 
-  if (!authLoading && !hasPermission("view_bts")) {
+  if (!authLoading && !hasPermission("bts.view")) {
     return <AccessDenied />;
   }
 

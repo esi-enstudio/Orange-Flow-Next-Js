@@ -10,6 +10,8 @@ import { useTheme } from "@/components/ThemeProvider";
 import { useState, useEffect } from "react";
 import apiClient, { resolveImageUrl } from "@/lib/api";
 import toast from "react-hot-toast";
+import { useAuth } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useBrand } from "@/context/BrandContext";
 
 type TabId = "general" | "appearance" | "automation";
@@ -43,6 +45,7 @@ function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: (
 }
 
 export default function SettingsPage() {
+  const { hasPermission, loading: authLoading } = useAuth();
   const { t } = useLanguage();
   const { primaryColor, setPrimaryColor } = usePrimaryColor();
   const { theme, setTheme } = useTheme();
@@ -103,6 +106,10 @@ export default function SettingsPage() {
     } catch { toast.error("Failed to upload logo"); }
     finally { setUploading(false); }
   };
+
+  if (!authLoading && !hasPermission("settings.view")) {
+    return <AccessDenied />;
+  }
 
   if (!mounted) return null;
 

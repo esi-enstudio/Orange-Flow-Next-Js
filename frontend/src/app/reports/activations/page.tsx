@@ -91,7 +91,7 @@ export default function ActivationsReportPage() {
   }, [search]);
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("view_reports")) {
+    if (!authLoading && !hasPermission("reports.view")) {
       const timer = setTimeout(() => router.push("/"), 5000);
       return () => clearTimeout(timer);
     }
@@ -150,7 +150,7 @@ export default function ActivationsReportPage() {
   }, [chartMonth, chartYear, selectedExcludeTags, debouncedSearch, selectedHouseId]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_reports")) {
+    if (!authLoading && hasPermission("reports.view")) {
       apiClient.get("houses/accessible").then(res => setHouses(res.data)).catch(() => {});
       fetchTags();
       fetchReport();
@@ -159,7 +159,7 @@ export default function ActivationsReportPage() {
   }, [authLoading, hasPermission, fetchTags, fetchReport, fetchChartData]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("view_reports")) {
+    if (!authLoading && hasPermission("reports.view")) {
       fetchChartData();
     }
   }, [chartMonth, chartYear]);
@@ -202,7 +202,7 @@ export default function ActivationsReportPage() {
 
   const totalPages = report ? Math.ceil(report.filtered_total / pageSize) : 0;
 
-  if (!authLoading && !hasPermission("view_reports")) {
+  if (!authLoading && !hasPermission("reports.view")) {
     return <AccessDenied />;
   }
 

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api", tags=["filters"])
 @router.get("/filter-tags", response_model=list[FilterTagSchema])
 async def list_filter_tags(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_retailers")),
+    current_user: User = Depends(has_permission("retailers.view")),
     house_context: Optional[int] = Depends(get_house_context),
     house_id: Optional[int] = Query(None)
 ):
@@ -42,7 +42,7 @@ async def list_filter_tags(
 async def create_filter_tag(
     tag_data: FilterTagCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_retailers")),
+    current_user: User = Depends(has_permission("filters.edit")),
     x_house_id: Optional[int] = Header(None, alias="X-House-ID")
 ):
     target_house_id = tag_data.house_id or x_house_id
@@ -69,7 +69,7 @@ async def create_filter_tag(
 async def delete_filter_tag(
     tag_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_retailers"))
+    current_user: User = Depends(has_permission("filters.edit"))
 ):
     result = await db.execute(select(FilterTag).where(FilterTag.id == tag_id))
     tag = result.scalar_one_or_none()
@@ -85,7 +85,7 @@ async def list_retailer_filters(
     tag_name: Optional[str] = Query(None, alias="tag"),
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_retailers")),
+    current_user: User = Depends(has_permission("retailers.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(RetailerFilter).options(
@@ -128,7 +128,7 @@ async def list_retailer_filters(
 async def create_retailer_filter(
     filter_data: RetailerFilterCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_retailers"))
+    current_user: User = Depends(has_permission("filters.edit"))
 ):
     retailer = await db.get(Retailer, filter_data.retailer_id)
     if not retailer:
@@ -153,7 +153,7 @@ async def create_retailer_filter(
 async def bulk_create_retailer_filters(
     bulk_data: RetailerFilterBulkCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_retailers"))
+    current_user: User = Depends(has_permission("filters.edit"))
 ):
     tag = await db.get(FilterTag, bulk_data.tag_id)
     if not tag:
@@ -182,7 +182,7 @@ async def bulk_create_retailer_filters(
 async def delete_retailer_filter(
     filter_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_retailers"))
+    current_user: User = Depends(has_permission("filters.edit"))
 ):
     result = await db.execute(select(RetailerFilter).where(RetailerFilter.id == filter_id))
     rf = result.scalar_one_or_none()
@@ -197,7 +197,7 @@ async def delete_retailer_filter(
 @router.get("/product-exclusions", response_model=list[ExcludedProductSchema])
 async def list_product_exclusions(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("view_reports")),
+    current_user: User = Depends(has_permission("reports.view")),
 ):
     result = await db.execute(select(ExcludedProductCode).order_by(ExcludedProductCode.product_code))
     return result.scalars().all()
@@ -206,7 +206,7 @@ async def list_product_exclusions(
 async def create_product_exclusion(
     data: ExcludedProductCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_retailers")),
+    current_user: User = Depends(has_permission("filters.edit")),
 ):
     existing = await db.execute(
         select(ExcludedProductCode).where(ExcludedProductCode.product_code == data.product_code)
@@ -223,7 +223,7 @@ async def create_product_exclusion(
 async def delete_product_exclusion(
     exclusion_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("edit_retailers")),
+    current_user: User = Depends(has_permission("filters.edit")),
 ):
     result = await db.execute(select(ExcludedProductCode).where(ExcludedProductCode.id == exclusion_id))
     entry = result.scalar_one_or_none()
