@@ -75,6 +75,8 @@ interface GaLiveData {
     id: number;
     name: string;
     dms_code: string;
+    assisted_code: string;
+    pool_number: string;
     own_activation: number;
     contribution: number;
     rank: number;
@@ -610,6 +612,77 @@ export default function GaLiveReportPage() {
         </div>
       </div>
 
+      {/* ────── Top Performers ────── */}
+      {(top_performers.supervisor || top_performers.rso || top_performers.bp || top_performers.cc) && (
+        <div className="group relative">
+        <section>
+          <SectionHeader title="Top Performers" subtitle="Highest achievers across all roles" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {top_performers.supervisor && (
+              <div className="bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-500/10 dark:to-primary-600/5 rounded-2xl border border-primary-200 dark:border-primary-500/20 p-5 relative overflow-hidden">
+                <div className="absolute top-3 right-3 text-primary-300/50 dark:text-primary-400/20">
+                  <Medal className="w-8 h-8" />
+                </div>
+                <p className="text-xs font-medium text-primary-600 dark:text-primary-400 uppercase tracking-wider mb-2">Top Supervisor</p>
+                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.supervisor.name as string}</p>
+                <p className="text-sm text-primary-600 dark:text-primary-400 mt-1">
+                  {(top_performers.supervisor.total_activation as number).toLocaleString()} activations
+                </p>
+                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
+                  {(top_performers.supervisor.contribution as number).toFixed(1)}% contribution
+                </span>
+              </div>
+            )}
+            {top_performers.rso && (
+              <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-500/10 dark:to-orange-600/5 rounded-2xl border border-orange-200 dark:border-orange-500/20 p-5 relative overflow-hidden">
+                <div className="absolute top-3 right-3 text-orange-300/50 dark:text-orange-400/20">
+                  <Award className="w-8 h-8" />
+                </div>
+                <p className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-2">Top RSO</p>
+                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.rso.name as string}</p>
+                <p className="text-sm text-orange-600 dark:text-orange-400 mt-1">
+                  {(top_performers.rso.total_activation as number).toLocaleString()} activations
+                </p>
+                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
+                  {(top_performers.rso.contribution as number).toFixed(1)}% contribution
+                </span>
+              </div>
+            )}
+            {top_performers.bp && (
+              <div className="bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-500/10 dark:to-teal-600/5 rounded-2xl border border-teal-200 dark:border-teal-500/20 p-5 relative overflow-hidden">
+                <div className="absolute top-3 right-3 text-teal-300/50 dark:text-teal-400/20">
+                  <Zap className="w-8 h-8" />
+                </div>
+                <p className="text-xs font-medium text-teal-600 dark:text-teal-400 uppercase tracking-wider mb-2">Top BP</p>
+                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.bp.name as string}</p>
+                <p className="text-sm text-teal-600 dark:text-teal-400 mt-1">
+                  {(top_performers.bp.own_activation as number).toLocaleString()} activations
+                </p>
+                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
+                  {(top_performers.bp.contribution as number).toFixed(1)}% contribution
+                </span>
+              </div>
+            )}
+            {top_performers.cc && (
+              <div className="bg-gradient-to-br from-rose-50 to-rose-100 dark:from-rose-500/10 dark:to-rose-600/5 rounded-2xl border border-rose-200 dark:border-rose-500/20 p-5 relative overflow-hidden">
+                <div className="absolute top-3 right-3 text-rose-300/50 dark:text-rose-400/20">
+                  <BarChart3 className="w-8 h-8" />
+                </div>
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-2">Top CC</p>
+                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.cc.name as string}</p>
+                <p className="text-sm text-rose-600 dark:text-rose-400 mt-1">
+                  {(top_performers.cc.own_activation as number).toLocaleString()} activations
+                </p>
+                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
+                  {(top_performers.cc.contribution as number).toFixed(1)}% contribution
+                </span>
+              </div>
+            )}
+          </div>
+        </section>
+        </div>
+      )}
+
       {/* ────── Executive Summary ────── */}
       <section>
         <SectionHeader title="Executive Summary" subtitle="Key activation metrics for the selected period" />
@@ -781,7 +854,7 @@ export default function GaLiveReportPage() {
       {trend.length > 0 && (
         <div className="group relative">
         <section>
-          <SectionHeader title="Activation Trend" subtitle="Daily activation count for the selected period" onEdit={isAdmin ? () => setEditingSection("trend") : undefined} />
+          <SectionHeader title="Activation Trend" subtitle="Daily activation count for the selected period" onEdit={isAdmin ? () => setEditingSection("total_activation") : undefined} />
           <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={trend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -969,7 +1042,7 @@ export default function GaLiveReportPage() {
                     </div>
                     <div>
                       <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{rso.name}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{rso.dms_code || `ID: ${rso.id}`}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{[rso.dms_code, rso.itop_number].filter(Boolean).join(' • ') || `ID: ${rso.id}`}</p>
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -977,12 +1050,10 @@ export default function GaLiveReportPage() {
                       <span className="text-gray-500 dark:text-gray-400">Own Code Activation</span>
                       <span className="font-semibold text-gray-900 dark:text-gray-100">{rso.own_activation.toLocaleString()}</span>
                     </div>
-                    {rso.market_activation > 0 && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-500 dark:text-gray-400">Market Activation</span>
-                        <span className="font-semibold text-amber-600 dark:text-amber-400">{rso.market_activation.toLocaleString()}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500 dark:text-gray-400">Market Activation</span>
+                      <span className="font-semibold text-amber-600 dark:text-amber-400">{rso.market_activation.toLocaleString()}</span>
+                    </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500 dark:text-gray-400">Total Activation</span>
                       <span className="font-semibold text-primary-600 dark:text-primary-400">{rso.total_activation.toLocaleString()}</span>
@@ -1075,7 +1146,9 @@ export default function GaLiveReportPage() {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{bp.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{bp.dms_code || `ID: ${bp.id}`}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {[bp.dms_code, bp.assisted_code, bp.pool_number].filter(Boolean).join(' • ') || `ID: ${bp.id}`}
+                  </p>
                 </div>
                 {/* Stats */}
                 <div className="text-right shrink-0">
@@ -1137,77 +1210,6 @@ export default function GaLiveReportPage() {
                 </div>
               </div>
             ))}
-          </div>
-        </section>
-        </div>
-      )}
-
-      {/* ────── Top Performers ────── */}
-      {(top_performers.supervisor || top_performers.rso || top_performers.bp || top_performers.cc) && (
-        <div className="group relative">
-        <section>
-          <SectionHeader title="Top Performers" subtitle="Highest achievers across all roles" />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {top_performers.supervisor && (
-              <div className="bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-500/10 dark:to-primary-600/5 rounded-2xl border border-primary-200 dark:border-primary-500/20 p-5 relative overflow-hidden">
-                <div className="absolute top-3 right-3 text-primary-300/50 dark:text-primary-400/20">
-                  <Medal className="w-8 h-8" />
-                </div>
-                <p className="text-xs font-medium text-primary-600 dark:text-primary-400 uppercase tracking-wider mb-2">Top Supervisor</p>
-                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.supervisor.name as string}</p>
-                <p className="text-sm text-primary-600 dark:text-primary-400 mt-1">
-                  {(top_performers.supervisor.total_activation as number).toLocaleString()} activations
-                </p>
-                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                  {(top_performers.supervisor.contribution as number).toFixed(1)}% contribution
-                </span>
-              </div>
-            )}
-            {top_performers.rso && (
-              <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-500/10 dark:to-orange-600/5 rounded-2xl border border-orange-200 dark:border-orange-500/20 p-5 relative overflow-hidden">
-                <div className="absolute top-3 right-3 text-orange-300/50 dark:text-orange-400/20">
-                  <Award className="w-8 h-8" />
-                </div>
-                <p className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-2">Top RSO</p>
-                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.rso.name as string}</p>
-                <p className="text-sm text-orange-600 dark:text-orange-400 mt-1">
-                  {(top_performers.rso.total_activation as number).toLocaleString()} activations
-                </p>
-                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                  {(top_performers.rso.contribution as number).toFixed(1)}% contribution
-                </span>
-              </div>
-            )}
-            {top_performers.bp && (
-              <div className="bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-500/10 dark:to-teal-600/5 rounded-2xl border border-teal-200 dark:border-teal-500/20 p-5 relative overflow-hidden">
-                <div className="absolute top-3 right-3 text-teal-300/50 dark:text-teal-400/20">
-                  <Zap className="w-8 h-8" />
-                </div>
-                <p className="text-xs font-medium text-teal-600 dark:text-teal-400 uppercase tracking-wider mb-2">Top BP</p>
-                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.bp.name as string}</p>
-                <p className="text-sm text-teal-600 dark:text-teal-400 mt-1">
-                  {(top_performers.bp.own_activation as number).toLocaleString()} activations
-                </p>
-                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                  {(top_performers.bp.contribution as number).toFixed(1)}% contribution
-                </span>
-              </div>
-            )}
-            {top_performers.cc && (
-              <div className="bg-gradient-to-br from-rose-50 to-rose-100 dark:from-rose-500/10 dark:to-rose-600/5 rounded-2xl border border-rose-200 dark:border-rose-500/20 p-5 relative overflow-hidden">
-                <div className="absolute top-3 right-3 text-rose-300/50 dark:text-rose-400/20">
-                  <BarChart3 className="w-8 h-8" />
-                </div>
-                <p className="text-xs font-medium text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-2">Top CC</p>
-                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.cc.name as string}</p>
-                <p className="text-sm text-rose-600 dark:text-rose-400 mt-1">
-                  {(top_performers.cc.own_activation as number).toLocaleString()} activations
-                </p>
-                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                  {(top_performers.cc.contribution as number).toFixed(1)}% contribution
-                </span>
-              </div>
-            )}
           </div>
         </section>
         </div>

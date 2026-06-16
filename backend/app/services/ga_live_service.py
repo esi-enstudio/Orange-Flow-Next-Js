@@ -229,11 +229,11 @@ class GaLiveQueryBuilder:
         retailer_employee_map = {r.id: r.employee_id for r in ret_rows.all()}
 
         emp_rows = await self.db.execute(
-            select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number, Employee.personal_number)
+            select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number, Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number)
             .where(Employee.house_id == self.house_id)
         )
         employees_raw = emp_rows.all()
-        emp_id_to_user = {e.id: (e.user_id, e.dms_code, e.itop_number, e.personal_number) for e in employees_raw}
+        emp_id_to_user = {e.id: (e.user_id, e.dms_code, e.itop_number, e.personal_number, e.assisted_retailer_code, e.pool_number) for e in employees_raw}
 
         emp_code_rows = await self.db.execute(
             select(Employee.id, Employee.assisted_retailer_code).where(
@@ -455,10 +455,13 @@ class GaLiveQueryBuilder:
                     )
                     res = await self.db.execute(select(func.count()).select_from(bp_q.subquery()))
                     bp_total = res.scalar() or 0
+            bp_info = emp_id_to_user.get(bp_emp_id) if bp_emp_id else None
             bp_data.append({
                 "id": bp_uid,
                 "name": bp_user.name or f"BP #{bp_uid}",
-                "dms_code": emp_id_to_user.get(bp_emp_id, ("", "", "", ""))[1] if bp_emp_id else "",
+                "dms_code": bp_info[1] if bp_info else "",
+                "assisted_code": bp_info[4] if bp_info else "",
+                "pool_number": bp_info[5] if bp_info else "",
                 "own_activation": bp_total,
                 "contribution": 0,
                 "rank": 0,
@@ -498,10 +501,10 @@ class GaLiveQueryBuilder:
             })
         cc_data.sort(key=lambda x: x["own_activation"], reverse=True)
 
-        top_supervisor = supervisor_data[0] if supervisor_data else None
-        top_rso = rso_data[0] if rso_data else None
-        top_bp = bp_data[0] if bp_data else None
-        top_cc = cc_data[0] if cc_data else None
+        top_supervisor = supervisor_data[0] if supervisor_data and (len(supervisor_data) == 1 or supervisor_data[0]["total_activation"] != supervisor_data[1]["total_activation"]) else None
+        top_rso = rso_data[0] if rso_data and (len(rso_data) == 1 or rso_data[0]["total_activation"] != rso_data[1]["total_activation"]) else None
+        top_bp = bp_data[0] if bp_data and (len(bp_data) == 1 or bp_data[0]["own_activation"] != bp_data[1]["own_activation"]) else None
+        top_cc = cc_data[0] if cc_data and (len(cc_data) == 1 or cc_data[0]["own_activation"] != cc_data[1]["own_activation"]) else None
 
         active_sup = len([uid for uid in role_uids["supervisor"] if uid in active_user_ids])
         active_rso = len([uid for uid in role_uids["rso"] if uid in active_user_ids])
@@ -530,25 +533,66 @@ class GaLiveQueryBuilder:
         )
 
     async def get_trend(self, section_key: str) -> list[dict]:
-        base = await self._build_base_query(section_key)
-        trend_q = (
-            select(LiveActivation.activation_date, func.count())
-            .select_from(base.subquery())
-            .group_by(LiveActivation.activation_date)
-            .order_by(LiveActivation.activation_date)
-        )
-        rows = (await self.db.execute(trend_q)).all()
-        trend_map = {}
-        for row in rows:
-            d = row.activation_date
-            ds = d.isoformat() if isinstance(d, date) else str(d)
-            trend_map[ds] = row[1]
+        today = self.start_date
+        month_start = date(today.year, today.month, 1)
+        yesterday = today - timedelta(days=1)
 
+        exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
+        trend_map: dict[str, int] = {}
+
+        # 1. activations table: 1st of month → yesterday
+        if month_start <= yesterday:
+            act_q = select(Activation.activation_date, func.count()).where(
+                Activation.house_id == self.house_id,
+                Activation.activation_date >= month_start,
+                Activation.activation_date <= yesterday,
+            )
+            if exclude_product_codes:
+                clause = exclude_clause(Activation, set(exclude_product_codes))
+                if clause is not None:
+                    act_q = act_q.where(clause)
+            for tag in exclude_retailer_tags:
+                excluded_ids = await self._load_excluded_retailers_by_tag(tag)
+                if excluded_ids:
+                    act_q = act_q.where(
+                        and_(
+                            Activation.retailer_id != None,
+                            Activation.retailer_id.notin_(excluded_ids),
+                        )
+                    )
+            act_q = act_q.group_by(Activation.activation_date).order_by(Activation.activation_date)
+            for row in (await self.db.execute(act_q)).all():
+                d = row.activation_date
+                trend_map[d.isoformat() if isinstance(d, date) else str(d)] = row[1]
+
+        # 2. live_activations table: today only
+        live_q = select(LiveActivation.activation_date, func.count()).where(
+            LiveActivation.house_id == self.house_id,
+            LiveActivation.activation_date == today,
+        )
+        if exclude_product_codes:
+            clause = exclude_clause(LiveActivation, set(exclude_product_codes))
+            if clause is not None:
+                live_q = live_q.where(clause)
+        for tag in exclude_retailer_tags:
+            excluded_ids = await self._load_excluded_retailers_by_tag(tag)
+            if excluded_ids:
+                live_q = live_q.where(
+                    and_(
+                        LiveActivation.retailer_id != None,
+                        LiveActivation.retailer_id.notin_(excluded_ids),
+                    )
+                )
+        live_q = live_q.group_by(LiveActivation.activation_date)
+        for row in (await self.db.execute(live_q)).all():
+            d = row.activation_date
+            trend_map[d.isoformat() if isinstance(d, date) else str(d)] = row[1]
+
+        # 3. fill all dates from month_start → today
         result = []
-        cursor = self.start_date
-        while cursor <= self.end_date:
-            ds = cursor.isoformat()
-            result.append({"date": ds, "count": trend_map.get(ds, 0)})
+        cursor = month_start
+        while cursor <= today:
+            result.append({"date": cursor.isoformat(), "count": trend_map.get(cursor.isoformat(), 0)})
             cursor += timedelta(days=1)
         return result
 
@@ -605,7 +649,7 @@ class GaLiveQueryBuilder:
             active_counts,
         ) = await self.get_employee_breakdown("supervisors")
 
-        trend = await self.get_trend("trend")
+        trend = await self.get_trend("total_activation")
 
         for s in supervisors:
             s["contribution"] = round((s["total_activation"] / total * 100), 1) if total else 0
