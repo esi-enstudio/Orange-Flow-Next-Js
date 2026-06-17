@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import SectionConfigModal from "./SectionConfigModal";
+import LiveActivationDetailModal from "./LiveActivationDetailModal";
 import {
   PieChart, Pie, Cell,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -63,6 +64,7 @@ interface GaLiveData {
   }>;
   rsos: Array<{
     id: number;
+    employee_id: number | null;
     name: string;
     dms_code: string;
     itop_number: string;
@@ -74,6 +76,7 @@ interface GaLiveData {
   }>;
   bps: Array<{
     id: number;
+    employee_id: number | null;
     name: string;
     dms_code: string;
     assisted_code: string;
@@ -412,6 +415,12 @@ export default function GaLiveReportPage() {
   const [configVersion, setConfigVersion] = useState(0);
   const [liveSyncEnabled, setLiveSyncEnabled] = useState(true);
   const [liveSyncLoading, setLiveSyncLoading] = useState(false);
+  const [detailModal, setDetailModal] = useState<{
+    open: boolean;
+    employeeId: number | null;
+    roleType: "rso" | "bp";
+    employeeName: string;
+  }>({ open: false, employeeId: null, roleType: "rso", employeeName: "" });
 
   const isAdmin = hasPermission("ga_section_configs.edit");
 
@@ -1071,6 +1080,12 @@ export default function GaLiveReportPage() {
                         />
                       </div>
                     </div>
+                    <button
+                      onClick={() => rso.employee_id && setDetailModal({ open: true, employeeId: rso.employee_id, roleType: "rso", employeeName: rso.name })}
+                      className="mt-3 w-full py-2 text-xs font-medium rounded-xl border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      Details
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1086,6 +1101,7 @@ export default function GaLiveReportPage() {
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Market Activation</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Total</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Contribution</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1103,8 +1119,39 @@ export default function GaLiveReportPage() {
                             {rso.contribution}%
                           </span>
                         </td>
+                        <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600">
+                          <button
+                            onClick={() => rso.employee_id && setDetailModal({ open: true, employeeId: rso.employee_id, roleType: "rso", employeeName: rso.name })}
+                            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                          >
+                            Details
+                          </button>
+                        </td>
                       </tr>
                     ))}
+                    {/* Total row */}
+                    <tr className="bg-gray-50 dark:bg-slate-700/30 font-semibold">
+                      <td className="px-5 py-3 border border-gray-200 dark:border-slate-600 sticky left-0 bg-gray-50 dark:bg-slate-700/30 z-20 text-gray-900 dark:text-gray-100">
+                        Total ({rsos.length} RSOs)
+                      </td>
+                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600 text-gray-900 dark:text-gray-100">
+                        {rsos.reduce((s, r) => s + r.own_activation, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600 text-amber-600 dark:text-amber-400">
+                        {rsos.reduce((s, r) => s + r.market_activation, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600 font-bold text-primary-600 dark:text-primary-400">
+                        {rsos.reduce((s, r) => s + r.total_activation, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600">
+                        <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
+                          {totalActivation > 0
+                            ? (rsos.reduce((s, r) => s + r.total_activation, 0) / totalActivation * 100).toFixed(1)
+                            : 0}%
+                        </span>
+                      </td>
+                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600" />
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -1169,6 +1216,12 @@ export default function GaLiveReportPage() {
                     />
                   </div>
                 </div>
+                <button
+                  onClick={() => bp.employee_id && setDetailModal({ open: true, employeeId: bp.employee_id, roleType: "bp", employeeName: bp.name })}
+                  className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Details
+                </button>
               </div>
             ))}
           </div>
@@ -1255,6 +1308,16 @@ export default function GaLiveReportPage() {
                 ? "full"
               : "products_only"
         }
+      />
+
+      {/* ────── RSO/BP Detail Modal ────── */}
+      <LiveActivationDetailModal
+        open={detailModal.open}
+        onClose={() => setDetailModal((prev) => ({ ...prev, open: false }))}
+        employeeId={detailModal.employeeId}
+        roleType={detailModal.roleType}
+        employeeName={detailModal.employeeName}
+        houseId={effectiveHouseId!}
       />
     </div>
   );

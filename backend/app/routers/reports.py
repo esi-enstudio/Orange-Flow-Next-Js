@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, date, timedelta
@@ -17,6 +17,7 @@ from app.models.sim_issue import SimIssue
 from app.models.ga_filter import RetailerFilter, FilterTag, RetailerFilter as RetailerFilterModel
 from app.models.retailer import Retailer
 from app.models.employee import Employee
+from app.models.bp_retailer_code import BpRetailerCode
 from app.models.role import Role
 from app.utils.access_control import is_admin_user
 from app.utils.activation_rules import get_excluded_codes, exclude_clause
@@ -623,3 +624,157 @@ async def get_ga_live_report(
 
     builder = GaLiveQueryBuilder(db, target_house_id, start_date, end_date)
     return await builder.build_all()
+
+
+@router.get("/reports/live-activations/live-activations-details")
+async def get_employee_activation_details(
+    employee_id: int = Query(..., description="Employee (not user) ID"),
+    role_type: str = Query(..., description="rso or bp"),
+    house_id: Optional[int] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_activations.view")),
+):
+    is_admin = is_admin_user(current_user)
+    user_houses_raw = current_user.houses
+
+    target_house_id = house_id
+    if not target_house_id:
+        if is_admin:
+            raise HTTPException(status_code=400, detail="house_id is required for admin users")
+        if len(user_houses_raw) == 1:
+            target_house_id = user_houses_raw[0].id
+        else:
+            raise HTTPException(status_code=400, detail="house_id is required when user has multiple houses")
+    else:
+        if not is_admin:
+            user_house_ids = [h.id for h in user_houses_raw]
+            if target_house_id not in user_house_ids:
+                raise HTTPException(status_code=403, detail="You do not have access to this house")
+
+    today = date.today()
+    if not start_date:
+        start_date = today
+    else:
+        start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+    if not end_date:
+        end_date = today
+    else:
+        end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    emp = await db.execute(
+        select(Employee).where(
+            Employee.id == employee_id,
+            Employee.house_id == target_house_id,
+        )
+    )
+    emp = emp.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    base_q = select(LiveActivation).where(
+        LiveActivation.house_id == target_house_id,
+        LiveActivation.activation_date >= start_date,
+        LiveActivation.activation_date <= end_date,
+    )
+
+    retailer_codes: list[str] = []
+    retailer_ids: list[int] = []
+
+    if role_type == "rso":
+        if emp.assisted_retailer_code:
+            retailer_codes.append(emp.assisted_retailer_code)
+        ret_rows = await db.execute(
+            select(Retailer.id, Retailer.retailer_code, Retailer.name)
+            .where(Retailer.house_id == target_house_id, Retailer.employee_id == employee_id)
+        )
+        for r in ret_rows.all():
+            if r.id:
+                retailer_ids.append(r.id)
+            if r.retailer_code and r.retailer_code not in retailer_codes:
+                retailer_codes.append(r.retailer_code)
+    elif role_type == "bp":
+        bp_code_rows = await db.execute(
+            select(BpRetailerCode.retailer_code).where(
+                BpRetailerCode.house_id == target_house_id,
+                BpRetailerCode.bp_employee_id == employee_id,
+            )
+        )
+        for (code,) in bp_code_rows.all():
+            if code:
+                retailer_codes.append(code)
+        if emp.assisted_retailer_code:
+            retailer_codes.append(emp.assisted_retailer_code)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid role_type. Use 'rso' or 'bp'.")
+
+    retailer_codes = list(set(c for c in retailer_codes if c))
+
+    if not retailer_codes and not retailer_ids:
+        return {"employee": {"id": emp.id, "name": emp.dms_code or f"#{emp.id}"}, "groups": []}
+
+    filters = []
+    if retailer_codes:
+        filters.append(LiveActivation.retailer_code.in_(retailer_codes))
+    if retailer_ids:
+        filters.append(LiveActivation.retailer_id.in_(retailer_ids))
+
+    base_q = base_q.where(or_(*filters))
+    base_q = base_q.order_by(LiveActivation.retailer_code, LiveActivation.product_code, LiveActivation.activation_time)
+
+    result = await db.execute(base_q)
+    records = result.scalars().all()
+
+    emp_name = (
+        (await db.execute(select(User.name).where(User.id == emp.user_id))).scalar()
+        if emp.user_id else emp.dms_code or f"#{emp.id}"
+    )
+
+    groups: dict[str, dict] = {}
+    for rec in records:
+        rc = rec.retailer_code or "UNKNOWN"
+        pc = rec.product_code or "UNKNOWN"
+        if rc not in groups:
+            groups[rc] = {"retailer_code": rc, "retailer_name": rec.retailer_name or "", "products": {}}
+        if pc not in groups[rc]["products"]:
+            groups[rc]["products"][pc] = {"product_code": pc, "product_name": rec.product_name or "", "records": []}
+        groups[rc]["products"][pc]["records"].append({
+            "retailer_code": rec.retailer_code,
+            "retailer_name": rec.retailer_name,
+            "activation_time": rec.activation_time,
+            "product_code": rec.product_code,
+            "product_name": rec.product_name,
+            "sim_no": rec.sim_no,
+            "msisdn": rec.msisdn,
+            "dh_lifting_date": rec.dh_lifting_date,
+            "issue_date": rec.issue_date,
+            "selling_price": rec.selling_price,
+            "subscription_type": rec.subscription_type,
+            "service_class": rec.service_class,
+        })
+
+    result_groups = []
+    for rc in sorted(groups.keys()):
+        g = groups[rc]
+        product_list = []
+        for pc in sorted(g["products"].keys()):
+            p = g["products"][pc]
+            product_list.append({
+                "product_code": p["product_code"],
+                "product_name": p["product_name"],
+                "count": len(p["records"]),
+                "records": p["records"],
+            })
+        result_groups.append({
+            "retailer_code": g["retailer_code"],
+            "retailer_name": g["retailer_name"],
+            "count": sum(pr["count"] for pr in product_list),
+            "products": product_list,
+        })
+
+    return {
+        "employee": {"id": emp.id, "name": emp_name, "assisted_code": emp.assisted_retailer_code},
+        "groups": result_groups,
+        "total_count": sum(g["count"] for g in result_groups),
+    }

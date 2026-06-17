@@ -433,6 +433,7 @@ class GaLiveQueryBuilder:
             rso_info = emp_id_to_user.get(rso_emp_id) if rso_emp_id else None
             rso_data.append({
                 "id": rso_uid,
+                "employee_id": rso_emp_id,
                 "name": rso_user.name or f"RSO #{rso_uid}",
                 "dms_code": rso_info[1] if rso_info else "",
                 "itop_number": rso_info[2] if rso_info else "",
@@ -462,6 +463,7 @@ class GaLiveQueryBuilder:
             bp_info = emp_id_to_user.get(bp_emp_id) if bp_emp_id else None
             bp_data.append({
                 "id": bp_uid,
+                "employee_id": bp_emp_id,
                 "name": bp_user.name or f"BP #{bp_uid}",
                 "dms_code": bp_info[1] if bp_info else "",
                 "assisted_code": bp_info[4] if bp_info else "",
