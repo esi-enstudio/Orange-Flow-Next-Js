@@ -184,28 +184,152 @@ function Skeleton({ className }: { className?: string }) {
 
 function LoadingSkeleton() {
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-8 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-9 w-52" />
           <Skeleton className="h-4 w-72 mt-2" />
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-9 w-24" />
           <Skeleton className="h-9 w-28" />
-          <Skeleton className="h-9 w-28" />
+          <Skeleton className="h-9 w-9" />
+          <Skeleton className="h-9 w-9" />
+          <Skeleton className="h-9 w-9" />
         </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-        {Array.from({ length: 7 }).map((_, i) => (
-          <Skeleton key={i} className="h-28" />
-        ))}
+
+      {/* Top Performers */}
+      <div>
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-3.5 w-56 mt-1" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Skeleton className="h-72" />
-        <Skeleton className="h-72" />
-        <Skeleton className="h-72" />
+
+      {/* Executive Summary */}
+      <div>
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-3.5 w-60 mt-1" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
       </div>
-      <Skeleton className="h-64" />
+
+      {/* Activation Distribution */}
+      <div>
+        <Skeleton className="h-5 w-44" />
+        <Skeleton className="h-3.5 w-64 mt-1" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-72" />
+          ))}
+        </div>
+      </div>
+
+      {/* Trend Chart */}
+      <div>
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-3.5 w-52 mt-1" />
+        <Skeleton className="h-64 mt-4" />
+      </div>
+
+      {/* Supervisor rows */}
+      <div>
+        <Skeleton className="h-5 w-48" />
+        <Skeleton className="h-3.5 w-60 mt-1" />
+        <div className="space-y-3 mt-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 px-5 py-5 bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50">
+              <Skeleton className="w-10 h-10 rounded-xl shrink-0" />
+              <div className="flex-1 min-w-0 space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <div className="hidden sm:flex items-center gap-3">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-6 w-14 rounded-full" />
+                <Skeleton className="h-6 w-14 rounded-full" />
+                <Skeleton className="h-6 w-14 rounded-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* RSO section */}
+      <div>
+        <Skeleton className="h-5 w-36" />
+        <Skeleton className="h-3.5 w-52 mt-1" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 p-4 bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50">
+              <Skeleton className="w-9 h-9 rounded-lg shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-28" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <Skeleton className="h-4 w-12" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* BP section */}
+      <div>
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-3.5 w-48 mt-1" />
+        <div className="space-y-2 mt-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50">
+              <Skeleton className="h-8 w-8 rounded-lg shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-36" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <div className="hidden sm:flex items-center gap-4">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-12" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* CC section */}
+      <div>
+        <Skeleton className="h-5 w-28" />
+        <Skeleton className="h-3.5 w-44 mt-1" />
+        <div className="space-y-2 mt-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50">
+              <Skeleton className="h-8 w-8 rounded-lg shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-36" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <Skeleton className="h-4 w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Smart Insights */}
+      <div>
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-3.5 w-56 mt-1" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Skeleton key={i} className="h-40" />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -598,6 +722,61 @@ export default function GaLiveReportPage() {
     }
   };
 
+  const topPerformerCards = useMemo(() => {
+    const cards: Array<{
+      key: string;
+      performer: Record<string, unknown>;
+      label: string;
+      icon: LucideIcon;
+      from: string;
+      to: string;
+      darkFrom: string;
+      darkTo: string;
+      border: string;
+      darkBorder: string;
+      iconColor: string;
+      textColor: string;
+      activationKey: string;
+    }> = [];
+    if (data?.top_performers.supervisor) cards.push({
+      key: "supervisor", performer: data!.top_performers.supervisor,
+      label: "Top Supervisor", icon: Medal,
+      from: "from-primary-50", to: "to-primary-100",
+      darkFrom: "dark:from-primary-500/10", darkTo: "dark:to-primary-600/5",
+      border: "border-primary-200", darkBorder: "dark:border-primary-500/20",
+      iconColor: "text-primary-300/50 dark:text-primary-400/20",
+      textColor: "text-primary-600 dark:text-primary-400", activationKey: "total_activation",
+    });
+    if (data?.top_performers.rso) cards.push({
+      key: "rso", performer: data!.top_performers.rso,
+      label: "Top RSO", icon: Award,
+      from: "from-orange-50", to: "to-orange-100",
+      darkFrom: "dark:from-orange-500/10", darkTo: "dark:to-orange-600/5",
+      border: "border-orange-200", darkBorder: "dark:border-orange-500/20",
+      iconColor: "text-orange-300/50 dark:text-orange-400/20",
+      textColor: "text-orange-600 dark:text-orange-400", activationKey: "total_activation",
+    });
+    if (data?.top_performers.bp) cards.push({
+      key: "bp", performer: data!.top_performers.bp,
+      label: "Top BP", icon: Zap,
+      from: "from-teal-50", to: "to-teal-100",
+      darkFrom: "dark:from-teal-500/10", darkTo: "dark:to-teal-600/5",
+      border: "border-teal-200", darkBorder: "dark:border-teal-500/20",
+      iconColor: "text-teal-300/50 dark:text-teal-400/20",
+      textColor: "text-teal-600 dark:text-teal-400", activationKey: "own_activation",
+    });
+    if (data?.top_performers.cc) cards.push({
+      key: "cc", performer: data!.top_performers.cc,
+      label: "Top CC", icon: BarChart3,
+      from: "from-rose-50", to: "to-rose-100",
+      darkFrom: "dark:from-rose-500/10", darkTo: "dark:to-rose-600/5",
+      border: "border-rose-200", darkBorder: "dark:border-rose-500/20",
+      iconColor: "text-rose-300/50 dark:text-rose-400/20",
+      textColor: "text-rose-600 dark:text-rose-400", activationKey: "own_activation",
+    });
+    return cards;
+  }, [data?.top_performers.supervisor, data?.top_performers.rso, data?.top_performers.bp, data?.top_performers.cc]);
+
   /* auth guard */
   if (authLoading) return <LoadingSkeleton />;
   if (!hasPermission("live_activations.view")) {
@@ -741,75 +920,37 @@ export default function GaLiveReportPage() {
       </div>
 
       {/* ────── Top Performers ────── */}
-      {(top_performers.supervisor || top_performers.rso || top_performers.bp || top_performers.cc) && (
-        <div className="group relative">
-        <section>
-          <SectionHeader title="Top Performers" subtitle="Highest achievers across all roles" />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {top_performers.supervisor && (
-              <div className="bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-500/10 dark:to-primary-600/5 rounded-2xl border border-primary-200 dark:border-primary-500/20 p-5 relative overflow-hidden">
-                <div className="absolute top-3 right-3 text-primary-300/50 dark:text-primary-400/20">
-                  <Medal className="w-8 h-8" />
+      {topPerformerCards.length > 0 && (() => {
+        const gridCols = topPerformerCards.length === 1 ? "grid-cols-1 sm:grid-cols-1 md:grid-cols-1"
+          : topPerformerCards.length === 2 ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-2"
+          : topPerformerCards.length === 3 ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"
+          : "grid-cols-2 sm:grid-cols-2 md:grid-cols-4";
+
+        return (
+          <div className="group relative">
+          <section>
+            <SectionHeader title="Top Performers" subtitle="Highest achievers across all roles" />
+            <div className={`grid ${gridCols} gap-4`}>
+              {topPerformerCards.map(({ key, performer, label, icon: Icon, from, to, darkFrom, darkTo, border, darkBorder, iconColor, textColor, activationKey }) => (
+                <div key={key} className={`bg-gradient-to-br ${from} ${to} ${darkFrom} ${darkTo} rounded-2xl border ${border} ${darkBorder} p-5 relative overflow-hidden`}>
+                  <div className={`absolute top-3 right-3 ${iconColor}`}>
+                    <Icon className="w-8 h-8" />
+                  </div>
+                  <p className={`text-xs font-medium ${textColor} uppercase tracking-wider mb-2`}>{label}</p>
+                  <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{performer.name as string}</p>
+                  <p className={`text-sm ${textColor} mt-1`}>
+                    {(performer[activationKey] as number).toLocaleString()} activations
+                  </p>
+                  <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
+                    {(performer.contribution as number).toFixed(1)}% contribution
+                  </span>
                 </div>
-                <p className="text-xs font-medium text-primary-600 dark:text-primary-400 uppercase tracking-wider mb-2">Top Supervisor</p>
-                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.supervisor.name as string}</p>
-                <p className="text-sm text-primary-600 dark:text-primary-400 mt-1">
-                  {(top_performers.supervisor.total_activation as number).toLocaleString()} activations
-                </p>
-                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                  {(top_performers.supervisor.contribution as number).toFixed(1)}% contribution
-                </span>
-              </div>
-            )}
-            {top_performers.rso && (
-              <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-500/10 dark:to-orange-600/5 rounded-2xl border border-orange-200 dark:border-orange-500/20 p-5 relative overflow-hidden">
-                <div className="absolute top-3 right-3 text-orange-300/50 dark:text-orange-400/20">
-                  <Award className="w-8 h-8" />
-                </div>
-                <p className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-2">Top RSO</p>
-                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.rso.name as string}</p>
-                <p className="text-sm text-orange-600 dark:text-orange-400 mt-1">
-                  {(top_performers.rso.total_activation as number).toLocaleString()} activations
-                </p>
-                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                  {(top_performers.rso.contribution as number).toFixed(1)}% contribution
-                </span>
-              </div>
-            )}
-            {top_performers.bp && (
-              <div className="bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-500/10 dark:to-teal-600/5 rounded-2xl border border-teal-200 dark:border-teal-500/20 p-5 relative overflow-hidden">
-                <div className="absolute top-3 right-3 text-teal-300/50 dark:text-teal-400/20">
-                  <Zap className="w-8 h-8" />
-                </div>
-                <p className="text-xs font-medium text-teal-600 dark:text-teal-400 uppercase tracking-wider mb-2">Top BP</p>
-                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.bp.name as string}</p>
-                <p className="text-sm text-teal-600 dark:text-teal-400 mt-1">
-                  {(top_performers.bp.own_activation as number).toLocaleString()} activations
-                </p>
-                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                  {(top_performers.bp.contribution as number).toFixed(1)}% contribution
-                </span>
-              </div>
-            )}
-            {top_performers.cc && (
-              <div className="bg-gradient-to-br from-rose-50 to-rose-100 dark:from-rose-500/10 dark:to-rose-600/5 rounded-2xl border border-rose-200 dark:border-rose-500/20 p-5 relative overflow-hidden">
-                <div className="absolute top-3 right-3 text-rose-300/50 dark:text-rose-400/20">
-                  <BarChart3 className="w-8 h-8" />
-                </div>
-                <p className="text-xs font-medium text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-2">Top CC</p>
-                <p className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">{top_performers.cc.name as string}</p>
-                <p className="text-sm text-rose-600 dark:text-rose-400 mt-1">
-                  {(top_performers.cc.own_activation as number).toLocaleString()} activations
-                </p>
-                <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                  {(top_performers.cc.contribution as number).toFixed(1)}% contribution
-                </span>
-              </div>
-            )}
+              ))}
+            </div>
+          </section>
           </div>
-        </section>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ────── Executive Summary ────── */}
       <section>

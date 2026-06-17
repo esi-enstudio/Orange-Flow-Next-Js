@@ -475,7 +475,7 @@ class GaLiveQueryBuilder:
             r["yesterday_own"] = y_own if r_code else 0
             r["yesterday_market"] = y_market if r_code else 0
             r["yesterday_total"] = y_total
-        rso_data.sort(key=lambda x: x["itop_number"] or "")
+        rso_data.sort(key=lambda x: x["total_activation"], reverse=True)
 
         bp_data = []
         for bp_uid in role_uids["bp"]:
