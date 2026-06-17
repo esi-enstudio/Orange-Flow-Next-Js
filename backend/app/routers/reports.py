@@ -24,6 +24,7 @@ from app.utils.activation_rules import get_excluded_codes, exclude_clause
 from app.services.Automation.activation_excel import export_activations_excel
 from app.services.Automation.dms_report_excel import export_itopup_details_excel
 from app.services.Automation.live_activation_excel import export_live_activations_excel
+from app.services.Automation.ga_live_performance_excel import export_ga_live_performance_excel
 from app.services.Automation.issue_reports_excel import export_scratch_card_excel, export_sim_issue_excel
 
 router = APIRouter(prefix="/api", tags=["reports"])
@@ -270,6 +271,40 @@ async def export_live_activations(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=live_activations.xlsx"}
     )
+
+
+@router.get("/reports/live-activations/export-performance")
+async def export_ga_live_performance(
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_activations.export")),
+):
+    is_admin = is_admin_user(current_user)
+    user_houses_raw = current_user.houses
+
+    target_house_id = house_id
+    if not target_house_id:
+        if is_admin:
+            raise HTTPException(status_code=400, detail="house_id is required for admin users")
+        if len(user_houses_raw) == 1:
+            target_house_id = user_houses_raw[0].id
+        else:
+            raise HTTPException(status_code=400, detail="house_id is required when user has multiple houses")
+    else:
+        if not is_admin:
+            user_house_ids = [h.id for h in user_houses_raw]
+            if target_house_id not in user_house_ids:
+                raise HTTPException(status_code=403, detail="You do not have access to this house")
+
+    today = date.today()
+    excel_data = await export_ga_live_performance_excel(db, target_house_id, today)
+    filename = f"ga_live_performance_{today}.xlsx"
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 
 @router.delete("/live-activations/truncate")
 async def truncate_live_activations(

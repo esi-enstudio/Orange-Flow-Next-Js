@@ -443,6 +443,38 @@ class GaLiveQueryBuilder:
                 "market_activation": (rso_total - rso_own) if rso_code else 0,
                 "contribution": 0,
             })
+        # ── Yesterday RSO breakdown ──
+        yesterday = self.start_date - timedelta(days=1)
+        yest_retailer_counts: dict[int, int] = {}
+        yest_code_counts: dict[str, int] = {}
+        if yesterday >= date(2020, 1, 1):
+            yest_act_rows = await self.db.execute(
+                select(Activation.retailer_id, Activation.retailer_code)
+                .where(
+                    Activation.house_id == self.house_id,
+                    Activation.activation_date == yesterday,
+                )
+            )
+            for rid, rcode in yest_act_rows.all():
+                if rid:
+                    yest_retailer_counts[rid] = yest_retailer_counts.get(rid, 0) + 1
+                if rcode:
+                    yest_code_counts[rcode] = yest_code_counts.get(rcode, 0) + 1
+
+        for r in rso_data:
+            emp_id = r["employee_id"]
+            ret_ids: set[int] = set()
+            if emp_id:
+                for rid, eid in retailer_employee_map.items():
+                    if eid == emp_id:
+                        ret_ids.add(rid)
+            y_total = sum(yest_retailer_counts.get(rid, 0) for rid in ret_ids)
+            r_code = r.get("assisted_code")
+            y_own = yest_code_counts.get(r_code, 0) if r_code else 0
+            y_market = y_total - y_own
+            r["yesterday_own"] = y_own if r_code else 0
+            r["yesterday_market"] = y_market if r_code else 0
+            r["yesterday_total"] = y_total
         rso_data.sort(key=lambda x: x["itop_number"] or "")
 
         bp_data = []
@@ -475,6 +507,15 @@ class GaLiveQueryBuilder:
         bp_data.sort(key=lambda x: x["own_activation"], reverse=True)
         for i, bp in enumerate(bp_data):
             bp["rank"] = i + 1
+        # ── Yesterday BP breakdown ──
+        for b in bp_data:
+            emp_id = b["employee_id"]
+            bp_codes = bp_retailer_code_map.get(emp_id, []) if emp_id else []
+            b_code = b.get("assisted_code")
+            if b_code and b_code not in bp_codes:
+                bp_codes.append(b_code)
+            y_total = sum(yest_code_counts.get(code, 0) for code in bp_codes)
+            b["yesterday_activation"] = y_total
 
         cc_data = []
         for cc_uid in role_uids["cc"]:

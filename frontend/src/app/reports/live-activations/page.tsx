@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { toPng } from "html-to-image";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -11,7 +12,7 @@ import {
   Radio, Shield, Building2, UserCog,
   Smartphone, ChevronDown, ChevronUp, Grid3X3, List,
   Sparkles, Medal, Zap, Search, Check, CalendarDays,
-  Pencil, Settings, Play, Square,
+  Pencil, Settings, Play, Square, Share2, MessageCircle, Send, Camera,
   type LucideIcon,
 } from "lucide-react";
 
@@ -73,6 +74,9 @@ interface GaLiveData {
     own_activation: number;
     market_activation: number;
     contribution: number;
+    yesterday_own: number;
+    yesterday_market: number;
+    yesterday_total: number;
   }>;
   bps: Array<{
     id: number;
@@ -84,6 +88,7 @@ interface GaLiveData {
     own_activation: number;
     contribution: number;
     rank: number;
+    yesterday_activation: number;
   }>;
   ccs: Array<{
     id: number;
@@ -415,6 +420,8 @@ export default function GaLiveReportPage() {
   const [configVersion, setConfigVersion] = useState(0);
   const [liveSyncEnabled, setLiveSyncEnabled] = useState(true);
   const [liveSyncLoading, setLiveSyncLoading] = useState(false);
+  const captureRef = useRef<HTMLDivElement>(null);
+  const [capturing, setCapturing] = useState(false);
   const [detailModal, setDetailModal] = useState<{
     open: boolean;
     employeeId: number | null;
@@ -495,20 +502,99 @@ export default function GaLiveReportPage() {
   const handleExport = async () => {
     if (!effectiveHouseId) return;
     try {
-      const res = await apiClient.get("/live-activations/export", {
-        params: { start_date: today, end_date: today, house_id: effectiveHouseId },
+      const res = await apiClient.get("/reports/live-activations/export-performance", {
+        params: { house_id: effectiveHouseId },
         responseType: "blob",
       });
       const blob = new Blob([res.data]);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `live_activations_${today}.xlsx`;
+      a.download = `ga_live_performance_${today}.xlsx`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       alert(`Export failed: ${msg}`);
+    }
+  };
+
+  const captureImage = useCallback(async (): Promise<File | null> => {
+    const el = captureRef.current;
+    if (!el || !data) return null;
+    el.style.opacity = "1";
+    el.style.pointerEvents = "none";
+    el.style.zIndex = "9999";
+    await new Promise((r) => requestAnimationFrame(r));
+    try {
+      const dataUrl = await toPng(el, { quality: 1, pixelRatio: 3, backgroundColor: "#ffffff", width: 800 });
+      const res = await fetch(dataUrl);
+      const blobData = await res.blob();
+      return new File([blobData], `ga_live_report_${today}.png`, { type: "image/png" });
+    } catch {
+      return null;
+    } finally {
+      el.style.opacity = "0";
+      el.style.pointerEvents = "none";
+      el.style.zIndex = "-1";
+    }
+  }, [data, today]);
+
+  const shareImageFile = useCallback(async (file: File | null) => {
+    if (!file) return;
+    setCapturing(true);
+    try {
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: "GA Live Report" });
+      } else {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.name;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.name;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setCapturing(false);
+    }
+  }, []);
+
+  const shareAsImage = useCallback(async () => {
+    const file = await captureImage();
+    await shareImageFile(file);
+  }, [captureImage, shareImageFile]);
+
+  const shareVia = async (platform: "whatsapp" | "telegram") => {
+    const file = await captureImage();
+    if (!file) return;
+    setCapturing(true);
+    try {
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: "GA Live Report" });
+      } else {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.name;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.name;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setCapturing(false);
     }
   };
 
@@ -612,6 +698,38 @@ export default function GaLiveReportPage() {
           >
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
           </button>
+          <div className="relative group">
+            <button
+              className="p-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+              title="Share"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+            <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-600 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-30 overflow-hidden">
+              <button
+                onClick={() => shareVia("whatsapp")}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                <MessageCircle className="w-4 h-4 text-green-500" />
+                WhatsApp
+              </button>
+              <button
+                onClick={() => shareVia("telegram")}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                <Send className="w-4 h-4 text-blue-500" />
+                Telegram
+              </button>
+              <button
+                onClick={shareAsImage}
+                disabled={capturing}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+              >
+                <Camera className="w-4 h-4 text-purple-500" />
+                {capturing ? "Capturing..." : "Image"}
+              </button>
+            </div>
+          </div>
           <button
             onClick={handleExport}
             className="p-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
@@ -1291,6 +1409,146 @@ export default function GaLiveReportPage() {
         </section>
         </div>
       )}
+
+      {/* ────── Hidden Capture Card ────── */}
+      <div ref={captureRef} className="fixed left-0 top-0 z-[-1] opacity-0 pointer-events-none w-[800px] bg-white p-8" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
+        <div className="border-b-2 border-blue-600 pb-3 mb-5">
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>GA Live Report</h1>
+          <p className="text-sm text-gray-500 mt-1" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
+            {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+            {" "}{new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+          </p>
+        </div>
+        {data && (
+          <>
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="bg-gray-50 rounded-lg p-4 text-center">
+                <p className="text-3xl font-bold text-blue-600" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{data.summary.total_activations.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Total Activations</p>
+              </div>
+              <div className="bg-green-50 rounded-lg p-4 text-center">
+                <p className="text-3xl font-bold text-green-600" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{data.summary.employee_activation.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Employee ({data.summary.employee_activation_pct}%)</p>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-4 text-center">
+                <p className="text-3xl font-bold text-amber-600" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{data.summary.market_activation.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Market ({data.summary.market_activation_pct}%)</p>
+              </div>
+            </div>
+
+            {/* RSO Table — only those with activations */}
+            {(() => {
+              const activeRsos = data.rsos.filter(r => r.total_activation > 0).sort((a, b) => b.total_activation - a.total_activation);
+              const inactiveRsos = data.rsos.filter(r => r.total_activation === 0);
+              const t = (arr: typeof data.rsos, key: "own_activation" | "market_activation" | "total_activation" | "yesterday_own" | "yesterday_market" | "yesterday_total") =>
+                arr.reduce((s, r) => s + r[key], 0);
+              return (
+                <div className="mb-5">
+                  <p className="text-sm font-bold text-gray-800 mb-2" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>RSO Activations</p>
+                  {activeRsos.length > 0 ? (
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="text-left px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Name</th>
+                          <th className="text-center px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Own</th>
+                          <th className="text-center px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Market</th>
+                          <th className="text-center px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Total</th>
+                          <th className="text-center px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Y-Own</th>
+                          <th className="text-center px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Y-Market</th>
+                          <th className="text-center px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Y-Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeRsos.map((r, i) => (
+                          <tr key={r.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                            <td className="px-3 py-2 border border-gray-300 text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{r.name}</td>
+                            <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{r.own_activation}</td>
+                            <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{r.market_activation}</td>
+                            <td className="px-3 py-2 border border-gray-300 text-center font-bold text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{r.total_activation}</td>
+                            <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{r.yesterday_own}</td>
+                            <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{r.yesterday_market}</td>
+                            <td className="px-3 py-2 border border-gray-300 text-center font-bold text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{r.yesterday_total}</td>
+                          </tr>
+                        ))}
+                        {/* Total row */}
+                        <tr className="bg-gray-100 font-bold">
+                          <td className="px-3 py-2 border border-gray-300 text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Total</td>
+                          <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{t(activeRsos, "own_activation")}</td>
+                          <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{t(activeRsos, "market_activation")}</td>
+                          <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{t(activeRsos, "total_activation")}</td>
+                          <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{t(activeRsos, "yesterday_own")}</td>
+                          <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{t(activeRsos, "yesterday_market")}</td>
+                          <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{t(activeRsos, "yesterday_total")}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>No RSO activations found</p>
+                  )}
+                  {inactiveRsos.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-2" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
+                      No activations: {inactiveRsos.map(r => r.name).join(", ")}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* BP Table */}
+            {data.bps.length > 0 && (
+              <div className="mb-5">
+                <p className="text-sm font-bold text-gray-800 mb-2" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>BP Activations</p>
+                {(() => {
+                  const activeBps = data.bps.filter(b => b.own_activation > 0).sort((a, b) => b.own_activation - a.own_activation);
+                  const inactiveBps = data.bps.filter(b => b.own_activation === 0);
+                  const bTotalToday = activeBps.reduce((s, b) => s + b.own_activation, 0);
+                  const bTotalYest = activeBps.reduce((s, b) => s + (b.yesterday_activation || 0), 0);
+                  return (
+                    <>
+                      {activeBps.length > 0 ? (
+                        <table className="w-full text-sm border-collapse">
+                          <thead>
+                            <tr className="bg-gray-100">
+                              <th className="text-left px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Name</th>
+                              <th className="text-center px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Today</th>
+                              <th className="text-center px-3 py-2 border border-gray-300 font-semibold text-gray-700" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Yesterday</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activeBps.map((b, i) => (
+                              <tr key={b.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                                <td className="px-3 py-2 border border-gray-300 text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{b.name}</td>
+                                <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{b.own_activation}</td>
+                                <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{b.yesterday_activation ?? "—"}</td>
+                              </tr>
+                            ))}
+                            {/* Total row */}
+                            <tr className="bg-gray-100 font-bold">
+                              <td className="px-3 py-2 border border-gray-300 text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Total</td>
+                              <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{bTotalToday}</td>
+                              <td className="px-3 py-2 border border-gray-300 text-center text-gray-800" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>{bTotalYest}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      ) : (
+                        <p className="text-sm text-gray-500 italic" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>No BP activations found</p>
+                      )}
+                      {inactiveBps.length > 0 && (
+                        <p className="text-xs text-gray-500 mt-2" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
+                          No activations: {inactiveBps.map(b => b.name).join(", ")}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </>
+        )}
+        <div className="border-t border-gray-300 mt-4 pt-3 text-center text-xs text-gray-400" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
+          Generated from Orange Flow Management System
+        </div>
+      </div>
 
       {/* ────── Section Config Modal ────── */}
       <SectionConfigModal
