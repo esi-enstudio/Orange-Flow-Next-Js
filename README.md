@@ -101,6 +101,7 @@ SECRET_KEY=                       # openssl rand -hex 32 দিয়ে generate �
 ### Step 2: Docker-এ Backend Services চালু করো
 
 ```bash
+docker compose down -v   # ভলিউম সহ সব ডিলিট
 docker compose up -d --build db redis backend
 ```
 
