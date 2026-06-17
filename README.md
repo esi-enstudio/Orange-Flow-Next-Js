@@ -34,8 +34,8 @@ A full-stack web platform for telecom operations, featuring **FastAPI** backend 
 | Layer        | Technology                        |
 |-------------|-----------------------------------|
 | **Frontend** | Next.js (App Router), TypeScript, Tailwind CSS |
-| **Backend**  | Python 3.13+, FastAPI, SQLAlchemy (async) |
-| **Database** | PostgreSQL 16+ with asyncpg       |
+| **Backend**  | Python 3.11+, FastAPI, SQLAlchemy (async) |
+| **Database** | PostgreSQL 15+ with asyncpg       |
 | **Auth**     | JWT-based, Role & House scoped    |
 | **Infra**    | Docker Compose, nginx reverse proxy |
 
@@ -73,40 +73,93 @@ A full-stack web platform for telecom operations, featuring **FastAPI** backend 
 
 ---
 
-## Quick Start
+## Setup after Clone
 
 ### Prerequisites
-- Docker & Docker Compose
-- Node.js 18+ (for local frontend dev)
-- Python 3.11+ (for local backend dev)
+- Docker & Docker Compose (WSL2 integration enabled)
+- Node.js 18+ (WSL2-এ installed)
 
-### Production (Docker)
+### Step 1: Environment Configuration
 
 ```bash
-cp .env.example .env          # configure your environment
-docker-compose up -d          # starts all services
+cp .env.example .env
 ```
 
-Services:
-- **Frontend** → `http://localhost:3000`
-- **Backend API** → `http://localhost:8000`
-- **Database** → `localhost:5432`
+`.env` ফাইল edit করে নিচের fields পূরণ করো:
 
-### Development
+```env
+DB_USER=postgres
+DB_PASS=postgres
+DB_NAME=orange_flow_dev_db
+DB_HOST=localhost
+DB_PORT=5433
+SECRET_KEY=                       # openssl rand -hex 32 দিয়ে generate করো
+```
 
-**Backend:**
+> остальные fields (SMTP, NGROK, etc.) ঐচ্ছিক — পরে configure করলেও হবে
+
+### Step 2: Docker-এ Backend Services চালু করো
+
 ```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+docker compose up -d --build db redis backend
 ```
 
-**Frontend:**
+এটি ৩টি service start করবে:
+
+| Service   | Container Name        | Port                  |
+|-----------|-----------------------|-----------------------|
+| PostgreSQL| `orange_flow_db`      | `localhost:5433`      |
+| Redis     | `orange_flow_redis`   | `localhost:6379`      |
+| Backend   | `orange_flow_backend` | `localhost:8000`      |
+
+Backend স্বয়ংক্রিয়ভাবে `init_db()` কল করে **সব tables তৈরি করবে** (কোনো user/pre-seeded data থাকবে না)।
+
+### Step 3: Frontend চালু করো (আলাদা terminal)
+
 ```bash
 cd frontend
 npm install
-npm run dev                 # → http://localhost:3000
+npm run dev
+```
+
+Frontend চলবে `http://localhost:3000`-এ
+
+### Step 4: Setup Wizard চালাও
+
+ব্রাউজারে `http://localhost:3000/setup` খোলো। সেখানে **Setup Wizard** স্বয়ংক্রিয়ভাবে:
+
+1. System status check করবে (`GET /api/admin/setup/status`)
+2. **Initialize System** বাটনে ক্লিক করলে:
+   - Permissions seed হবে
+   - Roles তৈরি হবে
+   - Super Admin তৈরি হবে (email/password তোমাকে দিতে হবে)
+3. প্রয়োজন মতো Excel import করে Houses, BTS, Employees, Retailers যোগ করবে
+
+### Setup Diagram
+
+```
+Terminal 1: docker compose up -d --build db redis backend
+Terminal 2: cd frontend && npm run dev
+Browser:    http://localhost:3000/setup  →  Wizard complete
+```
+
+### Useful Commands
+
+```bash
+# Backend logs দেখা
+docker logs -f orange_flow_backend
+
+# Database-এ direct connected হওয়া
+docker exec -it orange_flow_db psql -U postgres -d orange_flow_dev_db
+
+# Alembic migrations চালানো (যদি models পরিবর্তন করো)
+docker exec -it orange_flow_backend alembic upgrade head
+
+# Containers stop করা
+docker compose down
+
+# Rebuild without cache
+docker compose build --no-cache backend
 ```
 
 ---

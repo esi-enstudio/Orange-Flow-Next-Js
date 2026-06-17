@@ -26,10 +26,8 @@ async def seed_system_data(session=None):
 
         # --- 1. Permissions Seeding ---
         db_perms = {}
-        for module in config['modules']:
-            module_name = module['name']
-            for action in module['actions']:
-                perm_name = f"{action}_{module_name}"
+        for module_name, module_data in config['modules'].items():
+            for perm_name in module_data['permissions']:
                 
                 perm_res = await session.execute(select(Permission).where(Permission.name == perm_name))
                 perm = perm_res.scalar_one_or_none()
