@@ -557,7 +557,7 @@ export default function GaLiveReportPage() {
 
   const supBarData = [...supervisors].sort((a, b) => b.total_activation - a.total_activation).slice(0, 10);
 
-  const rsoBarData = [...rsos].sort((a, b) => b.total_activation - a.total_activation).slice(0, 10);
+  const rsoBarData = [...rsos].filter(r => r.own_activation > 0).sort((a, b) => b.own_activation - a.own_activation).slice(0, 10);
   const bpBarData = [...bps].sort((a, b) => b.own_activation - a.own_activation).slice(0, 10);
 
   return (
@@ -803,7 +803,7 @@ export default function GaLiveReportPage() {
                   <XAxis type="number" tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="total_activation" fill="#3b82f6" radius={[0, 4, 4, 0]} name="Activation" />
+                  <Bar dataKey="own_activation" fill="#3b82f6" radius={[0, 4, 4, 0]} name="Activation" />
                 </BarChart>
               </ResponsiveContainer>
             )}

@@ -438,7 +438,7 @@ class GaLiveQueryBuilder:
                 "itop_number": rso_info[2] if rso_info else "",
                 "assisted_code": rso_info[4] if rso_info else "",
                 "total_activation": rso_total,
-                "own_activation": rso_own if rso_code else rso_total,
+                "own_activation": rso_own if rso_code else 0,
                 "market_activation": (rso_total - rso_own) if rso_code else 0,
                 "contribution": 0,
             })
