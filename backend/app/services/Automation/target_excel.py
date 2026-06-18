@@ -362,6 +362,49 @@ async def update_progress_target(count, total_rows, target_type, progress_callba
 import io
 from openpyxl import Workbook
 
+def generate_house_target_sample_bytes():
+    buf = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "House Targets"
+    headers = ["HOUSE_CODE", "EV_C2C_TARGET", "SC_PRIMARY_TARGET", "TOTAL_RECHARGE_TARGET",
+               "TOTAL_GA_TARGET", "BP_GA", "RSO_GA", "EV_SCR", "SSO", "LSO", "BSO", "DDSO"]
+    ws.append(headers)
+    ws.append(["DD001", "500", "300", "800", "50", "20", "10", "100", "5", "3", "2", "1"])
+    ws.append(["DD002", "600", "350", "950", "60", "25", "12", "120", "6", "4", "3", "2"])
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+def generate_supervisor_target_sample_bytes():
+    buf = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Supervisor Target"
+    headers = ["HOUSE_CODE", "SUPERVISOR_MSISDN", "EV_SECONDARY", "SC_SECONDARY", "TOTAL_RECHARGE",
+               "TOTAL_GA", "BP_GA", "RSO_GA", "SSO", "LSO", "BSO", "DDSO"]
+    ws.append(headers)
+    ws.append(["DD001", "01712345678", "200", "150", "350", "30", "10", "5", "3", "2", "1", "1"])
+    ws.append(["DD002", "01787654321", "250", "180", "430", "35", "12", "6", "4", "3", "2", "1"])
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+def generate_rso_target_sample_bytes():
+    buf = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "RSO Target"
+    headers = ["HOUSE_CODE", "RSO_CODE", "SUPERVISOR_MSISDN", "EV_SECONDARY", "SC_SECONDARY",
+               "TOTAL_RECHARGE", "GA", "SSO", "LSO", "BSO", "DDSO",
+               "SERVICE_ROUTE", "MARKET_TYPE", "THANA_NAME"]
+    ws.append(headers)
+    ws.append(["DD001", "RSO001", "01712345678", "100", "80", "180", "15", "2", "1", "1", "1", "Route A", "OSDO", "Thana A"])
+    ws.append(["DD002", "RSO002", "01787654321", "120", "90", "210", "18", "3", "2", "1", "1", "Route B", "Residential", "Thana B"])
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
 async def export_house_targets_excel(records):
     wb = Workbook()
     ws = wb.active

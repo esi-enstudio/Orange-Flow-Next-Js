@@ -6,14 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from datetime import date
 
-from app.routers.deps import get_db, has_permission, get_house_context
+from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context
 from app.models.house_target import HouseTarget
 from app.models.supervisor_target import SupervisorTarget
 from app.models.rso_target import RSOTarget
 from app.services.Automation.target_excel import (
     export_house_targets_excel,
     export_supervisor_targets_excel,
-    export_rso_targets_excel
+    export_rso_targets_excel,
+    generate_house_target_sample_bytes,
+    generate_supervisor_target_sample_bytes,
+    generate_rso_target_sample_bytes
 )
 
 router = APIRouter(prefix="/api", tags=["targets"])
@@ -38,6 +41,17 @@ async def get_house_targets(
     result = await db.execute(query.offset(skip).limit(limit).order_by(HouseTarget.id.desc()))
     records = result.scalars().all()
     return {"total": total_count, "data": records}
+
+@router.get("/house-targets/sample")
+async def download_house_target_sample(
+    current_user = Depends(has_any_permission(["targets.view", "targets.import"])),
+):
+    excel_data = generate_house_target_sample_bytes()
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=house_targets_sample.xlsx"}
+    )
 
 @router.get("/house-targets/export")
 async def export_house_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("targets.export")), house_id: Optional[int] = Depends(get_house_context)):
@@ -69,6 +83,17 @@ async def get_supervisor_targets(
     records = result.scalars().all()
     return {"total": total_count, "data": records}
 
+@router.get("/supervisor-targets/sample")
+async def download_supervisor_target_sample(
+    current_user = Depends(has_any_permission(["targets.view", "targets.import"])),
+):
+    excel_data = generate_supervisor_target_sample_bytes()
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=supervisor_targets_sample.xlsx"}
+    )
+
 @router.get("/supervisor-targets/export")
 async def export_supervisor_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("targets.export")), house_id: Optional[int] = Depends(get_house_context)):
     query = select(SupervisorTarget).options(joinedload(SupervisorTarget.house))
@@ -98,6 +123,17 @@ async def get_rso_targets(
     result = await db.execute(query.offset(skip).limit(limit).order_by(RSOTarget.id.desc()))
     records = result.scalars().all()
     return {"total": total_count, "data": records}
+
+@router.get("/rso-targets/sample")
+async def download_rso_target_sample(
+    current_user = Depends(has_any_permission(["targets.view", "targets.import"])),
+):
+    excel_data = generate_rso_target_sample_bytes()
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=rso_targets_sample.xlsx"}
+    )
 
 @router.get("/rso-targets/export")
 async def export_rso_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("targets.export")), house_id: Optional[int] = Depends(get_house_context)):

@@ -315,6 +315,15 @@ async def truncate_live_activations(
     await db.commit()
     return {"message": "All live activations deleted successfully"}
 
+@router.delete("/activations/truncate")
+async def truncate_activations(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("activations.import")),
+):
+    await db.execute(Activation.__table__.delete())
+    await db.commit()
+    return {"message": "All activations deleted successfully"}
+
 @router.get("/scratch-card")
 async def get_scratch_card(
     search: Optional[str] = None,

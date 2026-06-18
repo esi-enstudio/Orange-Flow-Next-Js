@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Upload, Download, ChevronLeft, ChevronRight, Loader2, Crosshair, X, CheckCircle2 } from "lucide-react";
+import { Upload, Download, ChevronLeft, ChevronRight, Loader2, Crosshair, X, CheckCircle2, FileDown } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
@@ -131,6 +131,16 @@ export default function SupervisorTargetsPage() {
     } catch { toast.error("Export failed"); }
   };
 
+  const handleDownloadSample = async () => {
+    try {
+      const res = await axios.get("/supervisor-targets/sample", { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a"); a.href = url; a.download = "supervisor_targets_sample.xlsx"; a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success("Sample downloaded");
+    } catch { toast.error("Download failed"); }
+  };
+
   const totalPages = Math.ceil(totalRecords / limit);
 
   if (!authLoading && !hasPermission("targets.view")) { return <AccessDenied />; }
@@ -200,6 +210,10 @@ export default function SupervisorTargetsPage() {
             className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-xl text-sm font-medium hover:bg-rose-700 disabled:opacity-50 transition-colors shadow-lg shadow-rose-200 dark:shadow-none">
             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             {importing ? "Importing..." : "Import Excel"}
+          </button>
+          <button onClick={handleDownloadSample}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors">
+            <FileDown className="w-4 h-4" /> Sample
           </button>
           <button onClick={handleExport}
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">

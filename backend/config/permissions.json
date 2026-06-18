@@ -12,7 +12,7 @@
         "products": { "display_name": "Products", "permissions": ["products.view", "products.create", "products.edit", "products.delete", "products.import", "products.export"] },
         "commission": { "display_name": "Commission", "permissions": ["commission.view", "commission.manage", "commission.import", "commission.export"] },
         "sim_status": { "display_name": "SIM Status Check", "permissions": ["sim_status.view"] },
-        "activations": { "display_name": "Activations", "permissions": ["activations.view", "activations.export", "activations.import"] },
+        "activations": { "display_name": "Activations", "permissions": ["activations.view", "activations.export", "activations.import", "activations.delete"] },
         "itopup": { "display_name": "iTopUp Details", "permissions": ["itopup.view", "itopup.export", "itopup.import"] },
         "live_activations": { "display_name": "Live Activations", "permissions": ["live_activations.view", "live_activations.export", "live_activations.import"] },
         "scratch_card": { "display_name": "Scratch Card", "permissions": ["scratch_card.view", "scratch_card.export", "scratch_card.import"] },
