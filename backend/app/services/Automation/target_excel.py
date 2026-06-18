@@ -116,6 +116,7 @@ RSO_COLUMN_MAP = {
     'HOUSE_CODE': 'house_code',
     'RS0_CODE': 'rso_code',
     'RSO_CODE': 'rso_code',
+    'RSO_ITOPUP_NUMBER': 'rso_itop',
     'SUPERVISOR_MSISDN': 'supervisor_msisdn',
     'RS0_SUPERVISOR_MSISDN': 'supervisor_msisdn',
     'RSO_SUPERVISOR_MSISDN': 'supervisor_msisdn',
@@ -182,10 +183,13 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
             
             # RSO map for TARGET UPLOAD (Strictly Type='RSO')
             rso_map_active = {}
+            rso_map_by_itop = {}
             for f in active_emp:
-                f_type_upper = (f.type or "").upper()
+                f_type_upper = (f.employee_type or "").upper()
                 if f.dms_code and f_type_upper == 'RSO':
                     rso_map_active[normalize_code(f.dms_code)] = f.id
+                if f.itop_number and f_type_upper == 'RSO':
+                    rso_map_by_itop[normalize_msisdn(f.itop_number)] = f.id
             
             # Supervisor map for RSO linkage (Historical/All)
             sup_map_all = {}
@@ -198,7 +202,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
             # Supervisor map for TARGET UPLOAD (Strictly ACTIVE, POOL_NUMBER, and Type='Supervisor')
             sup_map_active_pool = {}
             for f in active_emp:
-                f_type_upper = (f.type or "").upper()
+                f_type_upper = (f.employee_type or "").upper()
                 if f.pool_number and f_type_upper == 'SUPERVISOR':
                     sup_map_active_pool[normalize_msisdn(f.pool_number)] = f.id
             
@@ -297,6 +301,9 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     elif target_type == 'rso':
                         r_code = normalize_code(excel_values.get('rso_code'))
                         emp_id = rso_map_active.get(r_code)
+                        if not emp_id:
+                            r_itop = normalize_msisdn(excel_values.get('rso_itop'))
+                            emp_id = rso_map_by_itop.get(r_itop)
                         if not emp_id: continue 
                         values['employee_id'] = emp_id
                         
@@ -308,7 +315,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                             if sid: values['supervisor_id'] = sid
 
                         for k, v in excel_values.items():
-                            if k not in ['house_code', 'rso_code', 'supervisor_msisdn']:
+                            if k not in ['house_code', 'rso_code', 'rso_itop', 'supervisor_msisdn']:
                                 values[k] = v
 
                     batch_data.append(values)
@@ -327,7 +334,9 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
 
             await session.commit()
             summary = debug_info + "\n".join(results)
-            return total_processed, summary
+            if progress_callback:
+                await progress_callback(summary)
+            return total_processed, None
 
     except Exception as e:
         logger.error(f"Error in unified target excel: {str(e)}", exc_info=True)
