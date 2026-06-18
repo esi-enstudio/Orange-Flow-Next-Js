@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import apiClient, { resolveImageUrl } from "@/lib/api";
+import { useAuth } from "./AuthContext";
 
 interface Brand {
   app_name: string;
@@ -21,6 +22,7 @@ const BrandContext = createContext<BrandContextType>({
 
 export function BrandProvider({ children }: { children: ReactNode }) {
   const [brand, setBrand] = useState<Brand>({ app_name: "OrangeFlow", logo: null });
+  const { user, loading } = useAuth();
 
   const fetchBrand = () => {
     apiClient.get("settings/brand").then(res => {
@@ -28,7 +30,11 @@ export function BrandProvider({ children }: { children: ReactNode }) {
     }).catch(() => {});
   };
 
-  useEffect(() => { fetchBrand(); }, []);
+  useEffect(() => {
+    if (!loading && user) {
+      fetchBrand();
+    }
+  }, [loading, user]);
 
   return (
     <BrandContext.Provider value={{ brand, refreshBrand: fetchBrand, updateBrand: setBrand }}>
