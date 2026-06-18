@@ -26,6 +26,7 @@ from app.services.Automation.dms_report_excel import export_itopup_details_excel
 from app.services.Automation.live_activation_excel import export_live_activations_excel
 from app.services.Automation.ga_live_performance_excel import export_ga_live_performance_excel
 from app.services.Automation.issue_reports_excel import export_scratch_card_excel, export_sim_issue_excel
+from app.services.target_achievement_service import TargetAchievementService
 
 router = APIRouter(prefix="/api", tags=["reports"])
 
@@ -822,3 +823,169 @@ async def get_employee_activation_details(
         "groups": result_groups,
         "total_count": sum(g["count"] for g in result_groups),
     }
+
+
+@router.get("/reports/target-achievement")
+async def get_target_achievement(
+    house_id: Optional[int] = Query(None),
+    target_date: Optional[str] = Query(None),
+    role_type: Optional[str] = Query(None, description="house, supervisor, or rso"),
+    employee_id: Optional[int] = Query(None, description="Employee ID for supervisor or rso level"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("reports.target_achievement")),
+):
+    is_admin = is_admin_user(current_user)
+    user_houses_raw = current_user.houses
+
+    target_house_id = house_id
+    if not target_house_id:
+        if is_admin:
+            raise HTTPException(status_code=400, detail="house_id is required")
+        if len(user_houses_raw) == 1:
+            target_house_id = user_houses_raw[0].id
+        else:
+            raise HTTPException(status_code=400, detail="house_id is required when user has multiple houses")
+    else:
+        if not is_admin:
+            user_house_ids = [h.id for h in user_houses_raw]
+            if target_house_id not in user_house_ids:
+                raise HTTPException(status_code=403, detail="You do not have access to this house")
+
+    if target_date:
+        td = datetime.strptime(target_date, "%Y-%m-%d").date()
+    else:
+        today = date.today()
+        td = date(today.year, today.month, 1)
+
+    if td.day != 1:
+        td = date(td.year, td.month, 1)
+
+    service = TargetAchievementService(db, target_house_id, td)
+
+    if role_type == "supervisor":
+        if not employee_id:
+            raise HTTPException(status_code=400, detail="employee_id is required for supervisor level")
+        result = await service.get_supervisor_progress(employee_id)
+    elif role_type == "rso":
+        if not employee_id:
+            raise HTTPException(status_code=400, detail="employee_id is required for rso level")
+        result = await service.get_rso_progress(employee_id)
+    else:
+        result = await service.get_house_progress()
+
+    return {"success": True, "data": result}
+
+
+@router.get("/reports/target-achievement/export")
+async def export_target_achievement(
+    house_id: Optional[int] = Query(None),
+    target_date: Optional[str] = Query(None),
+    role_type: Optional[str] = Query(None),
+    employee_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("reports.target_achievement")),
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+
+    is_admin = is_admin_user(current_user)
+    user_houses_raw = current_user.houses
+
+    target_house_id = house_id
+    if not target_house_id:
+        if is_admin:
+            raise HTTPException(status_code=400, detail="house_id is required")
+        if len(user_houses_raw) == 1:
+            target_house_id = user_houses_raw[0].id
+        else:
+            raise HTTPException(status_code=400, detail="house_id is required")
+
+    if target_date:
+        td = datetime.strptime(target_date, "%Y-%m-%d").date()
+    else:
+        today = date.today()
+        td = date(today.year, today.month, 1)
+    if td.day != 1:
+        td = date(td.year, td.month, 1)
+
+    service = TargetAchievementService(db, target_house_id, td)
+
+    if role_type == "supervisor" and employee_id:
+        result = await service.get_supervisor_progress(employee_id)
+    elif role_type == "rso" and employee_id:
+        result = await service.get_rso_progress(employee_id)
+    else:
+        result = await service.get_house_progress()
+
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Target Achievement"
+    ws.append(["Category", "Target", "Achieved", "Percentage", "Remaining", "Projected", "Status"])
+
+    for cat in result.get("categories", []):
+        ws.append([
+            cat["label_en"],
+            cat["target"],
+            cat["achieved"],
+            cat["percentage"],
+            cat["remaining"],
+            round(cat["projected"], 1),
+            cat["status"],
+        ])
+
+    ws.append([])
+    summary = result.get("summary", {})
+    ws.append(["Overall", summary.get("total_target"), summary.get("total_achieved"),
+               summary.get("overall_percentage"), "", "", ""])
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return Response(
+        content=output.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=target_achievement_{td.isoformat()}.xlsx"},
+    )
+
+
+@router.get("/reports/my-target-progress")
+async def get_my_target_progress(
+    target_date: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("reports.target_achievement")),
+):
+    user_houses_raw = current_user.houses
+    if not user_houses_raw:
+        raise HTTPException(status_code=400, detail="User has no houses assigned")
+
+    if target_date:
+        td = datetime.strptime(target_date, "%Y-%m-%d").date()
+    else:
+        today = date.today()
+        td = date(today.year, today.month, 1)
+
+    if td.day != 1:
+        td = date(td.year, td.month, 1)
+
+    target_house_id = user_houses_raw[0].id
+    service = TargetAchievementService(db, target_house_id, td)
+
+    role_names = [r.name.lower() for r in current_user.roles]
+    emp_profile = current_user.employee_profile
+
+    if not emp_profile:
+        return {"success": True, "data": await service.get_house_progress(), "user_role": "house"}
+
+    if "rso" in role_names:
+        result = await service.get_rso_progress(emp_profile.id)
+        return {"success": True, "data": result, "user_role": "rso"}
+    elif "supervisor" in role_names:
+        result = await service.get_supervisor_progress(emp_profile.id)
+        return {"success": True, "data": result, "user_role": "supervisor"}
+    else:
+        result = await service.get_house_progress()
+        return {"success": True, "data": result, "user_role": "house"}

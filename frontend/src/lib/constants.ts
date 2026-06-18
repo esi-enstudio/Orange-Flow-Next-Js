@@ -7,6 +7,7 @@ import {
   Database,
   Activity,
   Crosshair,
+  Target,
   UserCheck,
   Upload,
   Tag,
@@ -133,6 +134,22 @@ export const navItems: NavItem[] = [
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permission: "reports.view" },
       { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permission: "reports.view" },
       { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
+      { title: "BP Targets", translationKey: "nav.bp_targets", href: "/targets/bp", permission: "bp_targets.view" },
+      { title: "Retailer Visits", translationKey: "nav.visits", href: "/visit", permission: "visits.view" },
+      { title: "Orders", translationKey: "nav.orders", href: "/orders", permission: "orders.view" },
+    ]
+  },
+  {
+    title: "Performance",
+    translationKey: "nav.performance",
+    icon: Target,
+    color: "text-rose-500",
+    children: [
+      { title: "Manager Dashboard", translationKey: "nav.manager_dashboard", href: "/dashboard/manager", permission: "reports.target_achievement" },
+      { title: "Supervisor Dashboard", translationKey: "nav.supervisor_dashboard", href: "/dashboard/supervisor", permission: "reports.target_achievement" },
+      { title: "RSO Dashboard", translationKey: "nav.rso_dashboard", href: "/dashboard/rso", permission: "reports.target_achievement" },
+      { title: "My Team", translationKey: "nav.my_team", href: "/team", permission: "employees.view" },
+      { title: "Assign RSOs", translationKey: "nav.assign_rsos", href: "/assign", permission: "employees.assign" },
     ]
   },
   {

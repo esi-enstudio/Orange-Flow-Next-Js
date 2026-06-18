@@ -5,10 +5,10 @@
         "roles": { "display_name": "Roles", "permissions": ["roles.view", "roles.create", "roles.edit", "roles.delete"] },
         "permissions": { "display_name": "Permissions", "permissions": ["permissions.view", "permissions.create", "permissions.edit", "permissions.delete"] },
         "retailers": { "display_name": "Retailers", "permissions": ["retailers.view", "retailers.create", "retailers.edit", "retailers.delete", "retailers.import", "retailers.export", "retailers.marking"] },
-        "employees": { "display_name": "Employees", "permissions": ["employees.view", "employees.create", "employees.edit", "employees.delete", "employees.import", "employees.export"] },
+        "employees": { "display_name": "Employees", "permissions": ["employees.view", "employees.create", "employees.edit", "employees.delete", "employees.import", "employees.export", "employees.assign"] },
         "bts": { "display_name": "BTS", "permissions": ["bts.view", "bts.create", "bts.edit", "bts.delete", "bts.import", "bts.export"] },
         "lifting": { "display_name": "Lifting", "permissions": ["lifting.view", "lifting.create", "lifting.edit", "lifting.delete", "lifting.approve", "lifting.import", "lifting.export"] },
-        "reports": { "display_name": "Reports", "permissions": ["reports.view", "reports.edit", "reports.download", "reports.dms_access"] },
+        "reports": { "display_name": "Reports", "permissions": ["reports.view", "reports.edit", "reports.download", "reports.dms_access", "reports.target_achievement"] },
         "products": { "display_name": "Products", "permissions": ["products.view", "products.create", "products.edit", "products.delete", "products.import", "products.export"] },
         "commission": { "display_name": "Commission", "permissions": ["commission.view", "commission.manage", "commission.import", "commission.export"] },
         "sim_status": { "display_name": "SIM Status Check", "permissions": ["sim_status.view"] },
@@ -17,7 +17,10 @@
         "live_activations": { "display_name": "Live Activations", "permissions": ["live_activations.view", "live_activations.export", "live_activations.import"] },
         "scratch_card": { "display_name": "Scratch Card", "permissions": ["scratch_card.view", "scratch_card.export", "scratch_card.import"] },
         "sim_issues": { "display_name": "SIM Issues", "permissions": ["sim_issues.view", "sim_issues.export", "sim_issues.import"] },
-        "targets": { "display_name": "Targets", "permissions": ["targets.view", "targets.export", "targets.import"] },
+        "targets": { "display_name": "Targets", "permissions": ["targets.view", "targets.export", "targets.import", "targets.edit"] },
+        "bp_targets": { "display_name": "BP Targets", "permissions": ["bp_targets.view", "bp_targets.edit"] },
+        "visits": { "display_name": "Retailer Visits", "permissions": ["visits.view", "visits.create"] },
+        "orders": { "display_name": "Orders", "permissions": ["orders.view", "orders.create"] },
         "dms": { "display_name": "DMS Automation", "permissions": ["dms.sim_status", "dms.sim_return", "dms.sim_issue"] },
         "app_settings": { "display_name": "App Settings", "permissions": ["app_settings.manage"] },
         "bp_retailer_codes": { "display_name": "BP Retailer Codes", "permissions": ["bp_retailer_codes.edit"] },
@@ -39,19 +42,19 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["houses.view", "retailers.view", "employees.view", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "imports.data"]
+            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.data", "reports.target_achievement"]
         },
         {
             "name": "Manager",
-            "permissions": ["reports.view", "retailers.view", "employees.view", "bts.view", "sim_status.view", "activations.view", "live_activations.view"]
+            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement"]
         },
         {
             "name": "Supervisor",
-            "permissions": ["reports.view", "retailers.view", "sim_status.view", "activations.view"]
+            "permissions": ["reports.view", "retailers.view", "sim_status.view", "activations.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement"]
         },
         {
             "name": "RSO",
-            "permissions": ["reports.view", "retailers.view", "sim_status.view"]
+            "permissions": ["reports.view", "retailers.view", "sim_status.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement"]
         },
         {
             "name": "BP",

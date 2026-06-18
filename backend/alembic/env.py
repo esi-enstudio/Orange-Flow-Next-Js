@@ -40,6 +40,9 @@ from app.models.commission import (
     FinancialEntry, CommissionAuditLog, CommissionStaging,
 )
 from app.models.bp_retailer_code import BpRetailerCode
+from app.models.bp_target import BpTarget
+from app.models.retailer_visit import RetailerVisit
+from app.models.order_collection import OrderCollection
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

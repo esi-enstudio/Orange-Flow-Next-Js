@@ -27,6 +27,9 @@ from app.models.product_exclusion import ExcludedProductCode
 from app.models.app_setting import AppSetting
 from app.models.ga_section_config import GaSectionConfig
 from app.models.bp_retailer_code import BpRetailerCode
+from app.models.bp_target import BpTarget
+from app.models.retailer_visit import RetailerVisit
+from app.models.order_collection import OrderCollection
 from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,
     FinancialEntry, CommissionAuditLog, CommissionStaging,
