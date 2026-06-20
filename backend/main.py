@@ -59,6 +59,7 @@ from app.routers.bp_retailer_codes import router as bp_retailer_codes_router
 from app.routers.bp_targets import router as bp_targets_router
 from app.routers.retailer_visits import router as retailer_visits_router
 from app.routers.order_collections import router as order_collections_router
+from app.routers.zoom_in import router as zoom_in_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -98,6 +99,7 @@ app.include_router(bp_retailer_codes_router)
 app.include_router(bp_targets_router)
 app.include_router(retailer_visits_router)
 app.include_router(order_collections_router)
+app.include_router(zoom_in_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -277,7 +279,7 @@ async def main():
     background_tasks = []
     ngrok_tunnel = None
     try:
-        config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info", reload=False)
+        config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info", reload=True)
         server = uvicorn.Server(config)
         background_tasks.append(asyncio.create_task(server.serve()))
 

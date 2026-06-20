@@ -14,7 +14,7 @@ from app.models.house_target import HouseTarget
 from app.models.supervisor_target import SupervisorTarget
 from app.models.rso_target import RSOTarget
 from app.models.subscription import SubscriptionPackage, HouseSubscription
-from app.models.mela import Mela
+from app.models.mela import Mela, MelaEligibleBTS
 from app.models.product import Product, ProductCodeHistory
 from app.models.lifting import LiftingRecord, LiftingProduct
 from app.models.leave_management import LeaveRequest
@@ -33,4 +33,9 @@ from app.models.order_collection import OrderCollection
 from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,
     FinancialEntry, CommissionAuditLog, CommissionStaging,
+)
+from app.models.zoom_in import (
+    ZoomInEventType, ZoomInActivity,
+    ZoomInAllocation, ZoomInEvent,
+    ZoomInEventBTS, ZoomInEventRSO, ZoomInEventBP, ZoomInEventRetailer,
 )

@@ -21,6 +21,7 @@ import {
   BarChart3,
   Shield,
   ShieldCheck,
+  Search,
 } from "lucide-react";
 
 export interface NavItem {
@@ -172,6 +173,20 @@ export const navItems: NavItem[] = [
       { title: "Roles", translationKey: "nav.roles", href: "/roles", permission: "roles.view" },
       { title: "Permissions", translationKey: "nav.permissions", href: "/permissions", permission: "permissions.view" },
     ]
+  },
+  {
+    title: "Zoom In",
+    translationKey: "nav.zoom_in",
+    icon: Search,
+    color: "text-rose-500",
+    permission: "zoom_in.view",
+    children: [
+      { title: "Zoom In Events", translationKey: "nav.zoom_in_events", href: "/zoom-in", permission: "zoom_in.view" },
+      { title: "Event Types", translationKey: "nav.zoom_in_event_types", href: "/zoom-in/event-types", permission: "zoom_in.view" },
+      { title: "Activity", translationKey: "nav.zoom_in_activity", href: "/zoom-in/activity", permission: "zoom_in.view" },
+      { title: "Allocation", translationKey: "nav.zoom_in_allocation", href: "/zoom-in/allocation", permission: "zoom_in.view" },
+      { title: "Eligible BTS", translationKey: "nav.zoom_in_eligible_bts", href: "/zoom-in/eligible-bts", permission: "zoom_in.view" },
+    ],
   },
   {
     title: "Administration",

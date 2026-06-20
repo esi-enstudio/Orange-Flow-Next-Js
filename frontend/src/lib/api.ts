@@ -37,23 +37,25 @@ apiClient.interceptors.response.use(
       message = detail;
     } else if (Array.isArray(detail)) {
       // Handle FastAPI validation errors (Pydantic v2 style)
-      message = detail.map((err: unknown) => {
+      const parts = detail.map((err: unknown) => {
         if (typeof err === 'string') return err;
         if (typeof err === 'object' && err !== null) {
           const e = err as Record<string, unknown>;
-          const path = e.loc ? (e.loc as string[]).join('.') : '';
-          const msg = e.msg || 'Unknown error';
-          return path ? `${path}: ${msg}` : String(msg);
+          return e.msg || 'Unknown error';
         }
         return 'Unknown error';
-      }).join(", ");
+      });
+      message = parts.join("; ");
+      error.response.data.detail = message;
     } else if (detail && typeof detail === 'object') {
       // Handle case where detail is a single object
       message = detail.msg || JSON.stringify(detail);
+      error.response.data.detail = message;
     } else if (error.message) {
       message = error.message;
     }
     
+    error.message = message;
     return Promise.reject(error);
   }
 );

@@ -255,7 +255,7 @@ export default function BpRetailerCodesPage() {
               onClick={() => setShowForm(true)}
               className="mt-3 text-sm text-primary-500 hover:text-primary-600 font-medium"
             >
-              + Add your first assignment
+               Add your first assignment
             </button>
           )}
         </div>

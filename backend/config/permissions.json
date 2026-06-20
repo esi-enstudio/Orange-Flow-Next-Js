@@ -29,7 +29,8 @@
         "automation": { "display_name": "Automation", "permissions": ["automation.ga_sync", "automation.dms_sync", "automation.settings"] },
         "leaves": { "display_name": "Leaves", "permissions": ["leaves.view", "leaves.create", "leaves.edit", "leaves.delete", "leaves.import", "leaves.export"] },
         "mela": { "display_name": "Mela", "permissions": ["mela.view", "mela.create", "mela.edit", "mela.delete", "mela.settings", "mela.import", "mela.export"] },
-        "navigation": { "display_name": "Navigation", "permissions": ["imports.data", "settings.view", "expenses.view", "attendance.view"] }
+        "navigation": { "display_name": "Navigation", "permissions": ["imports.data", "settings.view", "expenses.view", "attendance.view"] },
+        "zoom_in": { "display_name": "Zoom In", "permissions": ["zoom_in.view", "zoom_in.create", "zoom_in.edit", "zoom_in.delete", "zoom_in.import", "zoom_in.export"] }
     },
     "default_roles": [
         {
@@ -42,11 +43,11 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.data", "reports.target_achievement"]
+            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.data", "reports.target_achievement", "zoom_in.view"]
         },
         {
             "name": "Manager",
-            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement"]
+            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view"]
         },
         {
             "name": "Supervisor",

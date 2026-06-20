@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.models.base import Base
@@ -38,6 +38,7 @@ class BTS(Base):
     onair_date_4g = Column(String)                    # 4Gonairdate
     urban_rural = Column(String)                      # Urban_Rural
     priority = Column(String)                         # Priority
+    is_eligible = Column(Boolean, default=True, index=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
