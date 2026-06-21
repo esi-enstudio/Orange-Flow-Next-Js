@@ -336,6 +336,7 @@ async def get_retailers_by_rso(
 
     query = select(Retailer).where(
         Retailer.employee_id.in_(employee_ids),
+        Retailer.enabled == "Yes",
         Retailer.sim_seller == "Yes",
     )
     if emp_exclude_codes:
@@ -808,6 +809,7 @@ async def get_event(
                 "dms_code": e.dms_code if e else None,
                 "itop_number": e.itop_number if e else None,
                 "name": e.user.name if e and e.user else None,
+                "assisted_retailer_code": e.assisted_retailer_code if e else None,
             })
 
     bp_details = []
@@ -826,6 +828,7 @@ async def get_event(
                 "dms_code": e.dms_code if e else None,
                 "pool_number": e.pool_number if e else None,
                 "name": e.user.name if e and e.user else None,
+                "assisted_retailer_code": e.assisted_retailer_code if e else None,
             })
 
     retailer_details = []

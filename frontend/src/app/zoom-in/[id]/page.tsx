@@ -22,6 +22,7 @@ interface EmployeeDetail {
   itop_number: string | null;
   name: string | null;
   pool_number?: string | null;
+  assisted_retailer_code?: string | null;
 }
 
 interface RetailerDetail {
@@ -123,9 +124,9 @@ export default function EventDetailPage() {
       {items.length === 0 ? (
         <p className="text-sm text-gray-400">—</p>
       ) : (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="space-y-1.5">
           {items.map((item, i) => (
-            <span key={i} className="inline-flex px-2.5 py-1 bg-white dark:bg-slate-700 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600">
+            <span key={i} className="block px-2.5 py-1 bg-white dark:bg-slate-700 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600">
               {renderItem(item)}
             </span>
           ))}
@@ -184,7 +185,7 @@ export default function EventDetailPage() {
               <ListCard
                 title="RSO"
                 items={event.rso_details}
-                renderItem={(r: EmployeeDetail) => `${r.name || r.dms_code || ""}${r.itop_number ? ` (${r.itop_number})` : ""}`}
+                renderItem={(r: EmployeeDetail) => `${r.name || r.dms_code || ""}${r.itop_number ? ` (${r.itop_number})` : ""}${r.assisted_retailer_code ? ` [${r.assisted_retailer_code}]` : ""}`}
               />
             </div>
 
@@ -196,7 +197,7 @@ export default function EventDetailPage() {
               <ListCard
                 title="BP"
                 items={event.bp_details}
-                renderItem={(b: EmployeeDetail) => `${b.name || b.dms_code || ""}${b.pool_number ? ` (Pool: ${b.pool_number})` : ""}`}
+                renderItem={(b: EmployeeDetail) => `${b.name || b.dms_code || ""}${b.pool_number ? ` (Pool: ${b.pool_number})` : ""}${b.assisted_retailer_code ? ` [${b.assisted_retailer_code}]` : ""}`}
               />
             </div>
 

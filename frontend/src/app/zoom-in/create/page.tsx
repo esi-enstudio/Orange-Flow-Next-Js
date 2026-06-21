@@ -393,7 +393,6 @@ export default function CreateZoomInEventPage() {
                 id: r.retailer_code,
                 label: r.name,
                 sublabel: [r.itop_number, r.retailer_code, r.rso_itop_last3].filter(Boolean).join(" · ") || undefined,
-                badge: String(r.activation_count),
               }))}
               selectedIds={selectedRetailers}
               onChange={(ids) => setSelectedRetailers(ids as string[])}
