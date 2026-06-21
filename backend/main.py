@@ -17,7 +17,12 @@ class BangladeshFormatter(logging.Formatter):
 # --- Logging Setup ---
 if not os.path.exists('logs'): os.makedirs('logs')
 log_formatter = BangladeshFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-file_handler = RotatingFileHandler('logs/orange_flow.log', maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
+log_dir = 'logs'
+os.makedirs(log_dir, exist_ok=True)
+log_path = os.path.join(log_dir, 'orange_flow.log')
+if not os.access(log_path, os.W_OK) if os.path.exists(log_path) else os.access(log_dir, os.W_OK):
+    log_path = '/tmp/orange_flow.log'
+file_handler = RotatingFileHandler(log_path, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
 file_handler.setFormatter(log_formatter)
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(log_formatter)
@@ -267,12 +272,6 @@ async def main():
                 logger.error("Max DB retries reached. Exiting.")
                 return
 
-    try:
-        await engine.start()
-    except Exception as e:
-        logger.error(f"Failed to start automation engine: {e}")
-        return
-
     from app.services.cache_service import cache_service
     await cache_service.connect()
 
@@ -282,6 +281,14 @@ async def main():
         config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info", reload=True)
         server = uvicorn.Server(config)
         background_tasks.append(asyncio.create_task(server.serve()))
+
+        engine_ok = True
+        try:
+            await engine.start()
+        except Exception as e:
+            engine_ok = False
+            logger.error(f"Failed to start automation engine: {e}")
+            logger.info("API server continues running without automation engine")
 
         if settings.START_NGROK:
             try:
@@ -301,7 +308,7 @@ async def main():
                 logger.error(f"❌ Failed to start ngrok: {e}")
                 logger.info("⚠️  App running without ngrok tunnel")
 
-        if settings.ENABLE_GA_SYNC:
+        if settings.ENABLE_GA_SYNC and engine_ok:
             background_tasks.append(asyncio.create_task(master_automation_scheduler()))
 
         logger.info("OrangeFlow API is Live on port 8000")

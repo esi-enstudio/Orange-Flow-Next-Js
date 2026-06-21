@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import date
 
@@ -100,6 +100,7 @@ class ZoomInEventCreate(BaseModel):
 
 
 class ZoomInEventUpdate(BaseModel):
+    house_id: Optional[int] = None
     date: Optional[date] = None
     event_type_id: Optional[int] = None
     activity_id: Optional[int] = None
@@ -108,6 +109,20 @@ class ZoomInEventUpdate(BaseModel):
     rso_ids: Optional[List[int]] = None
     bp_ids: Optional[List[int]] = None
     retailer_codes: Optional[List[str]] = None
+
+    @field_validator("date", mode="plain")
+    @classmethod
+    def coerce_date(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                return None
+        return None
 
 
 class ZoomInEventResponse(BaseModel):

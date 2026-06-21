@@ -41,7 +41,9 @@ apiClient.interceptors.response.use(
         if (typeof err === 'string') return err;
         if (typeof err === 'object' && err !== null) {
           const e = err as Record<string, unknown>;
-          return e.msg || 'Unknown error';
+          const loc = Array.isArray(e.loc) ? (e.loc as unknown[]).filter(x => x !== 'body').join('.') : '';
+          const msg = e.msg || 'Unknown error';
+          return loc ? `${loc}: ${msg}` : msg;
         }
         return 'Unknown error';
       });

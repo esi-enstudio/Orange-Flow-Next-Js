@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, 
 from pydantic import BaseModel
 from sqlalchemy import select, func, and_, case, delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, get_house_context, get_current_user
 from app.schemas.zoom_in import (
@@ -248,7 +248,9 @@ async def get_rsos_by_house(
     current_user: User = Depends(has_permission("zoom_in.view")),
 ):
     result = await db.execute(
-        select(Employee).where(
+        select(Employee)
+        .options(joinedload(Employee.user))
+        .where(
             Employee.house_id == house_id,
             Employee.employee_type == "rso",
             Employee.status == "Active",
@@ -256,7 +258,14 @@ async def get_rsos_by_house(
     )
     employees = result.scalars().all()
     return [
-        {"id": e.id, "dms_code": e.dms_code, "itop_number": e.itop_number}
+        {
+            "id": e.id,
+            "dms_code": e.dms_code,
+            "itop_number": e.itop_number,
+            "pool_number": e.pool_number,
+            "name": e.user.name if e.user else None,
+            "employee_id": e.employee_id,
+        }
         for e in employees
     ]
 
@@ -268,7 +277,9 @@ async def get_bps_by_house(
     current_user: User = Depends(has_permission("zoom_in.view")),
 ):
     result = await db.execute(
-        select(Employee).where(
+        select(Employee)
+        .options(joinedload(Employee.user))
+        .where(
             Employee.house_id == house_id,
             Employee.employee_type == "bp",
             Employee.status == "Active",
@@ -276,7 +287,14 @@ async def get_bps_by_house(
     )
     employees = result.scalars().all()
     return [
-        {"id": e.id, "dms_code": e.dms_code, "itop_number": e.itop_number}
+        {
+            "id": e.id,
+            "dms_code": e.dms_code,
+            "itop_number": e.itop_number,
+            "pool_number": e.pool_number,
+            "name": e.user.name if e.user else None,
+            "employee_id": e.employee_id,
+        }
         for e in employees
     ]
 
@@ -303,6 +321,7 @@ async def get_retailers_by_rso(
         {
             "retailer_code": r.retailer_code,
             "name": r.name,
+            "itop_number": r.itop_number,
             "sim_seller": r.sim_seller,
         }
         for r in retailers
@@ -686,15 +705,87 @@ async def get_event(
             joinedload(ZoomInEvent.house),
             joinedload(ZoomInEvent.event_type),
             joinedload(ZoomInEvent.activity),
-            joinedload(ZoomInEvent.bts_list),
-            joinedload(ZoomInEvent.rsos),
-            joinedload(ZoomInEvent.bps),
-            joinedload(ZoomInEvent.retailers),
+            selectinload(ZoomInEvent.bts_list),
+            selectinload(ZoomInEvent.rsos),
+            selectinload(ZoomInEvent.bps),
+            selectinload(ZoomInEvent.retailers),
         ).where(ZoomInEvent.id == event_id)
     )
     event = result.unique().scalar_one_or_none()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+
+    bts_ids = [b.bts_id for b in event.bts_list]
+    rso_employee_ids = [r.employee_id for r in event.rsos]
+    bp_employee_ids = [b.employee_id for b in event.bps]
+    retailer_codes_list = [r.retailer_code for r in event.retailers]
+
+    bts_details = []
+    if bts_ids:
+        bts_result = await db.execute(
+            select(BTS).where(BTS.id.in_(bts_ids))
+        )
+        bts_rows = bts_result.scalars().all()
+        bts_map = {b.id: b for b in bts_rows}
+        for bid in bts_ids:
+            b = bts_map.get(bid)
+            bts_details.append({
+                "id": bid,
+                "bts_code": b.bts_code if b else None,
+                "site_id": b.site_id if b else None,
+                "address": b.short_address or b.address if b else None,
+            })
+
+    rso_details = []
+    if rso_employee_ids:
+        rso_result = await db.execute(
+            select(Employee)
+            .options(joinedload(Employee.user))
+            .where(Employee.id.in_(rso_employee_ids))
+        )
+        rso_rows = rso_result.scalars().all()
+        rso_map = {e.id: e for e in rso_rows}
+        for eid in rso_employee_ids:
+            e = rso_map.get(eid)
+            rso_details.append({
+                "id": eid,
+                "dms_code": e.dms_code if e else None,
+                "itop_number": e.itop_number if e else None,
+                "name": e.user.name if e and e.user else None,
+            })
+
+    bp_details = []
+    if bp_employee_ids:
+        bp_result = await db.execute(
+            select(Employee)
+            .options(joinedload(Employee.user))
+            .where(Employee.id.in_(bp_employee_ids))
+        )
+        bp_rows = bp_result.scalars().all()
+        bp_map = {e.id: e for e in bp_rows}
+        for eid in bp_employee_ids:
+            e = bp_map.get(eid)
+            bp_details.append({
+                "id": eid,
+                "dms_code": e.dms_code if e else None,
+                "pool_number": e.pool_number if e else None,
+                "name": e.user.name if e and e.user else None,
+            })
+
+    retailer_details = []
+    if retailer_codes_list:
+        ret_result = await db.execute(
+            select(Retailer).where(Retailer.retailer_code.in_(retailer_codes_list))
+        )
+        ret_rows = ret_result.scalars().all()
+        ret_map = {r.retailer_code: r for r in ret_rows}
+        for code in retailer_codes_list:
+            r = ret_map.get(code)
+            retailer_details.append({
+                "retailer_code": code,
+                "name": r.name if r else None,
+                "itop_number": r.itop_number if r else None,
+            })
 
     return {
         "id": event.id,
@@ -706,10 +797,11 @@ async def get_event(
         "house_name": event.house.name if event.house else None,
         "event_type_name": event.event_type.name if event.event_type else None,
         "activity_name": event.activity.name if event.activity else None,
-        "bts_ids": [b.bts_id for b in event.bts_list],
-        "rso_ids": [r.employee_id for r in event.rsos],
-        "bp_ids": [b.employee_id for b in event.bps],
-        "retailer_codes": [r.retailer_code for r in event.retailers],
+        "created_at": str(event.created_at) if event.created_at else None,
+        "bts_details": bts_details,
+        "rso_details": rso_details,
+        "bp_details": bp_details,
+        "retailer_details": retailer_details,
     }
 
 
@@ -739,28 +831,28 @@ async def update_event(
 
     if data.bts_ids is not None:
         await db.execute(
-            select(ZoomInEventBTS).where(ZoomInEventBTS.zoom_in_event_id == event_id).delete()
+            sa_delete(ZoomInEventBTS).where(ZoomInEventBTS.zoom_in_event_id == event_id)
         )
         for bts_id in data.bts_ids:
             db.add(ZoomInEventBTS(zoom_in_event_id=event.id, bts_id=bts_id))
 
     if data.rso_ids is not None:
         await db.execute(
-            select(ZoomInEventRSO).where(ZoomInEventRSO.zoom_in_event_id == event_id).delete()
+            sa_delete(ZoomInEventRSO).where(ZoomInEventRSO.zoom_in_event_id == event_id)
         )
         for rso_id in data.rso_ids:
             db.add(ZoomInEventRSO(zoom_in_event_id=event.id, employee_id=rso_id))
 
     if data.bp_ids is not None:
         await db.execute(
-            select(ZoomInEventBP).where(ZoomInEventBP.zoom_in_event_id == event_id).delete()
+            sa_delete(ZoomInEventBP).where(ZoomInEventBP.zoom_in_event_id == event_id)
         )
         for bp_id in data.bp_ids:
             db.add(ZoomInEventBP(zoom_in_event_id=event.id, employee_id=bp_id))
 
     if data.retailer_codes is not None:
         await db.execute(
-            select(ZoomInEventRetailer).where(ZoomInEventRetailer.zoom_in_event_id == event_id).delete()
+            sa_delete(ZoomInEventRetailer).where(ZoomInEventRetailer.zoom_in_event_id == event_id)
         )
         for code in data.retailer_codes:
             db.add(ZoomInEventRetailer(zoom_in_event_id=event.id, retailer_code=code))

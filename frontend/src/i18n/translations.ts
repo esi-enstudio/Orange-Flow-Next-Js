@@ -853,6 +853,7 @@ export const translations = {
       title: "Zoom In Management",
       description: "Manage monthly allocations and event entries",
       create_event: "Create Event",
+      edit_event: "Edit Event",
       add_allocation: "Add Allocation",
       summary: {
         this_month: "This Month's Allocations",
@@ -978,6 +979,10 @@ export const translations = {
         select_rso: "Select RSO",
         select_bp: "Select BP",
         select_retailer: "Select Retailer Code",
+        search_bts: "Search by BTS code, address...",
+        search_rso: "Search by name, iTop number, DMS code...",
+        search_bp: "Search by name, pool number, DMS code...",
+        search_retailer: "Search by name, iTop number, retailer code...",
       },
       validation: {
         house_required: "House is required",
@@ -1932,6 +1937,7 @@ export const translations = {
       title: "জুম ইন ম্যানেজমেন্ট",
       description: "মাসিক বরাদ্দ এবং ইভেন্ট এন্ট্রি পরিচালনা করুন",
       create_event: "ইভেন্ট তৈরি করুন",
+      edit_event: "ইভেন্ট সম্পাদনা করুন",
       add_allocation: "বরাদ্দ যোগ করুন",
       summary: {
         this_month: "এই মাসের বরাদ্দ",
@@ -2057,6 +2063,10 @@ export const translations = {
         select_rso: "আরএসও নির্বাচন করুন",
         select_bp: "বিপি নির্বাচন করুন",
         select_retailer: "রিটেইলার কোড নির্বাচন করুন",
+        search_bts: "বিটিএস কোড, ঠিকানা অনুসারে অনুসন্ধান...",
+        search_rso: "নাম, iTop নম্বর, DMS কোড অনুসারে অনুসন্ধান...",
+        search_bp: "নাম, পুল নম্বর, DMS কোড অনুসারে অনুসন্ধান...",
+        search_retailer: "নাম, iTop নম্বর, রিটেইলার কোড অনুসারে অনুসন্ধান...",
       },
       validation: {
         house_required: "হাউস আবশ্যক",

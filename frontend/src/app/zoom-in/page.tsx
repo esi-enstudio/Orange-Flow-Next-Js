@@ -17,6 +17,8 @@ import {
   Trash2,
   ChartNoAxesColumnIncreasing,
 } from "lucide-react";
+import CreateEventModal from "./_components/CreateEventModal";
+import DeleteConfirmModal from "./_components/DeleteConfirmModal";
 
 interface EventItem {
   id: number;
@@ -57,6 +59,10 @@ export default function ZoomInPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, total_pages: 0, has_next: false, has_prev: false });
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editEventId, setEditEventId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const fetchEvents = async () => {
     setLoading(true);
@@ -86,14 +92,18 @@ export default function ZoomInPage() {
     fetchEvents();
   }, [page, search]);
 
-  const handleDelete = async (id: number) => {
-    if (!confirm(t("zoom_in.messages.delete_confirm"))) return;
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
     try {
-      await apiClient.delete(`zoom-in/events/${id}`);
+      await apiClient.delete(`zoom-in/events/${deleteTarget.id}`);
       toast.success(t("zoom_in.messages.delete_success"));
+      setDeleteTarget(null);
       fetchEvents();
     } catch {
       toast.error(t("common.error"));
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -109,13 +119,15 @@ export default function ZoomInPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("zoom_in.description")}</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => router.push("/zoom-in/create")}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            {t("zoom_in.create_event")}
-          </button>
+          {hasPermission("zoom_in.create") && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              {t("zoom_in.create_event")}
+            </button>
+          )}
         </div>
       </div>
 
@@ -189,7 +201,7 @@ export default function ZoomInPage() {
                         </button>
                         {hasPermission("zoom_in.edit") && (
                           <button
-                            onClick={() => router.push(`/zoom-in/${event.id}/edit`)}
+                            onClick={() => setEditEventId(event.id)}
                             className="p-2 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition-all"
                             title="Edit"
                           >
@@ -198,7 +210,7 @@ export default function ZoomInPage() {
                         )}
                         {hasPermission("zoom_in.delete") && (
                           <button
-                            onClick={() => handleDelete(event.id)}
+                            onClick={() => setDeleteTarget({ id: event.id, label: `#${event.id} — ${event.house_name || event.date}` })}
                             className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all"
                             title="Delete"
                           >
@@ -242,6 +254,24 @@ export default function ZoomInPage() {
         </div>
       )}
 
+      <CreateEventModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={fetchEvents}
+      />
+      <CreateEventModal
+        isOpen={!!editEventId}
+        editEventId={editEventId}
+        onClose={() => setEditEventId(null)}
+        onSuccess={fetchEvents}
+      />
+      <DeleteConfirmModal
+        isOpen={!!deleteTarget}
+        deleting={deleteTarget}
+        loading={deleteLoading}
+        onConfirm={handleDeleteConfirm}
+        onClose={() => { setDeleteTarget(null); setDeleteLoading(false); }}
+      />
     </div>
   );
 }
