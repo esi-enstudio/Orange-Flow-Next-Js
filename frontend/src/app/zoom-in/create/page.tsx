@@ -7,7 +7,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { toast } from "react-hot-toast";
-import { Loader2, ArrowLeft, X } from "lucide-react";
+import { Loader2, ArrowLeft } from "lucide-react";
+import EntitySelector, { SelectorItem } from "../_components/EntitySelector";
 
 interface House {
   id: number;
@@ -36,12 +37,17 @@ interface Employee {
   id: number;
   dms_code: string;
   itop_number: string | null;
+  name: string | null;
+  assisted_retailer_code: string | null;
 }
 
 interface RetailerItem {
   retailer_code: string;
   name: string;
+  itop_number: string | null;
   sim_seller: string | null;
+  rso_itop_last3: string | null;
+  activation_count: number;
 }
 
 export default function CreateZoomInEventPage() {
@@ -145,29 +151,17 @@ export default function CreateZoomInEventPage() {
   }, [thana]);
 
   useEffect(() => {
-    const rsoId = selectedRsoIds[0];
-    if (!rsoId) {
-      setRetailers([]);
-      return;
-    }
+    if (!houseId) return;
     const fetchRetailers = async () => {
       try {
-        const res = await apiClient.get(`zoom-in/retailers-by-rso/${rsoId}`);
+        const res = await apiClient.get("zoom-in/retailers-by-rso", {
+          params: { house_id: houseId },
+        });
         setRetailers(res.data);
       } catch { /* silent */ }
     };
     fetchRetailers();
-  }, [selectedRsoIds]);
-
-  const toggleSelection = (arr: number[], val: number): number[] => {
-    return arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val];
-  };
-
-  const toggleRetailer = (code: string) => {
-    setSelectedRetailers((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    );
-  };
+  }, [houseId]);
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
@@ -179,10 +173,6 @@ export default function CreateZoomInEventPage() {
     if (selectedBtsIds.length === 0) errs.bts = t("zoom_in.validation.bts_required");
     if (selectedRsoIds.length === 0) errs.rso = t("zoom_in.validation.rso_required");
     if (selectedBpIds.length === 0) errs.bp = t("zoom_in.validation.bp_required");
-    const finalRetailers = showOtherRetailer && otherRetailerCode.trim()
-      ? [...selectedRetailers, otherRetailerCode.trim()]
-      : selectedRetailers;
-    if (finalRetailers.length === 0) errs.retailer = t("zoom_in.validation.retailer_required");
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -336,27 +326,22 @@ export default function CreateZoomInEventPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("zoom_in.fields.bts")} <span className="text-red-500">*</span>
-            </label>
-            <div className="max-h-32 overflow-y-auto border border-gray-200 dark:border-slate-800 rounded-xl p-2 space-y-1">
-              {btsList.length === 0 ? (
-                <p className="text-xs text-gray-400 p-2">{t("zoom_in.fields.select_thana")}</p>
-              ) : (
-                btsList.map((b) => (
-                  <label key={b.id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedBtsIds.includes(b.id)}
-                      onChange={() => setSelectedBtsIds((prev) => toggleSelection(prev, b.id))}
-                      className="rounded border-gray-300 dark:border-slate-700"
-                    />
-                    <span className="text-gray-700 dark:text-gray-300">{b.site_id} ({b.bts_code})</span>
-                  </label>
-                ))
-              )}
-            </div>
-            {errors.bts && <p className="text-xs text-red-500 mt-1">{errors.bts}</p>}
+            <EntitySelector
+              label={t("zoom_in.fields.bts")}
+              items={btsList.map((b): SelectorItem => ({
+                id: b.id,
+                label: `${b.site_id} (${b.bts_code})`,
+                sublabel: b.address || undefined,
+              }))}
+              selectedIds={selectedBtsIds}
+              onChange={(ids) => setSelectedBtsIds(ids as number[])}
+              placeholder={t("zoom_in.fields.select_bts")}
+              searchPlaceholder={t("zoom_in.fields.search_bts")}
+              emptyMessage={t("zoom_in.fields.select_thana")}
+              noResultsMessage="No BTS found"
+              error={errors.bts}
+              required
+            />
           </div>
         </div>
 
@@ -364,76 +349,60 @@ export default function CreateZoomInEventPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("zoom_in.fields.rso")} <span className="text-red-500">*</span>
-            </label>
-            <div className="max-h-32 overflow-y-auto border border-gray-200 dark:border-slate-800 rounded-xl p-2 space-y-1">
-              {rsos.length === 0 ? (
-                <p className="text-xs text-gray-400 p-2">{t("zoom_in.fields.select_house")}</p>
-              ) : (
-                rsos.map((r) => (
-                  <label key={r.id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedRsoIds.includes(r.id)}
-                      onChange={() => setSelectedRsoIds((prev) => toggleSelection(prev, r.id))}
-                      className="rounded border-gray-300 dark:border-slate-700"
-                    />
-                    <span className="text-gray-700 dark:text-gray-300">{r.dms_code}</span>
-                  </label>
-                ))
-              )}
-            </div>
-            {errors.rso && <p className="text-xs text-red-500 mt-1">{errors.rso}</p>}
+            <EntitySelector
+              label={t("zoom_in.fields.rso")}
+              items={rsos.map((r): SelectorItem => ({
+                id: r.id,
+                label: r.dms_code,
+                sublabel: [r.name, r.itop_number, r.assisted_retailer_code].filter(Boolean).join(" · ") || undefined,
+              }))}
+              selectedIds={selectedRsoIds}
+              onChange={(ids) => setSelectedRsoIds(ids as number[])}
+              placeholder={t("zoom_in.fields.select_rso")}
+              searchPlaceholder={t("zoom_in.fields.search_rso")}
+              emptyMessage={t("zoom_in.fields.select_house")}
+              noResultsMessage="No RSO found"
+              error={errors.rso}
+              required
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("zoom_in.fields.bp")} <span className="text-red-500">*</span>
-            </label>
-            <div className="max-h-32 overflow-y-auto border border-gray-200 dark:border-slate-800 rounded-xl p-2 space-y-1">
-              {bps.length === 0 ? (
-                <p className="text-xs text-gray-400 p-2">{t("zoom_in.fields.select_house")}</p>
-              ) : (
-                bps.map((b) => (
-                  <label key={b.id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedBpIds.includes(b.id)}
-                      onChange={() => setSelectedBpIds((prev) => toggleSelection(prev, b.id))}
-                      className="rounded border-gray-300 dark:border-slate-700"
-                    />
-                    <span className="text-gray-700 dark:text-gray-300">{b.dms_code}</span>
-                  </label>
-                ))
-              )}
-            </div>
-            {errors.bp && <p className="text-xs text-red-500 mt-1">{errors.bp}</p>}
+            <EntitySelector
+              label={t("zoom_in.fields.bp")}
+              items={bps.map((b): SelectorItem => ({
+                id: b.id,
+                label: b.dms_code,
+                sublabel: [b.itop_number, b.assisted_retailer_code].filter(Boolean).join(" · ") || undefined,
+              }))}
+              selectedIds={selectedBpIds}
+              onChange={(ids) => setSelectedBpIds(ids as number[])}
+              placeholder={t("zoom_in.fields.select_bp")}
+              searchPlaceholder={t("zoom_in.fields.search_bp")}
+              emptyMessage={t("zoom_in.fields.select_house")}
+              noResultsMessage="No BP found"
+              error={errors.bp}
+              required
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("zoom_in.fields.retailer_code")} <span className="text-red-500">*</span>
-            </label>
-            <div className="max-h-32 overflow-y-auto border border-gray-200 dark:border-slate-800 rounded-xl p-2 space-y-1">
-              {retailers.length === 0 && !showOtherRetailer ? (
-                <p className="text-xs text-gray-400 p-2">{t("zoom_in.fields.select_rso")}</p>
-              ) : (
-                retailers.map((r) => (
-                  <label key={r.retailer_code} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedRetailers.includes(r.retailer_code)}
-                      onChange={() => toggleRetailer(r.retailer_code)}
-                      className="rounded border-gray-300 dark:border-slate-700"
-                    />
-                    <span className="text-gray-700 dark:text-gray-300">
-                      {r.retailer_code}{r.sim_seller === "Yes" ? " (SIM)" : ""}
-                    </span>
-                  </label>
-                ))
-              )}
-            </div>
+            <EntitySelector
+              label={t("zoom_in.fields.retailer_code")}
+              items={retailers.map((r): SelectorItem => ({
+                id: r.retailer_code,
+                label: r.name,
+                sublabel: [r.itop_number, r.retailer_code, r.rso_itop_last3].filter(Boolean).join(" · ") || undefined,
+                badge: String(r.activation_count),
+              }))}
+              selectedIds={selectedRetailers}
+              onChange={(ids) => setSelectedRetailers(ids as string[])}
+              placeholder={t("zoom_in.fields.select_retailer")}
+              searchPlaceholder={t("zoom_in.fields.search_retailer")}
+              emptyMessage={t("zoom_in.fields.select_rso")}
+              noResultsMessage="No retailer found"
+                  error={errors.retailer}
+                />
             <label className="flex items-center gap-2 mt-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
               <input
                 type="checkbox"
@@ -452,7 +421,6 @@ export default function CreateZoomInEventPage() {
                 className="w-full mt-2 px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
               />
             )}
-            {errors.retailer && <p className="text-xs text-red-500 mt-1">{errors.retailer}</p>}
           </div>
         </div>
 

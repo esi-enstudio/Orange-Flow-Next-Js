@@ -115,6 +115,20 @@
   .scrollbar-hide::-webkit-scrollbar { display: none; }
   .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
+  .scrollbar-custom::-webkit-scrollbar { width: 5px; height: 5px; }
+  .scrollbar-custom::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-custom::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+  .dark .scrollbar-custom::-webkit-scrollbar-thumb { background: #334155; }
+  .scrollbar-custom { scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
+  .dark .scrollbar-custom { scrollbar-color: #334155 transparent; }
+
+  select::-webkit-scrollbar { width: 6px; }
+  select::-webkit-scrollbar-track { background: transparent; }
+  select::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 8px; }
+  .dark select::-webkit-scrollbar-thumb { background: #475569; }
+  select { scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
+  .dark select { scrollbar-color: #475569 transparent; }
+
   .bg-primary-50 { background-color: var(--clr-primary-50); }
   .bg-primary-100 { background-color: var(--clr-primary-100); }
   .bg-primary-200 { background-color: var(--clr-primary-200); }

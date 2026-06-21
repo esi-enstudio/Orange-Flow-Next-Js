@@ -4,7 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import apiClient from "@/lib/api";
 import { useLanguage } from "@/i18n/useLanguage";
 import { toast } from "react-hot-toast";
-import { Loader2, X, Search, Pencil } from "lucide-react";
+import { Loader2, X, Pencil } from "lucide-react";
+import EntitySelector, { SelectorItem } from "./EntitySelector";
 
 interface House {
   id: number;
@@ -36,6 +37,7 @@ interface Employee {
   pool_number: string | null;
   name: string | null;
   employee_id: string | null;
+  assisted_retailer_code: string | null;
 }
 
 interface RetailerItem {
@@ -43,6 +45,8 @@ interface RetailerItem {
   name: string;
   itop_number: string | null;
   sim_seller: string | null;
+  rso_itop_last3: string | null;
+  activation_count: number;
 }
 
 interface CreateEventModalProps {
@@ -81,11 +85,6 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
   const [otherRetailerCode, setOtherRetailerCode] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const [btsSearch, setBtsSearch] = useState("");
-  const [rsoSearch, setRsoSearch] = useState("");
-  const [bpSearch, setBpSearch] = useState("");
-  const [retailerSearch, setRetailerSearch] = useState("");
-
   const resetForm = () => {
     setErrors({});
     setHouseId("");
@@ -99,10 +98,6 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
     setSelectedRetailers([]);
     setShowOtherRetailer(false);
     setOtherRetailerCode("");
-    setBtsSearch("");
-    setRsoSearch("");
-    setBpSearch("");
-    setRetailerSearch("");
     setThanas([]);
     setBtsList([]);
     setRsos([]);
@@ -178,9 +173,10 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
       setSelectedRsoIds(ev.rso_details?.map((r: any) => r.id) || []);
       setSelectedBpIds(ev.bp_details?.map((b: any) => b.id) || []);
 
-      if (ev.rso_details?.length > 0) {
-        const firstRsoId = ev.rso_details[0].id;
-        const retRes = await apiClient.get(`zoom-in/retailers-by-rso/${firstRsoId}`);
+      if (ev.house_id) {
+        const retRes = await apiClient.get("zoom-in/retailers-by-rso", {
+          params: { house_id: ev.house_id },
+        });
         setRetailers(retRes.data);
         setSelectedRetailers(ev.retailer_details?.map((r: any) => r.retailer_code) || []);
       }
@@ -242,29 +238,17 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
 
   useEffect(() => {
     if (suppressEffects.current) return;
-    const rsoId = selectedRsoIds[0];
-    if (!rsoId) {
-      setRetailers([]);
-      return;
-    }
+    if (!houseId) return;
     const fetchRetailers = async () => {
       try {
-        const res = await apiClient.get(`zoom-in/retailers-by-rso/${rsoId}`);
+        const res = await apiClient.get("zoom-in/retailers-by-rso", {
+          params: { house_id: houseId },
+        });
         setRetailers(res.data);
       } catch { /* silent */ }
     };
     fetchRetailers();
-  }, [selectedRsoIds]);
-
-  const toggleSelection = (arr: number[], val: number): number[] => {
-    return arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val];
-  };
-
-  const toggleRetailer = (code: string) => {
-    setSelectedRetailers((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    );
-  };
+  }, [houseId]);
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
@@ -276,10 +260,6 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
     if (selectedBtsIds.length === 0) errs.bts = t("zoom_in.validation.bts_required");
     if (selectedRsoIds.length === 0) errs.rso = t("zoom_in.validation.rso_required");
     if (selectedBpIds.length === 0) errs.bp = t("zoom_in.validation.bp_required");
-    const finalRetailers = showOtherRetailer && otherRetailerCode.trim()
-      ? [...selectedRetailers, otherRetailerCode.trim()]
-      : selectedRetailers;
-    if (finalRetailers.length === 0) errs.retailer = t("zoom_in.validation.retailer_required");
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -337,45 +317,6 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
       setSubmitting(false);
     }
   };
-
-  const filteredBts = btsList.filter((b) => {
-    if (!btsSearch) return true;
-    const q = btsSearch.toLowerCase();
-    return (
-      b.bts_code.toLowerCase().includes(q) ||
-      (b.address && b.address.toLowerCase().includes(q))
-    );
-  });
-
-  const filteredRsos = rsos.filter((r) => {
-    if (!rsoSearch) return true;
-    const q = rsoSearch.toLowerCase();
-    return (
-      (r.name && r.name.toLowerCase().includes(q)) ||
-      (r.itop_number && r.itop_number.toLowerCase().includes(q)) ||
-      r.dms_code.toLowerCase().includes(q)
-    );
-  });
-
-  const filteredBps = bps.filter((b) => {
-    if (!bpSearch) return true;
-    const q = bpSearch.toLowerCase();
-    return (
-      (b.name && b.name.toLowerCase().includes(q)) ||
-      (b.pool_number && b.pool_number.toLowerCase().includes(q)) ||
-      b.dms_code.toLowerCase().includes(q)
-    );
-  });
-
-  const filteredRetailers = retailers.filter((r) => {
-    if (!retailerSearch) return true;
-    const q = retailerSearch.toLowerCase();
-    return (
-      r.name.toLowerCase().includes(q) ||
-      (r.itop_number && r.itop_number.toLowerCase().includes(q)) ||
-      r.retailer_code.toLowerCase().includes(q)
-    );
-  });
 
   if (!isOpen) return null;
 
@@ -496,43 +437,22 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  {t("zoom_in.fields.bts")} <span className="text-red-500">*</span>
-                </label>
-                {btsList.length > 0 && (
-                  <div className="relative mb-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder={t("zoom_in.fields.search_bts")}
-                      value={btsSearch}
-                      onChange={(e) => setBtsSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
-                    />
-                  </div>
-                )}
-                <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-slate-800 rounded-xl p-2 space-y-1">
-                  {btsList.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-2">{t("zoom_in.fields.select_thana")}</p>
-                  ) : filteredBts.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-2">No BTS found</p>
-                  ) : (
-                    filteredBts.map((b) => (
-                      <label key={b.id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selectedBtsIds.includes(b.id)}
-                          onChange={() => setSelectedBtsIds((prev) => toggleSelection(prev, b.id))}
-                          className="rounded border-gray-300 dark:border-slate-700"
-                        />
-                        <span className="text-gray-700 dark:text-gray-300">
-                          {b.bts_code}{b.address ? ` — ${b.address}` : ""}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-                {errors.bts && <p className="text-xs text-red-500 mt-1">{errors.bts}</p>}
+                <EntitySelector
+                  label={t("zoom_in.fields.bts")}
+                  items={btsList.map((b): SelectorItem => ({
+                    id: b.id,
+                    label: b.bts_code,
+                    sublabel: b.address || undefined,
+                  }))}
+                  selectedIds={selectedBtsIds}
+                  onChange={(ids) => setSelectedBtsIds(ids as number[])}
+                  placeholder={t("zoom_in.fields.select_bts")}
+                  searchPlaceholder={t("zoom_in.fields.search_bts")}
+                  emptyMessage={t("zoom_in.fields.select_thana")}
+                  noResultsMessage="No BTS found"
+                  error={errors.bts}
+                  required
+                />
               </div>
             </div>
 
@@ -540,124 +460,60 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  {t("zoom_in.fields.rso")} <span className="text-red-500">*</span>
-                </label>
-                {rsos.length > 0 && (
-                  <div className="relative mb-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder={t("zoom_in.fields.search_rso")}
-                      value={rsoSearch}
-                      onChange={(e) => setRsoSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
-                    />
-                  </div>
-                )}
-                <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-slate-800 rounded-xl p-2 space-y-1">
-                  {rsos.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-2">{t("zoom_in.fields.select_house")}</p>
-                  ) : filteredRsos.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-2">No RSO found</p>
-                  ) : (
-                    filteredRsos.map((r) => (
-                      <label key={r.id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selectedRsoIds.includes(r.id)}
-                          onChange={() => setSelectedRsoIds((prev) => toggleSelection(prev, r.id))}
-                          className="rounded border-gray-300 dark:border-slate-700"
-                        />
-                        <span className="text-gray-700 dark:text-gray-300">
-                          {r.name || r.dms_code}
-                          {r.itop_number ? ` — ${r.itop_number}` : ""}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-                {errors.rso && <p className="text-xs text-red-500 mt-1">{errors.rso}</p>}
+                <EntitySelector
+                  label={t("zoom_in.fields.rso")}
+                  items={rsos.map((r): SelectorItem => ({
+                    id: r.id,
+                    label: r.name || r.dms_code,
+                    sublabel: [r.itop_number, r.assisted_retailer_code].filter(Boolean).join(" · ") || undefined,
+                  }))}
+                  selectedIds={selectedRsoIds}
+                  onChange={(ids) => setSelectedRsoIds(ids as number[])}
+                  placeholder={t("zoom_in.fields.select_rso")}
+                  searchPlaceholder={t("zoom_in.fields.search_rso")}
+                  emptyMessage={t("zoom_in.fields.select_house")}
+                  noResultsMessage="No RSO found"
+                  error={errors.rso}
+                  required
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  {t("zoom_in.fields.bp")} <span className="text-red-500">*</span>
-                </label>
-                {bps.length > 0 && (
-                  <div className="relative mb-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder={t("zoom_in.fields.search_bp")}
-                      value={bpSearch}
-                      onChange={(e) => setBpSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
-                    />
-                  </div>
-                )}
-                <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-slate-800 rounded-xl p-2 space-y-1">
-                  {bps.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-2">{t("zoom_in.fields.select_house")}</p>
-                  ) : filteredBps.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-2">No BP found</p>
-                  ) : (
-                    filteredBps.map((b) => (
-                      <label key={b.id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selectedBpIds.includes(b.id)}
-                          onChange={() => setSelectedBpIds((prev) => toggleSelection(prev, b.id))}
-                          className="rounded border-gray-300 dark:border-slate-700"
-                        />
-                        <span className="text-gray-700 dark:text-gray-300">
-                          {b.name || b.dms_code}
-                          {b.pool_number ? ` — Pool: ${b.pool_number}` : ""}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-                {errors.bp && <p className="text-xs text-red-500 mt-1">{errors.bp}</p>}
+                <EntitySelector
+                  label={t("zoom_in.fields.bp")}
+                  items={bps.map((b): SelectorItem => ({
+                    id: b.id,
+                    label: b.name || b.dms_code,
+                    sublabel: [b.pool_number ? `Pool: ${b.pool_number}` : null, b.assisted_retailer_code].filter(Boolean).join(" · ") || undefined,
+                  }))}
+                  selectedIds={selectedBpIds}
+                  onChange={(ids) => setSelectedBpIds(ids as number[])}
+                  placeholder={t("zoom_in.fields.select_bp")}
+                  searchPlaceholder={t("zoom_in.fields.search_bp")}
+                  emptyMessage={t("zoom_in.fields.select_house")}
+                  noResultsMessage="No BP found"
+                  error={errors.bp}
+                  required
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  {t("zoom_in.fields.retailer_code")} <span className="text-red-500">*</span>
-                </label>
-                {retailers.length > 0 && (
-                  <div className="relative mb-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder={t("zoom_in.fields.search_retailer")}
-                      value={retailerSearch}
-                      onChange={(e) => setRetailerSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
-                    />
-                  </div>
-                )}
-                <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-slate-800 rounded-xl p-2 space-y-1">
-                  {retailers.length === 0 && !showOtherRetailer ? (
-                    <p className="text-xs text-gray-400 p-2">{t("zoom_in.fields.select_rso")}</p>
-                  ) : filteredRetailers.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-2">No retailer found</p>
-                  ) : (
-                    filteredRetailers.map((r) => (
-                      <label key={r.retailer_code} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selectedRetailers.includes(r.retailer_code)}
-                          onChange={() => toggleRetailer(r.retailer_code)}
-                          className="rounded border-gray-300 dark:border-slate-700"
-                        />
-                        <span className="text-gray-700 dark:text-gray-300">
-                          {r.name} ({r.retailer_code}){r.sim_seller === "Yes" ? " SIM" : ""}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
+                <EntitySelector
+                  label={t("zoom_in.fields.retailer_code")}
+                  items={retailers.map((r): SelectorItem => ({
+                    id: r.retailer_code,
+                    label: r.name,
+                    sublabel: [r.itop_number, r.retailer_code, r.rso_itop_last3].filter(Boolean).join(" · ") || undefined,
+                    badge: String(r.activation_count),
+                  }))}
+                  selectedIds={selectedRetailers}
+                  onChange={(ids) => setSelectedRetailers(ids as string[])}
+                  placeholder={t("zoom_in.fields.select_retailer")}
+                  searchPlaceholder={t("zoom_in.fields.search_retailer")}
+                  emptyMessage={t("zoom_in.fields.select_rso")}
+                  noResultsMessage="No retailer found"
+                  error={errors.retailer}
+                />
                 <label className="flex items-center gap-2 mt-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
                   <input
                     type="checkbox"
@@ -676,7 +532,6 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
                     className="w-full mt-2 px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
                   />
                 )}
-                {errors.retailer && <p className="text-xs text-red-500 mt-1">{errors.retailer}</p>}
               </div>
             </div>
 

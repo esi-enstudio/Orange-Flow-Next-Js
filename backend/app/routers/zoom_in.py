@@ -1,12 +1,12 @@
 from typing import Optional
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import logging
 
 import os
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Response
 from pydantic import BaseModel
-from sqlalchemy import select, func, and_, case, delete as sa_delete
+from sqlalchemy import select, func, and_, case, delete as sa_delete, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -30,6 +30,8 @@ from app.models.bts import BTS
 from app.models.employee import Employee
 from app.models.retailer import Retailer
 from app.models.house import House
+from app.models.activation import Activation
+from app.models.product_exclusion import ExcludedProductCode
 from app.models.user import User
 from app.utils.access_control import is_admin_user
 from app.utils.validation import safe_filename, validate_excel
@@ -265,6 +267,7 @@ async def get_rsos_by_house(
             "pool_number": e.pool_number,
             "name": e.user.name if e.user else None,
             "employee_id": e.employee_id,
+            "assisted_retailer_code": e.assisted_retailer_code,
         }
         for e in employees
     ]
@@ -294,38 +297,91 @@ async def get_bps_by_house(
             "pool_number": e.pool_number,
             "name": e.user.name if e.user else None,
             "employee_id": e.employee_id,
+            "assisted_retailer_code": e.assisted_retailer_code,
         }
         for e in employees
     ]
 
 
-@router.get("/retailers-by-rso/{rso_id}")
+@router.get("/retailers-by-rso")
 async def get_retailers_by_rso(
-    rso_id: int,
+    house_id: int = Query(..., description="House ID to fetch all retailers for"),
     search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("zoom_in.view")),
 ):
-    query = select(Retailer).where(
-        Retailer.employee_id == rso_id,
+    excl_result = await db.execute(select(ExcludedProductCode.product_code))
+    excluded_codes = {row[0] for row in excl_result.all()}
+
+    today = date.today()
+    first_of_month = today.replace(day=1)
+    last_month_end = first_of_month - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
+
+    emp_result = await db.execute(
+        select(Employee.id, Employee.itop_number, Employee.assisted_retailer_code).where(
+            Employee.house_id == house_id,
+            Employee.employee_type.in_(["rso", "bp"]),
+            Employee.status == "Active",
+        )
     )
+    employee_rows = emp_result.all()
+    employee_ids = [row.id for row in employee_rows]
+    emp_itop: dict[int, str | None] = {row.id: row.itop_number for row in employee_rows}
+
+    emp_exclude_codes: set[str] = set()
+    for row in employee_rows:
+        if row.assisted_retailer_code:
+            emp_exclude_codes.add(row.assisted_retailer_code)
+
+    query = select(Retailer).where(
+        Retailer.employee_id.in_(employee_ids),
+        Retailer.sim_seller == "Yes",
+    )
+    if emp_exclude_codes:
+        query = query.where(~Retailer.retailer_code.in_(list(emp_exclude_codes)))
     if search:
         pattern = f"%{search}%"
         query = query.where(
             (Retailer.retailer_code.ilike(pattern)) |
             (Retailer.name.ilike(pattern))
         )
-    result = await db.execute(query.order_by(Retailer.retailer_code))
+    result = await db.execute(query)
     retailers = result.scalars().all()
-    return [
+
+    retailer_codes = [r.retailer_code for r in retailers]
+    activation_counts: dict[str, int] = {}
+    if retailer_codes:
+        count_query = select(
+            Activation.retailer_code,
+            func.count(Activation.id).label("cnt")
+        ).where(
+            Activation.retailer_code.in_(retailer_codes),
+            Activation.activation_date >= last_month_start,
+            Activation.activation_date <= last_month_end,
+        )
+        if excluded_codes:
+            count_query = count_query.where(
+                ~Activation.product_code.in_(list(excluded_codes))
+            )
+        count_query = count_query.group_by(Activation.retailer_code)
+        count_result = await db.execute(count_query)
+        for row in count_result.all():
+            activation_counts[row[0]] = row[1]
+
+    result_data = [
         {
             "retailer_code": r.retailer_code,
             "name": r.name,
             "itop_number": r.itop_number,
             "sim_seller": r.sim_seller,
+            "rso_itop_last3": emp_itop.get(r.employee_id, "")[-3:] if emp_itop.get(r.employee_id) else None,
+            "activation_count": activation_counts.get(r.retailer_code, 0),
         }
         for r in retailers
     ]
+    result_data.sort(key=lambda x: x["activation_count"], reverse=True)
+    return result_data
 
 
 # ─── Allocation Endpoints ──────────────────────────────────────
