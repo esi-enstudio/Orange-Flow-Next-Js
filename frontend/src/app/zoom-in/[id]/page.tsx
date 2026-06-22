@@ -132,6 +132,39 @@ function BTSListCard({
   );
 }
 
+function LocationCard({
+  locationText,
+  copied,
+  onCopy,
+}: {
+  locationText: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  const hasLocation = locationText.length > 0;
+
+  return (
+    <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Location</p>
+        <button
+          type="button"
+          onClick={onCopy}
+          disabled={!hasLocation}
+          aria-label="Copy BTS locations"
+          title={hasLocation ? "Copy locations" : "No location to copy"}
+          className="flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-700 dark:hover:text-primary-300 dark:focus:ring-offset-slate-800"
+        >
+          {copied ? <Check className="size-4 text-primary-600 dark:text-primary-300" /> : <Copy className="size-4" />}
+        </button>
+      </div>
+      <p className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs font-medium leading-relaxed text-gray-700 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-300">
+        {locationText || "—"}
+      </p>
+    </div>
+  );
+}
+
 export default function EventDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -143,6 +176,7 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedBtsId, setCopiedBtsId] = useState<number | null>(null);
+  const [copiedLocation, setCopiedLocation] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -190,10 +224,25 @@ export default function EventDetailPage() {
     try {
       await writeToClipboard(btsCode);
       setCopiedBtsId(bts.id);
+      setCopiedLocation(false);
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => setCopiedBtsId(null), 1600);
     } catch {
       toast.error("BTS code copy failed");
+    }
+  };
+
+  const handleCopyLocation = async (locationText: string) => {
+    if (!locationText) return;
+
+    try {
+      await writeToClipboard(locationText);
+      setCopiedBtsId(null);
+      setCopiedLocation(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopiedLocation(false), 1600);
+    } catch {
+      toast.error("Location copy failed");
     }
   };
 
@@ -231,6 +280,11 @@ export default function EventDetailPage() {
     );
   }
 
+  const btsLocationText = event.bts_details
+    .map((bts) => bts.address?.trim())
+    .filter((address): address is string => Boolean(address))
+    .join(", ");
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center gap-4">
@@ -264,6 +318,18 @@ export default function EventDetailPage() {
               <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.bts")}</h3>
             </div>
             <BTSListCard items={event.bts_details} copiedBtsId={copiedBtsId} onCopy={handleCopyBtsCode} />
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-primary-500" />
+              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">Location</h3>
+            </div>
+            <LocationCard
+              locationText={btsLocationText}
+              copied={copiedLocation}
+              onCopy={() => handleCopyLocation(btsLocationText)}
+            />
           </div>
 
           <hr className="border-gray-100 dark:border-slate-800" />
