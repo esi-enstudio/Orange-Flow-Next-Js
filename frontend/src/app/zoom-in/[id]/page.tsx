@@ -23,6 +23,7 @@ interface EmployeeDetail {
   name: string | null;
   pool_number?: string | null;
   assisted_retailer_code?: string | null;
+  activation_count?: number;
 }
 
 interface RetailerDetail {
@@ -31,6 +32,7 @@ interface RetailerDetail {
   itop_number: string | null;
   employee_name: string | null;
   employee_itop_number: string | null;
+  activation_count?: number;
 }
 
 interface EventDetail {
@@ -40,6 +42,10 @@ interface EventDetail {
   event_type_id: number;
   activity_id: number;
   thana: string;
+  activation_count: number;
+  rso_total_activation_count: number;
+  bp_total_activation_count: number;
+  retailer_total_activation_count: number;
   house_name: string | null;
   event_type_name: string | null;
   activity_name: string | null;
@@ -119,26 +125,31 @@ function RSOListCard({
   copiedRsoId,
   onCopy,
   getSublabel,
+  displayKey = "assisted_retailer_code",
+  copyLabel = "Copy",
 }: {
   items: EmployeeDetail[];
   copiedRsoId: number | null;
   onCopy: (rso: EmployeeDetail) => void;
   getSublabel?: (item: EmployeeDetail) => string | null;
+  displayKey?: "assisted_retailer_code" | "pool_number";
+  copyLabel?: string;
 }) {
   return (
     <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
-      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">RSO ({items.length})</p>
+      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{copyLabel} ({items.length})</p>
       {items.length === 0 ? (
         <p className="text-sm text-gray-400">—</p>
       ) : (
         <div className="flex flex-col gap-1.5">
           {items.map((rso) => {
-            const assistedCode = rso.assisted_retailer_code?.trim();
+            const mainCode = (displayKey === "pool_number" ? rso.pool_number : rso.assisted_retailer_code)?.trim();
             const isCopied = copiedRsoId === rso.id;
             const subLabel = getSublabel ? getSublabel(rso) : (() => {
               const last3 = rso.itop_number?.slice(-3);
               return last3 ? `${rso.name || rso.dms_code} • ${last3}` : null;
             })();
+            const actCount = rso.activation_count ?? 0;
 
             return (
               <div
@@ -146,7 +157,7 @@ function RSOListCard({
                 className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-300"
               >
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <span className="block break-words">{assistedCode || "—"}</span>
+                  <span className="block break-words">{mainCode || "—"} <span className="text-primary-600 dark:text-primary-400 font-bold">({actCount})</span></span>
                   {subLabel && (
                     <span className="block text-[10px] text-gray-400 dark:text-gray-500">{subLabel}</span>
                   )}
@@ -154,9 +165,9 @@ function RSOListCard({
                 <button
                   type="button"
                   onClick={() => onCopy(rso)}
-                  disabled={!assistedCode}
-                  aria-label={assistedCode ? `Copy assisted retailer code ${assistedCode}` : "No assisted retailer code to copy"}
-                  title={assistedCode ? `Copy ${assistedCode}` : "No assisted retailer code to copy"}
+                  disabled={!mainCode}
+                  aria-label={mainCode ? `Copy ${mainCode}` : "No code to copy"}
+                  title={mainCode ? `Copy ${mainCode}` : "No code to copy"}
                   className="flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-600 dark:hover:text-primary-300 dark:focus:ring-offset-slate-700"
                 >
                   {isCopied ? <Check className="size-4 text-primary-600 dark:text-primary-300" /> : <Copy className="size-4" />}
@@ -191,6 +202,7 @@ function RetailerListCard({
             const last3 = retailer.employee_itop_number?.slice(-3);
             const rsoLabel = last3 ? `${retailer.employee_name ?? ""} • ${last3}` : null;
             const isCopied = copiedRetailerCode === code;
+            const actCount = retailer.activation_count ?? 0;
             const displayText = [
               code,
               retailer.name,
@@ -203,7 +215,7 @@ function RetailerListCard({
                 className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-300"
               >
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <span className="block break-words">{displayText || "—"}</span>
+                  <span className="block break-words">{displayText || "—"} <span className="text-primary-600 dark:text-primary-400 font-bold">({actCount})</span></span>
                   {rsoLabel && (
                     <span className="block text-[10px] text-gray-400 dark:text-gray-500">{rsoLabel}</span>
                   )}
@@ -443,6 +455,7 @@ export default function EventDetailPage() {
             <DetailRow icon={Tag} label={t("zoom_in.fields.event_type")} value={event.event_type_name} />
             <DetailRow icon={Activity} label={t("zoom_in.fields.activity")} value={event.activity_name} />
             <DetailRow icon={MapPin} label={t("zoom_in.fields.thana")} value={event.thana} />
+            <DetailRow icon={Activity} label={t("zoom_in.fields.activation_count")} value={String(event.activation_count ?? 0)} />
           </div>
 
           <hr className="border-gray-100 dark:border-slate-800" />
@@ -473,23 +486,23 @@ export default function EventDetailPage() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary-500" />
-                <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.rso")}</h3>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.rso")} &bull; {event.rso_total_activation_count ?? 0} GA</h3>
               </div>
-              <RSOListCard items={event.rso_details} copiedRsoId={copiedRsoId} onCopy={handleCopyAssistedCode} />
+              <RSOListCard items={event.rso_details} copiedRsoId={copiedRsoId} onCopy={handleCopyAssistedCode} displayKey="assisted_retailer_code" copyLabel={t("zoom_in.fields.rso")} />
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary-500" />
-                <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.bp")}</h3>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.bp")} &bull; {event.bp_total_activation_count ?? 0} GA</h3>
               </div>
-              <RSOListCard items={event.bp_details} copiedRsoId={copiedRsoId} onCopy={handleCopyAssistedCode} getSublabel={(item) => item.pool_number ? `${item.name || item.dms_code} • ${item.pool_number}` : null} />
+              <RSOListCard items={event.bp_details} copiedRsoId={copiedRsoId} onCopy={handleCopyAssistedCode} displayKey="assisted_retailer_code" copyLabel={t("zoom_in.fields.bp")} getSublabel={(item) => { const last3 = item.pool_number?.slice(-3); return last3 ? `${item.name || item.dms_code} • ${last3}` : item.name || item.dms_code; }} />
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Store className="w-4 h-4 text-primary-500" />
-                <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.retailer_code")}</h3>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.retailer_code")} &bull; {event.retailer_total_activation_count ?? 0} GA</h3>
               </div>
               <RetailerListCard items={event.retailer_details} copiedRetailerCode={copiedRetailerCode} onCopy={handleCopyRetailerCode} />
             </div>

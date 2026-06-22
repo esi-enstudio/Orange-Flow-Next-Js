@@ -27,7 +27,9 @@ interface EventItem {
   event_type_id: number;
   activity_id: number;
   thana: string;
+  activation_count: number;
   house_name: string | null;
+  house_code: string | null;
   event_type_name: string | null;
   activity_name: string | null;
   bts_ids: number[];
@@ -171,26 +173,32 @@ export default function ZoomInPage() {
               <thead>
                 <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50">
                   <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.date")}</th>
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.house")}</th>
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.thana")}</th>
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.event_type")}</th>
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.activity")}</th>
+                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.house")}</th>
+                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.thana")}</th>
+                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.event_type")}</th>
+                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.activation_count")}</th>
                   <th className="text-right px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
-                {events.map((event) => (
+                {events.map((event) => {
+                  const d = new Date(event.date);
+                  const formattedDate = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+                  return (
                   <tr key={event.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="px-6 py-4 text-gray-900 dark:text-gray-100 font-medium">{event.date}</td>
-                    <td className="px-6 py-4 text-gray-700 dark:text-gray-300">{event.house_name || "—"}</td>
-                    <td className="px-6 py-4 text-gray-700 dark:text-gray-300">{event.thana}</td>
-                    <td className="px-6 py-4">
+                    <td className="whitespace-nowrap px-6 py-4 text-gray-900 dark:text-gray-100 font-medium">{formattedDate}</td>
+                    <td className="whitespace-nowrap px-6 py-4">
+                      <div className="text-gray-900 dark:text-gray-100 font-medium">{event.house_name || "—"}</div>
+                      {event.house_code && <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">{event.house_code}</div>}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-gray-700 dark:text-gray-300">{event.thana}</td>
+                    <td className="whitespace-nowrap px-6 py-4">
                       <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
                         {event.event_type_name || "—"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-gray-700 dark:text-gray-300">{event.activity_name || "—"}</td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="whitespace-nowrap px-6 py-4 text-gray-900 dark:text-gray-100 font-bold">{event.activation_count ?? 0}</td>
+                    <td className="whitespace-nowrap px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => router.push(`/zoom-in/${event.id}`)}
@@ -220,7 +228,8 @@ export default function ZoomInPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

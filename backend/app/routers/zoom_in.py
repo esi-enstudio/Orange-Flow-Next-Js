@@ -31,6 +31,7 @@ from app.models.employee import Employee
 from app.models.retailer import Retailer
 from app.models.house import House
 from app.models.activation import Activation
+from app.models.live_activation import LiveActivation
 from app.models.product_exclusion import ExcludedProductCode
 from app.models.user import User
 from app.utils.access_control import is_admin_user
@@ -688,6 +689,91 @@ async def get_events(
     events = result.unique().scalars().all()
 
     total_pages = max(1, -(-total // pagination.per_page))
+
+    # ─── Batch Activation Counts ────────────────────────────────
+    today = date.today()
+    all_emp_ids = set()
+    all_retailer_codes_by_event: dict[int, set[str]] = {}
+    for e in events:
+        event_date = e.date
+        table = LiveActivation if event_date == today else Activation
+        codes: set[str] = set()
+        for r in e.rsos:
+            all_emp_ids.add(r.employee_id)
+        for b in e.bps:
+            all_emp_ids.add(b.employee_id)
+        for r in e.retailers:
+            if r.retailer_code:
+                codes.add(r.retailer_code)
+        all_retailer_codes_by_event[e.id] = codes
+
+    emp_code_map: dict[int, str] = {}
+    if all_emp_ids:
+        emp_result = await db.execute(
+            select(Employee.id, Employee.assisted_retailer_code).where(
+                Employee.id.in_(list(all_emp_ids)),
+                Employee.assisted_retailer_code.isnot(None),
+            )
+        )
+        for row in emp_result.all():
+            if row.assisted_retailer_code:
+                emp_code_map[row.id] = row.assisted_retailer_code
+
+    for e in events:
+        codes = all_retailer_codes_by_event[e.id]
+        for r in e.rsos:
+            code = emp_code_map.get(r.employee_id)
+            if code:
+                codes.add(code)
+        for b in e.bps:
+            code = emp_code_map.get(b.employee_id)
+            if code:
+                codes.add(code)
+        all_retailer_codes_by_event[e.id] = codes
+
+    excl_result = await db.execute(select(ExcludedProductCode.product_code))
+    excluded_codes = {row[0] for row in excl_result.all()}
+
+    all_activation_counts: dict[int, int] = {}
+    today_events: list[ZoomInEvent] = []
+    past_events: list[ZoomInEvent] = []
+    for e in events:
+        if e.date == today:
+            today_events.append(e)
+        else:
+            past_events.append(e)
+
+    async def _batch_counts(evts: list[ZoomInEvent], model):
+        if not evts:
+            return
+        code_to_event: dict[str, list[int]] = {}
+        for e in evts:
+            for code in all_retailer_codes_by_event.get(e.id, set()):
+                code_to_event.setdefault(code, []).append(e.id)
+        if not code_to_event:
+            return
+        query = select(
+            model.retailer_code,
+            func.count().label("cnt")
+        ).where(
+            model.retailer_code.in_(list(code_to_event.keys())),
+        )
+        if model is LiveActivation:
+            query = query.where(model.activation_date == today)
+        else:
+            dates = {e.date for e in evts}
+            query = query.where(model.activation_date.in_(list(dates)))
+        if excluded_codes:
+            query = query.where(~model.product_code.in_(list(excluded_codes)))
+        query = query.group_by(model.retailer_code)
+        count_result = await db.execute(query)
+        for row in count_result.all():
+            for eid in code_to_event.get(row[0], []):
+                all_activation_counts[eid] = all_activation_counts.get(eid, 0) + row[1]
+
+    await _batch_counts(today_events, LiveActivation)
+    await _batch_counts(past_events, Activation)
+
     data = []
     for e in events:
         data.append({
@@ -698,8 +784,10 @@ async def get_events(
             "activity_id": e.activity_id,
             "thana": e.thana,
             "house_name": e.house.name if e.house else None,
+            "house_code": e.house.code if e.house else None,
             "event_type_name": e.event_type.name if e.event_type else None,
             "activity_name": e.activity.name if e.activity else None,
+            "activation_count": all_activation_counts.get(e.id, 0),
             "bts_ids": [b.bts_id for b in e.bts_list],
             "rso_ids": [r.employee_id for r in e.rsos],
             "bp_ids": [b.employee_id for b in e.bps],
@@ -777,6 +865,57 @@ async def get_event(
     bp_employee_ids = [b.employee_id for b in event.bps]
     retailer_codes_list = [r.retailer_code for r in event.retailers]
 
+    # ─── Activation Count Setup ──────────────────────────────────
+    today = date.today()
+    event_date = event.date
+    ActivationModel = LiveActivation if event_date == today else Activation
+
+    excl_result = await db.execute(select(ExcludedProductCode.product_code))
+    excluded_codes = {row[0] for row in excl_result.all()}
+
+    rso_emp_codes: dict[int, str | None] = {}
+    if rso_employee_ids:
+        emp_result = await db.execute(
+            select(Employee.id, Employee.assisted_retailer_code).where(
+                Employee.id.in_(rso_employee_ids),
+            )
+        )
+        for row in emp_result.all():
+            if row.assisted_retailer_code:
+                rso_emp_codes[row.id] = row.assisted_retailer_code
+
+    bp_emp_codes: dict[int, str | None] = {}
+    if bp_employee_ids:
+        emp_result = await db.execute(
+            select(Employee.id, Employee.assisted_retailer_code).where(
+                Employee.id.in_(bp_employee_ids),
+            )
+        )
+        for row in emp_result.all():
+            if row.assisted_retailer_code:
+                bp_emp_codes[row.id] = row.assisted_retailer_code
+
+    retailer_codes_set = {r.retailer_code for r in event.retailers if r.retailer_code}
+
+    all_retailer_codes = list(
+        set(rso_emp_codes.values()) | set(bp_emp_codes.values()) | retailer_codes_set
+    )
+    retailer_code_counts: dict[str, int] = {}
+    if all_retailer_codes:
+        query = select(
+            ActivationModel.retailer_code,
+            func.count().label("cnt")
+        ).where(
+            ActivationModel.activation_date == event_date,
+            ActivationModel.retailer_code.in_(all_retailer_codes),
+        )
+        if excluded_codes:
+            query = query.where(~ActivationModel.product_code.in_(list(excluded_codes)))
+        query = query.group_by(ActivationModel.retailer_code)
+        count_result = await db.execute(query)
+        for row in count_result.all():
+            retailer_code_counts[row[0]] = row[1]
+
     bts_details = []
     if bts_ids:
         bts_result = await db.execute(
@@ -804,12 +943,14 @@ async def get_event(
         rso_map = {e.id: e for e in rso_rows}
         for eid in rso_employee_ids:
             e = rso_map.get(eid)
+            code = rso_emp_codes.get(eid)
             rso_details.append({
                 "id": eid,
                 "dms_code": e.dms_code if e else None,
                 "itop_number": e.itop_number if e else None,
                 "name": e.user.name if e and e.user else None,
-                "assisted_retailer_code": e.assisted_retailer_code if e else None,
+                "assisted_retailer_code": code,
+                "activation_count": retailer_code_counts.get(code, 0) if code else 0,
             })
 
     bp_details = []
@@ -823,12 +964,14 @@ async def get_event(
         bp_map = {e.id: e for e in bp_rows}
         for eid in bp_employee_ids:
             e = bp_map.get(eid)
+            code = bp_emp_codes.get(eid)
             bp_details.append({
                 "id": eid,
                 "dms_code": e.dms_code if e else None,
                 "pool_number": e.pool_number if e else None,
                 "name": e.user.name if e and e.user else None,
-                "assisted_retailer_code": e.assisted_retailer_code if e else None,
+                "assisted_retailer_code": code,
+                "activation_count": retailer_code_counts.get(code, 0) if code else 0,
             })
 
     retailer_details = []
@@ -849,9 +992,30 @@ async def get_event(
                 "itop_number": r.itop_number if r else None,
                 "employee_name": emp.user.name if emp and emp.user else None,
                 "employee_itop_number": emp.itop_number if emp else None,
+                "activation_count": retailer_code_counts.get(code, 0) if code else 0,
             })
 
+    # ─── Section Totals ─────────────────────────────────────────
+    rso_total = sum(
+        retailer_code_counts.get(c, 0)
+        for c in rso_emp_codes.values() if c
+    )
+    bp_total = sum(
+        retailer_code_counts.get(c, 0)
+        for c in bp_emp_codes.values() if c
+    )
+    retailer_total = sum(
+        retailer_code_counts.get(c, 0)
+        for c in retailer_codes_set
+    )
+
+    activation_count = rso_total + bp_total + retailer_total
+
     return {
+        "activation_count": activation_count,
+        "rso_total_activation_count": rso_total,
+        "bp_total_activation_count": bp_total,
+        "retailer_total_activation_count": retailer_total,
         "id": event.id,
         "house_id": event.house_id,
         "date": str(event.date),
