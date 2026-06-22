@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, Building2, CalendarDays, MapPin, Radio, Users, Store, Activity, Tag } from "lucide-react";
+import { ArrowLeft, Building2, CalendarDays, MapPin, Radio, Users, Store, Activity, Tag, Copy, Check, type LucideIcon } from "lucide-react";
 
 interface BTSDetail {
   id: number;
@@ -48,31 +49,155 @@ interface EventDetail {
   retailer_details: RetailerDetail[];
 }
 
+function DetailRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string | null }) {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+      <div className="w-9 h-9 rounded-lg bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0 mt-0.5">
+        <Icon className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</p>
+        <p className="text-sm font-bold text-gray-900 dark:text-gray-100 mt-0.5 break-words">{value || "—"}</p>
+      </div>
+    </div>
+  );
+}
+
+function ListCard<T>({ title, items, renderItem }: { title: string; items: T[]; renderItem: (item: T) => ReactNode }) {
+  return (
+    <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title} ({items.length})</p>
+      {items.length === 0 ? (
+        <p className="text-sm text-gray-400">—</p>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((item, i) => (
+            <span key={i} className="block px-2.5 py-1 bg-white dark:bg-slate-700 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600">
+              {renderItem(item)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BTSListCard({
+  items,
+  copiedBtsId,
+  onCopy,
+}: {
+  items: BTSDetail[];
+  copiedBtsId: number | null;
+  onCopy: (bts: BTSDetail) => void;
+}) {
+  return (
+    <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">BTS ({items.length})</p>
+      {items.length === 0 ? (
+        <p className="text-sm text-gray-400">—</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {items.map((bts) => {
+            const btsCode = bts.bts_code?.trim();
+            const isCopied = copiedBtsId === bts.id;
+
+            return (
+              <div
+                key={bts.id}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-300"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-bold text-gray-900 dark:text-gray-100">{btsCode || "—"}</span>
+                    {bts.address ? <span className="break-words text-gray-500 dark:text-gray-400">— {bts.address}</span> : null}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onCopy(bts)}
+                  disabled={!btsCode}
+                  aria-label={btsCode ? `Copy BTS code ${btsCode}` : "No BTS code to copy"}
+                  title={btsCode ? `Copy ${btsCode}` : "No BTS code to copy"}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-600 dark:hover:text-primary-300 dark:focus:ring-offset-slate-700"
+                >
+                  {isCopied ? <Check className="size-4 text-primary-600 dark:text-primary-300" /> : <Copy className="size-4" />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function EventDetailPage() {
-  const params = useParams();
+  const params = useParams<{ id: string }>();
   const router = useRouter();
   const { hasPermission, loading: authLoading } = useAuth();
   const { t } = useLanguage();
+  const canViewZoomIn = hasPermission("zoom_in.view");
+  const loadFailedMessage = t("zoom_in.messages.load_failed");
 
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [copiedBtsId, setCopiedBtsId] = useState<number | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (authLoading || !hasPermission("zoom_in.view")) return;
+    if (authLoading || !canViewZoomIn) return;
     const fetchEvent = async () => {
       try {
         const res = await apiClient.get<EventDetail>(`zoom-in/events/${params.id}`);
         setEvent(res.data);
       } catch {
-        toast.error(t("zoom_in.messages.load_failed"));
+        toast.error(loadFailedMessage);
       } finally {
         setLoading(false);
       }
     };
     fetchEvent();
-  }, [authLoading]);
+  }, [authLoading, canViewZoomIn, params.id, loadFailedMessage]);
 
-  if (!authLoading && !hasPermission("zoom_in.view")) {
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const writeToClipboard = async (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  };
+
+  const handleCopyBtsCode = async (bts: BTSDetail) => {
+    const btsCode = bts.bts_code?.trim();
+    if (!btsCode) return;
+
+    try {
+      await writeToClipboard(btsCode);
+      setCopiedBtsId(bts.id);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopiedBtsId(null), 1600);
+    } catch {
+      toast.error("BTS code copy failed");
+    }
+  };
+
+  if (!authLoading && !canViewZoomIn) {
     return <AccessDenied />;
   }
 
@@ -106,35 +231,6 @@ export default function EventDetailPage() {
     );
   }
 
-  const DetailRow = ({ icon: Icon, label, value }: { icon: any; label: string; value: string | null }) => (
-    <div className="flex items-start gap-3 px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
-      <div className="w-9 h-9 rounded-lg bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0 mt-0.5">
-        <Icon className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</p>
-        <p className="text-sm font-bold text-gray-900 dark:text-gray-100 mt-0.5 break-words">{value || "—"}</p>
-      </div>
-    </div>
-  );
-
-  const ListCard = ({ title, items, renderItem }: { title: string; items: any[]; renderItem: (item: any) => string }) => (
-    <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
-      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title} ({items.length})</p>
-      {items.length === 0 ? (
-        <p className="text-sm text-gray-400">—</p>
-      ) : (
-        <div className="space-y-1.5">
-          {items.map((item, i) => (
-            <span key={i} className="block px-2.5 py-1 bg-white dark:bg-slate-700 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600">
-              {renderItem(item)}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center gap-4">
@@ -167,11 +263,7 @@ export default function EventDetailPage() {
               <Radio className="w-4 h-4 text-primary-500" />
               <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.bts")}</h3>
             </div>
-            <ListCard
-              title="BTS"
-              items={event.bts_details}
-              renderItem={(b: BTSDetail) => `${b.bts_code || ""} ${b.address ? `— ${b.address}` : ""}`}
-            />
+            <BTSListCard items={event.bts_details} copiedBtsId={copiedBtsId} onCopy={handleCopyBtsCode} />
           </div>
 
           <hr className="border-gray-100 dark:border-slate-800" />
