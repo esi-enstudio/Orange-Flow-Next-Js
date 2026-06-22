@@ -834,16 +834,21 @@ async def get_event(
     retailer_details = []
     if retailer_codes_list:
         ret_result = await db.execute(
-            select(Retailer).where(Retailer.retailer_code.in_(retailer_codes_list))
+            select(Retailer)
+            .options(joinedload(Retailer.employee).joinedload(Employee.user))
+            .where(Retailer.retailer_code.in_(retailer_codes_list))
         )
         ret_rows = ret_result.scalars().all()
         ret_map = {r.retailer_code: r for r in ret_rows}
         for code in retailer_codes_list:
             r = ret_map.get(code)
+            emp = r.employee if r else None
             retailer_details.append({
                 "retailer_code": code,
                 "name": r.name if r else None,
                 "itop_number": r.itop_number if r else None,
+                "employee_name": emp.user.name if emp and emp.user else None,
+                "employee_itop_number": emp.itop_number if emp else None,
             })
 
     return {

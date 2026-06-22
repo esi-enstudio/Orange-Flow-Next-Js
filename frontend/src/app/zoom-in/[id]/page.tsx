@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
@@ -30,6 +29,8 @@ interface RetailerDetail {
   retailer_code: string;
   name: string | null;
   itop_number: string | null;
+  employee_name: string | null;
+  employee_itop_number: string | null;
 }
 
 interface EventDetail {
@@ -59,25 +60,6 @@ function DetailRow({ icon: Icon, label, value }: { icon: LucideIcon; label: stri
         <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</p>
         <p className="text-sm font-bold text-gray-900 dark:text-gray-100 mt-0.5 break-words">{value || "—"}</p>
       </div>
-    </div>
-  );
-}
-
-function ListCard<T>({ title, items, renderItem }: { title: string; items: T[]; renderItem: (item: T) => ReactNode }) {
-  return (
-    <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
-      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title} ({items.length})</p>
-      {items.length === 0 ? (
-        <p className="text-sm text-gray-400">—</p>
-      ) : (
-        <div className="space-y-1.5">
-          {items.map((item, i) => (
-            <span key={i} className="block px-2.5 py-1 bg-white dark:bg-slate-700 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600">
-              {renderItem(item)}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -119,6 +101,119 @@ function BTSListCard({
                   disabled={!btsCode}
                   aria-label={btsCode ? `Copy BTS code ${btsCode}` : "No BTS code to copy"}
                   title={btsCode ? `Copy ${btsCode}` : "No BTS code to copy"}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-600 dark:hover:text-primary-300 dark:focus:ring-offset-slate-700"
+                >
+                  {isCopied ? <Check className="size-4 text-primary-600 dark:text-primary-300" /> : <Copy className="size-4" />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RSOListCard({
+  items,
+  copiedRsoId,
+  onCopy,
+  getSublabel,
+}: {
+  items: EmployeeDetail[];
+  copiedRsoId: number | null;
+  onCopy: (rso: EmployeeDetail) => void;
+  getSublabel?: (item: EmployeeDetail) => string | null;
+}) {
+  return (
+    <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">RSO ({items.length})</p>
+      {items.length === 0 ? (
+        <p className="text-sm text-gray-400">—</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {items.map((rso) => {
+            const assistedCode = rso.assisted_retailer_code?.trim();
+            const isCopied = copiedRsoId === rso.id;
+            const subLabel = getSublabel ? getSublabel(rso) : (() => {
+              const last3 = rso.itop_number?.slice(-3);
+              return last3 ? `${rso.name || rso.dms_code} • ${last3}` : null;
+            })();
+
+            return (
+              <div
+                key={rso.id}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-300"
+              >
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <span className="block break-words">{assistedCode || "—"}</span>
+                  {subLabel && (
+                    <span className="block text-[10px] text-gray-400 dark:text-gray-500">{subLabel}</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onCopy(rso)}
+                  disabled={!assistedCode}
+                  aria-label={assistedCode ? `Copy assisted retailer code ${assistedCode}` : "No assisted retailer code to copy"}
+                  title={assistedCode ? `Copy ${assistedCode}` : "No assisted retailer code to copy"}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-600 dark:hover:text-primary-300 dark:focus:ring-offset-slate-700"
+                >
+                  {isCopied ? <Check className="size-4 text-primary-600 dark:text-primary-300" /> : <Copy className="size-4" />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RetailerListCard({
+  items,
+  copiedRetailerCode,
+  onCopy,
+}: {
+  items: RetailerDetail[];
+  copiedRetailerCode: string | null;
+  onCopy: (retailer: RetailerDetail) => void;
+}) {
+  return (
+    <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Retailer ({items.length})</p>
+      {items.length === 0 ? (
+        <p className="text-sm text-gray-400">—</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {items.map((retailer) => {
+            const code = retailer.retailer_code?.trim();
+            const last3 = retailer.employee_itop_number?.slice(-3);
+            const rsoLabel = last3 ? `${retailer.employee_name ?? ""} • ${last3}` : null;
+            const isCopied = copiedRetailerCode === code;
+            const displayText = [
+              code,
+              retailer.name,
+              retailer.itop_number,
+            ].filter(Boolean).join(" • ");
+
+            return (
+              <div
+                key={code}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-300"
+              >
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <span className="block break-words">{displayText || "—"}</span>
+                  {rsoLabel && (
+                    <span className="block text-[10px] text-gray-400 dark:text-gray-500">{rsoLabel}</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onCopy(retailer)}
+                  disabled={!code}
+                  aria-label={code ? `Copy retailer code ${code}` : "No retailer code to copy"}
+                  title={code ? `Copy ${code}` : "No retailer code to copy"}
                   className="flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-600 dark:hover:text-primary-300 dark:focus:ring-offset-slate-700"
                 >
                   {isCopied ? <Check className="size-4 text-primary-600 dark:text-primary-300" /> : <Copy className="size-4" />}
@@ -176,6 +271,8 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedBtsId, setCopiedBtsId] = useState<number | null>(null);
+  const [copiedRsoId, setCopiedRsoId] = useState<number | null>(null);
+  const [copiedRetailerCode, setCopiedRetailerCode] = useState<string | null>(null);
   const [copiedLocation, setCopiedLocation] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -224,11 +321,47 @@ export default function EventDetailPage() {
     try {
       await writeToClipboard(btsCode);
       setCopiedBtsId(bts.id);
+      setCopiedRsoId(null);
+      setCopiedRetailerCode(null);
       setCopiedLocation(false);
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => setCopiedBtsId(null), 1600);
     } catch {
       toast.error("BTS code copy failed");
+    }
+  };
+
+  const handleCopyAssistedCode = async (rso: EmployeeDetail) => {
+    const assistedCode = rso.assisted_retailer_code?.trim();
+    if (!assistedCode) return;
+
+    try {
+      await writeToClipboard(assistedCode);
+      setCopiedBtsId(null);
+      setCopiedRsoId(rso.id);
+      setCopiedRetailerCode(null);
+      setCopiedLocation(false);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopiedRsoId(null), 1600);
+    } catch {
+      toast.error("Assisted code copy failed");
+    }
+  };
+
+  const handleCopyRetailerCode = async (retailer: RetailerDetail) => {
+    const code = retailer.retailer_code?.trim();
+    if (!code) return;
+
+    try {
+      await writeToClipboard(code);
+      setCopiedBtsId(null);
+      setCopiedRsoId(null);
+      setCopiedRetailerCode(code);
+      setCopiedLocation(false);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopiedRetailerCode(null), 1600);
+    } catch {
+      toast.error("Retailer code copy failed");
     }
   };
 
@@ -238,6 +371,8 @@ export default function EventDetailPage() {
     try {
       await writeToClipboard(locationText);
       setCopiedBtsId(null);
+      setCopiedRsoId(null);
+      setCopiedRetailerCode(null);
       setCopiedLocation(true);
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => setCopiedLocation(false), 1600);
@@ -340,11 +475,7 @@ export default function EventDetailPage() {
                 <Users className="w-4 h-4 text-primary-500" />
                 <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.rso")}</h3>
               </div>
-              <ListCard
-                title="RSO"
-                items={event.rso_details}
-                renderItem={(r: EmployeeDetail) => `${r.name || r.dms_code || ""}${r.itop_number ? ` (${r.itop_number})` : ""}${r.assisted_retailer_code ? ` [${r.assisted_retailer_code}]` : ""}`}
-              />
+              <RSOListCard items={event.rso_details} copiedRsoId={copiedRsoId} onCopy={handleCopyAssistedCode} />
             </div>
 
             <div className="space-y-2">
@@ -352,11 +483,7 @@ export default function EventDetailPage() {
                 <Users className="w-4 h-4 text-primary-500" />
                 <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.bp")}</h3>
               </div>
-              <ListCard
-                title="BP"
-                items={event.bp_details}
-                renderItem={(b: EmployeeDetail) => `${b.name || b.dms_code || ""}${b.pool_number ? ` (Pool: ${b.pool_number})` : ""}${b.assisted_retailer_code ? ` [${b.assisted_retailer_code}]` : ""}`}
-              />
+              <RSOListCard items={event.bp_details} copiedRsoId={copiedRsoId} onCopy={handleCopyAssistedCode} getSublabel={(item) => item.pool_number ? `${item.name || item.dms_code} • ${item.pool_number}` : null} />
             </div>
 
             <div className="space-y-2">
@@ -364,11 +491,7 @@ export default function EventDetailPage() {
                 <Store className="w-4 h-4 text-primary-500" />
                 <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.fields.retailer_code")}</h3>
               </div>
-              <ListCard
-                title="Retailer"
-                items={event.retailer_details}
-                renderItem={(r: RetailerDetail) => `${r.name || r.retailer_code}${r.itop_number ? ` (${r.itop_number})` : ""}`}
-              />
+              <RetailerListCard items={event.retailer_details} copiedRetailerCode={copiedRetailerCode} onCopy={handleCopyRetailerCode} />
             </div>
           </div>
         </div>
