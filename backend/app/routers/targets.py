@@ -117,7 +117,14 @@ async def get_rso_targets(
     current_user = Depends(has_permission("targets.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    query = select(RSOTarget).options(joinedload(RSOTarget.house))
+    query = (
+        select(RSOTarget)
+        .options(
+            joinedload(RSOTarget.house),
+            joinedload(RSOTarget.employee).joinedload(Employee.user),
+            joinedload(RSOTarget.supervisor).joinedload(Employee.user),
+        )
+    )
     if house_id: query = query.where(RSOTarget.house_id == house_id)
     if target_date_param:
         query = query.where(RSOTarget.target_date == date.fromisoformat(target_date_param))
@@ -125,7 +132,7 @@ async def get_rso_targets(
     total = await db.execute(count_query)
     total_count = total.scalar()
     result = await db.execute(query.offset(skip).limit(limit).order_by(RSOTarget.id.desc()))
-    records = result.scalars().all()
+    records = result.unique().scalars().all()
     return {"total": total_count, "data": records}
 
 @router.get("/rso-targets/sample")

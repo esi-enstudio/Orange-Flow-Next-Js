@@ -14,6 +14,8 @@ interface Record {
   service_route: string; market_type: string; thana_name: string;
   target_date: string; employee_id: number;
   house?: { id: number; name: string; code: string };
+  employee?: { user?: { name: string }; dms_code: string; itop_number: string };
+  supervisor?: { user?: { name: string }; pool_number: string };
 }
 
 export default function RSOTargetsPage() {
@@ -243,8 +245,9 @@ export default function RSOTargetsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Emp ID</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">House</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">RSO</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Supervisor</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">EV Sec</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">SC Sec</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Recharge</th>
@@ -255,13 +258,24 @@ export default function RSOTargetsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No targets found</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">No targets found</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-                  <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{r.employee_id}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{r.house?.code || "-"}</td>
+                  <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{r.house?.code || "-"}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.employee?.user?.name || r.employee?.dms_code || `#${r.employee_id}`}</div>
+                    {r.employee?.dms_code && (
+                      <div className="text-xs text-gray-400 mt-0.5">{r.employee.dms_code} • {r.employee.itop_number || ''}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.supervisor?.user?.name || r.supervisor?.pool_number || "-"}</div>
+                    {r.supervisor?.pool_number && (
+                      <div className="text-xs text-gray-400 mt-0.5">{r.supervisor.pool_number}</div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.ev_secondary}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sc_secondary}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_recharge}</td>

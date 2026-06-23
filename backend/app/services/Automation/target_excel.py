@@ -191,13 +191,11 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                 if f.itop_number and f_type_upper == 'RSO':
                     rso_map_by_itop[normalize_msisdn(f.itop_number)] = f.id
             
-            # Supervisor map for RSO linkage (Historical/All)
+            # Supervisor map for RSO linkage (Only Active, Only pool_number)
             sup_map_all = {}
-            for f in all_emp:
+            for f in active_emp:
                 if f.pool_number:
                     sup_map_all[normalize_msisdn(f.pool_number)] = f.id
-                elif f.itop_number:
-                    sup_map_all[normalize_msisdn(f.itop_number)] = f.id
 
             # Supervisor map for TARGET UPLOAD (Strictly ACTIVE, POOL_NUMBER, and Type='Supervisor')
             sup_map_active_pool = {}
