@@ -10,6 +10,7 @@ from app.routers.deps import get_db, has_permission, has_any_permission, get_hou
 from app.models.house_target import HouseTarget
 from app.models.supervisor_target import SupervisorTarget
 from app.models.rso_target import RSOTarget
+from app.models.employee import Employee
 from app.services.Automation.target_excel import (
     export_house_targets_excel,
     export_supervisor_targets_excel,
@@ -72,7 +73,10 @@ async def get_supervisor_targets(
     current_user = Depends(has_permission("targets.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    query = select(SupervisorTarget).options(joinedload(SupervisorTarget.house))
+    query = (
+        select(SupervisorTarget)
+        .options(joinedload(SupervisorTarget.house), joinedload(SupervisorTarget.employee).joinedload(Employee.user))
+    )
     if house_id: query = query.where(SupervisorTarget.house_id == house_id)
     if target_date_param:
         query = query.where(SupervisorTarget.target_date == date.fromisoformat(target_date_param))
@@ -80,7 +84,7 @@ async def get_supervisor_targets(
     total = await db.execute(count_query)
     total_count = total.scalar()
     result = await db.execute(query.offset(skip).limit(limit).order_by(SupervisorTarget.id.desc()))
-    records = result.scalars().all()
+    records = result.unique().scalars().all()
     return {"total": total_count, "data": records}
 
 @router.get("/supervisor-targets/sample")

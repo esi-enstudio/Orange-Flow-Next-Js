@@ -615,3 +615,13 @@ async def get_supervisors_list(
                 "assigned_rso_count": rso_count,
             })
     return {"success": True, "data": supervisors}
+
+
+@router.post("/link-users")
+async def link_employees_to_users(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.edit")),
+):
+    from app.utils.employee_user_linker import ensure_employee_users
+    result = await ensure_employee_users(db)
+    return {"success": True, **result}

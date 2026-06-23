@@ -9,11 +9,12 @@ import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Record {
-  id: number; ev_c2c_target: number; sc_primary_target: number; total_recharge_target: number;
-  total_ga_target: number; bp_ga: number; rso_ga: number; ev_scr: number;
+  id: number; ev_secondary: number; sc_secondary: number; total_recharge: number;
+  total_ga: number; bp_ga: number; rso_ga: number;
   sso: number; lso: number; bso: number; ddso: number; target_date: string;
   employee_id: number; house_id: number;
   house?: { id: number; name: string; code: string };
+  employee?: { user?: { name: string }; pool_number: string };
 }
 
 export default function SupervisorTargetsPage() {
@@ -244,6 +245,7 @@ export default function SupervisorTargetsPage() {
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">House</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Supervisor</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">EV C2C</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">SC Primary</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Recharge</th>
@@ -256,16 +258,22 @@ export default function SupervisorTargetsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">No targets found</td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-gray-400">No targets found</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{r.house?.code || "-"}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{r.ev_c2c_target}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sc_primary_target}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_recharge_target}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_ga_target}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.employee?.user?.name || r.employee?.pool_number || `#${r.employee_id}`}</div>
+                    {r.employee?.pool_number && (
+                      <div className="text-xs text-gray-400 mt-0.5">{r.employee.pool_number}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{r.ev_secondary}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sc_secondary}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_recharge}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_ga}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.bp_ga}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.lso}</td>
