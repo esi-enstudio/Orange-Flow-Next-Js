@@ -11,66 +11,88 @@ from app.models.house_target import HouseTarget
 from app.models.rso_target import RSOTarget
 from app.models.bp_target import BpTarget
 from app.models.activation import Activation
-from app.models.live_activation import LiveActivation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.user import User
 from app.models.role import Role
+from app.models.ga_filter import FilterTag, RetailerFilter
+from app.models.product_exclusion import ExcludedProductCode
 
 logger = logging.getLogger("app.services.ActivationReport")
 
 class ActivationReportService:
-    def __init__(self, db: AsyncSession, house_id: int, month: int, year: int):
+    def __init__(self, db: AsyncSession, house_id: int, month: int, year: int, exclude_tag_names: Optional[list[str]] = None, exclude_product_codes: Optional[set[str]] = None):
         self.db = db
         self.house_id = house_id
         self.month = month
         self.year = year
+        self.exclude_tag_names = exclude_tag_names or []
+        self.exclude_product_codes = exclude_product_codes or set()
+        self._cached_excluded_ids: Optional[set[int]] = None
         self.month_start = date(year, month, 1)
         _, last_day = monthrange(year, month)
         self.month_end = date(year, month, last_day)
         self.today = date.today()
         self._days_in_month = last_day
-        self._days_elapsed = min((self.today - self.month_start).days + 1, self._days_in_month)
+        completed_days = (self.today - self.month_start).days
+        self._days_elapsed = min(completed_days, self._days_in_month)
         if self._days_elapsed < 0:
             self._days_elapsed = 0
         self._days_remaining = max(0, self._days_in_month - self._days_elapsed)
+        self._remaining_fridays = self._count_fridays_in_range(self.today, self.month_end) if self._days_remaining > 0 else 0
+
+    def _count_fridays_in_range(self, start: date, end: date) -> int:
+        count = 0
+        d = start
+        while d <= end:
+            if d.weekday() == 4:
+                count += 1
+            d += timedelta(days=1)
+        return count
+
+    async def _get_excluded_retailer_ids(self) -> set[int]:
+        if self._cached_excluded_ids is not None:
+            return self._cached_excluded_ids
+        if not self.exclude_tag_names:
+            self._cached_excluded_ids = set()
+            return self._cached_excluded_ids
+        q = select(RetailerFilter.retailer_id).join(FilterTag, RetailerFilter.tag_id == FilterTag.id).where(
+            FilterTag.name.in_(self.exclude_tag_names),
+            RetailerFilter.house_id == self.house_id,
+        )
+        res = await self.db.execute(q)
+        self._cached_excluded_ids = {row[0] for row in res.all()}
+        return self._cached_excluded_ids
 
     async def _count_activations(
         self,
         retailer_ids: Optional[set[int]] = None,
         retailer_codes: Optional[list[str]] = None,
+        exclude_ids: Optional[set[int]] = None,
     ) -> int:
         total = 0
+        excluded = exclude_ids or await self._get_excluded_retailer_ids()
+        excluded_codes = self.exclude_product_codes
 
-        query_start = self.month_start
-        query_end = self.month_end
-        end_hist = min(self.today - timedelta(days=1), query_end)
-
-        if query_start <= end_hist:
-            q = select(func.count()).select_from(Activation).where(
-                Activation.house_id == self.house_id,
-                Activation.activation_date >= query_start,
-                Activation.activation_date <= end_hist,
+        q = select(func.count()).select_from(Activation).where(
+            Activation.house_id == self.house_id,
+            Activation.activation_date >= self.month_start,
+            Activation.activation_date <= self.month_end,
+        )
+        if retailer_ids:
+            q = q.where(Activation.retailer_id.in_(retailer_ids))
+        if retailer_codes:
+            q = q.where(Activation.retailer_code.in_(retailer_codes))
+        if excluded:
+            q = q.where(
+                Activation.retailer_id.notin_(excluded),
+                Activation.retailer_id != None,
             )
-            if retailer_ids:
-                q = q.where(Activation.retailer_id.in_(retailer_ids))
-            if retailer_codes:
-                q = q.where(Activation.retailer_code.in_(retailer_codes))
-            res = await self.db.execute(q)
-            total += res.scalar() or 0
-
-        if self.month_start <= self.today <= self.month_end:
-            q = select(func.count()).select_from(LiveActivation).where(
-                LiveActivation.house_id == self.house_id,
-                LiveActivation.activation_date == self.today,
-            )
-            if retailer_ids:
-                q = q.where(LiveActivation.retailer_id.in_(retailer_ids))
-            if retailer_codes:
-                q = q.where(LiveActivation.retailer_code.in_(retailer_codes))
-            res = await self.db.execute(q)
-            total += res.scalar() or 0
+        if excluded_codes:
+            q = q.where(Activation.product_code.notin_(excluded_codes))
+        res = await self.db.execute(q)
+        total = res.scalar() or 0
 
         return total
 
@@ -91,7 +113,9 @@ class ActivationReportService:
 
         achievement_pct = round((achievement / monthly_target * 100), 1) if monthly_target else 0
         remaining = max(0, monthly_target - achievement)
-        daily_required = round(remaining / max(self._days_remaining, 1), 1) if self._days_remaining else 0
+        excl_friday_days = max(self._days_remaining - self._remaining_fridays, 1)
+        daily_required = int(remaining / excl_friday_days) if self._days_remaining else 0
+        daily_required_with_friday = int(remaining / max(self._days_remaining, 1)) if self._days_remaining else 0
         daily_avg = round(achievement / max(self._days_elapsed, 1), 1) if self._days_elapsed else 0
         projection = round(daily_avg * self._days_in_month, 1)
         expected_pct = round((projection / monthly_target * 100), 1) if monthly_target else 0
@@ -102,6 +126,8 @@ class ActivationReportService:
             "achievement_percentage": achievement_pct,
             "remaining": remaining,
             "daily_required": daily_required,
+            "daily_required_with_friday": daily_required_with_friday,
+            "remaining_fridays": self._remaining_fridays,
             "daily_average": daily_avg,
             "projection": projection,
             "expected_percentage": expected_pct,
@@ -319,26 +345,25 @@ class ActivationReportService:
 
     async def get_daily_trend(self) -> list[dict]:
         trend_map: dict[str, int] = {}
+        excluded = await self._get_excluded_retailer_ids()
+        excluded_codes = self.exclude_product_codes
 
-        end_hist = min(self.today - timedelta(days=1), self.month_end)
-        if self.month_start <= end_hist:
-            q = select(Activation.activation_date, func.count()).where(
-                Activation.house_id == self.house_id,
-                Activation.activation_date >= self.month_start,
-                Activation.activation_date <= end_hist,
-            ).group_by(Activation.activation_date).order_by(Activation.activation_date)
-            for row in (await self.db.execute(q)).all():
-                d = row.activation_date
-                trend_map[d.isoformat() if isinstance(d, date) else str(d)] = row[1]
-
-        if self.month_start <= self.today <= self.month_end:
-            q = select(LiveActivation.activation_date, func.count()).where(
-                LiveActivation.house_id == self.house_id,
-                LiveActivation.activation_date == self.today,
-            ).group_by(LiveActivation.activation_date)
-            for row in (await self.db.execute(q)).all():
-                d = row.activation_date
-                trend_map[d.isoformat() if isinstance(d, date) else str(d)] = row[1]
+        q = select(Activation.activation_date, func.count()).where(
+            Activation.house_id == self.house_id,
+            Activation.activation_date >= self.month_start,
+            Activation.activation_date <= self.month_end,
+        )
+        if excluded:
+            q = q.where(
+                Activation.retailer_id.notin_(excluded),
+                Activation.retailer_id != None,
+            )
+        if excluded_codes:
+            q = q.where(Activation.product_code.notin_(excluded_codes))
+        q = q.group_by(Activation.activation_date).order_by(Activation.activation_date)
+        for row in (await self.db.execute(q)).all():
+            d = row.activation_date
+            trend_map[d.isoformat() if isinstance(d, date) else str(d)] = row[1]
 
         target = await self._get_house_target()
         monthly_target = target.total_ga_target or 0 if target else 0

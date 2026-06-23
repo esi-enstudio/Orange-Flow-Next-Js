@@ -956,6 +956,8 @@ async def export_target_achievement(
 async def get_activation_dashboard(
     month: int = Query(None, ge=1, le=12),
     year: int = Query(None, ge=2020),
+    exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude (e.g. DRC,RSP,BSP)"),
+    exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude (e.g. SIMSWAP,EV-SWAP)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("reports.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -988,7 +990,18 @@ async def get_activation_dashboard(
     target_month = month or today.month
     target_year = year or today.year
 
-    service = ActivationReportService(db, target_house_id, target_month, target_year)
+    exclude_tag_list = [t.strip() for t in exclude_tags.split(",") if t.strip()] if exclude_tags else []
+
+    if exclude_codes:
+        excluded_product_codes = {c.strip() for c in exclude_codes.split(",") if c.strip()}
+    else:
+        excluded_product_codes = await get_excluded_codes(db)
+
+    service = ActivationReportService(
+        db, target_house_id, target_month, target_year,
+        exclude_tag_names=exclude_tag_list,
+        exclude_product_codes=excluded_product_codes,
+    )
     return await service.build_dashboard()
 
 
@@ -1031,7 +1044,8 @@ async def export_activation_dashboard(
     target_month = month or today.month
     target_year = year or today.year
 
-    service = ActivationReportService(db, target_house_id, target_month, target_year)
+    excluded_product_codes = await get_excluded_codes(db)
+    service = ActivationReportService(db, target_house_id, target_month, target_year, exclude_product_codes=excluded_product_codes)
     data = await service.build_dashboard()
 
     wb = Workbook()

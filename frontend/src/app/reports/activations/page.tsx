@@ -9,6 +9,7 @@ import {
   RotateCcw, Download, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
+  Settings, Tag, X as XIcon,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -25,6 +26,8 @@ interface DashboardSummary {
   achievement_percentage: number;
   remaining: number;
   daily_required: number;
+  daily_required_with_friday: number;
+  remaining_fridays: number;
   daily_average: number;
   projection: number;
   expected_percentage: number;
@@ -112,17 +115,24 @@ const monthNames = {
 };
 
 function formatNumber(n: number): string {
-  if (n >= 100000) return (n / 100000).toFixed(1) + "L";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "K";
   return n.toLocaleString();
 }
 
-function KpiCard({ icon: Icon, label, value, valueColor, subtitle, trend }: {
+function KpiCard({ icon: Icon, label, value, valueColor, subtitle, trend, onConfig }: {
   icon: any; label: string; value: string | number;
   valueColor?: string; subtitle?: string; trend?: { dir: "up" | "down"; text: string };
+  onConfig?: () => void;
 }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-shadow">
+    <div className="group bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-shadow relative">
+      {onConfig && (
+        <button
+          onClick={onConfig}
+          className="absolute top-2 right-2 w-7 h-7 rounded-lg bg-gray-100 dark:bg-slate-800 opacity-0 group-hover:opacity-100 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-700 transition-all duration-200 z-10"
+        >
+          <Settings className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+        </button>
+      )}
       <div className="flex items-start justify-between">
         <div className="space-y-1.5">
           <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -331,6 +341,17 @@ export default function ActivationDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"rso" | "bp" | "cc">("rso");
   const [isDark, setIsDark] = useState(false);
+  const [tags, setTags] = useState<{ id: number; name: string }[]>([]);
+  const [selectedExcludeTags, setSelectedExcludeTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_exclude_tags") || "[]"); }
+    catch { return []; }
+  });
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [excludedProductCodes, setExcludedProductCodes] = useState<{ id: number; product_code: string }[]>([]);
+  const [selectedExcludeCodes, setSelectedExcludeCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_exclude_codes") || "[]"); }
+    catch { return []; }
+  });
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -353,6 +374,8 @@ export default function ActivationDashboardPage() {
     try {
       const params: Record<string, any> = { month, year };
       if (selectedHouseId) params.house_id = selectedHouseId;
+      if (selectedExcludeTags.length > 0) params.exclude_tags = selectedExcludeTags.join(",");
+      if (selectedExcludeCodes.length > 0) params.exclude_codes = selectedExcludeCodes.join(",");
       const res = await apiClient.get("reports/activations/dashboard", { params });
       setData(res.data);
     } catch {
@@ -360,15 +383,29 @@ export default function ActivationDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, t]);
+  }, [month, year, selectedHouseId, selectedExcludeTags, selectedExcludeCodes, t]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
       apiClient.get("houses/accessible").then(res => {
         setHouses(res.data);
       }).catch(() => {});
+      apiClient.get("filter-tags").then(res => {
+        setTags(res.data);
+      }).catch(() => {});
+      apiClient.get("product-exclusions").then(res => {
+        setExcludedProductCodes(res.data);
+      }).catch(() => {});
     }
   }, [authLoading, hasPermission]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_exclude_tags", JSON.stringify(selectedExcludeTags));
+  }, [selectedExcludeTags]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_exclude_codes", JSON.stringify(selectedExcludeCodes));
+  }, [selectedExcludeCodes]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
@@ -522,6 +559,7 @@ export default function ActivationDashboardPage() {
               value={formatNumber(s.achievement)}
               valueColor="text-emerald-600 dark:text-emerald-400"
               subtitle={`${s.achievement_percentage}% of target`}
+              onConfig={hasPermission("reports.achievement.config") ? () => setShowConfigModal(true) : undefined}
             />
             <KpiCard
               icon={Award}
@@ -540,7 +578,7 @@ export default function ActivationDashboardPage() {
               label={t("activation_report.remaining")}
               value={formatNumber(s.remaining)}
               valueColor="text-amber-600 dark:text-amber-400"
-              subtitle={`${t("activation_report.daily_required")}: ${s.daily_required}`}
+              subtitle={t("activation_report.days_remaining") + ": " + s.days_remaining}
             />
             <KpiCard
               icon={Activity}
@@ -552,9 +590,9 @@ export default function ActivationDashboardPage() {
             <KpiCard
               icon={Zap}
               label={t("activation_report.daily_required")}
-              value={s.daily_required.toFixed(1)}
+              value={s.daily_required}
               valueColor="text-purple-600 dark:text-purple-400"
-              subtitle={`${t("activation_report.days_remaining")}: ${s.days_remaining}`}
+              subtitle={`${t("activation_report.with_friday")}: ${s.daily_required_with_friday} | ${t("activation_report.remaining_fridays")}: ${s.remaining_fridays}`}
             />
             <KpiCard
               icon={Trophy}
@@ -785,6 +823,113 @@ export default function ActivationDashboardPage() {
           <p className="text-gray-500 dark:text-gray-400 font-medium">{t("activation_report.no_data")}</p>
         </div>
       ) : null}
+
+      {/* Config Modal */}
+      {hasPermission("reports.achievement.config") && showConfigModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowConfigModal(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-50 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center">
+                  <Settings className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{t("activation_report.config_title")}</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t("activation_report.config_desc")}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowConfigModal(false)}
+                className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+              >
+                <XIcon className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto max-h-[calc(80vh-80px)] space-y-6">
+              {/* Tags Section */}
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.exclude_tags_hint")}</p>
+                {tags.length === 0 ? (
+                  <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.no_tags")}</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {tags.map(tag => {
+                      const isSelected = selectedExcludeTags.includes(tag.name);
+                      return (
+                        <button
+                          key={tag.id}
+                          onClick={() => {
+                            setSelectedExcludeTags(prev =>
+                              isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
+                            );
+                          }}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                            isSelected
+                              ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                              : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                          )}
+                        >
+                          <Tag className="w-3 h-3" />
+                          {tag.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Product Codes Section */}
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.exclude_product_codes_hint")}</p>
+                {excludedProductCodes.length === 0 ? (
+                  <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.no_excluded_codes")}</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {excludedProductCodes.map(item => {
+                      const isSelected = selectedExcludeCodes.includes(item.product_code);
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            setSelectedExcludeCodes(prev =>
+                              isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
+                            );
+                          }}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                            isSelected
+                              ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
+                              : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                          )}
+                        >
+                          {item.product_code}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-50 dark:border-slate-800">
+              <button
+                onClick={() => { setSelectedExcludeTags([]); setSelectedExcludeCodes([]); }}
+                className="px-4 py-2 text-sm font-bold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+              >
+                {t("common.reset")}
+              </button>
+              <button
+                onClick={() => { setShowConfigModal(false); fetchDashboard(); }}
+                className="px-5 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm"
+              >
+                {t("common.save_changes")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
