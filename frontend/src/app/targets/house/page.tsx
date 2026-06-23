@@ -1,24 +1,33 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Crosshair, X, CheckCircle2, FileDown } from "lucide-react";
+import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
+import apiClient from "@/lib/api";
 import Cookies from "js-cookie";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
-interface Record {
-  id: number; ev_c2c_target: number; sc_primary_target: number; total_recharge_target: number;
+interface House {
+  id: number; name: string; code: string;
+}
+
+interface HouseTargetRecord {
+  id: number; house_id: number; ev_c2c_target: number; sc_primary_target: number; total_recharge_target: number;
   total_ga_target: number; bp_ga: number; rso_ga: number; ev_scr: number;
   sso: number; lso: number; bso: number; ddso: number; target_date: string;
+  extra_targets?: Record<string, number>;
   house?: { id: number; name: string; code: string };
 }
+
+type ErrDict = Record<string, string>;
 
 export default function HouseTargetsPage() {
   const { t } = useLanguage();
   const { hasPermission, loading: authLoading } = useAuth();
-  const [data, setData] = useState<Record[]>([]);
+  const [data, setData] = useState<HouseTargetRecord[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -30,6 +39,33 @@ export default function HouseTargetsPage() {
   const [summaryType, setSummaryType] = useState<"success" | "error">("success");
   const limit = 50;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<HouseTargetRecord | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [houses, setHouses] = useState<House[]>([]);
+  const [formData, setFormData] = useState({
+    house_id: 0,
+    target_date: "",
+    ev_c2c_target: "",
+    sc_primary_target: "",
+    total_recharge_target: "",
+    total_ga_target: "",
+    bp_ga: "",
+    rso_ga: "",
+    ev_scr: "",
+    sso: "",
+    lso: "",
+    bso: "",
+    ddso: "",
+    extra_targets: [] as {key: string; value: string}[],
+  });
+  const [formLoading, setFormLoading] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<ErrDict>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -41,21 +77,153 @@ export default function HouseTargetsPage() {
     finally { setLoading(false); }
   }, [search, page]);
 
+  const fetchHouses = async () => {
+    try {
+      const res = await apiClient.get("houses");
+      setHouses(res.data || []);
+    } catch {}
+  };
+
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const openAddModal = async () => {
+    await fetchHouses();
+    setEditingItem(null);
+    setFormData({
+      house_id: 0, target_date: "", ev_c2c_target: "", sc_primary_target: "",
+      total_recharge_target: "", total_ga_target: "", bp_ga: "", rso_ga: "",
+      ev_scr: "", sso: "", lso: "", bso: "", ddso: "",
+      extra_targets: [],
+    });
+    setFormError("");
+    setFieldErrors({});
+    setIsFormModalOpen(true);
+  };
+
+  const openEditModal = async (item: HouseTargetRecord) => {
+    await fetchHouses();
+    setEditingItem(item);
+    const extra = item.extra_targets;
+    const extraArr = extra && typeof extra === "object"
+      ? Object.entries(extra).map(([k, v]) => ({ key: k, value: String(v) }))
+      : [];
+    setFormData({
+      house_id: item.house_id,
+      target_date: item.target_date ? item.target_date.substring(0, 7) : "",
+      ev_c2c_target: String(item.ev_c2c_target || ""),
+      sc_primary_target: String(item.sc_primary_target || ""),
+      total_recharge_target: String(item.total_recharge_target || ""),
+      total_ga_target: String(item.total_ga_target || ""),
+      bp_ga: String(item.bp_ga || ""),
+      rso_ga: String(item.rso_ga || ""),
+      ev_scr: String(item.ev_scr || ""),
+      sso: String(item.sso || ""),
+      lso: String(item.lso || ""),
+      bso: String(item.bso || ""),
+      ddso: String(item.ddso || ""),
+      extra_targets: extraArr,
+    });
+    setFormError("");
+    setFieldErrors({});
+    setIsFormModalOpen(true);
+  };
+
+  const validateForm = () => {
+    const errors: ErrDict = {};
+    if (!formData.house_id) errors.house_id = "House is required";
+    if (!formData.target_date) errors.target_date = "Target date is required";
+    if (!formData.ev_c2c_target) errors.ev_c2c_target = "EV C2C Target is required";
+    if (!formData.sc_primary_target) errors.sc_primary_target = "SC Primary Target is required";
+    if (!formData.total_ga_target) errors.total_ga_target = "Total GA Target is required";
+    if (!formData.bp_ga) errors.bp_ga = "BP GA is required";
+    if (!formData.rso_ga) errors.rso_ga = "RSO GA is required";
+    if (!formData.ev_scr) errors.ev_scr = "EV SCR is required";
+    if (!formData.sso) errors.sso = "SSO is required";
+    if (!formData.lso) errors.lso = "LSO is required";
+    if (!formData.bso) errors.bso = "BSO is required";
+    if (!formData.ddso) errors.ddso = "DDSO is required";
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) { toast.error("Please fix errors"); return; }
+    setFormLoading(true);
+    setFormError("");
+    try {
+      const extra: Record<string, number> = {};
+      formData.extra_targets.forEach(et => {
+        if (et.key.trim()) extra[et.key.trim()] = parseFloat(et.value) || 0;
+      });
+      const payload = {
+        house_id: formData.house_id,
+        target_date: formData.target_date + "-01",
+        ev_c2c_target: parseFloat(formData.ev_c2c_target) || 0,
+        sc_primary_target: parseFloat(formData.sc_primary_target) || 0,
+        total_recharge_target: parseFloat(formData.total_recharge_target) || 0,
+        total_ga_target: parseInt(formData.total_ga_target) || 0,
+        bp_ga: parseInt(formData.bp_ga) || 0,
+        rso_ga: parseInt(formData.rso_ga) || 0,
+        ev_scr: parseFloat(formData.ev_scr) || 0,
+        sso: parseInt(formData.sso) || 0,
+        lso: parseInt(formData.lso) || 0,
+        bso: parseInt(formData.bso) || 0,
+        ddso: parseInt(formData.ddso) || 0,
+        extra_targets: extra,
+      };
+      if (editingItem) {
+        await apiClient.put(`house-targets/${editingItem.id}`, payload);
+        toast.success(t('house_targets.toast_update_success'));
+      } else {
+        await apiClient.post("house-targets", payload);
+        toast.success(t('house_targets.toast_create_success'));
+      }
+      setIsFormModalOpen(false);
+      fetchData();
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || err.response?.data?.message || "Action failed";
+      setFormError(msg);
+      toast.error(msg);
+    } finally { setFormLoading(false); }
+  };
+
+  const handleDeleteClick = (id: number) => {
+    setDeletingId(id);
+    setIsConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingId) return;
+    setFormLoading(true);
+    try {
+      await apiClient.delete(`house-targets/${deletingId}`);
+      toast.success(t('house_targets.toast_delete_success'));
+      setIsConfirmOpen(false);
+      fetchData();
+    } catch { toast.error(t('house_targets.toast_delete_failed')); }
+    finally { setFormLoading(false); setDeletingId(null); }
+  };
 
   const readSSEStream = async (response: Response) => {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let result: any = null;
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
-
       for (const line of lines) {
         if (line.startsWith("data: ")) {
           try {
@@ -63,24 +231,17 @@ export default function HouseTargetsPage() {
             if (d.type === "progress") {
               const msg = d.message || "";
               const pctMatch = msg.match(/(\d+)%/);
-              const pct = pctMatch ? parseInt(pctMatch[1]) : 0;
-              setImportProgress({ percent: pct, message: msg });
+              setImportProgress({ percent: pctMatch ? parseInt(pctMatch[1]) : 0, message: msg });
             } else if (d.type === "complete") {
               result = d;
-              setSummaryData({ message: d.message, count: d.count });
-              setSummaryType("success");
-              setShowSummary(true);
+              setSummaryData({ message: d.message, count: d.count }); setSummaryType("success"); setShowSummary(true);
               setTimeout(() => setShowSummary(false), 6000);
             } else if (d.type === "error") {
-              setSummaryData({ message: d.message, count: 0 });
-              setSummaryType("error");
-              setShowSummary(true);
+              setSummaryData({ message: d.message, count: 0 }); setSummaryType("error"); setShowSummary(true);
               setTimeout(() => setShowSummary(false), 6000);
               throw new Error(d.message);
             }
-          } catch (e: any) {
-            if (e.message !== "Unexpected end of JSON input") throw e;
-          }
+          } catch (e: any) { if (e.message !== "Unexpected end of JSON input") throw e; }
         }
       }
     }
@@ -92,7 +253,6 @@ export default function HouseTargetsPage() {
     if (!file) return;
     setImporting(true);
     setImportProgress({ percent: 0, message: "Uploading file..." });
-
     try {
       const form = new FormData();
       form.append("file", file);
@@ -102,21 +262,17 @@ export default function HouseTargetsPage() {
         method: "POST", body: form,
         headers: token ? { "Authorization": `Bearer ${token}` } : {},
       });
-
       if (!response.ok) {
         const errText = await response.text();
         let errMsg = "Import failed";
         try { const errJson = JSON.parse(errText); errMsg = errJson.detail || errMsg; } catch {}
         throw new Error(errMsg);
       }
-
       const result = await readSSEStream(response);
       if (result) { toast.success(result.message); fetchData(); }
-    } catch (err: any) {
-      toast.error(err?.message || "Import failed");
-    } finally {
-      setImporting(false);
-      setImportProgress(null);
+    } catch (err: any) { toast.error(err?.message || "Import failed"); }
+    finally {
+      setImporting(false); setImportProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -144,6 +300,8 @@ export default function HouseTargetsPage() {
   const totalPages = Math.ceil(totalRecords / limit);
 
   if (!authLoading && !hasPermission("targets.view")) { return <AccessDenied />; }
+
+  const canEdit = hasPermission("targets.edit");
 
   return (
     <div className="p-6 space-y-6">
@@ -194,31 +352,48 @@ export default function HouseTargetsPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-rose-100 dark:bg-rose-500/20 rounded-xl">
             <Crosshair className="w-5 h-5 text-rose-600" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{t('nav.house_targets')}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Monthly house target records</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t('house_targets.description')}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {canEdit && (
+            <button onClick={openAddModal}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none">
+              <Plus className="w-4 h-4" /> {t('house_targets.add_new')}
+            </button>
+          )}
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx,.xls" />
-          <button onClick={() => fileInputRef.current?.click()} disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-xl text-sm font-medium hover:bg-rose-700 disabled:opacity-50 transition-colors shadow-lg shadow-rose-200 dark:shadow-none">
-            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {importing ? "Importing..." : "Import Excel"}
-          </button>
-          <button onClick={handleDownloadSample}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors">
-            <FileDown className="w-4 h-4" /> Sample
-          </button>
-          <button onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-            <Download className="w-4 h-4" /> Export
-          </button>
+          <div className="relative" ref={menuRef}>
+            <button onClick={() => setMenuOpen(!menuOpen)}
+              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+              <Download className="w-4 h-4" /> Actions <ChevronDown className={`w-3.5 h-3.5 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <button onClick={() => { fileInputRef.current?.click(); setMenuOpen(false); }} disabled={importing}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
+                  <Upload className="w-4 h-4 text-rose-500" /> Import Excel
+                </button>
+                <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                <button onClick={() => { handleDownloadSample(); setMenuOpen(false); }}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+                  <FileDown className="w-4 h-4 text-emerald-500" /> Download Sample
+                </button>
+                <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                <button onClick={() => { handleExport(); setMenuOpen(false); }}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+                  <Download className="w-4 h-4 text-blue-500" /> Export Excel
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -242,7 +417,7 @@ export default function HouseTargetsPage() {
         <div className="p-4 border-b border-gray-100 dark:border-slate-800">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search..." value={search}
+            <input type="text" placeholder={t('house_targets.search_placeholder')} value={search}
               onChange={e => { setSearch(e.target.value); setPage(0); }}
               className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none dark:text-gray-100" />
           </div>
@@ -251,21 +426,22 @@ export default function HouseTargetsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">House</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">EV C2C</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">SC Primary</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Recharge</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">GA</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">SSO</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">LSO</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Date</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_house')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_ev_c2c')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_sc_primary')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_recharge')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_ga')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_sso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_lso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_date')}</th>
+                {canEdit && <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_actions')}</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={canEdit ? 9 : 8} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No targets found</td></tr>
+                <tr><td colSpan={canEdit ? 9 : 8} className="text-center py-12 text-gray-400">{t('house_targets.no_data')}</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{r.house?.code || "-"}</td>
@@ -276,6 +452,18 @@ export default function HouseTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.lso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString() : "-"}</td>
+                  {canEdit && (
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        <button onClick={() => openEditModal(r)} className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all" title="Edit">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDeleteClick(r.id)} className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all" title="Delete">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -284,7 +472,7 @@ export default function HouseTargetsPage() {
         {totalRecords > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-slate-800">
             <span className="text-xs text-gray-400">
-              Showing {page * limit + 1} to {Math.min((page + 1) * limit, totalRecords)} of {totalRecords} results
+              {t('house_targets.showing_results', { start: page * limit + 1, end: Math.min((page + 1) * limit, totalRecords), total: totalRecords })}
             </span>
             <div className="flex items-center gap-3">
               <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
@@ -316,6 +504,230 @@ export default function HouseTargetsPage() {
           </div>
         )}
       </div>
+
+      {isFormModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-3xl h-full md:h-auto md:max-h-[90vh] md:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                  {editingItem ? t('house_targets.modal_edit_title') : t('house_targets.modal_create_title')}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('house_targets.modal_subtitle')}</p>
+              </div>
+              <button onClick={() => setIsFormModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl bg-gray-50 dark:bg-slate-800 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+              {formError && (
+                <div className="mb-6 flex items-start gap-3 p-4 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-800 rounded-2xl">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-600 dark:text-red-400">{formError}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest">House & Date</h4>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider ml-1">
+                        {t('house_targets.field_house')} <span className="text-red-500">*</span>
+                      </label>
+                      <select value={formData.house_id} onChange={e => setFormData({...formData, house_id: parseInt(e.target.value)})}
+                        className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-2xl text-sm dark:text-gray-100 outline-none focus:border-primary-500/30 transition-all">
+                        <option value={0} className="dark:bg-slate-800 dark:text-gray-400">{t('house_targets.field_house_placeholder')}</option>
+                        {houses.map(h => (
+                          <option key={h.id} value={h.id} className="dark:bg-slate-800 dark:text-gray-100">{h.name} ({h.code})</option>
+                        ))}
+                      </select>
+                      {fieldErrors.house_id && <p className="text-[10px] text-red-500 font-bold ml-1">{fieldErrors.house_id}</p>}
+                    </div>
+                    <InputField label={t('house_targets.field_target_date')} type="month" required
+                      value={formData.target_date}
+                      onChange={v => setFormData({...formData, target_date: v})}
+                      leftIcon={Crosshair}
+                      error={fieldErrors.target_date} />
+                  </div>
+
+                  <h4 className="text-xs font-bold text-rose-600 uppercase tracking-widest pt-2">EV & SC Targets</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputField label={t('house_targets.field_ev_c2c_target')} type="number" required
+                      value={formData.ev_c2c_target}
+                      onChange={v => {
+                        const ev = parseFloat(v) || 0;
+                        const sc = parseFloat(formData.sc_primary_target) || 0;
+                        setFormData({...formData, ev_c2c_target: v, total_recharge_target: String(ev + sc)});
+                      }}
+                      placeholder={t('house_targets.field_ev_c2c_placeholder')}
+                      error={fieldErrors.ev_c2c_target} />
+                    <InputField label={t('house_targets.field_sc_primary_target')} type="number" required
+                      value={formData.sc_primary_target}
+                      onChange={v => {
+                        const ev = parseFloat(formData.ev_c2c_target) || 0;
+                        const sc = parseFloat(v) || 0;
+                        setFormData({...formData, sc_primary_target: v, total_recharge_target: String(ev + sc)});
+                      }}
+                      placeholder={t('house_targets.field_sc_primary_placeholder')}
+                      error={fieldErrors.sc_primary_target} />
+                  </div>
+                  <InputField label={t('house_targets.field_total_recharge_target')} type="number" disabled
+                    value={formData.total_recharge_target}
+                    onChange={() => {}}
+                    placeholder={t('house_targets.field_total_recharge_placeholder')} />
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold text-purple-600 uppercase tracking-widest">GA & Channel Targets</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputField label={t('house_targets.field_total_ga_target')} type="number" required
+                      value={formData.total_ga_target}
+                      onChange={v => setFormData({...formData, total_ga_target: v})}
+                      placeholder={t('house_targets.field_total_ga_placeholder')}
+                      error={fieldErrors.total_ga_target} />
+                    <InputField label={t('house_targets.field_bp_ga')} type="number" required
+                      value={formData.bp_ga}
+                      onChange={v => setFormData({...formData, bp_ga: v})}
+                      placeholder={t('house_targets.field_bp_ga_placeholder')}
+                      error={fieldErrors.bp_ga} />
+                    <InputField label={t('house_targets.field_rso_ga')} type="number" required
+                      value={formData.rso_ga}
+                      onChange={v => setFormData({...formData, rso_ga: v})}
+                      placeholder={t('house_targets.field_rso_ga_placeholder')}
+                      error={fieldErrors.rso_ga} />
+                    <InputField label={t('house_targets.field_ev_scr')} type="number" required
+                      value={formData.ev_scr}
+                      onChange={v => setFormData({...formData, ev_scr: v})}
+                      placeholder={t('house_targets.field_ev_scr_placeholder')}
+                      error={fieldErrors.ev_scr} />
+                  </div>
+
+                  <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest pt-2">SO Targets</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputField label={t('house_targets.field_sso')} type="number" required
+                      value={formData.sso}
+                      onChange={v => setFormData({...formData, sso: v})}
+                      placeholder={t('house_targets.field_sso_placeholder')}
+                      error={fieldErrors.sso} />
+                    <InputField label={t('house_targets.field_lso')} type="number" required
+                      value={formData.lso}
+                      onChange={v => setFormData({...formData, lso: v})}
+                      placeholder={t('house_targets.field_lso_placeholder')}
+                      error={fieldErrors.lso} />
+                    <InputField label={t('house_targets.field_bso')} type="number" required
+                      value={formData.bso}
+                      onChange={v => setFormData({...formData, bso: v})}
+                      placeholder={t('house_targets.field_bso_placeholder')}
+                      error={fieldErrors.bso} />
+                    <InputField label={t('house_targets.field_ddso')} type="number" required
+                      value={formData.ddso}
+                      onChange={v => setFormData({...formData, ddso: v})}
+                      placeholder={t('house_targets.field_ddso_placeholder')}
+                      error={fieldErrors.ddso} />
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-50 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-bold text-amber-600 uppercase tracking-widest">Additional Targets</h4>
+                      <button type="button" onClick={() => setFormData({...formData, extra_targets: [...formData.extra_targets, {key: "", value: ""}]})}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-xl transition-colors">
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {formData.extra_targets.map((et, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <input type="text" placeholder="Target name"
+                            value={et.key}
+                            onChange={e => {
+                              const arr = [...formData.extra_targets];
+                              arr[i] = {...arr[i], key: e.target.value};
+                              setFormData({...formData, extra_targets: arr});
+                            }}
+                            className="flex-1 py-2.5 px-3 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
+                          <input type="number" placeholder="Value"
+                            value={et.value}
+                            onChange={e => {
+                              const arr = [...formData.extra_targets];
+                              arr[i] = {...arr[i], value: e.target.value};
+                              setFormData({...formData, extra_targets: arr});
+                            }}
+                            className="w-28 py-2.5 px-3 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
+                          <button type="button" onClick={() => setFormData({...formData, extra_targets: formData.extra_targets.filter((_, j) => j !== i)})}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {formData.extra_targets.length === 0 && (
+                        <p className="text-xs text-gray-400 italic">No additional targets. Click "Add" to create one.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-10 pt-6 border-t border-gray-50 dark:border-slate-800 flex gap-4">
+                <button type="button" onClick={() => setIsFormModalOpen(false)}
+                  className="flex-1 py-3 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-2xl transition-all">
+                  {t('house_targets.btn_cancel')}
+                </button>
+                <button type="submit" disabled={formLoading}
+                  className="flex-[2] py-3 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-200 dark:shadow-none flex items-center justify-center gap-2">
+                  {formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  {editingItem ? t('house_targets.btn_update') : t('house_targets.btn_create')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <ConfirmationModal
+        isOpen={isConfirmOpen}
+        onClose={() => setIsConfirmOpen(false)}
+        onConfirm={handleConfirmDelete}
+        type="danger"
+        title={t('house_targets.delete_title')}
+        message={t('house_targets.delete_message')}
+        confirmText={t('house_targets.delete_confirm')}
+        loading={formLoading}
+      />
+    </div>
+  );
+}
+
+function InputField({ label, value, onChange, placeholder, required = false, type = "text", disabled = false, leftIcon: Icon, error }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; required?: boolean;
+  type?: string; disabled?: boolean; leftIcon?: React.ComponentType<{ className?: string }>; error?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider ml-1">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      <div className="relative group/input">
+        {Icon && (
+          <div className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${error ? "text-red-500" : "text-gray-400 group-focus-within/input:text-primary-500"}`}>
+            <Icon className="w-4 h-4" />
+          </div>
+        )}
+        <input
+          type={type}
+          required={required}
+          disabled={disabled}
+          className={`w-full py-3 bg-gray-50 dark:bg-slate-800/50 border transition-all dark:text-gray-100 outline-none disabled:opacity-50 rounded-2xl text-sm ${Icon ? "pl-11" : "pl-4"} pr-4 ${
+            error ? "border-red-500/50 focus:border-red-500 ring-1 ring-red-500/10" : "border-transparent focus:border-primary-500/30"
+          }`}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </div>
+      {error && <p className="text-[10px] text-red-500 font-bold ml-1 animate-in slide-in-from-top-1 duration-200">{error}</p>}
     </div>
   );
 }

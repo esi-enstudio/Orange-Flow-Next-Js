@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import date, datetime
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload, joinedload
 from app.models.house import House
@@ -18,7 +18,7 @@ def format_currency(val):
         return "0.00"
 
 async def get_house_target_full_info(month, year, page=1, total_count=None):
-    target_date = datetime(year, month, 1)
+    target_date = date(year, month, 1)
     async with async_session() as session:
         if total_count is None:
             # Get total count only if not provided
@@ -69,7 +69,7 @@ async def get_house_target_full_info(month, year, page=1, total_count=None):
     return t, total_count, text
 
 async def get_supervisor_target_full_info(month, year, page=1, total_count=None):
-    target_date = datetime(year, month, 1)
+    target_date = date(year, month, 1)
     async with async_session() as session:
         if total_count is None:
             count_stmt = select(func.count(SupervisorTarget.id)).where(SupervisorTarget.target_date == target_date)
@@ -124,7 +124,7 @@ async def get_supervisor_target_full_info(month, year, page=1, total_count=None)
     return t, total_count, text
 
 async def get_rso_target_full_info(month, year, page=1, total_count=None):
-    target_date = datetime(year, month, 1)
+    target_date = date(year, month, 1)
     async with async_session() as session:
         if total_count is None:
             count_stmt = select(func.count(RSOTarget.id)).where(RSOTarget.target_date == target_date)
@@ -188,7 +188,7 @@ async def get_rso_target_full_info(month, year, page=1, total_count=None):
     return t, total_count, text
 
 async def get_rso_target_by_query(month, year, query):
-    target_date = datetime(year, month, 1)
+    target_date = date(year, month, 1)
     async with async_session() as session:
         # Search for Employee first
         emp_stmt = select(Employee).where(
@@ -262,7 +262,7 @@ async def format_rso_target_text(t, month, year, page, total_count):
     return t, total_count, text
 
 async def get_house_target_summary(month, year, house_code=None):
-    target_date = datetime(year, month, 1)
+    target_date = date(year, month, 1)
     async with async_session() as session:
         stmt = select(HouseTarget).options(selectinload(HouseTarget.house)).where(HouseTarget.target_date == target_date)
         if house_code:
@@ -289,7 +289,7 @@ async def get_house_target_summary(month, year, house_code=None):
     return targets, text
 
 async def get_supervisor_target_summary(month, year, house_code=None):
-    target_date = datetime(year, month, 1)
+    target_date = date(year, month, 1)
     async with async_session() as session:
         stmt = select(SupervisorTarget).options(
             selectinload(SupervisorTarget.house),
@@ -322,7 +322,7 @@ async def get_supervisor_target_summary(month, year, house_code=None):
     return targets, text
 
 async def get_rso_target_summary(month, year, supervisor_msisdn=None, house_code=None):
-    target_date = datetime(year, month, 1)
+    target_date = date(year, month, 1)
     async with async_session() as session:
         stmt = select(RSOTarget).options(
             selectinload(RSOTarget.house),
@@ -359,7 +359,7 @@ async def get_rso_target_summary(month, year, supervisor_msisdn=None, house_code
     return targets, text
 
 async def export_targets_to_excel(month, year, target_type, house_code=None):
-    target_date = datetime(year, month, 1)
+    target_date = date(year, month, 1)
     async with async_session() as session:
         house_id = None
         if house_code:

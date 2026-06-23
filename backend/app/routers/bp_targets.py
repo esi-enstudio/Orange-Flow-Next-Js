@@ -39,7 +39,7 @@ async def get_bp_targets(
         td = datetime.strptime(target_date, "%Y-%m-%d").date()
         if td.day != 1:
             td = date(td.year, td.month, 1)
-        query = query.where(BpTarget.target_date == datetime.combine(td, datetime.min.time()))
+        query = query.where(BpTarget.target_date == td)
 
     result = await db.execute(query.order_by(BpTarget.id.desc()))
     records = result.unique().scalars().all()
@@ -67,7 +67,7 @@ async def distribute_bp_targets(
     house_target_res = await db.execute(
         select(HouseTarget).where(
             HouseTarget.house_id == target_house_id,
-            HouseTarget.target_date == datetime.combine(td, datetime.min.time()),
+            HouseTarget.target_date == td,
         )
     )
     house_target = house_target_res.scalar_one_or_none()
@@ -91,7 +91,7 @@ async def distribute_bp_targets(
         existing = await db.execute(
             select(BpTarget).where(
                 BpTarget.employee_id == bp.id,
-                BpTarget.target_date == datetime.combine(td, datetime.min.time()),
+                BpTarget.target_date == td,
             )
         )
         if existing.scalar_one_or_none():
@@ -100,7 +100,7 @@ async def distribute_bp_targets(
             house_id=target_house_id,
             employee_id=bp.id,
             ga_target=per_bp_target,
-            target_date=datetime.combine(td, datetime.min.time()),
+            target_date=td,
         )
         db.add(bt)
         created += 1

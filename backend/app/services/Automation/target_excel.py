@@ -1,5 +1,6 @@
 import pandas as pd
 import logging
+from datetime import datetime
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func, select
 from app.models.house_target import HouseTarget
@@ -56,6 +57,30 @@ def clean_int(val):
     except:
         return 0
 
+def clean_date(val):
+    if pd.isna(val):
+        return None
+    try:
+        if isinstance(val, datetime):
+            return val
+        if hasattr(val, 'to_pydatetime'):
+            return val.to_pydatetime()
+        v = str(val).strip()
+        for fmt in ["%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%Y", "%Y%m%d",
+                     "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"]:
+            try:
+                return datetime.strptime(v, fmt)
+            except:
+                pass
+        try:
+            from datetime import timedelta
+            return datetime(1899, 12, 30) + timedelta(days=float(v))
+        except:
+            pass
+        return None
+    except:
+        return None
+
 HOUSE_COLUMN_MAP = {
     'DD_CODE': 'house_code',
     'D_CODE': 'house_code',
@@ -79,7 +104,7 @@ HOUSE_COLUMN_MAP = {
 # Metadata columns to exclude from extra_targets
 HOUSE_META_COLUMNS = [
     'CLUSTER', 'REGION', 'D_CODE', 'D_NAME', 'DD_CODE', 'DD_NAME', 
-    'MONTH', 'YEAR', 'HOUSE_CODE', 'HOUSE_NAME'
+    'MONTH', 'YEAR', 'HOUSE_CODE', 'HOUSE_NAME', 'TARGET_DATE'
 ]
 
 SUPERVISOR_COLUMN_MAP = {
@@ -108,7 +133,7 @@ SUPERVISOR_COLUMN_MAP = {
 SUPERVISOR_META_COLUMNS = [
     'CLUSTER', 'REGION', 'DD_CODE', 'DD_NAME', 'RS0_SUPERVISOR_NAME', 
     'RS0_SUPERVISOR_MSISDN', 'RSO_SUPERVISOR_NAME', 'RSO_SUPERVISOR_MSISDN',
-    'SUPERVISOR_MSISDN', 'HOUSE_CODE', 'HOUSE_NAME', 'SUPERVISOR_NAME'
+    'SUPERVISOR_MSISDN', 'HOUSE_CODE', 'HOUSE_NAME', 'SUPERVISOR_NAME', 'TARGET_DATE'
 ]
 
 RSO_COLUMN_MAP = {
@@ -153,7 +178,7 @@ RSO_META_COLUMNS = [
     "RS0_MSISDN_[I'TOP-UP_NUMBER]", 'RS0_MSISDN', 'RS0_NAME', 'RSO_NAME',
     'RS0_SUPERVISOR_NAME', 'RS0_SUPERVISOR_MSISDN', 'RSO_SUPERVISOR_NAME', 'RSO_SUPERVISOR_MSISDN',
     'SUPERVISOR_MSISDN', 'HOUSE_CODE', 'HOUSE_NAME', 'DD_MANAGER_NAME', 'DD_MANAGER_CONTACT_NUMBER',
-    'NEW_MARKET_TYPE', 'ARCHETYPE', 'TYPE_OF_THANA'
+    'NEW_MARKET_TYPE', 'ARCHETYPE', 'TYPE_OF_THANA', 'TARGET_DATE'
 ]
 
 from app.models.house import House
@@ -254,7 +279,12 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                 batch_data = []
 
                 for index, row in df.iterrows():
-                    values = {"target_date": target_date}
+                    row_target_date = target_date
+                    if 'TARGET_DATE' in clean_cols:
+                        parsed_date = clean_date(row.get('TARGET_DATE'))
+                        if parsed_date:
+                            row_target_date = parsed_date
+                    values = {"target_date": row_target_date}
                     excel_values = {}
                     extra_targets = {}
                     
@@ -374,11 +404,11 @@ def generate_house_target_sample_bytes():
     wb = Workbook()
     ws = wb.active
     ws.title = "House Targets"
-    headers = ["HOUSE_CODE", "EV_C2C_TARGET", "SC_PRIMARY_TARGET", "TOTAL_RECHARGE_TARGET",
+    headers = ["TARGET_DATE", "HOUSE_CODE", "EV_C2C_TARGET", "SC_PRIMARY_TARGET", "TOTAL_RECHARGE_TARGET",
                "TOTAL_GA_TARGET", "BP_GA", "RSO_GA", "EV_SCR", "SSO", "LSO", "BSO", "DDSO"]
     ws.append(headers)
-    ws.append(["DD001", "500", "300", "800", "50", "20", "10", "100", "5", "3", "2", "1"])
-    ws.append(["DD002", "600", "350", "950", "60", "25", "12", "120", "6", "4", "3", "2"])
+    ws.append(["2026-07-01", "DD001", "500", "300", "800", "50", "20", "10", "100", "5", "3", "2", "1"])
+    ws.append(["2026-07-01", "DD002", "600", "350", "950", "60", "25", "12", "120", "6", "4", "3", "2"])
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
@@ -388,11 +418,11 @@ def generate_supervisor_target_sample_bytes():
     wb = Workbook()
     ws = wb.active
     ws.title = "Supervisor Target"
-    headers = ["HOUSE_CODE", "SUPERVISOR_MSISDN", "EV_SECONDARY", "SC_SECONDARY", "TOTAL_RECHARGE",
+    headers = ["TARGET_DATE", "HOUSE_CODE", "SUPERVISOR_MSISDN", "EV_SECONDARY", "SC_SECONDARY", "TOTAL_RECHARGE",
                "TOTAL_GA", "BP_GA", "RSO_GA", "SSO", "LSO", "BSO", "DDSO"]
     ws.append(headers)
-    ws.append(["DD001", "01712345678", "200", "150", "350", "30", "10", "5", "3", "2", "1", "1"])
-    ws.append(["DD002", "01787654321", "250", "180", "430", "35", "12", "6", "4", "3", "2", "1"])
+    ws.append(["2026-07-01", "DD001", "01712345678", "200", "150", "350", "30", "10", "5", "3", "2", "1", "1"])
+    ws.append(["2026-07-01", "DD002", "01787654321", "250", "180", "430", "35", "12", "6", "4", "3", "2", "1"])
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
@@ -402,12 +432,12 @@ def generate_rso_target_sample_bytes():
     wb = Workbook()
     ws = wb.active
     ws.title = "RSO Target"
-    headers = ["HOUSE_CODE", "RSO_CODE", "SUPERVISOR_MSISDN", "EV_SECONDARY", "SC_SECONDARY",
+    headers = ["TARGET_DATE", "HOUSE_CODE", "RSO_CODE", "SUPERVISOR_MSISDN", "EV_SECONDARY", "SC_SECONDARY",
                "TOTAL_RECHARGE", "GA", "SSO", "LSO", "BSO", "DDSO",
                "SERVICE_ROUTE", "MARKET_TYPE", "THANA_NAME"]
     ws.append(headers)
-    ws.append(["DD001", "RSO001", "01712345678", "100", "80", "180", "15", "2", "1", "1", "1", "Route A", "OSDO", "Thana A"])
-    ws.append(["DD002", "RSO002", "01787654321", "120", "90", "210", "18", "3", "2", "1", "1", "Route B", "Residential", "Thana B"])
+    ws.append(["2026-07-01", "DD001", "RSO001", "01712345678", "100", "80", "180", "15", "2", "1", "1", "1", "Route A", "OSDO", "Thana A"])
+    ws.append(["2026-07-01", "DD002", "RSO002", "01787654321", "120", "90", "210", "18", "3", "2", "1", "1", "Route B", "Residential", "Thana B"])
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()

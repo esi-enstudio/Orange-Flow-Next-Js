@@ -9,7 +9,7 @@ import {
   RotateCcw, Download, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
-  Settings, Tag, X as XIcon,
+  Settings, Tag, X as XIcon, CheckCircle2, AlertTriangle, Flag,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -706,12 +706,46 @@ export default function ActivationDashboardPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3 pt-2">
                     <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{t("activation_report.daily_average")}</p>
-                      <p className="text-lg font-black text-gray-900 dark:text-gray-100">{s.daily_average.toFixed(1)}</p>
+                      {s.achievement_percentage >= 100 ? (
+                        <CheckCircle2 className="w-6 h-6 mx-auto mt-1 text-emerald-600 dark:text-emerald-400" />
+                      ) : s.achievement_percentage >= 70 ? (
+                        <TrendingUp className="w-6 h-6 mx-auto mt-1 text-blue-600 dark:text-blue-400" />
+                      ) : s.achievement_percentage >= 40 ? (
+                        <AlertTriangle className="w-6 h-6 mx-auto mt-1 text-amber-600 dark:text-amber-400" />
+                      ) : (
+                        <Flag className="w-6 h-6 mx-auto mt-1 text-rose-600 dark:text-rose-400" />
+                      )}
+                      <p className={cn(
+                        "text-lg font-black",
+                        s.achievement_percentage >= 100 ? "text-emerald-600 dark:text-emerald-400" :
+                        s.achievement_percentage >= 70 ? "text-blue-600 dark:text-blue-400" :
+                        s.achievement_percentage >= 40 ? "text-amber-600 dark:text-amber-400" :
+                        "text-rose-600 dark:text-rose-400"
+                      )}>
+                        {s.achievement_percentage >= 100 ? t("activation_report.achieved_status") :
+                         s.achievement_percentage >= 70 ? t("activation_report.on_track") :
+                         s.achievement_percentage >= 40 ? t("activation_report.needs_attention") :
+                         t("activation_report.behind")}
+                      </p>
                     </div>
                     <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{t("activation_report.remaining")}</p>
-                      <p className="text-lg font-black text-amber-600 dark:text-amber-400">{formatNumber(s.remaining)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">ETA (Days)</p>
+                      <Clock className={cn(
+                        "w-6 h-6 mx-auto mt-1",
+                        s.daily_average <= 0 ? "text-gray-400" :
+                        s.remaining / s.daily_average <= s.days_remaining ? "text-emerald-600 dark:text-emerald-400" :
+                        s.remaining / s.daily_average <= s.days_remaining * 1.3 ? "text-amber-600 dark:text-amber-400" :
+                        "text-rose-600 dark:text-rose-400"
+                      )} />
+                      <p className={cn(
+                        "text-lg font-black",
+                        s.daily_average <= 0 ? "text-gray-400" :
+                        s.remaining / s.daily_average <= s.days_remaining ? "text-emerald-600 dark:text-emerald-400" :
+                        s.remaining / s.daily_average <= s.days_remaining * 1.3 ? "text-amber-600 dark:text-amber-400" :
+                        "text-rose-600 dark:text-rose-400"
+                      )}>
+                        {s.daily_average <= 0 ? "—" : Math.ceil(s.remaining / s.daily_average)}
+                      </p>
                     </div>
                   </div>
                 </div>

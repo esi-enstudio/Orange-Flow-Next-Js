@@ -1,16 +1,18 @@
-from typing import Optional
+from typing import Optional, List
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Response, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
-from datetime import date
+from datetime import date, datetime
 
-from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context
+from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context, get_current_user
 from app.models.house_target import HouseTarget
 from app.models.supervisor_target import SupervisorTarget
 from app.models.rso_target import RSOTarget
 from app.models.employee import Employee
+from app.models.user import User
+from app.schemas.house_target import HouseTargetCreate, HouseTargetUpdate
 from app.services.Automation.target_excel import (
     export_house_targets_excel,
     export_supervisor_targets_excel,
@@ -43,6 +45,89 @@ async def get_house_targets(
     records = result.scalars().all()
     return {"total": total_count, "data": records}
 
+@router.post("/house-targets", status_code=201)
+async def create_house_target(
+    payload: HouseTargetCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("targets.edit")),
+):
+    try:
+        target_date = datetime.strptime(payload.target_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid target_date format. Use YYYY-MM-DD.")
+
+    exist = await db.execute(
+        select(HouseTarget).where(
+            HouseTarget.house_id == payload.house_id,
+            HouseTarget.target_date == target_date
+        )
+    )
+    if exist.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Target already exists for this house and date")
+
+    total_recharge = (payload.ev_c2c_target or 0) + (payload.sc_primary_target or 0)
+    record = HouseTarget(
+        house_id=payload.house_id,
+        target_date=target_date,
+        ev_c2c_target=payload.ev_c2c_target or 0,
+        sc_primary_target=payload.sc_primary_target or 0,
+        total_recharge_target=total_recharge,
+        total_ga_target=payload.total_ga_target or 0,
+        bp_ga=payload.bp_ga or 0,
+        rso_ga=payload.rso_ga or 0,
+        ev_scr=payload.ev_scr or 0,
+        sso=payload.sso or 0,
+        lso=payload.lso or 0,
+        bso=payload.bso or 0,
+        ddso=payload.ddso or 0,
+        extra_targets=payload.extra_targets or {},
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+@router.put("/house-targets/{target_id}")
+async def update_house_target(
+    target_id: int,
+    payload: HouseTargetUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("targets.edit")),
+):
+    query = select(HouseTarget).where(HouseTarget.id == target_id)
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="House target not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    if 'ev_c2c_target' in update_data or 'sc_primary_target' in update_data:
+        ev = update_data.get('ev_c2c_target', record.ev_c2c_target) or 0
+        sc = update_data.get('sc_primary_target', record.sc_primary_target) or 0
+        update_data['total_recharge_target'] = ev + sc
+    for key, value in update_data.items():
+        setattr(record, key, value)
+    record.updated_at = func.now()
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+@router.delete("/house-targets/{target_id}", status_code=204)
+async def delete_house_target(
+    target_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("targets.edit")),
+):
+    query = select(HouseTarget).where(HouseTarget.id == target_id)
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="House target not found")
+
+    await db.delete(record)
+    await db.commit()
+    return
+
 @router.get("/house-targets/sample")
 async def download_house_target_sample(
     current_user = Depends(has_any_permission(["targets.view", "targets.import"])),
@@ -62,6 +147,21 @@ async def export_house_targets(db: AsyncSession = Depends(get_db), current_user 
     records = result.scalars().all()
     excel_data = await export_house_targets_excel(records)
     return Response(content=excel_data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=house_targets.xlsx"})
+
+@router.get("/house-targets/{target_id}")
+async def get_house_target(
+    target_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("targets.view")),
+):
+    query = select(HouseTarget).options(joinedload(HouseTarget.house)).where(
+        HouseTarget.id == target_id
+    )
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="House target not found")
+    return record
 
 @router.get("/supervisor-targets")
 async def get_supervisor_targets(

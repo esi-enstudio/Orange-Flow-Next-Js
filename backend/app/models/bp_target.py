@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, DateTime, func, UniqueConstraint, ForeignKey, JSON
+from sqlalchemy import Column, Integer, Float, Date, DateTime, func, UniqueConstraint, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from app.models.base import Base
 
@@ -15,7 +15,7 @@ class BpTarget(Base):
     total_recharge = Column(Float, default=0.0)
     extra_targets = Column(JSON, default={})
 
-    target_date = Column(DateTime, nullable=False, index=True)
+    target_date = Column(Date, nullable=False, index=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

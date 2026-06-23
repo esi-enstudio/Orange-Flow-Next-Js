@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, func, UniqueConstraint, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, func, UniqueConstraint, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from app.models.base import Base
 
@@ -24,7 +24,7 @@ class SupervisorTarget(Base):
     # Dynamic JSONB Column for any other targets
     extra_targets = Column(JSON, default={})
     
-    target_date = Column(DateTime, nullable=False, index=True) # Always 1st of the month
+    target_date = Column(Date, nullable=False, index=True) # Always 1st of the month
     
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
