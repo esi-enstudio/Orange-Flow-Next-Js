@@ -364,18 +364,26 @@ export default function ActivationDashboardPage() {
   const [activeTab, setActiveTab] = useState<"rso" | "bp" | "cc">("rso");
   const [isDark, setIsDark] = useState(false);
   const [tags, setTags] = useState<{ id: number; name: string }[]>([]);
-  const [selectedExcludeTags, setSelectedExcludeTags] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_exclude_tags") || "[]"); }
+  const [achievementExcludeTags, setAchievementExcludeTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_achievement_exclude_tags") || "[]"); }
+    catch { return []; }
+  });
+  const [achievementExcludeCodes, setAchievementExcludeCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_achievement_exclude_codes") || "[]"); }
+    catch { return []; }
+  });
+  const [rsoExcludeTags, setRsoExcludeTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_rso_exclude_tags") || "[]"); }
+    catch { return []; }
+  });
+  const [rsoExcludeCodes, setRsoExcludeCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_rso_exclude_codes") || "[]"); }
     catch { return []; }
   });
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRsoConfig, setShowRsoConfig] = useState(false);
   const rsoConfigRef = useRef<HTMLDivElement>(null);
   const [excludedProductCodes, setExcludedProductCodes] = useState<{ id: number; product_code: string }[]>([]);
-  const [selectedExcludeCodes, setSelectedExcludeCodes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_exclude_codes") || "[]"); }
-    catch { return []; }
-  });
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -403,8 +411,10 @@ export default function ActivationDashboardPage() {
     try {
       const params: Record<string, any> = { month, year };
       if (selectedHouseId) params.house_id = selectedHouseId;
-      if (selectedExcludeTags.length > 0) params.exclude_tags = selectedExcludeTags.join(",");
-      if (selectedExcludeCodes.length > 0) params.exclude_codes = selectedExcludeCodes.join(",");
+      if (achievementExcludeTags.length > 0) params.exclude_tags = achievementExcludeTags.join(",");
+      if (achievementExcludeCodes.length > 0) params.exclude_codes = achievementExcludeCodes.join(",");
+      if (rsoExcludeTags.length > 0) params.rso_exclude_tags = rsoExcludeTags.join(",");
+      if (rsoExcludeCodes.length > 0) params.rso_exclude_codes = rsoExcludeCodes.join(",");
       const res = await apiClient.get("reports/activations/dashboard", { params });
       setData(res.data);
     } catch {
@@ -412,7 +422,7 @@ export default function ActivationDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, selectedExcludeTags, selectedExcludeCodes]);
+  }, [month, year, selectedHouseId, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
@@ -429,8 +439,20 @@ export default function ActivationDashboardPage() {
   }, [authLoading, hasPermission]);
 
   useEffect(() => {
-    localStorage.setItem("activation_exclude_tags", JSON.stringify(selectedExcludeTags));
-  }, [selectedExcludeTags]);
+    localStorage.setItem("activation_achievement_exclude_tags", JSON.stringify(achievementExcludeTags));
+  }, [achievementExcludeTags]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_achievement_exclude_codes", JSON.stringify(achievementExcludeCodes));
+  }, [achievementExcludeCodes]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_rso_exclude_tags", JSON.stringify(rsoExcludeTags));
+  }, [rsoExcludeTags]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_rso_exclude_codes", JSON.stringify(rsoExcludeCodes));
+  }, [rsoExcludeCodes]);
 
   useEffect(() => {
     if (!showRsoConfig) return;
@@ -444,14 +466,10 @@ export default function ActivationDashboardPage() {
   }, [showRsoConfig]);
 
   useEffect(() => {
-    localStorage.setItem("activation_exclude_codes", JSON.stringify(selectedExcludeCodes));
-  }, [selectedExcludeCodes]);
-
-  useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
       fetchDashboard();
     }
-  }, [authLoading, hasPermission, month, year, selectedHouseId, selectedExcludeTags, selectedExcludeCodes]);
+  }, [authLoading, hasPermission, month, year, selectedHouseId, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes]);
 
   const handleExport = async () => {
     try {
@@ -924,16 +942,16 @@ export default function ActivationDashboardPage() {
                     )}
                   >
                     <Settings className="w-4 h-4" />
-                    {(selectedExcludeTags.length > 0 || selectedExcludeCodes.length > 0) && (
+                    {(rsoExcludeTags.length > 0 || rsoExcludeCodes.length > 0) && (
                       <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
                     )}
                   </button>
                   {showRsoConfig && (
                     <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
-                      {(selectedExcludeTags.length > 0 || selectedExcludeCodes.length > 0) && (
+                      {(rsoExcludeTags.length > 0 || rsoExcludeCodes.length > 0) && (
                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
                           <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
-                          {selectedExcludeTags.length + selectedExcludeCodes.length} filter{selectedExcludeTags.length + selectedExcludeCodes.length !== 1 ? 's' : ''} active
+                          {rsoExcludeTags.length + rsoExcludeCodes.length} filter{rsoExcludeTags.length + rsoExcludeCodes.length !== 1 ? 's' : ''} active
                         </div>
                       )}
                       <div className="space-y-2">
@@ -943,12 +961,12 @@ export default function ActivationDashboardPage() {
                         ) : (
                           <div className="flex flex-wrap gap-1.5">
                             {tags.map(tag => {
-                              const isSelected = selectedExcludeTags.includes(tag.name);
+                              const isSelected = rsoExcludeTags.includes(tag.name);
                               return (
                                 <button
                                   key={tag.id}
                                   onClick={() => {
-                                    setSelectedExcludeTags(prev =>
+                                    setRsoExcludeTags(prev =>
                                       isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
                                     );
                                   }}
@@ -975,12 +993,12 @@ export default function ActivationDashboardPage() {
                         ) : (
                           <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                             {excludedProductCodes.map(item => {
-                              const isSelected = selectedExcludeCodes.includes(item.product_code);
+                              const isSelected = rsoExcludeCodes.includes(item.product_code);
                               return (
                                 <button
                                   key={item.id}
                                   onClick={() => {
-                                    setSelectedExcludeCodes(prev =>
+                                    setRsoExcludeCodes(prev =>
                                       isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
                                     );
                                   }}
@@ -1000,7 +1018,7 @@ export default function ActivationDashboardPage() {
                       </div>
                       <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
                         <button
-                          onClick={() => { setSelectedExcludeTags([]); setSelectedExcludeCodes([]); }}
+                          onClick={() => { setRsoExcludeTags([]); setRsoExcludeCodes([]); }}
                           className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
                         >
                           {t("common.reset")}
@@ -1071,12 +1089,12 @@ export default function ActivationDashboardPage() {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {tags.map(tag => {
-                      const isSelected = selectedExcludeTags.includes(tag.name);
+                      const isSelected = achievementExcludeTags.includes(tag.name);
                       return (
                         <button
                           key={tag.id}
                           onClick={() => {
-                            setSelectedExcludeTags(prev =>
+                            setAchievementExcludeTags(prev =>
                               isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
                             );
                           }}
@@ -1105,12 +1123,12 @@ export default function ActivationDashboardPage() {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {excludedProductCodes.map(item => {
-                      const isSelected = selectedExcludeCodes.includes(item.product_code);
+                      const isSelected = achievementExcludeCodes.includes(item.product_code);
                       return (
                         <button
                           key={item.id}
                           onClick={() => {
-                            setSelectedExcludeCodes(prev =>
+                            setAchievementExcludeCodes(prev =>
                               isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
                             );
                           }}
@@ -1131,7 +1149,7 @@ export default function ActivationDashboardPage() {
             </div>
             <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-50 dark:border-slate-800">
               <button
-                onClick={() => { setSelectedExcludeTags([]); setSelectedExcludeCodes([]); }}
+                onClick={() => { setAchievementExcludeTags([]); setAchievementExcludeCodes([]); }}
                 className="px-4 py-2 text-sm font-bold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
               >
                 {t("common.reset")}
