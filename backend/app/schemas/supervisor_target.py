@@ -3,6 +3,7 @@ from typing import Optional, Any
 from datetime import date, datetime
 
 class SupervisorTargetCreate(BaseModel):
+    house_id: Optional[int] = None
     employee_id: int
     target_date: str
     ev_secondary: float = 0.0

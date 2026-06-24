@@ -584,18 +584,59 @@ async def get_unassigned_rsos(
     return {"success": True, "data": unassigned, "total": len(unassigned)}
 
 
-@router.get("/supervisors-list")
-async def get_supervisors_list(
+@router.get("/rso-list")
+async def get_rso_list(
+    selected_house_id: Optional[int] = Query(None, alias="house_id"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("employees.view")),
     house_id: Optional[int] = Depends(get_house_context),
 ):
+    filter_house_id = selected_house_id or house_id
+    query = (
+        select(Employee)
+        .options(joinedload(Employee.user))
+        .where(
+            Employee.employee_id.ilike("RSO-%"),
+            Employee.status == "Active",
+        )
+    )
+    if filter_house_id:
+        query = query.where(Employee.house_id == filter_house_id)
+    else:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            query = query.where(Employee.house_id.in_(user_house_ids))
+
+    result = await db.execute(query.order_by(Employee.dms_code))
+    employees = result.unique().scalars().all()
+
+    rso_list = []
+    for emp in employees:
+        rso_list.append({
+            "id": emp.id,
+            "user_id": emp.user_id,
+            "name": emp.user.name if emp.user else None,
+            "employee_id": emp.employee_id,
+            "dms_code": emp.dms_code,
+            "itop_number": emp.itop_number,
+            "pool_number": emp.pool_number,
+        })
+    return {"success": True, "data": rso_list}
+
+@router.get("/supervisors-list")
+async def get_supervisors_list(
+    selected_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.view")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    filter_house_id = selected_house_id or house_id
     query = (
         select(User)
         .options(selectinload(User.roles), selectinload(User.employee_profile), selectinload(User.subordinates))
     )
-    if house_id:
-        query = query.where(User.houses.any(id=house_id))
+    if filter_house_id:
+        query = query.where(User.houses.any(id=filter_house_id))
 
     result = await db.execute(query)
     users = result.unique().scalars().all()
@@ -613,6 +654,7 @@ async def get_supervisors_list(
                 "employee_id": emp.employee_id if emp else None,
                 "dms_code": emp.dms_code if emp else None,
                 "itop_number": emp.itop_number if emp else None,
+                "pool_number": emp.pool_number if emp else None,
                 "assigned_rso_count": rso_count,
             })
     return {"success": True, "data": supervisors}

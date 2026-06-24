@@ -18,7 +18,12 @@ interface SupervisorOption {
   employee_id: string | null;
   dms_code: string | null;
   itop_number: string | null;
+  pool_number: string | null;
   assigned_rso_count: number;
+}
+
+interface House {
+  id: number; name: string; code: string;
 }
 
 interface SupervisorTargetRecord {
@@ -66,7 +71,9 @@ export default function SupervisorTargetsPage() {
   const [editingItem, setEditingItem] = useState<SupervisorTargetRecord | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [supervisors, setSupervisors] = useState<SupervisorOption[]>([]);
+  const [houses, setHouses] = useState<House[]>([]);
   const [formData, setFormData] = useState({
+    house_id: 0,
     employee_id: 0,
     target_date: "",
     ev_secondary: "",
@@ -85,12 +92,21 @@ export default function SupervisorTargetsPage() {
   const [formError, setFormError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<ErrDict>({});
 
-  const fetchSupervisors = async () => {
+  const fetchSupervisors = async (houseId?: number) => {
     try {
-      const res = await apiClient.get("employees/supervisors-list");
+      const params: Record<string, string> = {};
+      if (houseId) params.house_id = String(houseId);
+      const res = await apiClient.get("employees/supervisors-list", { params });
       const list: SupervisorOption[] = res.data?.data || [];
       const filtered = list.filter(s => s.id != null && (s.employee_id?.startsWith("SUP") || s.dms_code?.startsWith("SUP")));
       setSupervisors(filtered);
+    } catch {}
+  };
+
+  const fetchHouses = async () => {
+    try {
+      const res = await apiClient.get("houses");
+      setHouses(res.data || []);
     } catch {}
   };
 
@@ -116,10 +132,11 @@ export default function SupervisorTargetsPage() {
   }, []);
 
   const openAddModal = async () => {
-    await fetchSupervisors();
+    await Promise.all([fetchHouses()]);
+    setSupervisors([]);
     setEditingItem(null);
     setFormData({
-      employee_id: 0, target_date: "", ev_secondary: "", sc_secondary: "",
+      house_id: 0, employee_id: 0, target_date: "", ev_secondary: "", sc_secondary: "",
       total_recharge: "", total_ga: "", bp_ga: "", rso_ga: "",
       sso: "", lso: "", bso: "", ddso: "",
       extra_targets: [],
@@ -130,13 +147,15 @@ export default function SupervisorTargetsPage() {
   };
 
   const openEditModal = async (item: SupervisorTargetRecord) => {
-    await fetchSupervisors();
+    await fetchHouses();
+    if (item.house_id) fetchSupervisors(item.house_id);
     setEditingItem(item);
     const extra = item.extra_targets;
     const extraArr = extra && typeof extra === "object"
       ? Object.entries(extra).map(([k, v]) => ({ key: k, value: String(v) }))
       : [];
     setFormData({
+      house_id: item.house_id || 0,
       employee_id: item.employee_id,
       target_date: item.target_date ? item.target_date.substring(0, 7) : "",
       ev_secondary: String(item.ev_secondary || ""),
@@ -183,7 +202,7 @@ export default function SupervisorTargetsPage() {
       formData.extra_targets.forEach(et => {
         if (et.key.trim()) extra[et.key.trim()] = parseFloat(et.value) || 0;
       });
-      const payload = {
+      const payload: Record<string, any> = {
         employee_id: formData.employee_id,
         target_date: formData.target_date + "-01",
         ev_secondary: parseFloat(formData.ev_secondary) || 0,
@@ -198,6 +217,7 @@ export default function SupervisorTargetsPage() {
         ddso: parseInt(formData.ddso) || 0,
         extra_targets: extra,
       };
+      if (formData.house_id) payload.house_id = formData.house_id;
       if (editingItem) {
         await apiClient.put(`supervisor-targets/${editingItem.id}`, payload);
         toast.success(t('supervisor_targets.toast_update_success'));
@@ -555,8 +575,21 @@ export default function SupervisorTargetsPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                  <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest">Supervisor & Date</h4>
+                  <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest">House, Supervisor & Date</h4>
                   <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider ml-1">
+                        {t('house_targets.field_house')} <span className="text-red-500">*</span>
+                      </label>
+                      <select value={formData.house_id} onChange={e => { const h = parseInt(e.target.value); setFormData({...formData, house_id: h, employee_id: 0}); if (h) fetchSupervisors(h); }}
+                        className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-2xl text-sm dark:text-gray-100 outline-none focus:border-primary-500/30 transition-all">
+                        <option value={0} className="dark:bg-slate-800 dark:text-gray-400">{t('house_targets.field_house_placeholder')}</option>
+                        {houses.map(h => (
+                          <option key={h.id} value={h.id} className="dark:bg-slate-800 dark:text-gray-100">{h.name} ({h.code})</option>
+                        ))}
+                      </select>
+                      {fieldErrors.house_id && <p className="text-[10px] text-red-500 font-bold ml-1">{fieldErrors.house_id}</p>}
+                    </div>
                     <div className="space-y-1.5">
                       <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider ml-1">
                         {t('supervisor_targets.field_employee')} <span className="text-red-500">*</span>
@@ -565,7 +598,7 @@ export default function SupervisorTargetsPage() {
                         className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-2xl text-sm dark:text-gray-100 outline-none focus:border-primary-500/30 transition-all">
                         <option value={0} className="dark:bg-slate-800 dark:text-gray-400">{t('supervisor_targets.field_employee_placeholder')}</option>
                         {supervisors.map(s => (
-                          <option key={s.id} value={s.id!} className="dark:bg-slate-800 dark:text-gray-100">{s.name || s.dms_code || s.username} ({s.employee_id || s.dms_code})</option>
+                          <option key={s.id} value={s.id!} className="dark:bg-slate-800 dark:text-gray-100">{s.name || s.dms_code || s.username} ({s.pool_number})</option>
                         ))}
                       </select>
                       {fieldErrors.employee_id && <p className="text-[10px] text-red-500 font-bold ml-1">{fieldErrors.employee_id}</p>}

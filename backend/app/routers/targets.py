@@ -14,6 +14,7 @@ from app.models.employee import Employee
 from app.models.user import User
 from app.schemas.house_target import HouseTargetCreate, HouseTargetUpdate
 from app.schemas.supervisor_target import SupervisorTargetCreate, SupervisorTargetUpdate
+from app.schemas.rso_target import RSOTargetCreate, RSOTargetUpdate
 from app.services.Automation.target_excel import (
     export_house_targets_excel,
     export_supervisor_targets_excel,
@@ -213,11 +214,17 @@ async def create_supervisor_target(
     payload: SupervisorTargetCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("targets.edit")),
+    house_id: Optional[int] = Depends(get_house_context),
 ):
     try:
         target_date = datetime.strptime(payload.target_date, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid target_date format. Use YYYY-MM-DD.")
+
+    target_house_id = payload.house_id or house_id
+    if not target_house_id:
+        employee = await db.get(Employee, payload.employee_id)
+        if employee: target_house_id = employee.house_id
 
     exist = await db.execute(
         select(SupervisorTarget).where(
@@ -230,6 +237,7 @@ async def create_supervisor_target(
 
     total_recharge = (payload.ev_secondary or 0) + (payload.sc_secondary or 0)
     record = SupervisorTarget(
+        house_id=target_house_id,
         employee_id=payload.employee_id,
         target_date=target_date,
         ev_secondary=payload.ev_secondary or 0,
@@ -337,3 +345,120 @@ async def export_rso_targets(db: AsyncSession = Depends(get_db), current_user = 
     records = result.scalars().all()
     excel_data = await export_rso_targets_excel(records)
     return Response(content=excel_data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=rso_targets.xlsx"})
+
+@router.get("/rso-targets/{target_id}")
+async def get_rso_target(
+    target_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("targets.view")),
+):
+    query = select(RSOTarget).options(
+        joinedload(RSOTarget.house),
+        joinedload(RSOTarget.employee).joinedload(Employee.user),
+        joinedload(RSOTarget.supervisor).joinedload(Employee.user),
+    ).where(RSOTarget.id == target_id)
+    result = await db.execute(query)
+    record = result.unique().scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="RSO target not found")
+    return record
+
+@router.post("/rso-targets", status_code=201)
+async def create_rso_target(
+    payload: RSOTargetCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("targets.edit")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    try:
+        target_date = datetime.strptime(payload.target_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid target_date format. Use YYYY-MM-DD.")
+
+    employee = await db.get(Employee, payload.employee_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    target_house_id = payload.house_id or house_id or employee.house_id
+
+    exist = await db.execute(
+        select(RSOTarget).where(
+            RSOTarget.employee_id == payload.employee_id,
+            RSOTarget.target_date == target_date
+        )
+    )
+    if exist.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Target already exists for this RSO and date")
+
+    total_recharge = (payload.ev_secondary or 0) + (payload.sc_secondary or 0)
+    record = RSOTarget(
+        house_id=target_house_id,
+        employee_id=payload.employee_id,
+        supervisor_id=payload.supervisor_id,
+        target_date=target_date,
+        ev_secondary=payload.ev_secondary or 0,
+        sc_secondary=payload.sc_secondary or 0,
+        total_recharge=total_recharge,
+        ga=payload.ga or 0,
+        sso=payload.sso or 0,
+        lso=payload.lso or 0,
+        bso=payload.bso or 0,
+        ddso=payload.ddso or 0,
+        service_route=payload.service_route,
+        market_type=payload.market_type,
+        thana_name=payload.thana_name,
+        ga_target_modified=payload.ga_target_modified or 0,
+        ev_secondary_modified=payload.ev_secondary_modified or 0,
+        sc_secondary_modified=payload.sc_secondary_modified or 0,
+        recharge_target_modified=payload.recharge_target_modified or 0,
+        lso_target_modified=payload.lso_target_modified or 0,
+        sso_target_modified=payload.sso_target_modified or 0,
+        bso_target_modified=payload.bso_target_modified or 0,
+        daily_dso_target_modified=payload.daily_dso_target_modified or 0,
+        extra_targets=payload.extra_targets or {},
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+@router.put("/rso-targets/{target_id}")
+async def update_rso_target(
+    target_id: int,
+    payload: RSOTargetUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("targets.edit")),
+):
+    query = select(RSOTarget).where(RSOTarget.id == target_id)
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="RSO target not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    if 'ev_secondary' in update_data or 'sc_secondary' in update_data:
+        ev = update_data.get('ev_secondary', record.ev_secondary) or 0
+        sc = update_data.get('sc_secondary', record.sc_secondary) or 0
+        update_data['total_recharge'] = ev + sc
+    for key, value in update_data.items():
+        setattr(record, key, value)
+    record.updated_at = func.now()
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+@router.delete("/rso-targets/{target_id}", status_code=204)
+async def delete_rso_target(
+    target_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("targets.edit")),
+):
+    query = select(RSOTarget).where(RSOTarget.id == target_id)
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="RSO target not found")
+
+    await db.delete(record)
+    await db.commit()
+    return
