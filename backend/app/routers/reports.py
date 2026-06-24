@@ -35,12 +35,116 @@ async def get_activations(
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
+
+    activation_date_from: Optional[str] = None,
+    activation_date_to: Optional[str] = None,
+    activation_time: Optional[str] = None,
+    retailer_code: Optional[str] = None,
+    retailer_name: Optional[str] = None,
+    bts_code: Optional[str] = None,
+    thana: Optional[str] = None,
+    promotion: Optional[str] = None,
+    product_code: Optional[str] = None,
+    product_codes: Optional[str] = None,
+    product_name: Optional[str] = None,
+    sim_no: Optional[str] = None,
+    msisdn: Optional[str] = None,
+    selling_price_min: Optional[str] = None,
+    selling_price_max: Optional[str] = None,
+    bp_flag: Optional[str] = None,
+    bp_number: Optional[str] = None,
+    fc_bts_code: Optional[str] = None,
+    bio_bts_code: Optional[str] = None,
+    dh_lifting_date: Optional[str] = None,
+    issue_date: Optional[str] = None,
+    subscription_type: Optional[str] = None,
+    service_class: Optional[str] = None,
+    customer_second_contact: Optional[str] = None,
+    employee_id: Optional[int] = None,
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
+
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("activations.view")),
-    house_id: Optional[int] = Depends(get_house_context)
+    header_house_id: Optional[int] = Depends(get_house_context)
 ):
-    query = select(Activation)
-    if house_id: query = query.where(Activation.house_id == house_id)
+    effective_house_id = filter_house_id or header_house_id
+    query = select(Activation).options(
+        joinedload(Activation.retailer).joinedload(Retailer.employee).joinedload(Employee.user)
+    )
+    if effective_house_id: query = query.where(Activation.house_id == effective_house_id)
+
+    if employee_id:
+        retailer_ids_subq = select(Retailer.id).where(Retailer.employee_id == employee_id)
+        query = query.where(Activation.retailer_id.in_(retailer_ids_subq))
+
+    if activation_date_from:
+        try: sd = datetime.strptime(activation_date_from, "%Y-%m-%d").date()
+        except: pass
+        else: query = query.where(Activation.activation_date >= sd)
+    if activation_date_to:
+        try: ed = datetime.strptime(activation_date_to, "%Y-%m-%d").date()
+        except: pass
+        else: query = query.where(Activation.activation_date <= ed)
+    if activation_time:
+        p = f"%{activation_time}%"
+        query = query.where(Activation.activation_time.ilike(p))
+    if retailer_code:
+        p = f"%{retailer_code}%"
+        query = query.where(Activation.retailer_code.ilike(p))
+    if retailer_name:
+        p = f"%{retailer_name}%"
+        query = query.where(Activation.retailer_name.ilike(p))
+    if bts_code:
+        p = f"%{bts_code}%"
+        query = query.where(Activation.bts_code.ilike(p))
+    if thana:
+        p = f"%{thana}%"
+        query = query.where(Activation.thana.ilike(p))
+    if promotion:
+        query = query.where(Activation.promotion == promotion)
+    if product_code:
+        query = query.where(Activation.product_code == product_code)
+    if product_codes:
+        codes_list = [c.strip() for c in product_codes.split(",") if c.strip()]
+        if codes_list:
+            query = query.where(Activation.product_code.in_(codes_list))
+    if product_name:
+        query = query.where(Activation.product_name == product_name)
+    if sim_no:
+        p = f"%{sim_no}%"
+        query = query.where(Activation.sim_no.ilike(p))
+    if msisdn:
+        p = f"%{msisdn}%"
+        query = query.where(Activation.msisdn.ilike(p))
+    if selling_price_min:
+        query = query.where(Activation.selling_price >= selling_price_min)
+    if selling_price_max:
+        query = query.where(Activation.selling_price <= selling_price_max)
+    if bp_flag:
+        query = query.where(Activation.bp_flag == bp_flag)
+    if bp_number:
+        p = f"%{bp_number}%"
+        query = query.where(Activation.bp_number.ilike(p))
+    if fc_bts_code:
+        p = f"%{fc_bts_code}%"
+        query = query.where(Activation.fc_bts_code.ilike(p))
+    if bio_bts_code:
+        p = f"%{bio_bts_code}%"
+        query = query.where(Activation.bio_bts_code.ilike(p))
+    if dh_lifting_date:
+        p = f"%{dh_lifting_date}%"
+        query = query.where(Activation.dh_lifting_date.ilike(p))
+    if issue_date:
+        p = f"%{issue_date}%"
+        query = query.where(Activation.issue_date.ilike(p))
+    if subscription_type:
+        query = query.where(Activation.subscription_type == subscription_type)
+    if service_class:
+        query = query.where(Activation.service_class == service_class)
+    if customer_second_contact:
+        p = f"%{customer_second_contact}%"
+        query = query.where(Activation.customer_second_contact.ilike(p))
+
     if search:
         p = f"%{search}%"
         query = query.where(
@@ -51,8 +155,88 @@ async def get_activations(
     total = await db.execute(count_query)
     total_count = total.scalar()
     result = await db.execute(query.offset(skip).limit(limit).order_by(Activation.id.desc()))
-    records = result.scalars().all()
-    return {"total": total_count, "data": records}
+    records = result.unique().scalars().all()
+
+    data = []
+    for r in records:
+        item = {
+            "id": r.id, "sim_no": r.sim_no, "activation_date": r.activation_date,
+            "activation_time": r.activation_time, "retailer_code": r.retailer_code,
+            "retailer_name": r.retailer_name, "bts_code": r.bts_code, "thana": r.thana,
+            "promotion": r.promotion, "product_code": r.product_code, "product_name": r.product_name,
+            "msisdn": r.msisdn, "selling_price": r.selling_price,
+            "bp_flag": r.bp_flag, "bp_number": r.bp_number,
+            "fc_bts_code": r.fc_bts_code, "bio_bts_code": r.bio_bts_code,
+            "dh_lifting_date": r.dh_lifting_date, "issue_date": r.issue_date,
+            "subscription_type": r.subscription_type, "service_class": r.service_class,
+            "customer_second_contact": r.customer_second_contact,
+            "house_id": r.house_id, "rso_name": None, "rso_employee_id": None,
+            "rso_dms_code": None, "rso_itop_number": None,
+        }
+        if r.retailer and r.retailer.employee:
+            emp = r.retailer.employee
+            item["rso_name"] = emp.user.name if emp.user else emp.dms_code
+            item["rso_employee_id"] = emp.id
+            item["rso_dms_code"] = emp.dms_code
+            item["rso_itop_number"] = emp.itop_number
+        data.append(item)
+
+    return {"total": total_count, "data": data}
+
+@router.get("/activations/filter-options")
+async def get_activation_filter_options(
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("activations.view")),
+    header_house_id: Optional[int] = Depends(get_house_context)
+):
+    effective_house_id = filter_house_id or header_house_id
+    base = select(Activation)
+    if effective_house_id: base = base.where(Activation.house_id == effective_house_id)
+
+    async def get_distinct(column):
+        q = select(column).distinct().where(column.isnot(None)).where(column != "").order_by(column)
+        result = await db.execute(q)
+        return [row[0] for row in result.all()]
+
+    promotions = await get_distinct(Activation.promotion)
+    product_codes = await get_distinct(Activation.product_code)
+    product_names = await get_distinct(Activation.product_name)
+    subscription_types = await get_distinct(Activation.subscription_type)
+    service_classes = await get_distinct(Activation.service_class)
+    bp_flags = await get_distinct(Activation.bp_flag)
+
+    return {
+        "promotions": promotions,
+        "product_codes": product_codes,
+        "product_names": product_names,
+        "subscription_types": subscription_types,
+        "service_classes": service_classes,
+        "bp_flags": bp_flags,
+    }
+
+@router.get("/activations/rso-list")
+async def get_activation_rso_list(
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("activations.view")),
+    header_house_id: Optional[int] = Depends(get_house_context)
+):
+    effective_house_id = filter_house_id or header_house_id
+    base = select(Employee).options(joinedload(Employee.user)).where(Employee.employee_type == "rso")
+    if effective_house_id:
+        base = base.where(Employee.house_id == effective_house_id)
+    result = await db.execute(base.order_by(Employee.id))
+    employees = result.scalars().unique().all()
+    return [
+        {
+            "id": e.id,
+            "name": e.user.name if e.user else e.dms_code,
+            "employee_id": e.employee_id,
+            "dms_code": e.dms_code,
+        }
+        for e in employees
+    ]
 
 @router.get("/activations/export")
 async def export_activations(

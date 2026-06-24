@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -12,12 +12,24 @@ import {
   Settings, Tag, X as XIcon, CheckCircle2, AlertTriangle, Flag,
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, LineChart, Line, Legend,
+  BarChart, Bar, XAxis, YAxis,
+  CartesianGrid,
 } from "recharts";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { useLanguage } from "@/i18n/useLanguage";
 
 interface DashboardSummary {
@@ -357,6 +369,8 @@ export default function ActivationDashboardPage() {
     catch { return []; }
   });
   const [showConfigModal, setShowConfigModal] = useState(false);
+  const [showRsoConfig, setShowRsoConfig] = useState(false);
+  const rsoConfigRef = useRef<HTMLDivElement>(null);
   const [excludedProductCodes, setExcludedProductCodes] = useState<{ id: number; product_code: string }[]>([]);
   const [selectedExcludeCodes, setSelectedExcludeCodes] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("activation_exclude_codes") || "[]"); }
@@ -398,7 +412,7 @@ export default function ActivationDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, selectedExcludeTags, selectedExcludeCodes, t]);
+  }, [month, year, selectedHouseId, selectedExcludeTags, selectedExcludeCodes]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
@@ -419,6 +433,17 @@ export default function ActivationDashboardPage() {
   }, [selectedExcludeTags]);
 
   useEffect(() => {
+    if (!showRsoConfig) return;
+    const handler = (e: MouseEvent) => {
+      if (rsoConfigRef.current && !rsoConfigRef.current.contains(e.target as Node)) {
+        setShowRsoConfig(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showRsoConfig]);
+
+  useEffect(() => {
     localStorage.setItem("activation_exclude_codes", JSON.stringify(selectedExcludeCodes));
   }, [selectedExcludeCodes]);
 
@@ -426,7 +451,7 @@ export default function ActivationDashboardPage() {
     if (!authLoading && hasPermission("reports.view")) {
       fetchDashboard();
     }
-  }, [authLoading, hasPermission, fetchDashboard]);
+  }, [authLoading, hasPermission, month, year, selectedHouseId, selectedExcludeTags, selectedExcludeCodes]);
 
   const handleExport = async () => {
     try {
@@ -537,7 +562,7 @@ export default function ActivationDashboardPage() {
       {loading && !data ? (
         <>
           {/* Summary Skeleton */}
-          <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
           {/* Charts Skeleton */}
@@ -560,7 +585,7 @@ export default function ActivationDashboardPage() {
       ) : data && s ? (
         <>
           {/* Summary KPI Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard
               icon={Target}
               label={t("activation_report.monthly_target")}
@@ -647,59 +672,82 @@ export default function ActivationDashboardPage() {
           {/* Charts Section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Daily Trend Chart */}
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
-              <h2 className="font-bold text-base flex items-center gap-2 dark:text-gray-100 mb-4">
-                <TrendingUp className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-                {t("activation_report.daily_trend")}
-              </h2>
-              {data.daily_trend.length > 0 ? (
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.daily_trend.filter(d => !d.is_future)} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+            <Card className="bg-white dark:bg-slate-900 border-gray-100 dark:border-slate-800 shadow-sm">
+              <CardHeader className="flex flex-row items-center gap-2 px-6 pt-5 pb-0">
+                <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
+                  <TrendingUp className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold text-gray-900 dark:text-gray-100">
+                    {t("activation_report.daily_trend")}
+                  </CardTitle>
+                  <CardDescription className="text-xs text-gray-500 dark:text-gray-400">
+                    {t("activation_report.daily_trend_desc") || "Daily activation trend for the month"}
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="px-2 sm:p-6">
+                {data.daily_trend.length > 0 ? (
+                  <ChartContainer
+                    config={{
+                      actual: {
+                        label: "Activations",
+                        color: isDark ? "#60a5fa" : "#3b82f6",
+                      },
+                    }}
+                    className="aspect-auto h-[250px] w-full"
+                  >
+                    <BarChart
+                      accessibilityLayer
+                      data={data.daily_trend.filter(d => !d.is_future)}
+                      margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e5e7eb"} />
                       <XAxis
                         dataKey="date"
-                        tick={{ fontSize: 10, fill: isDark ? "#94a3b8" : "#64748b" }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        minTickGap={32}
+                        tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }}
                         tickFormatter={(val) => {
                           const d = new Date(val);
                           return d.toLocaleDateString("en", { day: "numeric" });
                         }}
-                        stroke={isDark ? "#475569" : "#cbd5e1"}
                       />
                       <YAxis
                         allowDecimals={false}
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
                         tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }}
-                        stroke={isDark ? "#475569" : "#cbd5e1"}
                       />
-                      <Tooltip
-                        contentStyle={{
-                          borderRadius: "12px",
-                          border: isDark ? "1px solid #334155" : "1px solid #e5e7eb",
-                          fontSize: "13px",
-                          backgroundColor: isDark ? "#1e293b" : "#ffffff",
-                          color: isDark ? "#e2e8f0" : "#1e293b",
-                        }}
-                        labelFormatter={(val) => new Date(val).toLocaleDateString("en", {
-                          weekday: "short", month: "short", day: "numeric"
-                        })}
-                        formatter={(value: any) => [value, "Activations"]}
+                      <ChartTooltip
+                        cursor={{ fill: isDark ? "rgba(148,163,184,0.05)" : "rgba(0,0,0,0.03)" }}
+                        content={
+                          <ChartTooltipContent
+                            labelFormatter={(val) => new Date(val).toLocaleDateString("en", {
+                              weekday: "short", month: "short", day: "numeric"
+                            })}
+                            indicator="dot"
+                          />
+                        }
                       />
                       <Bar
                         dataKey="actual"
                         radius={[4, 4, 0, 0]}
-                        fill="#3b82f6"
+                        fill="var(--color-actual)"
                         maxBarSize={24}
-                        name="Actual"
                       />
                     </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="h-64 flex items-center justify-center">
-                  <p className="text-sm text-gray-400">{t("activation_report.no_data")}</p>
-                </div>
-              )}
-            </div>
+                  </ChartContainer>
+                ) : (
+                  <div className="h-[250px] flex items-center justify-center">
+                    <p className="text-sm text-gray-400">{t("activation_report.no_data")}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Target vs Achievement */}
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
@@ -864,6 +912,110 @@ export default function ActivationDashboardPage() {
                   </button>
                 );
               })}
+              {activeTab === "rso" && hasPermission("reports.achievement.config") && (
+                <div ref={rsoConfigRef} className="relative">
+                  <button
+                    onClick={() => setShowRsoConfig(!showRsoConfig)}
+                    className={cn(
+                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative",
+                      showRsoConfig
+                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                        : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                    )}
+                  >
+                    <Settings className="w-4 h-4" />
+                    {(selectedExcludeTags.length > 0 || selectedExcludeCodes.length > 0) && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
+                    )}
+                  </button>
+                  {showRsoConfig && (
+                    <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
+                      {(selectedExcludeTags.length > 0 || selectedExcludeCodes.length > 0) && (
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
+                          {selectedExcludeTags.length + selectedExcludeCodes.length} filter{selectedExcludeTags.length + selectedExcludeCodes.length !== 1 ? 's' : ''} active
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
+                        {tags.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {tags.map(tag => {
+                              const isSelected = selectedExcludeTags.includes(tag.name);
+                              return (
+                                <button
+                                  key={tag.id}
+                                  onClick={() => {
+                                    setSelectedExcludeTags(prev =>
+                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  <Tag className="w-2.5 h-2.5" />
+                                  {tag.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t border-gray-50 dark:border-slate-800" />
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
+                        {excludedProductCodes.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_excluded_codes")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                            {excludedProductCodes.map(item => {
+                              const isSelected = selectedExcludeCodes.includes(item.product_code);
+                              return (
+                                <button
+                                  key={item.id}
+                                  onClick={() => {
+                                    setSelectedExcludeCodes(prev =>
+                                      isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  {item.product_code}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
+                        <button
+                          onClick={() => { setSelectedExcludeTags([]); setSelectedExcludeCodes([]); }}
+                          className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                        >
+                          {t("common.reset")}
+                        </button>
+                        <button
+                          onClick={() => { setShowRsoConfig(false); fetchDashboard(); }}
+                          className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
+                        >
+                          {t("common.save_changes")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {activeTab === "rso" && (
