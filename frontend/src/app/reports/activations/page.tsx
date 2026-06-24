@@ -34,6 +34,9 @@ interface DashboardSummary {
   days_elapsed: number;
   days_remaining: number;
   total_days: number;
+  yesterday_activation: number;
+  previous_month_target: number;
+  previous_month_achievement: number;
 }
 
 interface EmployeePerformance {
@@ -118,9 +121,9 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
-function KpiCard({ icon: Icon, label, value, valueColor, subtitle, trend, onConfig }: {
+function KpiCard({ icon: Icon, label, value, valueColor, valueExtra, subtitle, trend, onConfig }: {
   icon: any; label: string; value: string | number;
-  valueColor?: string; subtitle?: string; trend?: { dir: "up" | "down"; text: string };
+  valueColor?: string; valueExtra?: React.ReactNode; subtitle?: string; trend?: { dir: "up" | "down"; text: string };
   onConfig?: () => void;
 }) {
   return (
@@ -138,9 +141,16 @@ function KpiCard({ icon: Icon, label, value, valueColor, subtitle, trend, onConf
           <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             {label}
           </p>
-          <p className={cn("text-2xl font-black tracking-tight", valueColor || "text-gray-900 dark:text-gray-100")}>
-            {value}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={cn("text-2xl font-black tracking-tight", valueColor || "text-gray-900 dark:text-gray-100")}>
+              {value}
+            </p>
+            {valueExtra && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
+                {valueExtra}
+              </span>
+            )}
+          </div>
           {subtitle && (
             <p className="text-[10px] text-gray-400 dark:text-gray-500">{subtitle}</p>
           )}
@@ -156,7 +166,7 @@ function KpiCard({ icon: Icon, label, value, valueColor, subtitle, trend, onConf
           ) : (
             <ArrowDown className="w-3 h-3 text-rose-500" />
           )}
-          <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{trend.text}</span>
+          <span className={`text-[11px] font-medium ${trend.dir === "up" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{trend.text}</span>
         </div>
       )}
     </div>
@@ -370,6 +380,11 @@ export default function ActivationDashboardPage() {
   }, [authLoading, hasPermission, router]);
 
   const fetchDashboard = useCallback(async () => {
+    if (!selectedHouseId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params: Record<string, any> = { month, year };
@@ -551,14 +566,25 @@ export default function ActivationDashboardPage() {
               label={t("activation_report.monthly_target")}
               value={formatNumber(s.monthly_target)}
               valueColor="text-gray-900 dark:text-gray-100"
-              subtitle={`${t("activation_report.days_elapsed")}: ${s.days_elapsed} / ${s.total_days}`}
+              trend={s.previous_month_target > 0 ? {
+                dir: s.monthly_target >= s.previous_month_target ? "up" as const : "down" as const,
+                text: s.monthly_target >= s.previous_month_target
+                   ? `+${formatNumber(s.monthly_target - s.previous_month_target)} from last month`
+                  : `${formatNumber(s.monthly_target - s.previous_month_target)} from last month`,
+              } : undefined}
             />
             <KpiCard
               icon={TrendingUp}
               label={t("activation_report.achievement")}
               value={formatNumber(s.achievement)}
               valueColor="text-emerald-600 dark:text-emerald-400"
-              subtitle={`${s.achievement_percentage}% of target`}
+              valueExtra={<>{t("activation_report.yesterday_badge", { count: s.yesterday_activation })}</>}
+              subtitle={s.previous_month_target > 0
+                ? t("activation_report.last_month_achievement", {
+                    count: s.previous_month_achievement,
+                    pct: Math.round((s.previous_month_achievement / s.previous_month_target) * 100),
+                  })
+                : t("activation_report.last_month_achievement", { count: s.previous_month_achievement, pct: 0 })}
               onConfig={hasPermission("reports.achievement.config") ? () => setShowConfigModal(true) : undefined}
             />
             <KpiCard
@@ -583,7 +609,7 @@ export default function ActivationDashboardPage() {
             <KpiCard
               icon={Activity}
               label={t("activation_report.daily_average")}
-              value={s.daily_average.toFixed(1)}
+              value={Math.round(s.daily_average)}
               valueColor="text-blue-600 dark:text-blue-400"
               subtitle={t("activation_report.days_elapsed") + ": " + s.days_elapsed}
             />
@@ -853,8 +879,12 @@ export default function ActivationDashboardPage() {
         </>
       ) : !loading && !data ? (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm py-20 text-center">
-          <BarChart3 className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-          <p className="text-gray-500 dark:text-gray-400 font-medium">{t("activation_report.no_data")}</p>
+          <Building2 className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+          <p className="text-gray-500 dark:text-gray-400 font-medium">
+            {houses.length > 1 && !selectedHouseId
+              ? t("activation_report.select_house")
+              : t("activation_report.no_data")}
+          </p>
         </div>
       ) : null}
 

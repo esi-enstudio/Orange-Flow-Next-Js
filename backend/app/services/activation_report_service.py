@@ -106,10 +106,59 @@ class ActivationReportService:
         )
         return res.scalar_one_or_none()
 
+    async def _count_activations_for_date(self, target_date: date) -> int:
+        excluded = await self._get_excluded_retailer_ids()
+        excluded_codes = self.exclude_product_codes
+        q = select(func.count()).select_from(Activation).where(
+            Activation.house_id == self.house_id,
+            Activation.activation_date == target_date,
+        )
+        if excluded:
+            q = q.where(
+                Activation.retailer_id.notin_(excluded),
+                Activation.retailer_id != None,
+            )
+        if excluded_codes:
+            q = q.where(Activation.product_code.notin_(excluded_codes))
+        res = await self.db.execute(q)
+        return res.scalar() or 0
+
     async def get_summary(self) -> dict:
         target = await self._get_house_target()
         monthly_target = target.total_ga_target or 0 if target else 0
+
+        prev_month = self.month - 1 or 12
+        prev_year = self.year - 1 if self.month == 1 else self.year
+        prev_start = date(prev_year, prev_month, 1)
+        _, prev_last_day = monthrange(prev_year, prev_month)
+        prev_end = date(prev_year, prev_month, prev_last_day)
+        prev_target_row = await self.db.execute(
+            select(HouseTarget).where(
+                HouseTarget.house_id == self.house_id,
+                HouseTarget.target_date >= prev_start,
+                HouseTarget.target_date <= prev_end,
+            )
+        )
+        prev_target = prev_target_row.scalar_one_or_none()
+        previous_month_target = prev_target.total_ga_target or 0 if prev_target else 0
+
         achievement = await self._count_activations()
+        yesterday_date = self.today - timedelta(days=1)
+        yesterday_activation = await self._count_activations_for_date(yesterday_date) if yesterday_date >= self.month_start else 0
+
+        excluded_for_prev = await self._get_excluded_retailer_ids()
+        excluded_codes = self.exclude_product_codes
+        prev_act_q = select(func.count()).select_from(Activation).where(
+            Activation.house_id == self.house_id,
+            Activation.activation_date >= prev_start,
+            Activation.activation_date <= prev_end,
+        )
+        if excluded_for_prev:
+            prev_act_q = prev_act_q.where(Activation.retailer_id.notin_(excluded_for_prev), Activation.retailer_id != None)
+        if excluded_codes:
+            prev_act_q = prev_act_q.where(Activation.product_code.notin_(excluded_codes))
+        prev_act_res = await self.db.execute(prev_act_q)
+        previous_month_achievement = prev_act_res.scalar() or 0
 
         achievement_pct = round((achievement / monthly_target * 100), 1) if monthly_target else 0
         remaining = max(0, monthly_target - achievement)
@@ -134,6 +183,9 @@ class ActivationReportService:
             "days_elapsed": self._days_elapsed,
             "days_remaining": self._days_remaining,
             "total_days": self._days_in_month,
+            "yesterday_activation": yesterday_activation,
+            "previous_month_target": previous_month_target,
+            "previous_month_achievement": previous_month_achievement,
         }
 
     async def _get_employee_performance(

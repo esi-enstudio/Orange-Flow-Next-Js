@@ -25,7 +25,7 @@ interface HouseTargetRecord {
 type ErrDict = Record<string, string>;
 
 export default function HouseTargetsPage() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<HouseTargetRecord[]>([]);
   const [search, setSearch] = useState("");
@@ -426,6 +426,7 @@ export default function HouseTargetsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_date')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_house')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_ev_c2c')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_sc_primary')}</th>
@@ -433,7 +434,6 @@ export default function HouseTargetsPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_ga')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_sso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_lso')}</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_date')}</th>
                 {canEdit && <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_actions')}</th>}
               </tr>
             </thead>
@@ -444,6 +444,11 @@ export default function HouseTargetsPage() {
                 <tr><td colSpan={canEdit ? 9 : 8} className="text-center py-12 text-gray-400">{t('house_targets.no_data')}</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                  <td className="px-4 py-3 font-semibold text-gray-900 dark:text-gray-100">
+                    {r.target_date
+                      ? new Date(r.target_date).toLocaleDateString(language === 'bn' ? 'bn-BD' : 'en-US', { month: 'long' })
+                      : "-"}
+                  </td>
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{r.house?.code || "-"}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.ev_c2c_target}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sc_primary_target}</td>
@@ -451,7 +456,6 @@ export default function HouseTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_ga_target}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.lso}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString() : "-"}</td>
                   {canEdit && (
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
