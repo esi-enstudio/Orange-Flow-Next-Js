@@ -13,6 +13,7 @@ from app.models.rso_target import RSOTarget
 from app.models.employee import Employee
 from app.models.user import User
 from app.schemas.house_target import HouseTargetCreate, HouseTargetUpdate
+from app.schemas.supervisor_target import SupervisorTargetCreate, SupervisorTargetUpdate
 from app.services.Automation.target_excel import (
     export_house_targets_excel,
     export_supervisor_targets_excel,
@@ -206,6 +207,88 @@ async def export_supervisor_targets(db: AsyncSession = Depends(get_db), current_
     records = result.scalars().all()
     excel_data = await export_supervisor_targets_excel(records)
     return Response(content=excel_data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=supervisor_targets.xlsx"})
+
+@router.post("/supervisor-targets", status_code=201)
+async def create_supervisor_target(
+    payload: SupervisorTargetCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("targets.edit")),
+):
+    try:
+        target_date = datetime.strptime(payload.target_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid target_date format. Use YYYY-MM-DD.")
+
+    exist = await db.execute(
+        select(SupervisorTarget).where(
+            SupervisorTarget.employee_id == payload.employee_id,
+            SupervisorTarget.target_date == target_date
+        )
+    )
+    if exist.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Target already exists for this supervisor and date")
+
+    total_recharge = (payload.ev_secondary or 0) + (payload.sc_secondary or 0)
+    record = SupervisorTarget(
+        employee_id=payload.employee_id,
+        target_date=target_date,
+        ev_secondary=payload.ev_secondary or 0,
+        sc_secondary=payload.sc_secondary or 0,
+        total_recharge=total_recharge,
+        total_ga=payload.total_ga or 0,
+        bp_ga=payload.bp_ga or 0,
+        rso_ga=payload.rso_ga or 0,
+        sso=payload.sso or 0,
+        lso=payload.lso or 0,
+        bso=payload.bso or 0,
+        ddso=payload.ddso or 0,
+        extra_targets=payload.extra_targets or {},
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+@router.put("/supervisor-targets/{target_id}")
+async def update_supervisor_target(
+    target_id: int,
+    payload: SupervisorTargetUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("targets.edit")),
+):
+    query = select(SupervisorTarget).where(SupervisorTarget.id == target_id)
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Supervisor target not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    if 'ev_secondary' in update_data or 'sc_secondary' in update_data:
+        ev = update_data.get('ev_secondary', record.ev_secondary) or 0
+        sc = update_data.get('sc_secondary', record.sc_secondary) or 0
+        update_data['total_recharge'] = ev + sc
+    for key, value in update_data.items():
+        setattr(record, key, value)
+    record.updated_at = func.now()
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+@router.delete("/supervisor-targets/{target_id}", status_code=204)
+async def delete_supervisor_target(
+    target_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("targets.edit")),
+):
+    query = select(SupervisorTarget).where(SupervisorTarget.id == target_id)
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Supervisor target not found")
+
+    await db.delete(record)
+    await db.commit()
+    return
 
 @router.get("/rso-targets")
 async def get_rso_targets(

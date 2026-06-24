@@ -606,6 +606,7 @@ async def get_supervisors_list(
             emp = u.employee_profile
             rso_count = len([s for s in (u.subordinates or []) if "rso" in [r.name.lower() for r in s.roles]])
             supervisors.append({
+                "id": emp.id if emp else None,
                 "user_id": u.id,
                 "name": u.name,
                 "username": u.username,
