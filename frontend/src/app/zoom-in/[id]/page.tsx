@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, Building2, CalendarDays, MapPin, Radio, Users, Store, Activity, Tag, Copy, Check, type LucideIcon } from "lucide-react";
+import { ArrowLeft, CalendarDays, MapPin, Radio, Users, Store, Activity, Tag, Copy, Check, type LucideIcon } from "lucide-react";
 
 interface BTSDetail {
   id: number;
@@ -47,6 +47,7 @@ interface EventDetail {
   bp_total_activation_count: number;
   retailer_total_activation_count: number;
   house_name: string | null;
+  house_code: string | null;
   event_type_name: string | null;
   activity_name: string | null;
   created_at: string | null;
@@ -442,19 +443,17 @@ export default function EventDetailPage() {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.create_event")} #{event.id}</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.date}</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Zoom Event #{event.id}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{event.house_name} ({event.house_code}) &bull; {event.thana}</p>
         </div>
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
         <div className="p-6 md:p-8 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <DetailRow icon={Building2} label={t("zoom_in.fields.house")} value={event.house_name} />
-            <DetailRow icon={CalendarDays} label={t("zoom_in.fields.date")} value={event.date} />
+            <DetailRow icon={CalendarDays} label={t("zoom_in.fields.date")} value={new Date(event.date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} />
             <DetailRow icon={Tag} label={t("zoom_in.fields.event_type")} value={event.event_type_name} />
             <DetailRow icon={Activity} label={t("zoom_in.fields.activity")} value={event.activity_name} />
-            <DetailRow icon={MapPin} label={t("zoom_in.fields.thana")} value={event.thana} />
             <DetailRow icon={Activity} label={t("zoom_in.fields.activation_count")} value={String(event.activation_count ?? 0)} />
           </div>
 

@@ -259,7 +259,7 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
     if (!thana) errs.thana = t("zoom_in.validation.thana_required");
     if (selectedBtsIds.length === 0) errs.bts = t("zoom_in.validation.bts_required");
     if (selectedRsoIds.length === 0) errs.rso = t("zoom_in.validation.rso_required");
-    if (selectedBpIds.length === 0) errs.bp = t("zoom_in.validation.bp_required");
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -493,7 +493,6 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
                   emptyMessage={t("zoom_in.fields.select_house")}
                   noResultsMessage="No BP found"
                   error={errors.bp}
-                  required
                 />
               </div>
 

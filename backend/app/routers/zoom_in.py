@@ -1023,6 +1023,7 @@ async def get_event(
         "activity_id": event.activity_id,
         "thana": event.thana,
         "house_name": event.house.name if event.house else None,
+        "house_code": event.house.code if event.house else None,
         "event_type_name": event.event_type.name if event.event_type else None,
         "activity_name": event.activity.name if event.activity else None,
         "created_at": str(event.created_at) if event.created_at else None,
