@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import apiClient from "@/lib/api";
 import { useLanguage } from "@/i18n/useLanguage";
 import { toast } from "react-hot-toast";
@@ -86,6 +86,7 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const resetForm = () => {
+    suppressEffects.current = false;
     setErrors({});
     setHouseId("");
     setDate(new Date().toISOString().split("T")[0]);
@@ -188,19 +189,21 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
     }
   };
 
-  useEffect(() => {
-    if (!houseId || suppressEffects.current) return;
-    const fetchThanas = async () => {
-      try {
-        const res = await apiClient.get("zoom-in/thanas", { params: { house_id: houseId } });
-        setThanas(res.data);
-        setThana("");
-        setBtsList([]);
-        setSelectedBtsIds([]);
-      } catch { /* silent */ }
-    };
-    fetchThanas();
-  }, [houseId]);
+  const fetchThanasForHouse = useCallback(async (id: string) => {
+    if (!id) return;
+    try {
+      const res = await apiClient.get("zoom-in/thanas", { params: { house_id: id } });
+      setThanas(res.data);
+    } catch { /* silent */ }
+  }, []);
+
+  const handleHouseChange = (value: string) => {
+    setHouseId(value);
+    setThana("");
+    setBtsList([]);
+    setSelectedBtsIds([]);
+    fetchThanasForHouse(value);
+  };
 
   useEffect(() => {
     if (!houseId || suppressEffects.current) return;
@@ -356,7 +359,7 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
                 </label>
                 <select
                   value={houseId}
-                  onChange={(e) => setHouseId(e.target.value)}
+                  onChange={(e) => handleHouseChange(e.target.value)}
                   className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
                 >
                   <option value="">{t("zoom_in.fields.select_house")}</option>
