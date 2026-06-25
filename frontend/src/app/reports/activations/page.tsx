@@ -290,7 +290,7 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                   <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
                 </td>
                 <td className="px-4 py-3 text-center hidden lg:table-cell">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">{emp.daily_average.toFixed(1)}</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
                 </td>
                 <td className="px-4 py-3 text-center hidden xl:table-cell">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(Math.round(emp.projection))}</span>
@@ -389,9 +389,29 @@ export default function ActivationDashboardPage() {
     try { return JSON.parse(localStorage.getItem("activation_rso_exclude_codes") || "[]"); }
     catch { return []; }
   });
+  const [bpExcludeTags, setBpExcludeTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_bp_exclude_tags") || "[]"); }
+    catch { return []; }
+  });
+  const [bpExcludeCodes, setBpExcludeCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_bp_exclude_codes") || "[]"); }
+    catch { return []; }
+  });
+  const [ccExcludeTags, setCcExcludeTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_cc_exclude_tags") || "[]"); }
+    catch { return []; }
+  });
+  const [ccExcludeCodes, setCcExcludeCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_cc_exclude_codes") || "[]"); }
+    catch { return []; }
+  });
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRsoConfig, setShowRsoConfig] = useState(false);
+  const [showBpConfig, setShowBpConfig] = useState(false);
+  const [showCcConfig, setShowCcConfig] = useState(false);
   const rsoConfigRef = useRef<HTMLDivElement>(null);
+  const bpConfigRef = useRef<HTMLDivElement>(null);
+  const ccConfigRef = useRef<HTMLDivElement>(null);
   const [excludedProductCodes, setExcludedProductCodes] = useState<{ id: number; product_code: string }[]>([]);
 
   useEffect(() => {
@@ -424,6 +444,10 @@ export default function ActivationDashboardPage() {
       if (achievementExcludeCodes.length > 0) params.exclude_codes = achievementExcludeCodes.join(",");
       if (rsoExcludeTags.length > 0) params.rso_exclude_tags = rsoExcludeTags.join(",");
       if (rsoExcludeCodes.length > 0) params.rso_exclude_codes = rsoExcludeCodes.join(",");
+      if (bpExcludeTags.length > 0) params.bp_exclude_tags = bpExcludeTags.join(",");
+      if (bpExcludeCodes.length > 0) params.bp_exclude_codes = bpExcludeCodes.join(",");
+      if (ccExcludeTags.length > 0) params.cc_exclude_tags = ccExcludeTags.join(",");
+      if (ccExcludeCodes.length > 0) params.cc_exclude_codes = ccExcludeCodes.join(",");
       const res = await apiClient.get("reports/activations/dashboard", { params });
       setData(res.data);
     } catch {
@@ -431,7 +455,7 @@ export default function ActivationDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes]);
+  }, [month, year, selectedHouseId, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
@@ -464,6 +488,22 @@ export default function ActivationDashboardPage() {
   }, [rsoExcludeCodes]);
 
   useEffect(() => {
+    localStorage.setItem("activation_bp_exclude_tags", JSON.stringify(bpExcludeTags));
+  }, [bpExcludeTags]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_bp_exclude_codes", JSON.stringify(bpExcludeCodes));
+  }, [bpExcludeCodes]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_cc_exclude_tags", JSON.stringify(ccExcludeTags));
+  }, [ccExcludeTags]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_cc_exclude_codes", JSON.stringify(ccExcludeCodes));
+  }, [ccExcludeCodes]);
+
+  useEffect(() => {
     if (!showRsoConfig) return;
     const handler = (e: MouseEvent) => {
       if (rsoConfigRef.current && !rsoConfigRef.current.contains(e.target as Node)) {
@@ -473,6 +513,28 @@ export default function ActivationDashboardPage() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showRsoConfig]);
+
+  useEffect(() => {
+    if (!showBpConfig) return;
+    const handler = (e: MouseEvent) => {
+      if (bpConfigRef.current && !bpConfigRef.current.contains(e.target as Node)) {
+        setShowBpConfig(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showBpConfig]);
+
+  useEffect(() => {
+    if (!showCcConfig) return;
+    const handler = (e: MouseEvent) => {
+      if (ccConfigRef.current && !ccConfigRef.current.contains(e.target as Node)) {
+        setShowCcConfig(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showCcConfig]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
@@ -1034,6 +1096,214 @@ export default function ActivationDashboardPage() {
                         </button>
                         <button
                           onClick={() => { setShowRsoConfig(false); fetchDashboard(); }}
+                          className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
+                        >
+                          {t("common.save_changes")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {activeTab === "bp" && hasPermission("reports.achievement.config") && (
+                <div ref={bpConfigRef} className="relative">
+                  <button
+                    onClick={() => setShowBpConfig(!showBpConfig)}
+                    className={cn(
+                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative",
+                      showBpConfig
+                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                        : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                    )}
+                  >
+                    <Settings className="w-4 h-4" />
+                    {(bpExcludeTags.length > 0 || bpExcludeCodes.length > 0) && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
+                    )}
+                  </button>
+                  {showBpConfig && (
+                    <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
+                      {(bpExcludeTags.length > 0 || bpExcludeCodes.length > 0) && (
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
+                          {bpExcludeTags.length + bpExcludeCodes.length} filter{bpExcludeTags.length + bpExcludeCodes.length !== 1 ? 's' : ''} active
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
+                        {tags.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {tags.map(tag => {
+                              const isSelected = bpExcludeTags.includes(tag.name);
+                              return (
+                                <button
+                                  key={tag.id}
+                                  onClick={() => {
+                                    setBpExcludeTags(prev =>
+                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  <Tag className="w-2.5 h-2.5" />
+                                  {tag.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t border-gray-50 dark:border-slate-800" />
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
+                        {excludedProductCodes.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_excluded_codes")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                            {excludedProductCodes.map(item => {
+                              const isSelected = bpExcludeCodes.includes(item.product_code);
+                              return (
+                                <button
+                                  key={item.id}
+                                  onClick={() => {
+                                    setBpExcludeCodes(prev =>
+                                      isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  {item.product_code}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
+                        <button
+                          onClick={() => { setBpExcludeTags([]); setBpExcludeCodes([]); }}
+                          className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                        >
+                          {t("common.reset")}
+                        </button>
+                        <button
+                          onClick={() => { setShowBpConfig(false); fetchDashboard(); }}
+                          className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
+                        >
+                          {t("common.save_changes")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {activeTab === "cc" && hasPermission("reports.achievement.config") && (
+                <div ref={ccConfigRef} className="relative">
+                  <button
+                    onClick={() => setShowCcConfig(!showCcConfig)}
+                    className={cn(
+                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative",
+                      showCcConfig
+                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                        : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                    )}
+                  >
+                    <Settings className="w-4 h-4" />
+                    {(ccExcludeTags.length > 0 || ccExcludeCodes.length > 0) && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
+                    )}
+                  </button>
+                  {showCcConfig && (
+                    <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
+                      {(ccExcludeTags.length > 0 || ccExcludeCodes.length > 0) && (
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
+                          {ccExcludeTags.length + ccExcludeCodes.length} filter{ccExcludeTags.length + ccExcludeCodes.length !== 1 ? 's' : ''} active
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
+                        {tags.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {tags.map(tag => {
+                              const isSelected = ccExcludeTags.includes(tag.name);
+                              return (
+                                <button
+                                  key={tag.id}
+                                  onClick={() => {
+                                    setCcExcludeTags(prev =>
+                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  <Tag className="w-2.5 h-2.5" />
+                                  {tag.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t border-gray-50 dark:border-slate-800" />
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
+                        {excludedProductCodes.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_excluded_codes")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                            {excludedProductCodes.map(item => {
+                              const isSelected = ccExcludeCodes.includes(item.product_code);
+                              return (
+                                <button
+                                  key={item.id}
+                                  onClick={() => {
+                                    setCcExcludeCodes(prev =>
+                                      isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  {item.product_code}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
+                        <button
+                          onClick={() => { setCcExcludeTags([]); setCcExcludeCodes([]); }}
+                          className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                        >
+                          {t("common.reset")}
+                        </button>
+                        <button
+                          onClick={() => { setShowCcConfig(false); fetchDashboard(); }}
                           className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
                         >
                           {t("common.save_changes")}

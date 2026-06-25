@@ -305,6 +305,7 @@ class ActivationReportService:
             target_map[t.employee_id] = t.ga_target or 0
 
         pool_map = {e.id: e.pool_number for e in employees}
+        yesterday = self.today - timedelta(days=1)
         results = []
         for emp_id in emp_ids:
             target_val = target_map.get(emp_id, 0)
@@ -315,7 +316,21 @@ class ActivationReportService:
                 )
             )
             retailer_codes = [row[0] for row in bp_code_rows.all() if row[0]]
-            achievement = await self._count_activations(retailer_codes=retailer_codes)
+            achievement = 0
+            if retailer_codes:
+                excluded = await self._get_excluded_retailer_ids()
+                q = select(func.count()).select_from(Activation).where(
+                    Activation.house_id == self.house_id,
+                    Activation.activation_date >= self.month_start,
+                    Activation.activation_date <= yesterday,
+                    Activation.retailer_code.in_(retailer_codes),
+                )
+                if excluded:
+                    q = q.where(Activation.retailer_id.notin_(excluded), Activation.retailer_id != None)
+                if self.exclude_product_codes:
+                    q = q.where(Activation.product_code.notin_(self.exclude_product_codes))
+                res = await self.db.execute(q)
+                achievement = res.scalar() or 0
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
