@@ -10,3 +10,4 @@ from app.schemas.filter import *
 from app.schemas.product import *
 from app.schemas.lifting import *
 from app.schemas.commission import *
+from app.schemas.bp_target import *

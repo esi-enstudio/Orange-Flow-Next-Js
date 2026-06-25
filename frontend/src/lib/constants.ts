@@ -162,6 +162,7 @@ export const navItems: NavItem[] = [
       { title: "House Targets", translationKey: "nav.house_targets", href: "/targets/house", permission: "targets.view" },
       { title: "Supervisor Targets", translationKey: "nav.supervisor_targets", href: "/targets/supervisor", permission: "targets.view" },
       { title: "RSO Targets", translationKey: "nav.rso_targets", href: "/targets/rso", permission: "targets.view" },
+      { title: "BP Targets", translationKey: "nav.bp_targets", href: "/targets/bp", permission: "bp_targets.view" },
     ]
   },
   {

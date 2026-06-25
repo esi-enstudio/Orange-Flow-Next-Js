@@ -21,6 +21,8 @@ import app.models.sync_history
 import app.models.house_target
 import app.models.supervisor_target
 import app.models.rso_target
+import app.models.bp_target
+import app.models.activity_log
 import app.models.product_exclusion
 import app.models.app_setting
 
@@ -139,6 +141,23 @@ async def _migrate_live_activation_date_type():
     except Exception as e:
         logger.warning(f"Migration warning (live_activations.activation_date): {e}")
 
+async def _migrate_bp_target_remove_soft_delete():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='bp_targets' AND column_name='is_deleted'"
+            ))
+            if not result.scalar():
+                return
+            logger.info("Migrating bp_targets: removing soft delete columns...")
+            await conn.execute(text("DROP INDEX IF EXISTS ix_bp_targets_is_deleted"))
+            await conn.execute(text("ALTER TABLE bp_targets DROP COLUMN IF EXISTS deleted_by"))
+            await conn.execute(text("ALTER TABLE bp_targets DROP COLUMN IF EXISTS deleted_at"))
+            await conn.execute(text("ALTER TABLE bp_targets DROP COLUMN IF EXISTS is_deleted"))
+            logger.info("Migration complete: bp_targets soft delete removed")
+    except Exception as e:
+        logger.warning(f"Migration warning (bp_targets remove soft delete): {e}")
+
 async def _migrate_ga_section_config_employee_ids():
     try:
         async with engine.begin() as conn:
@@ -164,6 +183,7 @@ async def init_db():
         await _migrate_app_settings_daily_sync()
         await _migrate_live_activation_date_type()
         await _migrate_ga_section_config_employee_ids()
+        await _migrate_bp_target_remove_soft_delete()
         await _migrate_indexes()
         from app.models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func

@@ -36,6 +36,7 @@ class BpRetailerCodeOut(BaseModel):
 
 @router.get("/bp-employees")
 async def list_bp_employees(
+    house_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("reports.view")),
     house_context: Optional[int] = Depends(get_house_context),
@@ -49,8 +50,9 @@ async def list_bp_employees(
         .where(Employee.status == "Active")
     )
 
-    if house_context:
-        query = query.where(Employee.house_id == house_context)
+    target_house_id = house_id or house_context
+    if target_house_id:
+        query = query.where(Employee.house_id == target_house_id)
     elif not is_admin:
         if user_house_ids:
             query = query.where(Employee.house_id.in_(user_house_ids))
@@ -70,9 +72,10 @@ async def list_bp_employees(
             "name": emp.user.name if emp.user else None,
             "dms_code": emp.dms_code,
             "employee_id": emp.employee_id,
+            "pool_number": emp.pool_number,
         })
 
-    bp_list.sort(key=lambda e: e["name"] or e["dms_code"] or "")
+    bp_list.sort(key=lambda e: e["name"] or e["employee_id"] or e["dms_code"] or "")
     return bp_list
 
 
