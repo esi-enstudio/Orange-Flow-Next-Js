@@ -61,6 +61,9 @@ interface EmployeePerformance {
   daily_average: number;
   projection: number;
   status: string;
+  employee_type?: string;
+  itop_number?: string;
+  pool_number?: string;
 }
 
 interface DailyTrend {
@@ -250,8 +253,14 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                     {idx + 1}
                   </div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 whitespace-nowrap">
                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{emp.name}</p>
+                  {emp.employee_type === "rso" && emp.itop_number && (
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">iTop: {emp.itop_number}</p>
+                  )}
+                  {emp.employee_type === "bp" && emp.pool_number && (
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Pool: {emp.pool_number}</p>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-center">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(emp.target)}</span>

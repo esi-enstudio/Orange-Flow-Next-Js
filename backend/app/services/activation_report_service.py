@@ -272,7 +272,12 @@ class ActivationReportService:
         for t in target_rows.scalars().all():
             target_map[t.employee_id] = t.ga or 0
 
-        return await self._get_employee_performance(emp_ids, target_map, name_map, "rso")
+        results = await self._get_employee_performance(emp_ids, target_map, name_map, "rso")
+        itop_map = {e.id: e.itop_number for e in employees}
+        for r in results:
+            r["employee_type"] = "rso"
+            r["itop_number"] = itop_map.get(r["id"])
+        return results
 
     async def get_bp_performance(self) -> list[dict]:
         emps = await self.db.execute(
@@ -299,6 +304,7 @@ class ActivationReportService:
         for t in target_rows.scalars().all():
             target_map[t.employee_id] = t.ga_target or 0
 
+        pool_map = {e.id: e.pool_number for e in employees}
         results = []
         for emp_id in emp_ids:
             target_val = target_map.get(emp_id, 0)
@@ -335,6 +341,8 @@ class ActivationReportService:
                 "daily_average": daily_avg,
                 "projection": projection,
                 "status": status,
+                "employee_type": "bp",
+                "pool_number": pool_map.get(emp_id),
             })
 
         results.sort(key=lambda r: r["percentage"], reverse=True)
