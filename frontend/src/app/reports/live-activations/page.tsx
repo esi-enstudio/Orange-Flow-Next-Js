@@ -596,8 +596,9 @@ export default function GaLiveReportPage() {
         params: { house_id: effectiveHouseId, start_date: today, end_date: today },
       });
       setData(res.data);
-    } catch {
-      setError("Failed to load report");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to load report";
+      setError(msg);
     } finally {
       setLoading(false);
     }

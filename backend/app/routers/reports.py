@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -27,6 +28,8 @@ from app.services.Automation.live_activation_excel import export_live_activation
 from app.services.Automation.ga_live_performance_excel import export_ga_live_performance_excel
 from app.services.Automation.issue_reports_excel import export_scratch_card_excel, export_sim_issue_excel
 from app.services.target_achievement_service import TargetAchievementService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["reports"])
 
@@ -851,8 +854,13 @@ async def get_ga_live_report(
     else:
         end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
 
-    builder = GaLiveQueryBuilder(db, target_house_id, start_date, end_date)
-    return await builder.build_all()
+    try:
+        builder = GaLiveQueryBuilder(db, target_house_id, start_date, end_date)
+        result = await builder.build_all()
+        return result
+    except Exception as e:
+        logger.error(f"GaLive report failed for house_id={target_house_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
 
 
 @router.get("/reports/live-activations/live-activations-details")

@@ -392,7 +392,7 @@ class GaLiveQueryBuilder:
                 "total_activation": sup_total,
                 "employee_activation": sup_emp,
                 "market_activation": sup_market,
-                "contribution": total_counts["supervisor"] and round((sup_total / sup_total or 1) * 100, 1) or 0,
+                "contribution": total_counts["supervisor"] and round((sup_total / (sup_total or 1)) * 100, 1) or 0,
                 "active_rso": len([u for u in rso_user_ids if u in active_user_ids]),
                 "active_bp": 0,
                 "active_cc": 0,
