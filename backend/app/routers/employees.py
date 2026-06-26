@@ -13,6 +13,7 @@ from app.models.employee import Employee
 from app.models.house import House
 from app.models.user import User
 from app.models.retailer import Retailer
+from app.models.bp_retailer_code import BpRetailerCode
 from pydantic import BaseModel
 from app.utils.access_control import is_admin_user
 from app.utils.validation import safe_filename, validate_excel
@@ -234,6 +235,36 @@ async def get_employee_filter_options(
         "religions": religions,
     }
 
+async def sync_assisted_code_to_bp_retailer_codes(db: AsyncSession, employee: Employee):
+    """Auto-sync BP employee's assisted_retailer_code to bp_retailer_codes table."""
+    if not employee.assisted_retailer_code:
+        return
+    is_bp = employee.employee_type == "bp"
+    if not is_bp and employee.user_id:
+        user = await db.get(User, employee.user_id)
+        if user:
+            is_bp = any(r.name.lower() == "bp" for r in user.roles)
+    if not is_bp:
+        return
+    existing = await db.execute(
+        select(BpRetailerCode).where(
+            BpRetailerCode.bp_employee_id == employee.id,
+            BpRetailerCode.retailer_code == employee.assisted_retailer_code,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return
+    try:
+        new_code = BpRetailerCode(
+            bp_employee_id=employee.id,
+            retailer_code=employee.assisted_retailer_code,
+            house_id=employee.house_id,
+        )
+        db.add(new_code)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
 @router.post("", response_model=EmployeeSchema)
 async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.create"))):
     house = await db.get(House, emp_data.house_id)
@@ -255,6 +286,7 @@ async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(g
     db.add(new_emp)
     await db.commit()
     await db.refresh(new_emp)
+    await sync_assisted_code_to_bp_retailer_codes(db, new_emp)
     result = await db.execute(
         select(Employee)
         .options(joinedload(Employee.house), joinedload(Employee.user).selectinload(User.roles))
@@ -264,8 +296,12 @@ async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(g
 
 @router.put("/{emp_id}", response_model=EmployeeSchema)
 async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.edit"))):
-    result = await db.execute(select(Employee).where(Employee.id == emp_id))
-    emp = result.scalar_one_or_none()
+    result = await db.execute(
+        select(Employee)
+        .options(joinedload(Employee.user).selectinload(User.roles))
+        .where(Employee.id == emp_id)
+    )
+    emp = result.unique().scalar_one_or_none()
     if not emp: raise HTTPException(status_code=404, detail="Employee not found")
     house = await db.get(House, emp_data.house_id)
     if not house:
@@ -278,9 +314,12 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
         if not user:
             raise HTTPException(status_code=422, detail=[{"loc": ["body", "user_id"], "msg": "User not found", "type": "value_error"}])
     for key, value in emp_data.model_dump().items():
+        if key == "employee_type":
+            continue
         setattr(emp, key, value)
     await db.commit()
     await db.refresh(emp)
+    await sync_assisted_code_to_bp_retailer_codes(db, emp)
     result = await db.execute(
         select(Employee)
         .options(joinedload(Employee.house), joinedload(Employee.user).selectinload(User.roles))

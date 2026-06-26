@@ -37,6 +37,7 @@ apiClient.interceptors.response.use(
       message = detail;
     } else if (Array.isArray(detail)) {
       // Handle FastAPI validation errors (Pydantic v2 style)
+      error.response.data._fieldErrors = detail;
       const parts = detail.map((err: unknown) => {
         if (typeof err === 'string') return err;
         if (typeof err === 'object' && err !== null) {

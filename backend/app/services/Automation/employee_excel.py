@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload, joinedload
 from app.models.employee import Employee
 from app.models.user import User         
 from app.models.house import House
+from app.models.bp_retailer_code import BpRetailerCode
 from app.services.db_service import async_session
 
 logger = logging.getLogger(__name__)
@@ -278,6 +279,30 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
 
             pbar.close() # Close progress bar
             await session.commit()
+
+            # Auto-sync BP employees' assisted_retailer_code to bp_retailer_codes
+            bp_emps = await session.execute(
+                select(Employee).where(
+                    Employee.employee_type == "bp",
+                    Employee.assisted_retailer_code != None,
+                    Employee.assisted_retailer_code != "",
+                )
+            )
+            for emp in bp_emps.scalars().all():
+                existing = await session.execute(
+                    select(BpRetailerCode).where(
+                        BpRetailerCode.bp_employee_id == emp.id,
+                        BpRetailerCode.retailer_code == emp.assisted_retailer_code,
+                    )
+                )
+                if not existing.scalar_one_or_none():
+                    session.add(BpRetailerCode(
+                        bp_employee_id=emp.id,
+                        retailer_code=emp.assisted_retailer_code,
+                        house_id=emp.house_id,
+                    ))
+            await session.commit()
+
             return count, None
 
     except Exception as e:

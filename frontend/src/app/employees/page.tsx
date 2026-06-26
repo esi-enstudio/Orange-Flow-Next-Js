@@ -383,15 +383,16 @@ export default function EmployeesPage() {
       setIsFormModalOpen(false);
       fetchData();
     } catch (err: any) {
-      const detail = err.response?.data?.detail;
-      if (Array.isArray(detail)) {
+      const fieldErrors = err.response?.data?._fieldErrors;
+      if (Array.isArray(fieldErrors)) {
         const errors: Record<string, string> = {};
-        detail.forEach((e: any) => {
+        fieldErrors.forEach((e: any) => {
           const field = e.loc?.[e.loc.length - 1];
           if (field) errors[field] = e.msg;
         });
         setFormErrors(errors);
       } else {
+        const detail = err.response?.data?.detail;
         toast.error(detail || t('common.action_failed'));
       }
     } finally {
