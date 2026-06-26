@@ -4,12 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Crosshair, Plus, Loader2, Search, Pencil, Trash2, X, ChevronLeft, ChevronRight
+  Crosshair, Plus, Loader2, Search, Pencil, Trash2, X, ChevronLeft, ChevronRight, SlidersHorizontal
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import BpTargetsFilter, { BpTargetsFilters, defaultBpTargetsFilters } from "@/components/bp-targets/BpTargetsFilter";
+import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 interface BpTarget {
   id: number;
@@ -21,7 +24,7 @@ interface BpTarget {
   total_recharge: number;
   target_date: string;
   house?: { id: number; display_name?: string; name?: string };
-  employee?: { id: number; employee_id?: string; itop_number?: string; personal_number?: string };
+  employee?: { id: number; employee_id?: string; dms_code?: string; pool_number?: string; user?: { name?: string } };
 }
 
 interface Pagination {
@@ -34,7 +37,7 @@ interface Pagination {
 }
 
 export default function BPTargetsPage() {
-  const { hasPermission, loading: authLoading, selectedHouse, user } = useAuth();
+  const { hasPermission, loading: authLoading } = useAuth();
   const { t } = useLanguage();
 
   const [data, setData] = useState<BpTarget[]>([]);
@@ -43,8 +46,9 @@ export default function BPTargetsPage() {
     page: 1, per_page: 20, total: 0, total_pages: 0, has_next: false, has_prev: false,
   });
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
 
+  const [filters, setFilters] = useState<BpTargetsFilters>({ ...defaultBpTargetsFilters });
+  const [showFilters, setShowFilters] = useState(false);
   const [houses, setHouses] = useState<any[]>([]);
   const [bpEmployees, setBpEmployees] = useState<any[]>([]);
   const [distributing, setDistributing] = useState(false);
@@ -65,6 +69,8 @@ export default function BPTargetsPage() {
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [distributeHouseOpen, setDistributeHouseOpen] = useState(false);
+  const [selectedDistributeHouse, setSelectedDistributeHouse] = useState("");
 
   const today = new Date();
   const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
@@ -81,9 +87,11 @@ export default function BPTargetsPage() {
     try {
       const params: Record<string, string> = {
         page: String(page), per_page: "20",
-        target_date: defaultMonth,
+        target_date: filters.target_month ? `${filters.target_month}-01` : defaultMonth,
       };
-      if (search) params.search = search;
+      if (filters.search) params.search = filters.search;
+      if (filters.house_id) params.house_id = filters.house_id;
+      if (filters.employee_id) params.employee_id = filters.employee_id;
       const res = await apiClient.get("bp-targets", { params });
       setData(res.data?.data || []);
       setPagination(res.data?.pagination || pagination);
@@ -92,15 +100,14 @@ export default function BPTargetsPage() {
       toast.error(t("bp_targets.toast_load_failed") || t("common.error"));
     }
     setLoading(false);
-  }, [page, search, canView, defaultMonth]);
+  }, [page, filters, canView, defaultMonth]);
 
   useEffect(() => {
     if (authLoading) return;
-    apiClient.get("houses/accessible").then(res => setHouses(res.data || [])).catch(() => {});
-  }, [authLoading]);
-
-  useEffect(() => {
-    if (!authLoading) fetchData();
+    fetchData();
+    apiClient.get("houses/accessible").then(res => {
+      if (res.data) setHouses(res.data);
+    }).catch(() => {});
   }, [fetchData, authLoading]);
 
   useEffect(() => {
@@ -111,27 +118,40 @@ export default function BPTargetsPage() {
     }
   }, [modalOpen, modalHouseId]);
 
-  const handleDistribute = async () => {
+  const handleDistribute = () => {
+    setSelectedDistributeHouse("");
+    setDistributeHouseOpen(true);
+  };
+
+  const confirmDistribute = async () => {
+    if (!selectedDistributeHouse) {
+      toast.error("Please select a house");
+      return;
+    }
+    setDistributeHouseOpen(false);
     setDistributing(true);
     try {
-      const params: Record<string, string> = { target_date: defaultMonth };
+      const params: Record<string, string> = {
+        target_date: filters.target_month ? `${filters.target_month}-01` : defaultMonth,
+        house_id: selectedDistributeHouse,
+      };
       const res = await apiClient.post("bp-targets/distribute", null, { params });
       toast.success(res.data?.message || t("bp_targets.distribute_success"));
       fetchData();
-    } catch {
-      toast.error(t("common.error"));
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.response?.data?.message || t("common.error");
+      toast.error(msg);
     }
     setDistributing(false);
   };
 
   const openCreateModal = () => {
     setEditingItem(null);
-    const firstHouseId = houses.length > 0 ? String(houses[0].id) : "";
-    setModalHouseId(firstHouseId);
+    setModalHouseId("");
     setBpEmployees([]);
     setFormData({
       employee_id: "",
-      target_date: defaultMonthValue,
+      target_date: filters.target_month || defaultMonthValue,
       ga_target: "0",
       ev_secondary: "0.00",
       sc_secondary: "0.00",
@@ -160,8 +180,9 @@ export default function BPTargetsPage() {
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
-    if (!editingItem && !formData.employee_id) errors.employee_id = t("common.field_required") || "Employee is required";
-    if (!formData.target_date) errors.target_date = t("common.field_required") || "Target date is required";
+    if (!editingItem && !formData.employee_id) errors.employee_id = "Employee is required";
+    if (!editingItem && !modalHouseId) errors.house = "House is required";
+    if (!formData.target_date) errors.target_date = "Target date is required";
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -255,15 +276,52 @@ export default function BPTargetsPage() {
         </div>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          type="text"
-          value={search}
-          onChange={e => { setSearch(e.target.value); setPage(1); }}
-          placeholder={t("bp_targets.search_placeholder")}
-          className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 min-h-[44px]"
-        />
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+        <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={cn(
+              "p-2 rounded-xl border transition-all active:scale-95 shrink-0",
+              showFilters
+                ? "bg-primary-500 text-white border-primary-500 shadow-sm"
+                : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
+            )}
+            title="Toggle filters"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+          <div className="relative flex-1 group max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+            <input
+              type="text"
+              placeholder={t("bp_targets.search_placeholder")}
+              value={filters.search}
+              onChange={e => { setFilters(f => ({ ...f, search: e.target.value })); setPage(1); }}
+              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-gray-100 transition-all"
+            />
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="overflow-hidden border-b dark:border-slate-800"
+            >
+              <div className="p-4">
+                <BpTargetsFilter
+                  filters={filters}
+                  onChange={(f) => { setFilters(f); setPage(1); }}
+                  onClear={() => { setFilters({ ...defaultBpTargetsFilters }); setPage(1); }}
+                  defaultMonth={defaultMonth}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {loading ? (
@@ -303,6 +361,9 @@ export default function BPTargetsPage() {
                 <thead>
                   <tr className="border-b border-gray-50 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
                     <th className="text-left px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      {t("bp_targets.table_date")}
+                    </th>
+                    <th className="text-left px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_bp")}
                     </th>
                     <th className="text-left px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:table-cell">
@@ -320,9 +381,6 @@ export default function BPTargetsPage() {
                     <th className="text-right px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap hidden lg:table-cell">
                       {t("bp_targets.table_recharge")}
                     </th>
-                    <th className="text-center px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:table-cell">
-                      {t("bp_targets.table_date")}
-                    </th>
                     {(canEdit || canDelete) && (
                       <th className="text-center px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                         {t("bp_targets.table_actions")}
@@ -331,18 +389,35 @@ export default function BPTargetsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
-                  {data.map((bt) => (
+                  {data.map((bt) => {
+                    const d = bt.target_date ? new Date(bt.target_date + "T00:00:00") : null;
+                    const formattedDate = d
+                      ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })
+                      : "";
+                    const empName = bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
+                    const dmsCode = bt.employee?.dms_code || "";
+                    const poolNo = bt.employee?.pool_number || "";
+                    const houseLabel = bt.house?.display_name || bt.house?.name || "";
+                    return (
                     <tr key={bt.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/50">
+                      <td className="px-6 py-4 text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">
+                        {formattedDate}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="font-medium text-gray-900 dark:text-gray-100">
-                          {bt.employee?.employee_id || `BP #${bt.employee_id}`}
+                          {empName}
                         </div>
-                        <div className="text-xs text-gray-400 sm:hidden mt-1">
-                          {bt.house?.display_name || bt.house?.name || ""}
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {dmsCode}{poolNo ? ` | ${poolNo}` : ""}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-gray-500 hidden sm:table-cell">
-                        {bt.house?.display_name || bt.house?.name || ""}
+                      <td className="px-6 py-4 hidden sm:table-cell">
+                        <div className="font-medium text-gray-700 dark:text-gray-300">
+                          {bt.house?.name || ""}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {bt.house?.code || ""}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right font-semibold text-gray-900 dark:text-gray-100">
                         {bt.ga_target}
@@ -355,9 +430,6 @@ export default function BPTargetsPage() {
                       </td>
                       <td className="px-6 py-4 text-right text-gray-500 hidden lg:table-cell">
                         {bt.total_recharge}
-                      </td>
-                      <td className="px-6 py-4 text-center text-gray-400 text-xs hidden sm:table-cell">
-                        {bt.target_date?.split("T")[0]}
                       </td>
                       {(canEdit || canDelete) && (
                         <td className="px-6 py-4">
@@ -384,7 +456,8 @@ export default function BPTargetsPage() {
                         </td>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -455,14 +528,16 @@ export default function BPTargetsPage() {
                     onChange={e => { setModalHouseId(e.target.value); setFormData(f => ({ ...f, employee_id: "" })); }}
                     className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 min-h-[44px]"
                   >
-                    <option value="">{t("bp_targets.all_houses")}</option>
+                    <option value="">{t("bp_targets.select_house")}</option>
                     {houses.map((h: any) => (
                       <option key={h.id} value={h.id}>{h.display_name}</option>
                     ))}
                   </select>
+                  {formErrors.house && (
+                    <p className="text-red-500 text-xs mt-1">{formErrors.house}</p>
+                  )}
                 </div>
               )}
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   {t("bp_targets.field_employee")}
@@ -570,6 +645,60 @@ export default function BPTargetsPage() {
                 {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                 {editingItem ? t("bp_targets.btn_update") : t("bp_targets.btn_create")}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {distributeHouseOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setDistributeHouseOpen(false)}>
+          <div
+            className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 w-full max-w-md"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-slate-800">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                {t("bp_targets.auto_distribute")}
+              </h2>
+              <button
+                onClick={() => setDistributeHouseOpen(false)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("bp_targets.house")}
+                </label>
+                <select
+                  value={selectedDistributeHouse}
+                  onChange={e => setSelectedDistributeHouse(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 min-h-[44px]"
+                >
+                  <option value="">{t("bp_targets.select_house")}</option>
+                  {houses.map((h: any) => (
+                    <option key={h.id} value={h.id}>{h.display_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setDistributeHouseOpen(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors min-h-[44px]"
+                >
+                  {t("bp_targets.btn_cancel")}
+                </button>
+                <button
+                  onClick={confirmDistribute}
+                  disabled={!selectedDistributeHouse || distributing}
+                  className="flex-1 px-4 py-2.5 bg-primary-500 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-primary-600 transition-colors disabled:opacity-50 min-h-[44px]"
+                >
+                  {distributing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  {t("bp_targets.auto_distribute")}
+                </button>
+              </div>
             </div>
           </div>
         </div>

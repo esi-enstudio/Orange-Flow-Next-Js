@@ -5,11 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select, func as sa_func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, get_house_context
 from app.models.bp_target import BpTarget
 from app.models.employee import Employee
+from app.models.house import House
 from app.models.house_target import HouseTarget
 from app.models.user import User
 from app.schemas.bp_target import BpTargetCreate, BpTargetUpdate, BpTargetResponse
@@ -34,7 +35,10 @@ async def list_bp_targets(
 ):
     query = (
         select(BpTarget)
-        .options(joinedload(BpTarget.employee), joinedload(BpTarget.house))
+        .options(
+            joinedload(BpTarget.employee).joinedload(Employee.user),
+            joinedload(BpTarget.house),
+        )
     )
 
     if house_id:
@@ -99,7 +103,10 @@ async def get_bp_target(
 ):
     bt = await db.execute(
         select(BpTarget)
-        .options(joinedload(BpTarget.employee), joinedload(BpTarget.house))
+        .options(
+            joinedload(BpTarget.employee).joinedload(Employee.user),
+            joinedload(BpTarget.house),
+        )
         .where(BpTarget.id == target_id)
     )
     bt = bt.unique().scalar_one_or_none()
@@ -313,9 +320,10 @@ async def delete_bp_target(
 async def distribute_bp_targets(
     request: Request,
     target_date: str = Query(...),
+    query_house_id: Optional[int] = Query(None, alias="house_id"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("bp_targets.edit")),
-    house_id: Optional[int] = Depends(get_house_context),
+    house_context: Optional[int] = Depends(get_house_context),
 ):
     try:
         td = datetime.strptime(target_date, "%Y-%m-%d").date()
@@ -325,12 +333,19 @@ async def distribute_bp_targets(
     if td.day != 1:
         td = date(td.year, td.month, 1)
 
-    target_house_id = house_id
+    target_house_id = query_house_id or house_context
     if not target_house_id:
         user_house_ids = [h.id for h in current_user.houses]
-        if not user_house_ids:
+        if user_house_ids:
+            target_house_id = user_house_ids[0]
+        elif is_admin_user(current_user):
+            result = await db.execute(select(House).order_by(House.id).limit(1))
+            first_house = result.scalar_one_or_none()
+            if not first_house:
+                raise HTTPException(status_code=400, detail="No house found")
+            target_house_id = first_house.id
+        else:
             raise HTTPException(status_code=400, detail="No house found")
-        target_house_id = user_house_ids[0]
 
     house_target_res = await db.execute(
         select(HouseTarget).where(
@@ -342,14 +357,20 @@ async def distribute_bp_targets(
     if not house_target or not house_target.bp_ga:
         raise HTTPException(status_code=404, detail="No BP GA target found for this house/month")
 
-    bp_emps = await db.execute(
-        select(Employee).where(
+    all_house_emps = await db.execute(
+        select(Employee)
+        .options(joinedload(Employee.user).selectinload(User.roles))
+        .where(
             Employee.house_id == target_house_id,
-            Employee.employee_type == "bp",
-            Employee.status == "Active",
+            (Employee.status == "Active") | (Employee.status.is_(None)),
         )
     )
-    bp_list = bp_emps.scalars().all()
+    all_emps = all_house_emps.unique().scalars().all()
+    bp_list = []
+    for emp in all_emps:
+        user_roles = [r.name.lower() for r in emp.user.roles] if emp.user else []
+        if "bp" in user_roles:
+            bp_list.append(emp)
     if not bp_list:
         raise HTTPException(status_code=404, detail="No active BPs found in this house")
 
