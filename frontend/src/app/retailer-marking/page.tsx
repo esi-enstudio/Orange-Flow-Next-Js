@@ -48,7 +48,7 @@ export default function RetailerMarkingPage() {
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [showAddTag, setShowAddTag] = useState(false);
-  const [newTagName, setNewTagName] = useState("");
+  const [newTagNames, setNewTagNames] = useState("");
   const [newTagHouseId, setNewTagHouseId] = useState<number | "">("");
   const [creatingTag, setCreatingTag] = useState(false);
   const [activeTab, setActiveTab] = useState<"tags" | "marking">("tags");
@@ -128,12 +128,22 @@ export default function RetailerMarkingPage() {
   }, [tags]);
 
   const handleCreateTag = async () => {
-    if (!newTagName.trim() || !newTagHouseId) return;
+    if (!newTagNames.trim() || !newTagHouseId) return;
+    const names = newTagNames.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    if (names.length === 0) return;
     setCreatingTag(true);
     try {
-      await apiClient.post("filter-tags", { name: newTagName.trim(), house_id: Number(newTagHouseId) });
-      toast.success(t('retailer_marking.toast_tag_created'));
-      setNewTagName(""); setNewTagHouseId(""); setShowAddTag(false);
+      if (names.length === 1) {
+        await apiClient.post("filter-tags", { name: names[0], house_id: Number(newTagHouseId) });
+        toast.success(t('retailer_marking.toast_tag_created'));
+      } else {
+        const res = await apiClient.post("filter-tags/bulk", { house_id: Number(newTagHouseId), names });
+        const created = res.data?.count || 0;
+        const errors = res.data?.errors || [];
+        if (created > 0) toast.success(t('retailer_marking.toast_tags_created', { count: created }));
+        errors.forEach((e: string) => toast.error(e));
+      }
+      setNewTagNames(""); setNewTagHouseId(""); setShowAddTag(false);
       await fetchTags(selectedHouseId || undefined);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || t('retailer_marking.toast_apply_failed'));
@@ -241,28 +251,51 @@ export default function RetailerMarkingPage() {
           </div>
 
           {showAddTag && (
-            <div className="p-6 border-b border-gray-50 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="w-40">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">{t('retailer_marking.select_house')}</label>
+            <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gradient-to-b from-primary-50/40 to-transparent dark:from-primary-500/5 dark:to-transparent">
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-7 h-7 rounded-lg bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center">
+                  <Plus className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                </div>
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('retailer_marking.add_tag')}</span>
+                {newTagNames.trim() && (
+                  <span className="text-xs font-medium bg-primary-100 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400 px-2 py-0.5 rounded-full ml-auto">
+                    {newTagNames.split(/[\n,]+/).map(s => s.trim()).filter(Boolean).length} tag{(newTagNames.split(/[\n,]+/).map(s => s.trim()).filter(Boolean).length) > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr_auto] gap-3 items-start">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{t('retailer_marking.select_house')}</label>
                   <select value={newTagHouseId} onChange={e => setNewTagHouseId(e.target.value ? Number(e.target.value) : "")}
-                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none">
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none transition-shadow">
                     <option value="">{t('retailer_marking.select_house')}</option>
                     {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
                   </select>
                 </div>
-                <div className="flex-1 min-w-[200px]">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">{t('retailer_marking.tag_name')}</label>
-                  <input type="text" value={newTagName} onChange={e => setNewTagName(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && handleCreateTag()}
-                    placeholder={t('retailer_marking.tag_name_placeholder')}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none" />
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{t('retailer_marking.tag_name')}</label>
+                  <textarea value={newTagNames} onChange={e => setNewTagNames(e.target.value)}
+                    rows={3}
+                    placeholder={t('retailer_marking.tag_names_placeholder')}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none resize-none transition-shadow" />
+                  {newTagNames.trim() && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {newTagNames.split(/[\n,]+/).map(s => s.trim()).filter(Boolean).map((name, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 text-xs font-medium border border-primary-100 dark:border-primary-500/20">
+                          <Hash className="w-3 h-3" />
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button onClick={handleCreateTag} disabled={creatingTag || !newTagName.trim() || !newTagHouseId}
-                  className="px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center gap-2">
-                  {creatingTag ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  {t('retailer_marking.create_tag')}
-                </button>
+                <div className="pt-[1.875rem]">
+                  <button onClick={handleCreateTag} disabled={creatingTag || !newTagNames.trim() || !newTagHouseId}
+                    className="w-full sm:w-auto px-6 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary-200 dark:shadow-primary-900/30 active:scale-95">
+                    {creatingTag ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    {t('retailer_marking.create_tags')}
+                  </button>
+                </div>
               </div>
             </div>
           )}

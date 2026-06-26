@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, get_house_context, get_current_user
-from app.schemas.filter import FilterTagSchema, FilterTagCreate, RetailerFilterSchema, RetailerFilterCreate, RetailerFilterBulkCreate, ExcludedProductSchema, ExcludedProductCreate
+from app.schemas.filter import FilterTagSchema, FilterTagCreate, FilterTagBulkCreate, RetailerFilterSchema, RetailerFilterCreate, RetailerFilterBulkCreate, ExcludedProductSchema, ExcludedProductCreate
 from app.models.ga_filter import FilterTag, RetailerFilter, GAProductFilter
 from app.models.product_exclusion import ExcludedProductCode
 from app.models.retailer import Retailer
@@ -64,6 +64,32 @@ async def create_filter_tag(
     await db.commit()
     await db.refresh(new_tag)
     return new_tag
+
+@router.post("/filter-tags/bulk")
+async def bulk_create_filter_tags(
+    bulk_data: FilterTagBulkCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("filters.edit"))
+):
+    created = []
+    errors = []
+    for name in bulk_data.names:
+        name = name.strip()
+        if not name:
+            continue
+        existing = (await db.execute(
+            select(FilterTag).where(FilterTag.house_id == bulk_data.house_id, FilterTag.name == name)
+        )).scalar_one_or_none()
+        if existing:
+            errors.append(f"Tag '{name}' already exists")
+            continue
+        new_tag = FilterTag(house_id=bulk_data.house_id, name=name)
+        db.add(new_tag)
+        created.append(new_tag)
+    await db.commit()
+    for tag in created:
+        await db.refresh(tag)
+    return {"created": [{"id": t.id, "name": t.name} for t in created], "errors": errors, "count": len(created)}
 
 @router.delete("/filter-tags/{tag_id}")
 async def delete_filter_tag(

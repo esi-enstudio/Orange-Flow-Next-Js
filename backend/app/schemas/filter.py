@@ -27,6 +27,10 @@ class RetailerFilterCreate(BaseModel):
     retailer_id: int
     tag_id: int
 
+class FilterTagBulkCreate(BaseModel):
+    house_id: int
+    names: List[str] = Field(min_length=1, max_length=50)
+
 class RetailerFilterBulkCreate(BaseModel):
     retailer_ids: List[int]
     tag_id: int
