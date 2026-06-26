@@ -180,7 +180,7 @@ export default function BpRetailerCodesPage() {
                 <Search className="w-3.5 h-3.5 text-gray-400" />
               </div>
               {bpDropdownOpen && (
-                <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-xl shadow-lg max-h-56 overflow-y-auto scrollbar-custom">
                   <div className="p-2 sticky top-0 bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700">
                     <input
                       value={bpSearch}
