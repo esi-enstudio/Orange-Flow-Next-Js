@@ -134,8 +134,6 @@ export const navItems: NavItem[] = [
       { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permission: "reports.view" },
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permission: "reports.view" },
       { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permission: "reports.view" },
-      { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
-      { title: "BP Targets", translationKey: "nav.bp_targets", href: "/targets/bp", permission: "bp_targets.view" },
       { title: "Retailer Visits", translationKey: "nav.visits", href: "/visit", permission: "visits.view" },
       { title: "Orders", translationKey: "nav.orders", href: "/orders", permission: "orders.view" },
     ]
@@ -197,6 +195,7 @@ export const navItems: NavItem[] = [
     children: [
       { title: "User Management", translationKey: "nav.users", href: "/users", permission: "users.view" },
       { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "retailers.view" },
+      { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "settings.view" },
     ]
