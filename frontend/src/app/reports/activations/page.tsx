@@ -9,7 +9,7 @@ import {
   RotateCcw, Download, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
-  Settings, Tag, X as XIcon, CheckCircle2, AlertTriangle, Flag,
+  Settings, Tag, X as XIcon, CheckCircle2, AlertTriangle, Flag, ChevronDown,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis,
@@ -208,6 +208,8 @@ function StatusBadge({ status, t }: { status: string; t: (key: string) => string
 }
 
 function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (key: string) => string; type: string }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
   if (!data || data.length === 0) {
     const emptyKeys: Record<string, string> = {
       rso: "activation_report.no_data_rso",
@@ -224,7 +226,68 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* Accordion — below lg */}
+      <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+        {data.map((emp, idx) => (
+          <div key={emp.id}>
+            <button
+              onClick={() => setExpandedId(expandedId === emp.id ? null : emp.id)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-gray-50/30 dark:hover:bg-slate-800/30"
+            >
+              <div className={cn(
+                "w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shrink-0",
+                idx === 0 ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400" :
+                idx === 1 ? "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300" :
+                idx === 2 ? "bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400" :
+                "bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500"
+              )}>
+                {idx + 1}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
+                {emp.employee_type === "rso" && emp.itop_number && (
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">iTop: {emp.itop_number}</p>
+                )}
+                {emp.employee_type === "bp" && emp.pool_number && (
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">Pool: {emp.pool_number}</p>
+                )}
+              </div>
+              <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200", expandedId === emp.id && "rotate-180")} />
+            </button>
+            {expandedId === emp.id && (
+              <div className="px-4 pb-4 pt-1 space-y-2 text-sm">
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-gray-500 dark:text-gray-400">{t("activation_report.target")}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(emp.target)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">{t("activation_report.achieved")}</span>
+                  <span className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">{formatNumber(emp.achievement)} <StatusBadge status={emp.status} t={t} /></span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">%</span>
+                  <span className="font-bold" style={{ color: emp.percentage >= 100 ? "#10b981" : emp.percentage >= 70 ? "#3b82f6" : emp.percentage >= 40 ? "#f59e0b" : "#ef4444" }}>{emp.percentage}%</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">{t("activation_report.remaining")}</span>
+                  <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">{t("activation_report.daily_average")}</span>
+                  <span className="text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">{t("activation_report.projection")}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(Math.round(emp.projection))}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Normal table — lg+ */}
+      <div className="hidden lg:block overflow-x-auto">
         <table className="w-full text-left">
           <thead>
             <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
@@ -232,10 +295,10 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
               <th className="px-4 py-3">{t("activation_report.employee")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.target")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.achieved")}</th>
-              <th className="px-4 py-3 text-center hidden sm:table-cell">{t("activation_report.percentage")}</th>
-              <th className="px-4 py-3 text-center hidden md:table-cell">{t("activation_report.remaining")}</th>
-              <th className="px-4 py-3 text-center hidden lg:table-cell">{t("activation_report.daily_average")}</th>
-              <th className="px-4 py-3 text-center hidden xl:table-cell">{t("activation_report.projection")}</th>
+              <th className="px-4 py-3 text-center">{t("activation_report.percentage")}</th>
+              <th className="px-4 py-3 text-center">{t("activation_report.remaining")}</th>
+              <th className="px-4 py-3 text-center">{t("activation_report.daily_average")}</th>
+              <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.status")}</th>
             </tr>
           </thead>
@@ -268,7 +331,7 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                 <td className="px-4 py-3 text-center">
                   <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.achievement)}</span>
                 </td>
-                <td className="px-4 py-3 text-center hidden sm:table-cell">
+                <td className="px-4 py-3 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-16 h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
                       <div
@@ -286,13 +349,13 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                     </span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-center hidden md:table-cell">
+                <td className="px-4 py-3 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
                 </td>
-                <td className="px-4 py-3 text-center hidden lg:table-cell">
+                <td className="px-4 py-3 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
                 </td>
-                <td className="px-4 py-3 text-center hidden xl:table-cell">
+                <td className="px-4 py-3 text-center">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(Math.round(emp.projection))}</span>
                 </td>
                 <td className="px-4 py-3 text-center">
