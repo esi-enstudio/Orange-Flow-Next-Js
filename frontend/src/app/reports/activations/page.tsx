@@ -21,6 +21,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import { exportActivationsReport } from "@/lib/export-activations";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import {
@@ -64,6 +65,10 @@ interface EmployeePerformance {
   employee_type?: string;
   itop_number?: string;
   pool_number?: string;
+  market_activation?: number;
+  yesterday_activation?: number;
+  month_total_activation?: number;
+  active_days?: number;
 }
 
 interface DailyTrend {
@@ -280,6 +285,26 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.projection")}</span>
                   <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(Math.round(emp.projection))}</span>
                 </div>
+                {type === "rso" && (
+                  <>
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">Market</span>
+                      <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.market_activation ?? 0)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">Own Yesterday</span>
+                      <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.yesterday_activation ?? 0)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">Own Total</span>
+                      <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.month_total_activation ?? 0)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">Own Day Count</span>
+                      <span className="font-bold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -299,6 +324,10 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
               <th className="px-4 py-3 text-center">{t("activation_report.remaining")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.daily_average")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
+              {type === "rso" && <th className="px-4 py-3 text-center">Market</th>}
+              {type === "rso" && <th className="px-4 py-3 text-center">Own Yesterday</th>}
+              {type === "rso" && <th className="px-4 py-3 text-center">Own Total</th>}
+              {type === "rso" && <th className="px-4 py-3 text-center">Own Day Count</th>}
               <th className="px-4 py-3 text-center">{t("activation_report.status")}</th>
             </tr>
           </thead>
@@ -358,6 +387,18 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                 <td className="px-4 py-3 text-center">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(Math.round(emp.projection))}</span>
                 </td>
+                {type === "rso" && (
+                  <td className="px-4 py-3 text-center"><span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.market_activation ?? 0)}</span></td>
+                )}
+                {type === "rso" && (
+                  <td className="px-4 py-3 text-center"><span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.yesterday_activation ?? 0)}</span></td>
+                )}
+                {type === "rso" && (
+                  <td className="px-4 py-3 text-center"><span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.month_total_activation ?? 0)}</span></td>
+                )}
+                {type === "rso" && (
+                  <td className="px-4 py-3 text-center"><span className="text-sm font-bold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span></td>
+                )}
                 <td className="px-4 py-3 text-center">
                   <StatusBadge status={emp.status} t={t} />
                 </td>
@@ -452,6 +493,18 @@ export default function ActivationDashboardPage() {
     try { return JSON.parse(localStorage.getItem("activation_rso_exclude_codes") || "[]"); }
     catch { return []; }
   });
+  const [rsoAchievedExcludeTags, setRsoAchievedExcludeTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_rso_achieved_exclude_tags") || "[]"); }
+    catch { return []; }
+  });
+  const [rsoMarketExcludeTags, setRsoMarketExcludeTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_rso_market_exclude_tags") || "[]"); }
+    catch { return []; }
+  });
+  const [rsoActiveDaysThreshold, setRsoActiveDaysThreshold] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem("activation_rso_active_days_threshold") || "1"); }
+    catch { return 1; }
+  });
   const [bpExcludeTags, setBpExcludeTags] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("activation_bp_exclude_tags") || "[]"); }
     catch { return []; }
@@ -470,6 +523,8 @@ export default function ActivationDashboardPage() {
   });
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRsoConfig, setShowRsoConfig] = useState(false);
+  const [rsoShowAchievedConfig, setRsoShowAchievedConfig] = useState(true);
+  const [rsoShowMarketConfig, setRsoShowMarketConfig] = useState(true);
   const [showBpConfig, setShowBpConfig] = useState(false);
   const [showCcConfig, setShowCcConfig] = useState(false);
   const rsoConfigRef = useRef<HTMLDivElement>(null);
@@ -507,6 +562,9 @@ export default function ActivationDashboardPage() {
       if (achievementExcludeCodes.length > 0) params.exclude_codes = achievementExcludeCodes.join(",");
       if (rsoExcludeTags.length > 0) params.rso_exclude_tags = rsoExcludeTags.join(",");
       if (rsoExcludeCodes.length > 0) params.rso_exclude_codes = rsoExcludeCodes.join(",");
+      if (rsoAchievedExcludeTags.length > 0) params.rso_achieved_exclude_tags = rsoAchievedExcludeTags.join(",");
+      if (rsoMarketExcludeTags.length > 0) params.rso_market_exclude_tags = rsoMarketExcludeTags.join(",");
+      params.rso_active_days_threshold = rsoActiveDaysThreshold;
       if (bpExcludeTags.length > 0) params.bp_exclude_tags = bpExcludeTags.join(",");
       if (bpExcludeCodes.length > 0) params.bp_exclude_codes = bpExcludeCodes.join(",");
       if (ccExcludeTags.length > 0) params.cc_exclude_tags = ccExcludeTags.join(",");
@@ -518,7 +576,7 @@ export default function ActivationDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes]);
+  }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
@@ -547,8 +605,20 @@ export default function ActivationDashboardPage() {
   }, [rsoExcludeTags]);
 
   useEffect(() => {
+    localStorage.setItem("activation_rso_active_days_threshold", String(rsoActiveDaysThreshold));
+  }, [rsoActiveDaysThreshold]);
+
+  useEffect(() => {
     localStorage.setItem("activation_rso_exclude_codes", JSON.stringify(rsoExcludeCodes));
   }, [rsoExcludeCodes]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_rso_achieved_exclude_tags", JSON.stringify(rsoAchievedExcludeTags));
+  }, [rsoAchievedExcludeTags]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_rso_market_exclude_tags", JSON.stringify(rsoMarketExcludeTags));
+  }, [rsoMarketExcludeTags]);
 
   useEffect(() => {
     localStorage.setItem("activation_bp_exclude_tags", JSON.stringify(bpExcludeTags));
@@ -603,22 +673,22 @@ export default function ActivationDashboardPage() {
     if (!authLoading && hasPermission("reports.view")) {
       fetchDashboard();
     }
-  }, [authLoading, hasPermission, month, year, selectedHouseId, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes]);
+  }, [authLoading, hasPermission, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags]);
 
   const handleExport = async () => {
+    if (!data) return;
+    const house = houses.find(h => String(h.id) === selectedHouseId);
     try {
-      const params: Record<string, any> = { month, year };
-      if (selectedHouseId) params.house_id = selectedHouseId;
-      const res = await apiClient.get("reports/activations/dashboard/export", {
-        params,
-        responseType: 'blob',
+      await exportActivationsReport({
+        summary: data.summary,
+        rso_performance: data.rso_performance,
+        bp_performance: data.bp_performance,
+        cc_performance: data.cc_performance,
+        house_name: house?.display_name || house?.name || "All Houses",
+        month,
+        year,
+        month_name: getMonthName(month),
       });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `activation_dashboard_${year}_${month}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
       toast.success(t("activation_report.export_success"));
     } catch {
       toast.error(t("activation_report.export_failed"));
@@ -1026,105 +1096,165 @@ export default function ActivationDashboardPage() {
 
           {/* Employee Performance Tabs */}
           <div>
-            <div className="flex items-center gap-1 mb-4 bg-gray-100 dark:bg-slate-800 rounded-lg p-1 w-full md:w-fit overflow-x-auto">
-              {(["rso", "bp", "cc"] as const).map((tab) => {
-                const labels: Record<string, string> = {
-                  rso: t("activation_report.rso_performance"),
-                  bp: t("activation_report.bp_performance"),
-                  cc: t("activation_report.cc_performance"),
-                };
-                const icons: Record<string, any> = {
-                  rso: Users,
-                  bp: Building2,
-                  cc: BarChart3,
-                };
-                const Icon = icons[tab];
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={cn(
-                      "flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[11px] md:text-sm font-bold transition-all whitespace-nowrap",
-                      activeTab === tab
-                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
-                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-                    )}
-                  >
-                    <Icon className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
-                    <span>{labels[tab]}</span>
-                    {tab === "rso" && data.rso_performance.length > 0 && (
-                      <span className="text-[10px] bg-primary-100 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400 px-1.5 py-0.5 rounded-full font-bold">
-                        {data.rso_performance.length}
-                      </span>
-                    )}
-                    {tab === "bp" && data.bp_performance.length > 0 && (
-                      <span className="text-[10px] bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded-full font-bold">
-                        {data.bp_performance.length}
-                      </span>
-                    )}
-                    {tab === "cc" && data.cc_performance.length > 0 && (
-                      <span className="text-[10px] bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-full font-bold">
-                        {data.cc_performance.length}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-1 mb-4">
+              <div className="flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-lg p-1 overflow-x-auto flex-1 min-w-0">
+                {(["rso", "bp", "cc"] as const).map((tab) => {
+                  const labels: Record<string, string> = {
+                    rso: t("activation_report.rso_performance"),
+                    bp: t("activation_report.bp_performance"),
+                    cc: t("activation_report.cc_performance"),
+                  };
+                  const icons: Record<string, any> = {
+                    rso: Users,
+                    bp: Building2,
+                    cc: BarChart3,
+                  };
+                  const Icon = icons[tab];
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={cn(
+                        "flex items-center gap-1 md:gap-2 px-2 md:px-4 h-8 rounded-lg text-[11px] md:text-sm font-bold transition-all whitespace-nowrap",
+                        activeTab === tab
+                          ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                          : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                      )}
+                    >
+                      <Icon className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
+                      <span>{labels[tab]}</span>
+                      {tab === "rso" && data.rso_performance.length > 0 && (
+                        <span className="text-[10px] bg-primary-100 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400 px-1.5 py-0.5 rounded-full font-bold">
+                          {data.rso_performance.length}
+                        </span>
+                      )}
+                      {tab === "bp" && data.bp_performance.length > 0 && (
+                        <span className="text-[10px] bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded-full font-bold">
+                          {data.bp_performance.length}
+                        </span>
+                      )}
+                      {tab === "cc" && data.cc_performance.length > 0 && (
+                        <span className="text-[10px] bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-full font-bold">
+                          {data.cc_performance.length}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
               {activeTab === "rso" && hasPermission("reports.achievement.config") && (
-                <div ref={rsoConfigRef} className="relative">
+                <div ref={rsoConfigRef} className="relative shrink-0">
                   <button
                     onClick={() => setShowRsoConfig(!showRsoConfig)}
                     className={cn(
-                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative",
+                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative bg-gray-100 dark:bg-slate-800",
                       showRsoConfig
                         ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
                         : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                     )}
                   >
                     <Settings className="w-4 h-4" />
-                    {(rsoExcludeTags.length > 0 || rsoExcludeCodes.length > 0) && (
+                    {(rsoExcludeTags.length > 0 || rsoExcludeCodes.length > 0 || rsoAchievedExcludeTags.length > 0 || rsoMarketExcludeTags.length > 0) && (
                       <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
                     )}
                   </button>
                   {showRsoConfig && (
-                    <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
-                      {(rsoExcludeTags.length > 0 || rsoExcludeCodes.length > 0) && (
+                    <div className="absolute right-0 top-full mt-2 z-40 w-80 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
+                      {(rsoExcludeTags.length > 0 || rsoExcludeCodes.length > 0 || rsoAchievedExcludeTags.length > 0 || rsoMarketExcludeTags.length > 0) && (
                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
                           <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
-                          {rsoExcludeTags.length + rsoExcludeCodes.length} filter{rsoExcludeTags.length + rsoExcludeCodes.length !== 1 ? 's' : ''} active
+                          {rsoExcludeTags.length + rsoExcludeCodes.length + rsoAchievedExcludeTags.length + rsoMarketExcludeTags.length} filter{(rsoExcludeTags.length + rsoExcludeCodes.length + rsoAchievedExcludeTags.length + rsoMarketExcludeTags.length) !== 1 ? 's' : ''} active
                         </div>
                       )}
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
-                        {tags.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {tags.map(tag => {
-                              const isSelected = rsoExcludeTags.includes(tag.name);
-                              return (
-                                <button
-                                  key={tag.id}
-                                  onClick={() => {
-                                    setRsoExcludeTags(prev =>
-                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  <Tag className="w-2.5 h-2.5" />
-                                  {tag.name}
-                                </button>
-                              );
-                            })}
+
+                      {/* Achieved Config */}
+                      <div className="border border-gray-100 dark:border-slate-800 rounded-lg overflow-hidden">
+                        <button
+                          onClick={() => setRsoShowAchievedConfig(!rsoShowAchievedConfig)}
+                          className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            {t("activation_report.achieved_config")}
+                          </span>
+                          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", rsoShowAchievedConfig && "rotate-180")} />
+                        </button>
+                        {rsoShowAchievedConfig && (
+                          <div className="px-3 pb-3 space-y-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {tags.length === 0 ? (
+                                <p className="text-xs text-gray-400 py-1">{t("activation_report.no_tags")}</p>
+                              ) : tags.map(tag => {
+                                const isSelected = rsoAchievedExcludeTags.includes(tag.name);
+                                return (
+                                  <button
+                                    key={tag.id}
+                                    onClick={() => {
+                                      setRsoAchievedExcludeTags(prev =>
+                                        isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
+                                      );
+                                    }}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                      isSelected
+                                        ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                                        : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                    )}
+                                  >
+                                    <Tag className="w-2.5 h-2.5" />
+                                    {tag.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>
+
+                      {/* Market Config */}
+                      <div className="border border-gray-100 dark:border-slate-800 rounded-lg overflow-hidden">
+                        <button
+                          onClick={() => setRsoShowMarketConfig(!rsoShowMarketConfig)}
+                          className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                            {t("activation_report.market_config")}
+                          </span>
+                          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", rsoShowMarketConfig && "rotate-180")} />
+                        </button>
+                        {rsoShowMarketConfig && (
+                          <div className="px-3 pb-3 space-y-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {tags.length === 0 ? (
+                                <p className="text-xs text-gray-400 py-1">{t("activation_report.no_tags")}</p>
+                              ) : tags.map(tag => {
+                                const isSelected = rsoMarketExcludeTags.includes(tag.name);
+                                return (
+                                  <button
+                                    key={tag.id}
+                                    onClick={() => {
+                                      setRsoMarketExcludeTags(prev =>
+                                        isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
+                                      );
+                                    }}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                      isSelected
+                                        ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                                        : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                    )}
+                                  >
+                                    <Tag className="w-2.5 h-2.5" />
+                                    {tag.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="border-t border-gray-50 dark:border-slate-800" />
                       <div className="space-y-2">
                         <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
@@ -1156,9 +1286,23 @@ export default function ActivationDashboardPage() {
                           </div>
                         )}
                       </div>
+                       <div className="border-t border-gray-50 dark:border-slate-800" />
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active Days Threshold</p>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={1}
+                            value={rsoActiveDaysThreshold}
+                            onChange={e => setRsoActiveDaysThreshold(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-16 px-2 py-1.5 text-xs font-bold text-center bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                          />
+                          <span className="text-xs text-gray-400">Min. activations/day to count as active</span>
+                        </div>
+                      </div>
                       <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
                         <button
-                          onClick={() => { setRsoExcludeTags([]); setRsoExcludeCodes([]); }}
+                          onClick={() => { setRsoExcludeTags([]); setRsoExcludeCodes([]); setRsoAchievedExcludeTags([]); setRsoMarketExcludeTags([]); setRsoActiveDaysThreshold(1); }}
                           className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
                         >
                           {t("common.reset")}

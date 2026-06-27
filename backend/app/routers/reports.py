@@ -1152,6 +1152,9 @@ async def get_activation_dashboard(
     exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for Achievement (e.g. SIMSWAP,EV-SWAP)"),
     rso_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for RSO Performance"),
     rso_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for RSO Performance"),
+    rso_achieved_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for RSO Achieved column"),
+    rso_market_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for RSO Market column"),
+    rso_active_days_threshold: int = Query(1, ge=1, description="Minimum activations per day to count as active day for RSO"),
     bp_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for BP Performance"),
     bp_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for BP Performance"),
     cc_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for CC Performance"),
@@ -1197,6 +1200,8 @@ async def get_activation_dashboard(
 
     rso_tag_list = [t.strip() for t in rso_exclude_tags.split(",") if t.strip()] if rso_exclude_tags else []
     rso_code_set = {c.strip() for c in rso_exclude_codes.split(",") if c.strip()} if rso_exclude_codes else await get_excluded_codes(db)
+    rso_achieved_tag_list = [t.strip() for t in rso_achieved_exclude_tags.split(",") if t.strip()] if rso_achieved_exclude_tags else []
+    rso_market_tag_list = [t.strip() for t in rso_market_exclude_tags.split(",") if t.strip()] if rso_market_exclude_tags else []
 
     bp_tag_list = [t.strip() for t in bp_exclude_tags.split(",") if t.strip()] if bp_exclude_tags else []
     bp_code_set = {c.strip() for c in bp_exclude_codes.split(",") if c.strip()} if bp_exclude_codes else await get_excluded_codes(db)
@@ -1216,6 +1221,9 @@ async def get_activation_dashboard(
         db, target_house_id, target_month, target_year,
         exclude_tag_names=rso_tag_list,
         exclude_product_codes=rso_code_set,
+        achieved_exclude_tag_names=rso_achieved_tag_list,
+        market_exclude_tag_names=rso_market_tag_list,
+        active_days_threshold=rso_active_days_threshold,
     )
     bp_service = ActivationReportService(
         db, target_house_id, target_month, target_year,
