@@ -923,35 +923,41 @@ export default function ActivationDashboardPage() {
                 <Medal className="w-5 h-5 text-amber-500" />
                 {t("activation_report.top_performers")}
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {top.rso.length > 0 && (
-                  <LeaderboardCard
-                    data={top.rso}
-                    title={t("activation_report.rso_performance")}
-                    icon={Users}
-                    color="bg-blue-500"
-                    t={t}
-                  />
-                )}
-                {top.bp.length > 0 && (
-                  <LeaderboardCard
-                    data={top.bp}
-                    title={t("activation_report.bp_performance")}
-                    icon={Users}
-                    color="bg-purple-500"
-                    t={t}
-                  />
-                )}
-                {top.cc.length > 0 && (
-                  <LeaderboardCard
-                    data={top.cc}
-                    title={t("activation_report.cc_performance")}
-                    icon={Users}
-                    color="bg-emerald-500"
-                    t={t}
-                  />
-                )}
-              </div>
+              {(() => {
+                const cardCount = [top.rso.length > 0, top.bp.length > 0, top.cc.length > 0].filter(Boolean).length;
+                const gridCols = cardCount === 3 ? "md:grid-cols-3" : cardCount === 2 ? "md:grid-cols-2" : "md:grid-cols-1";
+                return (
+                  <div className={`grid grid-cols-1 ${gridCols} gap-4`}>
+                    {top.rso.length > 0 && (
+                      <LeaderboardCard
+                        data={top.rso}
+                        title={t("activation_report.rso_performance")}
+                        icon={Users}
+                        color="bg-blue-500"
+                        t={t}
+                      />
+                    )}
+                    {top.bp.length > 0 && (
+                      <LeaderboardCard
+                        data={top.bp}
+                        title={t("activation_report.bp_performance")}
+                        icon={Users}
+                        color="bg-purple-500"
+                        t={t}
+                      />
+                    )}
+                    {top.cc.length > 0 && (
+                      <LeaderboardCard
+                        data={top.cc}
+                        title={t("activation_report.cc_performance")}
+                        icon={Users}
+                        color="bg-emerald-500"
+                        t={t}
+                      />
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
