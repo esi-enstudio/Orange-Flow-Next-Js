@@ -213,7 +213,7 @@ function StatusBadge({ status, t }: { status: string; t: (key: string) => string
   );
 }
 
-function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (key: string) => string; type: string }) {
+function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; daysElapsed: number; totalDays: number }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   if (!data || data.length === 0) {
@@ -441,6 +441,83 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                 </td>
               </tr>
             ))}
+            {data.length > 0 && (() => {
+              const totalTarget = data.reduce((s, e) => s + e.target, 0);
+              const totalAchieved = data.reduce((s, e) => s + e.achievement, 0);
+              const totalPct = totalTarget ? Math.round(totalAchieved / totalTarget * 100) : 0;
+              const totalRemaining = data.reduce((s, e) => s + e.remaining, 0);
+              const totalDailyAvg = totalAchieved / Math.max(daysElapsed, 1);
+              const totalProjection = data.reduce((s, e) => s + e.projection, 0);
+              const totalYesterday = data.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0);
+              const totalMonthTotal = data.reduce((s, e) => s + (e.month_total_activation ?? 0), 0);
+              const totalActiveDays = data.reduce((s, e) => s + (e.active_days ?? 0), 0);
+              const totalMrktYest = data.reduce((s, e) => s + (e.market_yesterday ?? 0), 0);
+              const totalMrktAct = data.reduce((s, e) => s + (e.market_activation ?? 0), 0);
+              return (
+                <tr className="border-t-2 border-gray-300 dark:border-slate-600 bg-gray-50/80 dark:bg-slate-800/80">
+                  <td className="px-4 py-3" />
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className="text-sm font-extrabold text-gray-900 dark:text-gray-100">Subtotal</span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalTarget)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalAchieved)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="w-16 h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-500",
+                            totalPct >= 100 ? "bg-emerald-500" :
+                            totalPct >= 70 ? "bg-blue-500" :
+                            totalPct >= 40 ? "bg-amber-500" : "bg-rose-500"
+                          )}
+                          style={{ width: `${Math.min(totalPct, 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-gray-600 dark:text-gray-400 w-10 text-center">{totalPct}%</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(totalRemaining)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.round(totalDailyAvg)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{formatNumber(Math.round(totalProjection))}</span>
+                  </td>
+                  {type === "rso" && (
+                    <td className="px-4 py-3 text-center align-middle">
+                      <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{formatNumber(totalMrktYest)}</div>
+                      <div className="text-[10px] text-gray-400">MTD: {formatNumber(totalMrktAct)}</div>
+                    </td>
+                  )}
+                  {type === "rso" && (
+                    <td className="px-4 py-3 text-center align-middle">
+                      <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{formatNumber(totalYesterday)}</div>
+                      <div className="text-[10px] text-gray-400">MTD: {formatNumber(totalMonthTotal)} &bull; Day: {totalActiveDays}</div>
+                    </td>
+                  )}
+                  {type === "bp" && (
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalYesterday)}</span>
+                    </td>
+                  )}
+                  {type === "bp" && (
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{totalActiveDays}</span>
+                    </td>
+                  )}
+                  <td className="px-4 py-3 text-center">
+                    <StatusBadge status={totalPct >= 100 ? "achieved" : totalPct >= 70 ? "on_track" : totalPct >= 40 ? "needs_attention" : "behind"} t={t} />
+                  </td>
+                </tr>
+              );
+            })()}
           </tbody>
         </table>
       </div>
@@ -1566,13 +1643,13 @@ export default function ActivationDashboardPage() {
             </div>
 
             {activeTab === "rso" && (
-              <PerformanceTable data={data.rso_performance} t={t} type="rso" />
+              <PerformanceTable data={data.rso_performance} t={t} type="rso" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} />
             )}
             {activeTab === "bp" && (
-              <PerformanceTable data={data.bp_performance} t={t} type="bp" />
+              <PerformanceTable data={data.bp_performance} t={t} type="bp" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} />
             )}
             {activeTab === "cc" && (
-              <PerformanceTable data={data.cc_performance} t={t} type="cc" />
+              <PerformanceTable data={data.cc_performance} t={t} type="cc" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} />
             )}
           </div>
         </>
