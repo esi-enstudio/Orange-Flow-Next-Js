@@ -925,7 +925,7 @@ export default function ActivationDashboardPage() {
               </h2>
               {(() => {
                 const cardCount = [top.rso.length > 0, top.bp.length > 0, top.cc.length > 0].filter(Boolean).length;
-                const gridCols = cardCount === 3 ? "md:grid-cols-3" : cardCount === 2 ? "md:grid-cols-2" : "md:grid-cols-1";
+                const gridCols = cardCount === 3 ? "md:grid-cols-1 lg:grid-cols-3" : cardCount === 2 ? "md:grid-cols-1 lg:grid-cols-2" : "";
                 return (
                   <div className={`grid grid-cols-1 ${gridCols} gap-4`}>
                     {top.rso.length > 0 && (
