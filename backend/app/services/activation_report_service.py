@@ -404,7 +404,8 @@ class ActivationReportService:
             target_map[t.employee_id] = t.ga_target or 0
 
         pool_map = {e.id: e.pool_number for e in employees}
-        yesterday = self.today - timedelta(days=1)
+        assisted_code_map = {e.id: e.assisted_retailer_code for e in employees}
+        yesterday_date = self.today - timedelta(days=1)
         results = []
         for emp_id in emp_ids:
             target_val = target_map.get(emp_id, 0)
@@ -421,7 +422,7 @@ class ActivationReportService:
                 q = select(func.count()).select_from(Activation).where(
                     Activation.house_id == self.house_id,
                     Activation.activation_date >= self.month_start,
-                    Activation.activation_date <= yesterday,
+                    Activation.activation_date <= yesterday_date,
                     Activation.retailer_code.in_(retailer_codes),
                 )
                 if excluded:
@@ -445,6 +446,23 @@ class ActivationReportService:
             else:
                 status = "behind"
 
+            # ── Yesterday, Total GA, Day Count via assisted code ──
+            assisted_code = assisted_code_map.get(emp_id)
+            if assisted_code and yesterday_date >= self.month_start:
+                yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_codes=[assisted_code], exclude_tags=False)
+            else:
+                yesterday_activation = 0
+
+            if assisted_code and yesterday_date >= self.month_start:
+                month_total_activation = await self._count_activations(retailer_codes=[assisted_code], end_date=yesterday_date, exclude_tags=False)
+            else:
+                month_total_activation = achievement
+
+            if assisted_code:
+                active_days = await self._count_active_days(retailer_codes=[assisted_code], exclude_tags=False, end_date=yesterday_date, threshold=self.active_days_threshold)
+            else:
+                active_days = await self._count_active_days(retailer_codes=retailer_codes) if retailer_codes else 0
+
             results.append({
                 "id": emp_id,
                 "name": name_map.get(emp_id, f"#{emp_id}"),
@@ -457,6 +475,9 @@ class ActivationReportService:
                 "status": status,
                 "employee_type": "bp",
                 "pool_number": pool_map.get(emp_id),
+                "yesterday_activation": yesterday_activation,
+                "month_total_activation": month_total_activation,
+                "active_days": active_days,
             })
 
         results.sort(key=lambda r: r["percentage"], reverse=True)

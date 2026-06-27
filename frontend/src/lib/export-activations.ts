@@ -278,13 +278,16 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
   const writeSection = (label: string, employees: EmployeeRow[], identLabel: string, identField: "itop_number" | "pool_number" | null) => {
     if (employees.length === 0) return;
     const isRso = label === "RSO PERFORMANCE";
+    const isBp = label === "BP PERFORMANCE";
     const headers = isRso
       ? ["#", "Name", identLabel, "Target", "Achievement", "%", "Remaining", "Daily Avg", "Projection", "Market", "Own Activation", "Status"]
-      : ["#", "Name", identLabel, "Target", "Achievement", "%", "Remaining", "Daily Avg", "Projection", "Status"];
-    const cols = isRso ? 12 : 10;
+      : isBp
+        ? ["#", "Name", identLabel, "Target", "Achievement", "%", "Remaining", "Daily Avg", "Projection", "Yesterday", "Day Count", "Status"]
+        : ["#", "Name", identLabel, "Target", "Achievement", "%", "Remaining", "Daily Avg", "Projection", "Status"];
+    const cols = isRso ? 12 : isBp ? 12 : 10;
     r = addSectionHeader(ws, r, label, cols);
 
-    // Update column widths dynamically for RSO
+    // Update column widths dynamically for RSO / BP
     if (isRso) {
       ws.columns = [
         { width: 5 },   // #
@@ -298,6 +301,21 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
         { width: 14 },  // Projection
         { width: 14 },  // Market
         { width: 22 },  // Own Activation
+        { width: 18 },  // Status
+      ];
+    } else if (isBp) {
+      ws.columns = [
+        { width: 5 },   // #
+        { width: 28 },  // Name
+        { width: 16 },  // Identifier
+        { width: 16 },  // Target
+        { width: 16 },  // Achievement
+        { width: 10 },  // %
+        { width: 14 },  // Remaining
+        { width: 12 },  // Daily Avg
+        { width: 14 },  // Projection
+        { width: 12 },  // Yesterday
+        { width: 12 },  // Day Count
         { width: 18 },  // Status
       ];
     }
@@ -317,12 +335,21 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
             `Yest ${fmt(emp.yesterday_activation ?? 0)} / MTD ${fmt(emp.month_total_activation ?? 0)} (Day ${emp.active_days ?? 0})`,
             statusLabel(emp.status),
           ]
-        : [
-            i + 1, emp.name, ident,
-            fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
-            fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
-            statusLabel(emp.status),
-          ];
+        : isBp
+          ? [
+              i + 1, emp.name, ident,
+              fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
+              fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
+              fmt(emp.yesterday_activation ?? 0),
+              String(emp.active_days ?? 0),
+              statusLabel(emp.status),
+            ]
+          : [
+              i + 1, emp.name, ident,
+              fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
+              fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
+              statusLabel(emp.status),
+            ];
       addDataRow(ws, r, cells, 1, i % 2 === 1, cells.length - 1, pctIdx);
       r++;
     });

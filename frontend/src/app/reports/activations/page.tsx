@@ -252,10 +252,10 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
                 {emp.employee_type === "rso" && emp.itop_number && (
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500">iTop: {emp.itop_number}</p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">{emp.itop_number}</p>
                 )}
                 {emp.employee_type === "bp" && emp.pool_number && (
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500">Pool: {emp.pool_number}</p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">{emp.pool_number}</p>
                 )}
               </div>
               <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200", expandedId === emp.id && "rotate-180")} />
@@ -286,6 +286,18 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.projection")}</span>
                   <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(Math.round(emp.projection))}</span>
                 </div>
+                {type === "bp" && (
+                  <>
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">{t("activation_report.yesterday")}</span>
+                      <span className="font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_activation ?? 0)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">{t("activation_report.day_count")}</span>
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span>
+                    </div>
+                  </>
+                )}
                 {type === "rso" && (
                   <>
                     <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
@@ -324,7 +336,7 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
           <thead>
             <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
               <th className="px-4 py-3 w-10">{t("activation_report.rank")}</th>
-              <th className="px-4 py-3">{t("activation_report.employee")}</th>
+              <th className="px-4 py-3">{type === "rso" ? "RSO" : type === "bp" ? "BP" : t("activation_report.employee")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.target")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.achieved")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.percentage")}</th>
@@ -333,6 +345,8 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
               <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
               {type === "rso" && <th className="px-4 py-3 text-center">Market</th>}
               {type === "rso" && <th className="px-4 py-3 text-center">Own Activation</th>}
+              {type === "bp" && <th className="px-4 py-3 text-center">{t("activation_report.yesterday")}</th>}
+              {type === "bp" && <th className="px-4 py-3 text-center">{t("activation_report.day_count")}</th>}
               <th className="px-4 py-3 text-center">{t("activation_report.status")}</th>
             </tr>
           </thead>
@@ -353,10 +367,10 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                 <td className="px-4 py-3 whitespace-nowrap">
                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{emp.name}</p>
                   {emp.employee_type === "rso" && emp.itop_number && (
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">iTop: {emp.itop_number}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{emp.itop_number}</p>
                   )}
                   {emp.employee_type === "bp" && emp.pool_number && (
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Pool: {emp.pool_number}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{emp.pool_number}</p>
                   )}
                 </td>
                 <td className="px-4 py-3 text-center">
@@ -410,6 +424,16 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                     <div className="text-[10px] text-gray-400 leading-tight">
                       MTD: {formatNumber(emp.month_total_activation ?? 0)} &bull; Day: {emp.active_days ?? 0}
                     </div>
+                  </td>
+                )}
+                {type === "bp" && (
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_activation ?? 0)}</span>
+                  </td>
+                )}
+                {type === "bp" && (
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{emp.active_days ?? 0}</span>
                   </td>
                 )}
                 <td className="px-4 py-3 text-center">
