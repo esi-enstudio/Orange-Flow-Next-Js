@@ -127,8 +127,8 @@ class ActivationReportService:
         )
         return res.scalar_one_or_none()
 
-    async def _count_activations_for_date(self, target_date: date, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, exclude_tags: bool = True) -> int:
-        excluded = await self._get_excluded_retailer_ids() if exclude_tags else set()
+    async def _count_activations_for_date(self, target_date: date, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, exclude_ids: Optional[set[int]] = None, exclude_tags: bool = True) -> int:
+        excluded = exclude_ids if exclude_ids is not None else (await self._get_excluded_retailer_ids() if exclude_tags else set())
         excluded_codes = self.exclude_product_codes
         q = select(func.count()).select_from(Activation).where(
             Activation.house_id == self.house_id,
@@ -262,9 +262,15 @@ class ActivationReportService:
                 achievement = await self._count_activations(retailer_ids=retailer_ids)
 
             if market_excluded_ids is not None:
-                market_activation = await self._count_activations(retailer_ids=retailer_ids, exclude_ids=market_excluded_ids)
+                if yesterday_date >= self.month_start:
+                    market_activation = await self._count_activations(retailer_ids=retailer_ids, exclude_ids=market_excluded_ids, end_date=yesterday_date)
+                    market_yesterday = await self._count_activations_for_date(yesterday_date, retailer_ids=retailer_ids, exclude_ids=market_excluded_ids)
+                else:
+                    market_activation = 0
+                    market_yesterday = 0
             else:
                 market_activation = achievement
+                market_yesterday = await self._count_activations_for_date(yesterday_date, retailer_ids=retailer_ids) if yesterday_date >= self.month_start else 0
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
@@ -308,6 +314,7 @@ class ActivationReportService:
                 "projection": projection,
                 "status": status,
                 "market_activation": market_activation,
+                "market_yesterday": market_yesterday,
                 "yesterday_activation": yesterday_activation,
                 "month_total_activation": month_total,
                 "active_days": active_days,

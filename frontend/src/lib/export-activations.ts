@@ -28,6 +28,7 @@ interface EmployeeRow {
   itop_number?: string;
   pool_number?: string;
   market_activation?: number;
+  market_yesterday?: number;
   yesterday_activation?: number;
   month_total_activation?: number;
   active_days?: number;
@@ -278,9 +279,9 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
     if (employees.length === 0) return;
     const isRso = label === "RSO PERFORMANCE";
     const headers = isRso
-      ? ["#", "Name", identLabel, "Target", "Achievement", "%", "Remaining", "Daily Avg", "Projection", "Market", "Yesterday", "Month Total", "Active Days", "Status"]
+      ? ["#", "Name", identLabel, "Target", "Achievement", "%", "Remaining", "Daily Avg", "Projection", "Market", "Own Activation", "Status"]
       : ["#", "Name", identLabel, "Target", "Achievement", "%", "Remaining", "Daily Avg", "Projection", "Status"];
-    const cols = isRso ? 14 : 10;
+    const cols = isRso ? 12 : 10;
     r = addSectionHeader(ws, r, label, cols);
 
     // Update column widths dynamically for RSO
@@ -295,10 +296,8 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
         { width: 14 },  // Remaining
         { width: 12 },  // Daily Avg
         { width: 14 },  // Projection
-        { width: 12 },  // Market
-        { width: 12 },  // Yesterday
-        { width: 14 },  // Month Total
-        { width: 12 },  // Active Days
+        { width: 14 },  // Market
+        { width: 22 },  // Own Activation
         { width: 18 },  // Status
       ];
     }
@@ -314,8 +313,8 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
             i + 1, emp.name, ident,
             fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
             fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
-            fmt(emp.market_activation ?? 0), fmt(emp.yesterday_activation ?? 0),
-            fmt(emp.month_total_activation ?? 0), emp.active_days ?? 0,
+            `Yest ${fmt(emp.market_yesterday ?? 0)} / MTD ${fmt(emp.market_activation ?? 0)}`,
+            `Yest ${fmt(emp.yesterday_activation ?? 0)} / MTD ${fmt(emp.month_total_activation ?? 0)} (Day ${emp.active_days ?? 0})`,
             statusLabel(emp.status),
           ]
         : [

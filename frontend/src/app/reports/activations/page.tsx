@@ -66,6 +66,7 @@ interface EmployeePerformance {
   itop_number?: string;
   pool_number?: string;
   market_activation?: number;
+  market_yesterday?: number;
   yesterday_activation?: number;
   month_total_activation?: number;
   active_days?: number;
@@ -289,19 +290,25 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                   <>
                     <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                       <span className="text-gray-500 dark:text-gray-400">Market</span>
-                      <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.market_activation ?? 0)}</span>
+                      <span className="text-right">
+                        <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
+                          {formatNumber(emp.market_yesterday ?? 0)}
+                        </div>
+                        <div className="text-[10px] text-gray-400 leading-tight">
+                          MTD: {formatNumber(emp.market_activation ?? 0)}
+                        </div>
+                      </span>
                     </div>
                     <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                      <span className="text-gray-500 dark:text-gray-400">Own Yesterday</span>
-                      <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.yesterday_activation ?? 0)}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                      <span className="text-gray-500 dark:text-gray-400">Own Total</span>
-                      <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.month_total_activation ?? 0)}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                      <span className="text-gray-500 dark:text-gray-400">Own Day Count</span>
-                      <span className="font-bold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span>
+                      <span className="text-gray-500 dark:text-gray-400">Own Activation</span>
+                      <span className="text-right">
+                        <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
+                          {formatNumber(emp.yesterday_activation ?? 0)}
+                        </div>
+                        <div className="text-[10px] text-gray-400 leading-tight">
+                          MTD: {formatNumber(emp.month_total_activation ?? 0)} &bull; Day: {emp.active_days ?? 0}
+                        </div>
+                      </span>
                     </div>
                   </>
                 )}
@@ -325,9 +332,7 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
               <th className="px-4 py-3 text-center">{t("activation_report.daily_average")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
               {type === "rso" && <th className="px-4 py-3 text-center">Market</th>}
-              {type === "rso" && <th className="px-4 py-3 text-center">Own Yesterday</th>}
-              {type === "rso" && <th className="px-4 py-3 text-center">Own Total</th>}
-              {type === "rso" && <th className="px-4 py-3 text-center">Own Day Count</th>}
+              {type === "rso" && <th className="px-4 py-3 text-center">Own Activation</th>}
               <th className="px-4 py-3 text-center">{t("activation_report.status")}</th>
             </tr>
           </thead>
@@ -388,16 +393,24 @@ function PerformanceTable({ data, t, type }: { data: EmployeePerformance[]; t: (
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(Math.round(emp.projection))}</span>
                 </td>
                 {type === "rso" && (
-                  <td className="px-4 py-3 text-center"><span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.market_activation ?? 0)}</span></td>
+                  <td className="px-4 py-3 text-center align-middle">
+                    <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
+                      {formatNumber(emp.market_yesterday ?? 0)}
+                    </div>
+                    <div className="text-[10px] text-gray-400 leading-tight">
+                      MTD: {formatNumber(emp.market_activation ?? 0)}
+                    </div>
+                  </td>
                 )}
                 {type === "rso" && (
-                  <td className="px-4 py-3 text-center"><span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.yesterday_activation ?? 0)}</span></td>
-                )}
-                {type === "rso" && (
-                  <td className="px-4 py-3 text-center"><span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.month_total_activation ?? 0)}</span></td>
-                )}
-                {type === "rso" && (
-                  <td className="px-4 py-3 text-center"><span className="text-sm font-bold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span></td>
+                  <td className="px-4 py-3 text-center align-middle">
+                    <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
+                      {formatNumber(emp.yesterday_activation ?? 0)}
+                    </div>
+                    <div className="text-[10px] text-gray-400 leading-tight">
+                      MTD: {formatNumber(emp.month_total_activation ?? 0)} &bull; Day: {emp.active_days ?? 0}
+                    </div>
+                  </td>
                 )}
                 <td className="px-4 py-3 text-center">
                   <StatusBadge status={emp.status} t={t} />
