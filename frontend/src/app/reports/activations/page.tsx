@@ -144,7 +144,7 @@ function formatNumber(n: number): string {
 
 function KpiCard({ icon: Icon, label, value, valueColor, valueExtra, subtitle, trend, onConfig }: {
   icon: any; label: string; value: string | number;
-  valueColor?: string; valueExtra?: React.ReactNode; subtitle?: string; trend?: { dir: "up" | "down"; text: string };
+  valueColor?: string; valueExtra?: React.ReactNode; subtitle?: string | React.ReactNode; trend?: { dir: "up" | "down"; text: string };
   onConfig?: () => void;
 }) {
   return (
@@ -173,7 +173,7 @@ function KpiCard({ icon: Icon, label, value, valueColor, valueExtra, subtitle, t
             )}
           </div>
           {subtitle && (
-            <p className="text-[10px] text-gray-400 dark:text-gray-500">{subtitle}</p>
+            <div className="text-[10px] text-gray-400 dark:text-gray-500">{subtitle}</div>
           )}
         </div>
         <div className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
@@ -1110,6 +1110,40 @@ export default function ActivationDashboardPage() {
                 <div className="text-center">
                   <p className="text-4xl font-black text-gray-900 dark:text-gray-100">{s.achievement_percentage}%</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t("activation_report.achievement_pct")}</p>
+                  {(() => {
+                    const st = timeBasedStatus(s.achievement_percentage, s.days_elapsed, s.total_days);
+                    const statusColors: Record<string, string> = {
+                      achieved: "text-emerald-600 dark:text-emerald-400",
+                      on_track: "text-blue-600 dark:text-blue-400",
+                      needs_attention: "text-amber-600 dark:text-amber-400",
+                      behind: "text-rose-600 dark:text-rose-400",
+                    };
+                    const statusIcons: Record<string, React.ReactNode> = {
+                      achieved: <TrendingUp className="w-6 h-6 mx-auto mt-1 text-emerald-600 dark:text-emerald-400" />,
+                      on_track: <TrendingUp className="w-6 h-6 mx-auto mt-1 text-blue-600 dark:text-blue-400" />,
+                      needs_attention: <TrendingUp className="w-6 h-6 mx-auto mt-1 text-amber-600 dark:text-amber-400" />,
+                      behind: <TrendingUp className="w-6 h-6 mx-auto mt-1 text-rose-600 dark:text-rose-400" />,
+                    };
+                    const labelMap: Record<string, string> = {
+                      achieved: t("activation_report.achieved_status"),
+                      on_track: t("activation_report.on_track"),
+                      needs_attention: t("activation_report.needs_attention"),
+                      behind: t("activation_report.behind"),
+                    };
+                    return (
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
+                          {statusIcons[st]}
+                          <p className={`text-lg font-black mt-1 ${statusColors[st]}`}>{labelMap[st]}</p>
+                        </div>
+                        <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">ETA (Days)</p>
+                          <Clock className="w-6 h-6 mx-auto mt-1 text-rose-600 dark:text-rose-400" />
+                          <p className="text-lg font-black text-rose-600 dark:text-rose-400">{s.days_remaining}</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="space-y-3">
                   <div>
@@ -1127,50 +1161,6 @@ export default function ActivationDashboardPage() {
                         )}
                         style={{ width: `${Math.min(s.achievement_percentage, 100)}%` }}
                       />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 pt-2">
-                    <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
-                      {s.achievement_percentage >= 100 ? (
-                        <CheckCircle2 className="w-6 h-6 mx-auto mt-1 text-emerald-600 dark:text-emerald-400" />
-                      ) : s.achievement_percentage >= 70 ? (
-                        <TrendingUp className="w-6 h-6 mx-auto mt-1 text-blue-600 dark:text-blue-400" />
-                      ) : s.achievement_percentage >= 40 ? (
-                        <AlertTriangle className="w-6 h-6 mx-auto mt-1 text-amber-600 dark:text-amber-400" />
-                      ) : (
-                        <Flag className="w-6 h-6 mx-auto mt-1 text-rose-600 dark:text-rose-400" />
-                      )}
-                      <p className={cn(
-                        "text-lg font-black",
-                        s.achievement_percentage >= 100 ? "text-emerald-600 dark:text-emerald-400" :
-                        s.achievement_percentage >= 70 ? "text-blue-600 dark:text-blue-400" :
-                        s.achievement_percentage >= 40 ? "text-amber-600 dark:text-amber-400" :
-                        "text-rose-600 dark:text-rose-400"
-                      )}>
-                        {s.achievement_percentage >= 100 ? t("activation_report.achieved_status") :
-                         s.achievement_percentage >= 70 ? t("activation_report.on_track") :
-                         s.achievement_percentage >= 40 ? t("activation_report.needs_attention") :
-                         t("activation_report.behind")}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">ETA (Days)</p>
-                      <Clock className={cn(
-                        "w-6 h-6 mx-auto mt-1",
-                        s.daily_average <= 0 ? "text-gray-400" :
-                        s.remaining / s.daily_average <= s.days_remaining ? "text-emerald-600 dark:text-emerald-400" :
-                        s.remaining / s.daily_average <= s.days_remaining * 1.3 ? "text-amber-600 dark:text-amber-400" :
-                        "text-rose-600 dark:text-rose-400"
-                      )} />
-                      <p className={cn(
-                        "text-lg font-black",
-                        s.daily_average <= 0 ? "text-gray-400" :
-                        s.remaining / s.daily_average <= s.days_remaining ? "text-emerald-600 dark:text-emerald-400" :
-                        s.remaining / s.daily_average <= s.days_remaining * 1.3 ? "text-amber-600 dark:text-amber-400" :
-                        "text-rose-600 dark:text-rose-400"
-                      )}>
-                        {s.daily_average <= 0 ? "—" : Math.ceil(s.remaining / s.daily_average)}
-                      </p>
                     </div>
                   </div>
                 </div>
