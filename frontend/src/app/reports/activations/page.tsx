@@ -963,7 +963,7 @@ export default function ActivationDashboardPage() {
 
           {/* Employee Performance Tabs */}
           <div>
-            <div className="flex items-center gap-1 mb-4 bg-gray-100 dark:bg-slate-800 rounded-lg p-1 w-fit">
+            <div className="flex items-center gap-1 mb-4 bg-gray-100 dark:bg-slate-800 rounded-lg p-1 w-full md:w-fit overflow-x-auto">
               {(["rso", "bp", "cc"] as const).map((tab) => {
                 const labels: Record<string, string> = {
                   rso: t("activation_report.rso_performance"),
@@ -981,14 +981,14 @@ export default function ActivationDashboardPage() {
                     key={tab}
                     onClick={() => setActiveTab(tab)}
                     className={cn(
-                      "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all",
+                      "flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[11px] md:text-sm font-bold transition-all whitespace-nowrap",
                       activeTab === tab
                         ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
                         : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                     )}
                   >
-                    <Icon className="w-4 h-4" />
-                    {labels[tab]}
+                    <Icon className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
+                    <span>{labels[tab]}</span>
                     {tab === "rso" && data.rso_performance.length > 0 && (
                       <span className="text-[10px] bg-primary-100 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400 px-1.5 py-0.5 rounded-full font-bold">
                         {data.rso_performance.length}
