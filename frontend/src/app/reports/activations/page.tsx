@@ -213,6 +213,21 @@ function StatusBadge({ status, t }: { status: string; t: (key: string) => string
   );
 }
 
+function timeBasedStatus(pct: number, daysElapsed: number, totalDays: number): string {
+  if (pct >= 100) return "achieved";
+  // First 7 days: use raw percentage (old system)
+  if (daysElapsed <= 7) {
+    if (pct >= 70) return "on_track";
+    if (pct >= 40) return "needs_attention";
+    return "behind";
+  }
+  // After 7 days: time-based comparison (both as percentages 0–100)
+  const timePct = totalDays > 0 ? (daysElapsed / totalDays) * 100 : 0;
+  if (pct >= timePct) return "on_track";
+  if (pct >= timePct * 0.5) return "needs_attention";
+  return "behind";
+}
+
 function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; daysElapsed: number; totalDays: number }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -268,7 +283,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.achieved")}</span>
-                  <span className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">{formatNumber(emp.achievement)} <StatusBadge status={emp.status} t={t} /></span>
+                  <span className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">{formatNumber(emp.achievement)} <StatusBadge status={timeBasedStatus(emp.percentage, daysElapsed, totalDays)} t={t} /></span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">%</span>
@@ -437,7 +452,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                   </td>
                 )}
                 <td className="px-4 py-3 text-center">
-                  <StatusBadge status={emp.status} t={t} />
+                  <StatusBadge status={timeBasedStatus(emp.percentage, daysElapsed, totalDays)} t={t} />
                 </td>
               </tr>
             ))}
@@ -513,7 +528,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                     </td>
                   )}
                   <td className="px-4 py-3 text-center">
-                    <StatusBadge status={totalPct >= 100 ? "achieved" : totalPct >= 70 ? "on_track" : totalPct >= 40 ? "needs_attention" : "behind"} t={t} />
+                    <StatusBadge status={timeBasedStatus(totalPct, daysElapsed, totalDays)} t={t} />
                   </td>
                 </tr>
               );
