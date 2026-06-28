@@ -91,7 +91,8 @@ function statusColor(s: string): string {
     needs_attention: AMBER,
     behind: RED,
   };
-  return colors[s] || TEXT_MUTED;
+  const key = s.toLowerCase().replace(/\s+/g, "_");
+  return colors[key] || TEXT_MUTED;
 }
 
 function timeBasedStatus(pct: number, daysElapsed: number, totalDays: number): string {
@@ -306,11 +307,11 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
     const isBp = label === "BP PERFORMANCE";
     const isSupervisor = label === "SUPERVISOR PERFORMANCE";
     const headers = isRso
-      ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remaining", "DRR", "D.Avg", "Projection", "Market", "Own Activation", "Status"]
+      ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Market", "Own Activation", "Status"]
       : isBp
-        ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remaining", "DRR", "D.Avg", "Projection", "Yesterday", "Day Count", "Status"]
+        ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Day Count", "Status"]
         : isSupervisor
-          ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remaining", "DRR", "D.Avg", "Projection", "Yesterday", "Status"]
+          ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Status"]
           : ["#", "Name", identLabel, "Target", "Ach", "%", "Remaining", "D.Avg", "Projection", "Status"];
     const cols = isSupervisor ? 12 : (isRso || isBp) ? 13 : 10;
     r = addSectionHeader(ws, r, label, cols);
@@ -454,7 +455,14 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
       subtotalCells.forEach((val, i) => {
         const cell = subRow.getCell(1 + i);
         cell.value = val;
-        cell.font = { bold: true, color: { argb: TEXT_DARK }, size: 10, name: "Calibri" };
+        const isStatus = i === subtotalCells.length - 1;
+        const isPct = i === 5;
+        cell.font = {
+          bold: true,
+          color: { argb: isStatus ? statusColor(String(val)) : isPct ? pctColor(Number(String(val).replace('%', '')) || 0) : TEXT_DARK },
+          size: 10,
+          name: "Calibri",
+        };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ROW_ALT } };
         cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
         cell.border = {
