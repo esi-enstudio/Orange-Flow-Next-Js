@@ -3,13 +3,14 @@ from datetime import date, datetime, timedelta
 from calendar import monthrange
 from typing import Optional
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, false
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.house_target import HouseTarget
 from app.models.rso_target import RSOTarget
 from app.models.bp_target import BpTarget
+from app.models.supervisor_target import SupervisorTarget
 from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
@@ -212,7 +213,7 @@ class ActivationReportService:
         excl_friday_days = max(self._days_remaining - self._remaining_fridays, 1)
         daily_required = int(remaining / excl_friday_days) if self._days_remaining else 0
         daily_required_with_friday = int(remaining / max(self._days_remaining, 1)) if self._days_remaining else 0
-        daily_avg = round(achievement / max(self._days_elapsed, 1), 1) if self._days_elapsed else 0
+        daily_avg = round(achievement / max(self._days_elapsed, 1)) if self._days_elapsed else 0
         projection = round(daily_avg * self._days_in_month, 1)
         expected_pct = round((projection / monthly_target * 100), 1) if monthly_target else 0
 
@@ -274,7 +275,7 @@ class ActivationReportService:
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
-            daily_avg = round(achievement / max(self._days_elapsed, 1), 1)
+            daily_avg = round(achievement / max(self._days_elapsed, 1))
             projection = round(daily_avg * self._days_in_month, 1)
 
             if pct >= 100:
@@ -434,7 +435,7 @@ class ActivationReportService:
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
-            daily_avg = round(achievement / max(self._days_elapsed, 1), 1)
+            daily_avg = round(achievement / max(self._days_elapsed, 1))
             projection = round(daily_avg * self._days_in_month, 1)
 
             if pct >= 100:
@@ -483,6 +484,117 @@ class ActivationReportService:
         results.sort(key=lambda r: r["percentage"], reverse=True)
         return results
 
+    async def get_supervisor_performance(self) -> list[dict]:
+        emps = await self.db.execute(
+            select(Employee).where(
+                Employee.house_id == self.house_id,
+                Employee.employee_type == "supervisor",
+            )
+        )
+        employees = emps.scalars().all()
+        if not employees:
+            return []
+
+        emp_ids = [e.id for e in employees]
+        name_map = {e.id: await self._get_employee_name(e) for e in employees}
+        pool_map = {e.id: e.pool_number for e in employees}
+        sup_user_map = {e.user_id: e.id for e in employees if e.user_id}
+
+        target_rows = await self.db.execute(
+            select(SupervisorTarget).where(
+                SupervisorTarget.employee_id.in_(emp_ids),
+                SupervisorTarget.target_date >= self.month_start,
+                SupervisorTarget.target_date <= self.month_end,
+            )
+        )
+        target_map = {}
+        for t in target_rows.scalars().all():
+            target_map[t.employee_id] = t.total_ga or 0
+
+        sup_user_ids = list(sup_user_map.keys())
+        rso_rows = await self.db.execute(
+            select(User).where(
+                User.parent_id.in_(sup_user_ids) if sup_user_ids else false(),
+            )
+        )
+        rso_users = rso_rows.scalars().all()
+
+        supervisor_user_to_rso_emps: dict[int, list[Employee]] = {uid: [] for uid in sup_user_map}
+        if rso_users:
+            rso_user_ids = [u.id for u in rso_users]
+            rso_emp_rows = await self.db.execute(
+                select(Employee).where(
+                    Employee.user_id.in_(rso_user_ids),
+                    Employee.house_id == self.house_id,
+                )
+            )
+            rso_emps = rso_emp_rows.scalars().all()
+            rso_emp_by_user = {e.user_id: e for e in rso_emps if e.user_id}
+
+            for u in rso_users:
+                rso_emp = rso_emp_by_user.get(u.id)
+                if rso_emp:
+                    sup_uid = u.parent_id
+                    if sup_uid in supervisor_user_to_rso_emps:
+                        supervisor_user_to_rso_emps[sup_uid].append(rso_emp)
+
+        yesterday_date = self.today - timedelta(days=1)
+        results = []
+        for emp in employees:
+            emp_id = emp.id
+            target_val = target_map.get(emp_id, 0)
+
+            rso_emps_for_sup = supervisor_user_to_rso_emps.get(emp.user_id) or []
+            all_rso_retailer_ids: set[int] = set()
+            for rso_emp in rso_emps_for_sup:
+                rso_retailer_ids = await self._get_retailer_ids_for_employee(rso_emp.id)
+                all_rso_retailer_ids.update(rso_retailer_ids)
+
+            achievement = await self._count_activations(retailer_ids=all_rso_retailer_ids) if all_rso_retailer_ids else 0
+
+            pct = round((achievement / target_val * 100), 1) if target_val else 0
+            remaining = max(0, target_val - achievement)
+            daily_avg = round(achievement / max(self._days_elapsed, 1))
+            projection = round(daily_avg * self._days_in_month, 1)
+
+            if pct >= 100:
+                status = "achieved"
+            elif pct >= 70:
+                status = "on_track"
+            elif pct >= 40:
+                status = "needs_attention"
+            else:
+                status = "behind"
+
+            if all_rso_retailer_ids:
+                yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_ids=all_rso_retailer_ids) if yesterday_date >= self.month_start else 0
+                month_total_activation = achievement
+                active_days = await self._count_active_days(retailer_ids=all_rso_retailer_ids)
+            else:
+                yesterday_activation = 0
+                month_total_activation = 0
+                active_days = 0
+
+            results.append({
+                "id": emp_id,
+                "name": name_map.get(emp_id, f"#{emp_id}"),
+                "pool_number": pool_map.get(emp_id),
+                "target": target_val,
+                "achievement": achievement,
+                "percentage": pct,
+                "remaining": remaining,
+                "daily_average": daily_avg,
+                "projection": projection,
+                "status": status,
+                "employee_type": "supervisor",
+                "yesterday_activation": yesterday_activation,
+                "month_total_activation": month_total_activation,
+                "active_days": active_days,
+            })
+
+        results.sort(key=lambda r: r["percentage"], reverse=True)
+        return results
+
     async def get_cc_performance(self) -> list[dict]:
         cc_users = await self.db.execute(
             select(User).options(selectinload(User.roles)).where(
@@ -519,7 +631,7 @@ class ActivationReportService:
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
-            daily_avg = round(achievement / max(self._days_elapsed, 1), 1)
+            daily_avg = round(achievement / max(self._days_elapsed, 1))
             projection = round(daily_avg * self._days_in_month, 1)
             status = "on_track" if achievement > 0 else "behind"
 
@@ -578,20 +690,24 @@ class ActivationReportService:
             d += timedelta(days=1)
         return result
 
-    async def get_top_performers(self, rso_list: list[dict], bp_list: list[dict], cc_list: list[dict]) -> dict:
-        return {
+    async def get_top_performers(self, rso_list: list[dict], bp_list: list[dict], cc_list: list[dict], supervisor_list: Optional[list[dict]] = None) -> dict:
+        result = {
             "rso": rso_list[:5] if rso_list else [],
             "bp": bp_list[:5] if bp_list else [],
             "cc": cc_list[:5] if cc_list else [],
         }
+        if supervisor_list:
+            result["supervisor"] = supervisor_list[:5]
+        return result
 
     async def build_dashboard(self) -> dict:
         summary = await self.get_summary()
         rso = await self.get_rso_performance()
         bp = await self.get_bp_performance()
         cc = await self.get_cc_performance()
+        supervisor = await self.get_supervisor_performance()
         daily_trend = await self.get_daily_trend()
-        top_performers = await self.get_top_performers(rso, bp, cc)
+        top_performers = await self.get_top_performers(rso, bp, cc, supervisor)
 
         return {
             "success": True,
@@ -599,6 +715,7 @@ class ActivationReportService:
             "rso_performance": rso,
             "bp_performance": bp,
             "cc_performance": cc,
+            "supervisor_performance": supervisor,
             "daily_trend": daily_trend,
             "top_performers": top_performers,
         }

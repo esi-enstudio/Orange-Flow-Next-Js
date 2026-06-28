@@ -85,11 +85,13 @@ interface DashboardData {
   rso_performance: EmployeePerformance[];
   bp_performance: EmployeePerformance[];
   cc_performance: EmployeePerformance[];
+  supervisor_performance: EmployeePerformance[];
   daily_trend: DailyTrend[];
   top_performers: {
     rso: EmployeePerformance[];
     bp: EmployeePerformance[];
     cc: EmployeePerformance[];
+    supervisor: EmployeePerformance[];
   };
 }
 
@@ -228,7 +230,7 @@ function timeBasedStatus(pct: number, daysElapsed: number, totalDays: number): s
   return "behind";
 }
 
-function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; daysElapsed: number; totalDays: number }) {
+function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; daysElapsed: number; totalDays: number; daysRemaining: number }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   if (!data || data.length === 0) {
@@ -236,6 +238,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
       rso: "activation_report.no_data_rso",
       bp: "activation_report.no_data_bp",
       cc: "activation_report.no_data_cc",
+      supervisor: "activation_report.no_data",
     };
     return (
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 p-10 text-center">
@@ -269,7 +272,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                 {emp.employee_type === "rso" && emp.itop_number && (
                   <p className="text-[10px] text-gray-400 dark:text-gray-500">{emp.itop_number}</p>
                 )}
-                {emp.employee_type === "bp" && emp.pool_number && (
+                {(emp.employee_type === "bp" || emp.employee_type === "supervisor") && emp.pool_number && (
                   <p className="text-[10px] text-gray-400 dark:text-gray-500">{emp.pool_number}</p>
                 )}
               </div>
@@ -293,24 +296,39 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.remaining")}</span>
                   <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
                 </div>
+                {type !== "cc" && (
+                  <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                    <span className="text-gray-500 dark:text-gray-400">DRR</span>
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.daily_average")}</span>
                   <span className="text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.projection")}</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(Math.round(emp.projection))}</span>
+                  <span className="text-right">
+                    <div className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(Math.round(emp.projection))}</div>
+                    {type !== "cc" && (
+                      <div className="text-[10px] text-gray-400 leading-tight">
+                        {Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%
+                      </div>
+                    )}
+                  </span>
                 </div>
-                {type === "bp" && (
+                {(type === "bp" || type === "supervisor") && (
                   <>
                     <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                       <span className="text-gray-500 dark:text-gray-400">{t("activation_report.yesterday")}</span>
                       <span className="font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_activation ?? 0)}</span>
                     </div>
-                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                      <span className="text-gray-500 dark:text-gray-400">{t("activation_report.day_count")}</span>
-                      <span className="font-semibold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span>
-                    </div>
+                    {type === "bp" && (
+                      <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                        <span className="text-gray-500 dark:text-gray-400">{t("activation_report.day_count")}</span>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span>
+                      </div>
+                    )}
                   </>
                 )}
                 {type === "rso" && (
@@ -351,16 +369,17 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
           <thead>
             <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
               <th className="px-4 py-3 w-10">{t("activation_report.rank")}</th>
-              <th className="px-4 py-3">{type === "rso" ? "RSO" : type === "bp" ? "BP" : t("activation_report.employee")}</th>
+              <th className="px-4 py-3">{type === "rso" ? "RSO" : type === "bp" ? "BP" : type === "supervisor" ? "Supervisor" : t("activation_report.employee")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.target")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.achieved")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.percentage")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.remaining")}</th>
+              {type !== "cc" && <th className="px-4 py-3 text-center">DRR</th>}
               <th className="px-4 py-3 text-center">{t("activation_report.daily_average")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
               {type === "rso" && <th className="px-4 py-3 text-center">Market</th>}
               {type === "rso" && <th className="px-4 py-3 text-center">Own Activation</th>}
-              {type === "bp" && <th className="px-4 py-3 text-center">{t("activation_report.yesterday")}</th>}
+              {(type === "bp" || type === "supervisor") && <th className="px-4 py-3 text-center">{t("activation_report.yesterday")}</th>}
               {type === "bp" && <th className="px-4 py-3 text-center">{t("activation_report.day_count")}</th>}
               <th className="px-4 py-3 text-center">{t("activation_report.status")}</th>
             </tr>
@@ -384,7 +403,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                   {emp.employee_type === "rso" && emp.itop_number && (
                     <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{emp.itop_number}</p>
                   )}
-                  {emp.employee_type === "bp" && emp.pool_number && (
+                  {(emp.employee_type === "bp" || emp.employee_type === "supervisor") && emp.pool_number && (
                     <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{emp.pool_number}</p>
                   )}
                 </td>
@@ -415,11 +434,23 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                 <td className="px-4 py-3 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
                 </td>
+                {type !== "cc" && (
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
+                  </td>
+                )}
                 <td className="px-4 py-3 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
                 </td>
-                <td className="px-4 py-3 text-center">
-                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(Math.round(emp.projection))}</span>
+                <td className="px-4 py-3 text-center align-middle">
+                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-300 leading-tight">
+                    {formatNumber(Math.round(emp.projection))}
+                  </div>
+                  {type !== "cc" && (
+                    <div className="text-[10px] text-gray-400 leading-tight">
+                      {Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%
+                    </div>
+                  )}
                 </td>
                 {type === "rso" && (
                   <td className="px-4 py-3 text-center align-middle">
@@ -441,7 +472,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                     </div>
                   </td>
                 )}
-                {type === "bp" && (
+                {(type === "bp" || type === "supervisor") && (
                   <td className="px-4 py-3 text-center">
                     <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_activation ?? 0)}</span>
                   </td>
@@ -499,11 +530,21 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                   <td className="px-4 py-3 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(totalRemaining)}</span>
                   </td>
+                  {type !== "cc" && (
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(totalRemaining / Math.max(daysRemaining, 1))}</span>
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.round(totalDailyAvg)}</span>
                   </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{formatNumber(Math.round(totalProjection))}</span>
+                  <td className="px-4 py-3 text-center align-middle">
+                    <div className="text-sm font-bold text-gray-700 dark:text-gray-300 leading-tight">{formatNumber(Math.round(totalProjection))}</div>
+                    {type !== "cc" && (
+                      <div className="text-[10px] text-gray-400 leading-tight">
+                        {Math.round(totalProjection / Math.max(totalTarget, 1) * 100)}%
+                      </div>
+                    )}
                   </td>
                   {type === "rso" && (
                     <td className="px-4 py-3 text-center align-middle">
@@ -517,7 +558,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays }: { data: Emp
                       <div className="text-[10px] text-gray-400">MTD: {formatNumber(totalMonthTotal)} &bull; Day: {totalActiveDays}</div>
                     </td>
                   )}
-                  {type === "bp" && (
+                  {(type === "bp" || type === "supervisor") && (
                     <td className="px-4 py-3 text-center">
                       <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalYesterday)}</span>
                     </td>
@@ -603,7 +644,7 @@ export default function ActivationDashboardPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"rso" | "bp" | "cc">("rso");
+  const [activeTab, setActiveTab] = useState<"rso" | "bp" | "cc" | "supervisor">("rso");
   const [isDark, setIsDark] = useState(false);
   const [tags, setTags] = useState<{ id: number; name: string }[]>([]);
   const [achievementExcludeTags, setAchievementExcludeTags] = useState<string[]>(() => {
@@ -650,15 +691,25 @@ export default function ActivationDashboardPage() {
     try { return JSON.parse(localStorage.getItem("activation_cc_exclude_codes") || "[]"); }
     catch { return []; }
   });
+  const [supervisorExcludeTags, setSupervisorExcludeTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_supervisor_exclude_tags") || "[]"); }
+    catch { return []; }
+  });
+  const [supervisorExcludeCodes, setSupervisorExcludeCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_supervisor_exclude_codes") || "[]"); }
+    catch { return []; }
+  });
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRsoConfig, setShowRsoConfig] = useState(false);
   const [rsoShowAchievedConfig, setRsoShowAchievedConfig] = useState(true);
   const [rsoShowMarketConfig, setRsoShowMarketConfig] = useState(true);
   const [showBpConfig, setShowBpConfig] = useState(false);
   const [showCcConfig, setShowCcConfig] = useState(false);
+  const [showSupervisorConfig, setShowSupervisorConfig] = useState(false);
   const rsoConfigRef = useRef<HTMLDivElement>(null);
   const bpConfigRef = useRef<HTMLDivElement>(null);
   const ccConfigRef = useRef<HTMLDivElement>(null);
+  const supervisorConfigRef = useRef<HTMLDivElement>(null);
   const [excludedProductCodes, setExcludedProductCodes] = useState<{ id: number; product_code: string }[]>([]);
 
   useEffect(() => {
@@ -698,6 +749,8 @@ export default function ActivationDashboardPage() {
       if (bpExcludeCodes.length > 0) params.bp_exclude_codes = bpExcludeCodes.join(",");
       if (ccExcludeTags.length > 0) params.cc_exclude_tags = ccExcludeTags.join(",");
       if (ccExcludeCodes.length > 0) params.cc_exclude_codes = ccExcludeCodes.join(",");
+      if (supervisorExcludeTags.length > 0) params.supervisor_exclude_tags = supervisorExcludeTags.join(",");
+      if (supervisorExcludeCodes.length > 0) params.supervisor_exclude_codes = supervisorExcludeCodes.join(",");
       const res = await apiClient.get("reports/activations/dashboard", { params });
       setData(res.data);
     } catch {
@@ -705,7 +758,7 @@ export default function ActivationDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes]);
+  }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
@@ -766,6 +819,25 @@ export default function ActivationDashboardPage() {
   }, [ccExcludeCodes]);
 
   useEffect(() => {
+    localStorage.setItem("activation_supervisor_exclude_tags", JSON.stringify(supervisorExcludeTags));
+  }, [supervisorExcludeTags]);
+
+  useEffect(() => {
+    localStorage.setItem("activation_supervisor_exclude_codes", JSON.stringify(supervisorExcludeCodes));
+  }, [supervisorExcludeCodes]);
+
+  useEffect(() => {
+    if (!showSupervisorConfig) return;
+    const handler = (e: MouseEvent) => {
+      if (supervisorConfigRef.current && !supervisorConfigRef.current.contains(e.target as Node)) {
+        setShowSupervisorConfig(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showSupervisorConfig]);
+
+  useEffect(() => {
     if (!showRsoConfig) return;
     const handler = (e: MouseEvent) => {
       if (rsoConfigRef.current && !rsoConfigRef.current.contains(e.target as Node)) {
@@ -802,7 +874,7 @@ export default function ActivationDashboardPage() {
     if (!authLoading && hasPermission("reports.view")) {
       fetchDashboard();
     }
-  }, [authLoading, hasPermission, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags]);
+  }, [authLoading, hasPermission, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, supervisorExcludeTags, supervisorExcludeCodes]);
 
   const handleExport = async () => {
     if (!data) return;
@@ -813,10 +885,14 @@ export default function ActivationDashboardPage() {
         rso_performance: data.rso_performance,
         bp_performance: data.bp_performance,
         cc_performance: data.cc_performance,
-        house_name: house?.display_name || house?.name || "All Houses",
+        supervisor_performance: data.supervisor_performance,
+        house_name: house?.name || "All Houses",
+        house_code: house?.code || "",
         month,
         year,
         month_name: getMonthName(month),
+        days_elapsed: data.summary.days_elapsed,
+        total_days: data.summary.total_days,
       });
       toast.success(t("activation_report.export_success"));
     } catch {
@@ -1176,8 +1252,8 @@ export default function ActivationDashboardPage() {
                 {t("activation_report.top_performers")}
               </h2>
               {(() => {
-                const cardCount = [top.rso.length > 0, top.bp.length > 0, top.cc.length > 0].filter(Boolean).length;
-                const gridCols = cardCount === 3 ? "md:grid-cols-1 lg:grid-cols-3" : cardCount === 2 ? "md:grid-cols-1 lg:grid-cols-2" : "";
+                const cardCount = [top.rso.length > 0, top.bp.length > 0, top.cc.length > 0, top.supervisor?.length > 0].filter(Boolean).length;
+                const gridCols = cardCount === 4 ? "md:grid-cols-1 lg:grid-cols-4" : cardCount === 3 ? "md:grid-cols-1 lg:grid-cols-3" : cardCount === 2 ? "md:grid-cols-1 lg:grid-cols-2" : "";
                 return (
                   <div className={`grid grid-cols-1 ${gridCols} gap-4`}>
                     {top.rso.length > 0 && (
@@ -1207,9 +1283,18 @@ export default function ActivationDashboardPage() {
                         t={t}
                       />
                     )}
+                    {top.supervisor?.length > 0 && (
+                      <LeaderboardCard
+                        data={top.supervisor}
+                        title={t("activation_report.supervisor_performance")}
+                        icon={Users}
+                        color="bg-orange-500"
+                        t={t}
+                      />
+                    )}
                   </div>
                 );
-              })()}
+})()}
             </div>
           )}
 
@@ -1217,18 +1302,32 @@ export default function ActivationDashboardPage() {
           <div>
             <div className="flex items-center gap-1 mb-4">
               <div className="flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-lg p-1 overflow-x-auto flex-1 min-w-0">
-                {(["rso", "bp", "cc"] as const).map((tab) => {
+                {(["rso", "bp", "cc", "supervisor"] as const).map((tab) => {
                   const labels: Record<string, string> = {
                     rso: t("activation_report.rso_performance"),
                     bp: t("activation_report.bp_performance"),
                     cc: t("activation_report.cc_performance"),
+                    supervisor: t("activation_report.supervisor_performance"),
                   };
                   const icons: Record<string, any> = {
                     rso: Users,
                     bp: Building2,
                     cc: BarChart3,
+                    supervisor: Users,
                   };
                   const Icon = icons[tab];
+                  const badgeCounts: Record<string, number> = {
+                    rso: data.rso_performance?.length ?? 0,
+                    bp: data.bp_performance?.length ?? 0,
+                    cc: data.cc_performance?.length ?? 0,
+                    supervisor: data.supervisor_performance?.length ?? 0,
+                  };
+                  const badgeColors: Record<string, string> = {
+                    rso: "bg-primary-100 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400",
+                    bp: "bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400",
+                    cc: "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400",
+                    supervisor: "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400",
+                  };
                   return (
                     <button
                       key={tab}
@@ -1242,19 +1341,9 @@ export default function ActivationDashboardPage() {
                     >
                       <Icon className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
                       <span>{labels[tab]}</span>
-                      {tab === "rso" && data.rso_performance.length > 0 && (
-                        <span className="text-[10px] bg-primary-100 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400 px-1.5 py-0.5 rounded-full font-bold">
-                          {data.rso_performance.length}
-                        </span>
-                      )}
-                      {tab === "bp" && data.bp_performance.length > 0 && (
-                        <span className="text-[10px] bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded-full font-bold">
-                          {data.bp_performance.length}
-                        </span>
-                      )}
-                      {tab === "cc" && data.cc_performance.length > 0 && (
-                        <span className="text-[10px] bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-full font-bold">
-                          {data.cc_performance.length}
+                      {badgeCounts[tab] > 0 && (
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-bold", badgeColors[tab])}>
+                          {badgeCounts[tab]}
                         </span>
                       )}
                     </button>
@@ -1644,17 +1733,124 @@ export default function ActivationDashboardPage() {
                     </div>
                   )}
                 </div>
+)}
+
+              {activeTab === "supervisor" && hasPermission("reports.achievement.config") && (
+                <div ref={supervisorConfigRef} className="relative shrink-0">
+                  <button
+                    onClick={() => setShowSupervisorConfig(!showSupervisorConfig)}
+                    className={cn(
+                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative bg-gray-100 dark:bg-slate-800",
+                      showSupervisorConfig
+                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                        : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                    )}
+                  >
+                    <Settings className="w-4 h-4" />
+                    {(supervisorExcludeTags.length > 0 || supervisorExcludeCodes.length > 0) && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
+                    )}
+                  </button>
+                  {showSupervisorConfig && (
+                    <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
+                      {(supervisorExcludeTags.length > 0 || supervisorExcludeCodes.length > 0) && (
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
+                          {supervisorExcludeTags.length + supervisorExcludeCodes.length} filter{supervisorExcludeTags.length + supervisorExcludeCodes.length !== 1 ? 's' : ''} active
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
+                        {tags.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {tags.map(tag => {
+                              const isSelected = supervisorExcludeTags.includes(tag.name);
+                              return (
+                                <button
+                                  key={tag.id}
+                                  onClick={() => {
+                                    setSupervisorExcludeTags(prev =>
+                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  {tag.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t border-gray-50 dark:border-slate-800" />
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
+                        {excludedProductCodes.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_excluded_codes")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                            {excludedProductCodes.map(item => {
+                              const isSelected = supervisorExcludeCodes.includes(item.product_code);
+                              return (
+                                <button
+                                  key={item.id}
+                                  onClick={() => {
+                                    setSupervisorExcludeCodes(prev =>
+                                      isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  {item.product_code}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t border-gray-100 dark:border-slate-800 flex items-center justify-between pt-2">
+                        <button
+                          onClick={() => { setSupervisorExcludeTags([]); setSupervisorExcludeCodes([]); }}
+                          className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                        >
+                          {t("common.reset")}
+                        </button>
+                        <button
+                          onClick={() => { setShowSupervisorConfig(false); fetchDashboard(); }}
+                          className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
+                        >
+                          {t("common.save_changes")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
-            {activeTab === "rso" && (
-              <PerformanceTable data={data.rso_performance} t={t} type="rso" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} />
+              {activeTab === "rso" && (
+              <PerformanceTable data={data.rso_performance} t={t} type="rso" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
             )}
             {activeTab === "bp" && (
-              <PerformanceTable data={data.bp_performance} t={t} type="bp" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} />
+              <PerformanceTable data={data.bp_performance} t={t} type="bp" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
             )}
             {activeTab === "cc" && (
-              <PerformanceTable data={data.cc_performance} t={t} type="cc" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} />
+              <PerformanceTable data={data.cc_performance} t={t} type="cc" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
+            )}
+            {activeTab === "supervisor" && (
+              <PerformanceTable data={data.supervisor_performance} t={t} type="supervisor" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
             )}
           </div>
         </>

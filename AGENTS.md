@@ -1608,9 +1608,81 @@ Frontend translation file:
 - [ ] Both locales tested: `/en/...` and `/bn/...`
 - [ ] RTL (Right-to-Left) layout check — বাংলা текстаের জন্য কোনো RTL adjustment প্রয়োজন কিনা নিশ্চিত করা হয়েছে
 
-## Final Note
+## Status Calculation Rules (Time-Based)
 
-যেকোনো হার্ডকোডেড ইংরেজি স্ট্রিং কোডে থাকা যাবে না। প্রতিটি visible text — label, title, button, error message, tooltip, placeholder, toast — সবকিছু translation function-এর মাধ্যমে render করতে হবে। শুধুমাত্র code-level identifier (variable name, key name, etc.) ইংরেজি রাখা যাবে।
+Employee performance status is determined by a **time-based comparison**, not raw percentage alone.
+
+### Logic (`timeBasedStatus`)
+
+```
+First 7 days of the month → raw percentage thresholds:
+  ≥ 100% → Achieved
+  ≥ 70%  → On Track
+  ≥ 40%  → Needs Attention
+  < 40%  → Behind
+
+After 7 days → time-based:
+  timePct = (daysElapsed / totalDays) × 100
+  ≥ 100%       → Achieved
+  ≥ timePct    → On Track        (at or ahead of schedule)
+  ≥ timePct × 0.5 → Needs Attention (behind but within half of pace)
+  < timePct × 0.5 → Behind        (significantly behind pace)
+```
+
+### Example
+
+| Day | daysElapsed | timePct | Achievement | Status      |
+|-----|-------------|---------|-------------|-------------|
+| 15  | 15          | 50%     | 60%         | On Track    |
+| 15  | 15          | 50%     | 30%         | Needs Attention (≥25%) |
+| 15  | 15          | 50%     | 20%         | Behind      |
+| 27  | 26          | 86.7%   | 81.9%       | Needs Attention |
+| 27  | 26          | 86.7%   | 19.7%       | Behind      |
+
+### Implementation
+- Frontend function: `timeBasedStatus(pct, daysElapsed, totalDays)` in `page.tsx` and `export-activations.ts`
+- Used in: `PerformanceTable` (employee rows + subtotal), Target vs Achievement card, Excel export KPI + employee rows
+- Backend always sends raw `emp.status` / `emp.percentage`; frontend overrides display with time-based logic
+
+---
+
+## Responsive Table — Accordion Behavior
+
+### Breakpoint
+- **lg (1024px) and above**: Normal scrollable `<table>` with all columns
+- **Below lg**: Accordion list view (`<div>` with expandable rows)
+
+### Accordion Structure
+```
+┌──────────────────────────────────────────┐
+│ [Rank badge]  Name                       │
+│               itop/pool_number           │ ← Always visible (header)
+│                               ▼ Chevron  │
+├──────────────────────────────────────────┤
+│ (expanded on click)                      │
+│ Target: 100                              │
+│ Achieved: 85  [StatusBadge]              │
+│ %: 85%                                   │
+│ Remaining: 15                            │
+│ Daily Average: 5                         │
+│ Projection: 150                          │
+│ ─── Per-type rows (RSO/BP) ───          │
+│ Market / Own Activation / Yesterday etc. │
+└──────────────────────────────────────────┘
+```
+
+### Rules
+- Only **one** row expandable at a time (managed via `expandedId` state)
+- Name + rank badge + identifier always visible (no scroll needed)
+- Expanded content follows the same field order as the desktop table
+- StatusBadge shown next to Achievement in expanded view
+- Per-type extra rows (RSO Market/Own Activation, BP Yesterday/Day Count) only render for matching type
+
+### Implementation
+- Component: `PerformanceTable` in `page.tsx`
+- State: `expandedId: number | null`
+- Uses `hidden lg:block` / `lg:hidden` for view switching
+- No custom breakpoints — uses Tailwind's default `lg:`
 
 ---
 
