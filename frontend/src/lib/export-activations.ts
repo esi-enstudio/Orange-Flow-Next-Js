@@ -192,7 +192,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
   const wb = new ExcelJS.Workbook();
   wb.creator = "Orange Flow";
   const ws = wb.addWorksheet("Activation Report", {
-    pageSetup: { orientation: "landscape", scale: 106, paperSize: 9, margins: { top: 0, bottom: 0, left: 0, right: 0, header: 0, footer: 0 } },
+    pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9, margins: { top: 0, bottom: 0, left: 0, right: 0, header: 0, footer: 0 } },
   });
 
   const COLS = 13;
@@ -411,6 +411,61 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
       addDataRow(ws, r, cells, 1, i % 2 === 1, cells.length - 1, pctIdx);
       r++;
     });
+    // Subtotal row
+    if (employees.length > 0 && (isRso || isBp || isSupervisor)) {
+      const totalTarget = employees.reduce((s, e) => s + e.target, 0);
+      const totalAchieved = employees.reduce((s, e) => s + e.achievement, 0);
+      const totalPct = totalTarget ? Math.round(totalAchieved / totalTarget * 100) : 0;
+      const totalRemaining = employees.reduce((s, e) => s + e.remaining, 0);
+      const totalDailyAvg = totalAchieved / Math.max(days_elapsed, 1);
+      const totalProjection = employees.reduce((s, e) => s + e.projection, 0);
+      const totalProjPct = totalTarget ? Math.round(totalProjection / totalTarget * 100) : 0;
+      const totalDRR = Math.ceil(totalRemaining / Math.max(summary.days_remaining, 1));
+      const subtotalCells = isRso
+        ? [
+            "", "Subtotal", "",
+            fmt(totalTarget), fmt(totalAchieved), `${totalPct}%`,
+            fmt(totalRemaining), String(totalDRR), fmt1(Math.round(totalDailyAvg)),
+            `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
+            `Yest ${fmt(employees.reduce((s, e) => s + (e.market_yesterday ?? 0), 0))} / MTD ${fmt(employees.reduce((s, e) => s + (e.market_activation ?? 0), 0))}`,
+            `Yest ${fmt(employees.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0))} / MTD ${fmt(employees.reduce((s, e) => s + (e.month_total_activation ?? 0), 0))} (Day ${employees.reduce((s, e) => s + (e.active_days ?? 0), 0)})`,
+            timeBasedStatus(totalPct, days_elapsed, total_days),
+          ]
+        : isBp
+          ? [
+              "", "Subtotal", "",
+              fmt(totalTarget), fmt(totalAchieved), `${totalPct}%`,
+              fmt(totalRemaining), String(totalDRR), fmt1(Math.round(totalDailyAvg)),
+              `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
+              fmt(employees.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0)),
+              String(employees.reduce((s, e) => s + (e.active_days ?? 0), 0)),
+              timeBasedStatus(totalPct, days_elapsed, total_days),
+            ]
+          : [
+              "", "Subtotal", "",
+              fmt(totalTarget), fmt(totalAchieved), `${totalPct}%`,
+              fmt(totalRemaining), String(totalDRR), fmt1(Math.round(totalDailyAvg)),
+              `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
+              fmt(employees.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0)),
+              timeBasedStatus(totalPct, days_elapsed, total_days),
+            ];
+      const subRow = ws.getRow(r);
+      subRow.height = 22;
+      subtotalCells.forEach((val, i) => {
+        const cell = subRow.getCell(1 + i);
+        cell.value = val;
+        cell.font = { bold: true, color: { argb: TEXT_DARK }, size: 10, name: "Calibri" };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ROW_ALT } };
+        cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
+        cell.border = {
+          top: { style: "thin", color: { argb: BORDER } },
+          bottom: { style: "thin", color: { argb: BORDER } },
+          left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
+          right: i === subtotalCells.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+        };
+      });
+      r++;
+    }
     r++;
   };
 

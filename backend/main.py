@@ -256,7 +256,7 @@ async def master_automation_scheduler():
 # ==========================================
 
 async def main():
-    max_retries = 10
+    max_retries = 30
     retry_delay = 5
 
     for i in range(max_retries):
@@ -269,8 +269,8 @@ async def main():
             if i < max_retries - 1:
                 await asyncio.sleep(retry_delay)
             else:
-                logger.error("Max DB retries reached. Exiting.")
-                return
+                logger.error("Max DB retries reached. Exiting process.")
+                sys.exit(1)
 
     from app.services.cache_service import cache_service
     await cache_service.connect()
