@@ -6,7 +6,7 @@ import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
   BarChart3, TrendingUp, Target, Award, Users,
-  RotateCcw, Download, Building2, Calendar,
+  RotateCcw, Download, Printer, Share2, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
   Settings, Tag, X as XIcon, CheckCircle2, AlertTriangle, Flag, ChevronDown,
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import { exportActivationsReport } from "@/lib/export-activations";
+import { printActivationsReport } from "@/lib/print-report";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import {
@@ -900,6 +901,42 @@ export default function ActivationDashboardPage() {
     }
   };
 
+  const handlePrint = () => {
+    if (!data) return;
+    const house = houses.find(h => String(h.id) === selectedHouseId);
+    printActivationsReport({
+      summary: data.summary,
+      rso_performance: data.rso_performance,
+      bp_performance: data.bp_performance,
+      cc_performance: data.cc_performance,
+      supervisor_performance: data.supervisor_performance,
+      house_name: house?.name || "All Houses",
+      house_code: house?.code || "",
+      month,
+      year,
+      month_name: getMonthName(month),
+      days_elapsed: data.summary.days_elapsed,
+      total_days: data.summary.total_days,
+    });
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${t("activation_report.dashboard_title")} - ${getMonthName(month)}`,
+          text: `${t("activation_report.dashboard_title")}: ${getMonthName(month)} ${year}`,
+          url: window.location.href,
+        });
+      } catch {
+        // user cancelled or error
+      }
+    } else {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success("Link copied");
+    }
+  };
+
   const getMonthName = (m: number) => {
     if (language === 'bn') {
       const bnMonths: Record<number, string> = {
@@ -970,10 +1007,24 @@ export default function ActivationDashboardPage() {
           </select>
           <button
             onClick={handleExport}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            title={t("activation_report.export_dashboard")}
           >
             <Download className="w-4 h-4" />
-            {t("activation_report.export_dashboard")}
+          </button>
+          <button
+            onClick={handlePrint}
+            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            title={t("activation_report.print")}
+          >
+            <Printer className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleShare}
+            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            title={t("activation_report.share")}
+          >
+            <Share2 className="w-4 h-4" />
           </button>
           <button
             onClick={fetchDashboard}
