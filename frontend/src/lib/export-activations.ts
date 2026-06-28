@@ -192,7 +192,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
   const wb = new ExcelJS.Workbook();
   wb.creator = "Orange Flow";
   const ws = wb.addWorksheet("Activation Report", {
-    pageSetup: { orientation: "landscape", fitToPage: true, paperSize: 9, margins: { top: 0, bottom: 0, left: 0, right: 0, header: 0, footer: 0 } },
+    pageSetup: { orientation: "landscape", scale: 106, paperSize: 9, margins: { top: 0, bottom: 0, left: 0, right: 0, header: 0, footer: 0 } },
   });
 
   const COLS = 13;
