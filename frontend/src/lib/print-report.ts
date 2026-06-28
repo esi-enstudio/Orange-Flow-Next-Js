@@ -80,7 +80,7 @@ function statusColor(s: string): string {
   return "#64748B";
 }
 
-export function printActivationsReport(payload: PrintPayload): void {
+export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: boolean): string | void {
   const { summary, rso_performance, bp_performance, cc_performance, supervisor_performance, house_name, house_code, month, year, month_name, days_elapsed, total_days } = payload;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -406,6 +406,8 @@ export function printActivationsReport(payload: PrintPayload): void {
   <\/script>
 </body>
 </html>`;
+
+  if (returnHtmlOnly) return html;
 
   const win = window.open("", "_blank");
   if (win) {
