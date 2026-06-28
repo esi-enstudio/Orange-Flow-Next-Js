@@ -556,7 +556,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                   {type === "rso" && (
                     <td className="px-4 py-3 text-center align-middle">
                       <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{formatNumber(totalYesterday)}</div>
-                      <div className="text-[10px] text-gray-400">MTD: {formatNumber(totalMonthTotal)} &bull; Day: {totalActiveDays}</div>
+                      <div className="text-[10px] text-gray-400">MTD: {formatNumber(totalMonthTotal)}</div>
                     </td>
                   )}
                   {(type === "bp" || type === "supervisor") && (
@@ -939,19 +939,41 @@ export default function ActivationDashboardPage() {
       days_elapsed: data.summary.days_elapsed,
       total_days: data.summary.total_days,
     };
-    const html = printActivationsReport(payload, true) as string;
+    const html = printActivationsReport(payload, true, true) as string;
     const container = document.createElement("div");
     container.innerHTML = html;
+    // Position offscreen but still rendered (opacity:0 + z-index:-1). Avoids
+    // `left:-9999px` because html-to-image/SVG foreignObject can fail to render
+    // elements outside the viewport, producing a blank white image.
+    // Render visibly (html-to-image needs opacity:1 to capture content) but
+    // push behind page content with z-index:-1. The page's own backgrounds
+    // cover it so the user doesn't see a flash.
     container.style.position = "fixed";
-    container.style.left = "-9999px";
     container.style.top = "0";
-    container.style.width = "1200px";
+    container.style.left = "0";
+    container.style.zIndex = "-1";
+    container.style.pointerEvents = "none";
+    container.style.width = "1700px";
     container.style.background = "#fff";
     document.body.appendChild(container);
     try {
-      const { default: html2canvas } = await import("html2canvas");
-      const canvas = await html2canvas(container, { scale: 2, useCORS: true, logging: false });
-      return new Promise(resolve => canvas.toBlob(b => resolve(b), "image/png"));
+      // Wait for fonts & layout to settle before capturing
+      if (typeof document !== "undefined" && (document as any).fonts?.ready) {
+        await (document as any).fonts.ready;
+      }
+      await new Promise(r => setTimeout(r, 150));
+      const { toPng } = await import("html-to-image");
+      const dataUrl = await toPng(container, {
+        pixelRatio: 2,
+        cacheBust: true,
+        backgroundColor: "#ffffff",
+        width: 1700,
+        // inline the cloned node's own computed styles so SVG foreignObject
+        // doesn't fall back to empty/whitelisted CSS
+        style: { backgroundColor: "#ffffff" },
+      });
+      const res = await fetch(dataUrl);
+      return await res.blob();
     } finally {
       document.body.removeChild(container);
     }

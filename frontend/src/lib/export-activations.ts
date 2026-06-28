@@ -429,7 +429,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
             fmt(totalRemaining), String(totalDRR), fmt1(Math.round(totalDailyAvg)),
             `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
             `Yest ${fmt(employees.reduce((s, e) => s + (e.market_yesterday ?? 0), 0))} / MTD ${fmt(employees.reduce((s, e) => s + (e.market_activation ?? 0), 0))}`,
-            `Yest ${fmt(employees.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0))} / MTD ${fmt(employees.reduce((s, e) => s + (e.month_total_activation ?? 0), 0))} (Day ${employees.reduce((s, e) => s + (e.active_days ?? 0), 0)})`,
+            `Yest ${fmt(employees.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0))} / MTD ${fmt(employees.reduce((s, e) => s + (e.month_total_activation ?? 0), 0))}`,
             timeBasedStatus(totalPct, days_elapsed, total_days),
           ]
         : isBp

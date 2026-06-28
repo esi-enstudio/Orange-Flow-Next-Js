@@ -80,7 +80,7 @@ function statusColor(s: string): string {
   return "#64748B";
 }
 
-export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: boolean): string | void {
+export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: boolean, imageMode?: boolean): string | void {
   const { summary, rso_performance, bp_performance, cc_performance, supervisor_performance, house_name, house_code, month, year, month_name, days_elapsed, total_days } = payload;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -105,7 +105,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
           const isStatus = ci === cells.length - 1;
           const isPct = ci === 5;
           const color = isStatus ? statusColor(c) : isPct ? (Number(String(c).replace('%', '')) >= 100 ? "#10B981" : Number(String(c).replace('%', '')) >= 70 ? "#3B82F6" : Number(String(c).replace('%', '')) >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-          return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
+          return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
         }).join('')}
       </tr>`;
     }).join('');
@@ -116,7 +116,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
         const isStatus = ci === subCells.length - 1;
         const isPct = ci === 5;
         const color = isStatus ? statusColor(c) : isPct ? (Number(String(c).replace('%', '')) >= 100 ? "#10B981" : Number(String(c).replace('%', '')) >= 70 ? "#3B82F6" : Number(String(c).replace('%', '')) >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-        return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color}">${c}</td>`;
+        return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color}">${c}</td>`;
       }).join('')}
     </tr>`;
 
@@ -125,7 +125,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
       <table style="width:100%;border-collapse:collapse;margin-bottom:4px">
         <thead>
           <tr style="background:#F1F5F9">
-            ${headers.map((h, i) => `<th style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`).join('')}
+            ${headers.map((h, i) => `<th style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`).join('')}
           </tr>
         </thead>
         <tbody>
@@ -152,29 +152,42 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
 <html>
 <head><title>Activation Report - ${month_name} ${year}</title>
 <style>
-  @page { size: landscape; margin: 4mm; }
+  @page { size: landscape; margin: 2mm; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-  body { font-family: Calibri, Arial, sans-serif; margin: 0; color: #1E293B; font-size: 8px; }
-  table { font-size: 7px; }
-  th, td { padding: 2px 4px !important; font-size: 7px !important; }
-  h1 { font-size: 12px !important; margin: 0 0 2px !important; }
-  h3 { font-size: 10px !important; margin: 6px 0 3px !important; }
-  .info { font-size: 7px !important; }
-  .footer { font-size: 7px !important; }
+  body { font-family: Calibri, Arial, sans-serif; margin: 0; color: #1E293B; font-size: 11px; }
+  table { font-size: 11px; border-collapse: collapse; table-layout: fixed; width: 100%; }
+  th, td { padding: 3px 5px; font-size: 11px; line-height: 1.25; word-wrap: break-word; overflow-wrap: break-word; }
+  h1 { font-size: 16px !important; margin: 0 0 2px !important; }
+  h3 { font-size: 13px !important; margin: 6px 0 3px !important; }
+  .info { font-size: 10px; }
+  .footer { font-size: 9px; }
 </style>
+${imageMode ? `<style>
+  /* Image mode: larger fonts + landscape layout for WhatsApp/image share. */
+  html, body { width: 1700px !important; }
+  body { font-size: 15px !important; column-count: 2; column-gap: 24px; }
+  table { font-size: 15px !important; }
+  th, td { font-size: 15px !important; padding: 5px 8px !important; line-height: 1.35 !important; }
+  h1 { font-size: 24px !important; column-span: all; }
+  h3 { font-size: 20px !important; margin: 10px 0 5px !important; }
+  .info { font-size: 14px !important; column-span: all; }
+  .footer { font-size: 13px !important; column-span: all; }
+  /* keep each section (heading + table) together; don't split across columns */
+  h3, table { break-inside: avoid; page-break-inside: avoid; }
+</style>` : ''}
 </head>
 <body>
-  <h1 style="font-size:18px;margin:0 0 4px;color:#1E293B">Activation Report (${month_name} ${year})</h1>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+  <h1 style="font-size:16px;margin:0 0 2px;color:#1E293B">Activation Report (${month_name} ${year})</h1>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
     <div class="info" style="color:#64748B">${house_name ? `House: ${house_name} (${house_code})` : ""} | Generated: ${dateStr}</div>
     <div class="info" style="color:#64748B;font-style:italic">Days Elapsed: ${summary.days_elapsed}/${summary.total_days} | Days Remaining: ${summary.days_remaining}</div>
   </div>
 
-  <h3 style="font-size:14px;font-weight:700;color:#1E293B;margin:0 0 8px">HOUSE SUMMARY</h3>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+  <h3 style="font-size:13px;font-weight:700;color:#1E293B;margin:0 0 4px">HOUSE SUMMARY</h3>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:6px">
     <thead>
       <tr style="background:#F1F5F9">
-        ${["Target","Ach","%","Remaining","DRR","D.Avg","Projection","Yesterday","Expected %","Status"].map(h => `<th style="padding:6px 10px;border:1px solid #E2E8F0;text-align:center;font-size:11px;font-weight:700;color:#1E293B">${h}</th>`).join('')}
+        ${["Target","Ach","%","Remaining","DRR","D.Avg","Projection","Yesterday","Expected %","Status"].map((h, i) => { const w = ["10%","9%","7%","11%","7%","8%","11%","11%","9%","17%"][i]; return `<th style="width:${w};padding:3px 5px;border:1px solid #E2E8F0;text-align:center;font-size:11px;font-weight:700;color:#1E293B">${h}</th>`; }).join('')}
       </tr>
     </thead>
     <tbody>
@@ -184,17 +197,17 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
           const isStatus = i === 9;
           const pctNum = isPct ? summary.achievement_percentage : 0;
           const color = isStatus ? statusColor(val) : isPct ? (pctNum >= 100 ? "#10B981" : pctNum >= 70 ? "#3B82F6" : pctNum >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-          return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:center;font-size:12px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${val}</td>`;
+          return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:center;font-size:11px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${val}</td>`;
         }).join('')}
       </tr>
     </tbody>
   </table>
 
-  <h3 style="margin:20px 0 8px;font-size:14px;font-weight:700;color:#1E293B">RSO PERFORMANCE</h3>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:4px">
+  <h3 style="margin:8px 0 4px;font-size:13px;font-weight:700;color:#1E293B">RSO PERFORMANCE</h3>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:2px">
     <thead>
       <tr style="background:#F1F5F9">
-        ${rsoHeaders.map((h, i) => `<th style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`).join('')}
+        ${rsoHeaders.map((h, i) => { const w = ["3%","13%","8%","6%","6%","5%","8%","5%","6%","9%","11%","14%","6%"][i]; return `<th style="width:${w};padding:3px 5px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`; }).join('')}
       </tr>
     </thead>
     <tbody>
@@ -215,7 +228,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
             const isPct = ci === 5;
             const numVal = Number(String(c).replace('%', ''));
             const color = isStatus ? statusColor(c) : isPct ? (numVal >= 100 ? "#10B981" : numVal >= 70 ? "#3B82F6" : numVal >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-            return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
+            return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
           }).join('')}
         </tr>`;
       }).join('')}
@@ -243,7 +256,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
             const isPct = ci === 5;
             const numVal = Number(String(c).replace('%', ''));
             const color = isStatus ? statusColor(c) : isPct ? (numVal >= 100 ? "#10B981" : numVal >= 70 ? "#3B82F6" : numVal >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-            return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color}">${c}</td>`;
+            return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color}">${c}</td>`;
           }).join('')}
         </tr>`;
       })() : ''}
@@ -251,11 +264,11 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
   </table>
 
   ${bp_performance.length > 0 ? `
-  <h3 style="margin:20px 0 8px;font-size:14px;font-weight:700;color:#1E293B">BP PERFORMANCE</h3>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:4px">
+  <h3 style="margin:8px 0 4px;font-size:13px;font-weight:700;color:#1E293B">BP PERFORMANCE</h3>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:2px">
     <thead>
       <tr style="background:#F1F5F9">
-        ${bpHeaders.map((h, i) => `<th style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`).join('')}
+        ${bpHeaders.map((h, i) => { const w = ["3%","14%","8%","6%","6%","5%","8%","5%","6%","9%","14%","10%","6%"][i]; return `<th style="width:${w};padding:3px 5px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`; }).join('')}
       </tr>
     </thead>
     <tbody>
@@ -276,7 +289,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
             const isPct = ci === 5;
             const numVal = Number(String(c).replace('%', ''));
             const color = isStatus ? statusColor(c) : isPct ? (numVal >= 100 ? "#10B981" : numVal >= 70 ? "#3B82F6" : numVal >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-            return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
+            return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
           }).join('')}
         </tr>`;
       }).join('')}
@@ -304,7 +317,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
             const isPct = ci === 5;
             const numVal = Number(String(c).replace('%', ''));
             const color = isStatus ? statusColor(c) : isPct ? (numVal >= 100 ? "#10B981" : numVal >= 70 ? "#3B82F6" : numVal >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-            return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color}">${c}</td>`;
+            return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color}">${c}</td>`;
           }).join('')}
         </tr>`;
       })() : ''}
@@ -312,11 +325,11 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
   </table>` : ''}
 
   ${cc_performance.length > 0 ? `
-  <h3 style="margin:20px 0 8px;font-size:14px;font-weight:700;color:#1E293B">CC PERFORMANCE</h3>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:4px">
+  <h3 style="margin:8px 0 4px;font-size:13px;font-weight:700;color:#1E293B">CC PERFORMANCE</h3>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:2px">
     <thead>
       <tr style="background:#F1F5F9">
-        ${ccHeaders.map((h, i) => `<th style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`).join('')}
+        ${ccHeaders.map((h, i) => { const w = ["4%","16%","12%","9%","9%","7%","10%","10%","12%","11%"][i]; return `<th style="width:${w};padding:3px 5px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`; }).join('')}
       </tr>
     </thead>
     <tbody>
@@ -333,7 +346,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
             const isPct = ci === 5;
             const numVal = Number(String(c).replace('%', ''));
             const color = isStatus ? statusColor(c) : isPct ? (numVal >= 100 ? "#10B981" : numVal >= 70 ? "#3B82F6" : numVal >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-            return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
+            return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
           }).join('')}
         </tr>`;
       }).join('')}
@@ -341,11 +354,11 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
   </table>` : ''}
 
   ${supervisor_performance.length > 0 ? `
-  <h3 style="margin:20px 0 8px;font-size:14px;font-weight:700;color:#1E293B">SUPERVISOR PERFORMANCE</h3>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:4px">
+  <h3 style="margin:8px 0 4px;font-size:13px;font-weight:700;color:#1E293B">SUPERVISOR PERFORMANCE</h3>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:2px">
     <thead>
       <tr style="background:#F1F5F9">
-        ${supHeaders.map((h, i) => `<th style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`).join('')}
+        ${supHeaders.map((h, i) => { const w = ["4%","14%","9%","7%","7%","6%","9%","6%","7%","10%","15%","6%"][i]; return `<th style="width:${w};padding:3px 5px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`; }).join('')}
       </tr>
     </thead>
     <tbody>
@@ -365,7 +378,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
             const isPct = ci === 5;
             const numVal = Number(String(c).replace('%', ''));
             const color = isStatus ? statusColor(c) : isPct ? (numVal >= 100 ? "#10B981" : numVal >= 70 ? "#3B82F6" : numVal >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-            return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
+            return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
           }).join('')}
         </tr>`;
       }).join('')}
@@ -392,7 +405,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
             const isPct = ci === 5;
             const numVal = Number(String(c).replace('%', ''));
             const color = isStatus ? statusColor(c) : isPct ? (numVal >= 100 ? "#10B981" : numVal >= 70 ? "#3B82F6" : numVal >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-            return `<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:12px;color:${color}">${c}</td>`;
+            return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color}">${c}</td>`;
           }).join('')}
         </tr>`;
       })() : ''}
