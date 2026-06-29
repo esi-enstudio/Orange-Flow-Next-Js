@@ -656,13 +656,13 @@ async def export_serials(
     ws = wb.active
     ws.title = "SC Serials"
 
-    headers = ["ID", "House ID", "Product ID", "Product Name", "Product Code",
+    headers = ["Product Name", "Product Code",
                "Serial Number", "Status", "Batch ID", "Notes", "Used At", "Used By"]
     ws.append(headers)
 
     for r in records:
         ws.append([
-            r.id, r.house_id, r.product_id, r.product_name, r.product_code,
+            r.product_name, r.product_code,
             r.serial_number, r.status, r.batch_id, r.notes, r.used_at, r.used_by,
         ])
 
