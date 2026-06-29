@@ -199,11 +199,23 @@ export default function SCSerialsPage() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
-  const toggleSelectAll = () => {
+  const toggleSelectAll = async () => {
     const usedIds = data.filter(r => r.status === "used").map(r => r.id);
     if (usedIds.length === 0) return;
     const allSelected = usedIds.every(id => selectedIds.includes(id));
-    setSelectedIds(allSelected ? [] : [...usedIds]);
+    if (!allSelected) {
+      try {
+        const params: Record<string, string | number> = { per_page: 10000, sort_order: "desc" };
+        if (search) params.search = search;
+        if (filterProductId) params.product_id = Number(filterProductId);
+        if (filterBatch) params.batch_id = filterBatch;
+        const res = await apiClient.get("/v1/scratch-card-serials", { params, headers: houseHeaders });
+        const allUsedIds = (res.data.data || []).filter((r: SerialRecord) => r.status === "used").map((r: SerialRecord) => r.id);
+        setSelectedIds(allUsedIds);
+      } catch { setSelectedIds([...usedIds]); }
+    } else {
+      setSelectedIds([]);
+    }
   };
 
   const calcInvoiceTotal = (): number => {
@@ -359,7 +371,7 @@ export default function SCSerialsPage() {
                 } catch { setImportBatch(generateBatchId()); }
               }}
               className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
-              <Upload className="w-4 h-4" /> Import Serials
+              <Plus className="w-4 h-4" /> Add Serials
             </button>
           )}
           {hasPermission("scratch_card_serials.export") && (
