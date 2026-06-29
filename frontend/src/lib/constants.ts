@@ -69,6 +69,7 @@ export const navItems: NavItem[] = [
       { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "imports.data" },
       { title: "Scratch Card", translationKey: "nav.import_scratch_card", href: "/import/scratch-card", permission: "imports.data" },
       { title: "SIM Issues", translationKey: "nav.import_sim_issue", href: "/import/sim-issues", permission: "imports.data" },
+      { title: "SC Serials", translationKey: "nav.import_sc_serials", href: "/import/sc-serials", permission: "scratch_card_serials.view" },
     ]
   },
   {

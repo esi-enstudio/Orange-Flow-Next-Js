@@ -388,7 +388,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
           <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
             {data.map((emp, idx) => (
               <tr key={emp.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
-                <td className="px-4 py-3">
+                <td className="px-2 py-1">
                   <div className={cn(
                     "w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black",
                     idx === 0 ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400" :
@@ -399,22 +399,22 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                     {idx + 1}
                   </div>
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap">
+                <td className="px-2 py-1 whitespace-nowrap">
                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{emp.name}</p>
                   {emp.employee_type === "rso" && emp.itop_number && (
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{emp.itop_number}</p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{emp.itop_number}</p>
                   )}
                   {(emp.employee_type === "bp" || emp.employee_type === "supervisor") && emp.pool_number && (
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{emp.pool_number}</p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{emp.pool_number}</p>
                   )}
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-2 py-1 text-center">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(emp.target)}</span>
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-2 py-1 text-center">
                   <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.achievement)}</span>
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-2 py-1 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-16 h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
                       <div
@@ -432,58 +432,58 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                     </span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-2 py-1 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
                 </td>
-                {type !== "cc" && (
-                  <td className="px-4 py-3 text-center">
+                  {type !== "cc" && (
+                  <td className="px-2 py-1 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
                   </td>
                 )}
-                <td className="px-4 py-3 text-center">
+                <td className="px-2 py-1 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
                 </td>
-                <td className="px-4 py-3 text-center align-middle">
+                <td className="px-2 py-1 text-center align-middle">
                   <div className="text-sm font-semibold text-gray-700 dark:text-gray-300 leading-tight">
                     {formatNumber(Math.round(emp.projection))}
                   </div>
                   {type !== "cc" && (
-                    <div className="text-[10px] text-gray-400 leading-tight">
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                       {Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%
                     </div>
                   )}
                 </td>
-                {type === "rso" && (
-                  <td className="px-4 py-3 text-center align-middle">
+                  {type === "rso" && (
+                  <td className="px-2 py-1 text-center align-middle">
                     <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
                       {formatNumber(emp.market_yesterday ?? 0)}
                     </div>
-                    <div className="text-[10px] text-gray-400 leading-tight">
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                       MTD: {formatNumber(emp.market_activation ?? 0)}
                     </div>
                   </td>
                 )}
                 {type === "rso" && (
-                  <td className="px-4 py-3 text-center align-middle">
+                  <td className="px-2 py-1 text-center align-middle">
                     <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
                       {formatNumber(emp.yesterday_activation ?? 0)}
                     </div>
-                    <div className="text-[10px] text-gray-400 leading-tight">
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                       MTD: {formatNumber(emp.month_total_activation ?? 0)} &bull; Day: {emp.active_days ?? 0}
                     </div>
                   </td>
                 )}
                 {(type === "bp" || type === "supervisor") && (
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1 text-center">
                     <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_activation ?? 0)}</span>
                   </td>
                 )}
                 {type === "bp" && (
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{emp.active_days ?? 0}</span>
                   </td>
                 )}
-                <td className="px-4 py-3 text-center">
+                <td className="px-2 py-1 text-center">
                   <StatusBadge status={timeBasedStatus(emp.percentage, daysElapsed, totalDays)} t={t} />
                 </td>
               </tr>
@@ -502,17 +502,17 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
               const totalMrktAct = data.reduce((s, e) => s + (e.market_activation ?? 0), 0);
               return (
                 <tr className="border-t-2 border-gray-300 dark:border-slate-600 bg-gray-50/80 dark:bg-slate-800/80">
-                  <td className="px-4 py-3" />
-                  <td className="px-4 py-3 whitespace-nowrap">
+                  <td className="px-2 py-1" />
+                  <td className="px-2 py-1 whitespace-nowrap">
                     <span className="text-sm font-extrabold text-gray-900 dark:text-gray-100">Subtotal</span>
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1 text-center">
                     <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalTarget)}</span>
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1 text-center">
                     <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalAchieved)}</span>
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1 text-center">
                     <div className="flex items-center justify-center gap-2">
                       <div className="w-16 h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
                         <div
@@ -528,48 +528,48 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                       <span className="text-xs font-bold text-gray-600 dark:text-gray-400 w-10 text-center">{totalPct}%</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(totalRemaining)}</span>
                   </td>
                   {type !== "cc" && (
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-2 py-1 text-center">
                       <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(totalRemaining / Math.max(daysRemaining, 1))}</span>
                     </td>
                   )}
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.round(totalDailyAvg)}</span>
                   </td>
-                  <td className="px-4 py-3 text-center align-middle">
+                  <td className="px-2 py-1 text-center align-middle">
                     <div className="text-sm font-bold text-gray-700 dark:text-gray-300 leading-tight">{formatNumber(Math.round(totalProjection))}</div>
                     {type !== "cc" && (
-                      <div className="text-[10px] text-gray-400 leading-tight">
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                         {Math.round(totalProjection / Math.max(totalTarget, 1) * 100)}%
                       </div>
                     )}
                   </td>
                   {type === "rso" && (
-                    <td className="px-4 py-3 text-center align-middle">
+                    <td className="px-2 py-1 text-center align-middle">
                       <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{formatNumber(totalMrktYest)}</div>
-                      <div className="text-[10px] text-gray-400">MTD: {formatNumber(totalMrktAct)}</div>
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400">MTD: {formatNumber(totalMrktAct)}</div>
                     </td>
                   )}
                   {type === "rso" && (
-                    <td className="px-4 py-3 text-center align-middle">
+                    <td className="px-2 py-1 text-center align-middle">
                       <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{formatNumber(totalYesterday)}</div>
-                      <div className="text-[10px] text-gray-400">MTD: {formatNumber(totalMonthTotal)}</div>
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400">MTD: {formatNumber(totalMonthTotal)}</div>
                     </td>
                   )}
-                  {(type === "bp" || type === "supervisor") && (
-                    <td className="px-4 py-3 text-center">
+                    {(type === "bp" || type === "supervisor") && (
+                    <td className="px-2 py-1 text-center">
                       <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalYesterday)}</span>
                     </td>
                   )}
                   {type === "bp" && (
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-2 py-1 text-center">
                       <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{totalActiveDays}</span>
                     </td>
                   )}
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-1 text-center">
                     <StatusBadge status={timeBasedStatus(totalPct, daysElapsed, totalDays)} t={t} />
                   </td>
                 </tr>

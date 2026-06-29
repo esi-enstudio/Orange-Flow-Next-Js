@@ -27,6 +27,7 @@ from app.models.bts import BTS
 from app.models.itopup_detail import ITopUpDetail
 from app.models.ga_filter import GAProductFilter, FilterTag, RetailerFilter
 from app.models.scratch_card_issue import ScratchCardIssue
+from app.models.scratch_card_serial import ScratchCardSerial
 from app.models.sim_issue import SimIssue
 from app.models.subscription import HouseSubscription
 from app.models.sync_history import SyncHistory

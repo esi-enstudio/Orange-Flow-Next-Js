@@ -795,6 +795,8 @@ Avoid:
 
 ---
 
+# Table/List Module Rules
+
 Every data table should support when required:
 - Search
 - Filtering
@@ -815,6 +817,20 @@ module.edit
 Delete button:
 Requires:
 module.delete
+
+## Table Cell Styling Rules
+
+1. **`<td>` class** — All `<td>` elements must have `class="px-2 py-1"`. This applies to every table cell across the entire application.
+
+2. **Subtitle Font Size** — If a `<td>` contains a subtitle (secondary text below the main value), the subtitle must use `font-size: 11px` (via Tailwind class `text-[11px]` or inline style). The subtitle should also use a muted text color (`text-gray-500 dark:text-gray-400`).
+
+```tsx
+// Example: <td> with main value and subtitle
+<td className="px-2 py-1">
+  <p className="font-medium">Main Value</p>
+    <p className="text-[11px] text-gray-500 dark:text-gray-400">Subtitle text</p>
+</td>
+```
 
 ---
 

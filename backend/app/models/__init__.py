@@ -9,6 +9,7 @@ from app.models.activation import Activation
 from app.models.itopup_detail import ITopUpDetail
 from app.models.live_activation import LiveActivation
 from app.models.scratch_card_issue import ScratchCardIssue
+from app.models.scratch_card_serial import ScratchCardSerial
 from app.models.sim_issue import SimIssue
 from app.models.house_target import HouseTarget
 from app.models.supervisor_target import SupervisorTarget

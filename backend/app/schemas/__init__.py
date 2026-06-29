@@ -11,3 +11,5 @@ from app.schemas.product import *
 from app.schemas.lifting import *
 from app.schemas.commission import *
 from app.schemas.bp_target import *
+from app.schemas.scratch_card import *
+from app.schemas.scratch_card_serial import *
