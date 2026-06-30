@@ -482,21 +482,41 @@ async def allocate_serials(
     if not target_house_id:
         raise HTTPException(status_code=400, detail="X-House-ID header required")
 
-    query = select(ScratchCardSerial).where(
+    # ── Step 1: Aggregate stock per product (fast, no row data) ──────────
+    count_query = select(
+        ScratchCardSerial.product_id,
+        func.count(ScratchCardSerial.id).label("cnt"),
+    ).where(
         ScratchCardSerial.house_id == target_house_id,
         ScratchCardSerial.status == "available",
     )
 
     if payload.prefer_product_ids:
-        query = query.where(ScratchCardSerial.product_id.in_(payload.prefer_product_ids))
+        count_query = count_query.where(
+            ScratchCardSerial.product_id.in_(payload.prefer_product_ids)
+        )
 
-    query = query.options(joinedload(ScratchCardSerial.product))
-    query = query.order_by(ScratchCardSerial.product_id.asc(), ScratchCardSerial.id.asc())
-    result = await db.execute(query)
-    available = result.unique().scalars().all()
+    count_query = count_query.group_by(ScratchCardSerial.product_id)
+    count_result = await db.execute(count_query)
+    product_counts = count_result.all()
 
-    # Check if enough total value is available
-    total_available = sum(int(s.product.mrp) for s in available if s.product)
+    if not product_counts:
+        raise HTTPException(status_code=400, detail="No available serials found")
+
+    # ── Step 2: Load product MRPs ────────────────────────────────────────
+    prod_ids = [pc.product_id for pc in product_counts]
+    prod_result = await db.execute(
+        select(Product).where(Product.id.in_(prod_ids))
+    )
+    products_map: dict[int, Product] = {p.id: p for p in prod_result.scalars().all()}
+
+    # ── Step 3: Check total available value via aggregation ──────────────
+    total_available = 0
+    for pc in product_counts:
+        p = products_map.get(pc.product_id)
+        if p and p.mrp > 0:
+            total_available += int(p.mrp) * pc.cnt
+
     if total_available < payload.request_amount:
         raise HTTPException(
             status_code=400,
@@ -504,26 +524,52 @@ async def allocate_serials(
                    f"No amount less than {payload.request_amount} can be provided."
         )
 
-    # Greedily pick serials until >= requested_amount
+    # ── Step 4: Fetch only the serials we need (bounded per product) ─────
     selected: List[ScratchCardSerial] = []
     running_total = 0
-    for serial in available:
-        amt = int(serial.product.mrp) if serial.product else 0
-        if amt <= 0:
-            continue
-        selected.append(serial)
-        running_total += amt
-        if running_total >= payload.request_amount:
+    need_amount = payload.request_amount
+
+    product_counts_sorted = sorted(product_counts, key=lambda x: x.product_id)
+
+    for pc in product_counts_sorted:
+        if need_amount <= 0:
             break
 
-    # Group selected serials into ranges by product (consecutive check)
+        p = products_map.get(pc.product_id)
+        if not p or int(p.mrp) <= 0:
+            continue
+
+        amt = int(p.mrp)
+        cards_needed = math.ceil(need_amount / amt)
+        cards_to_take = min(cards_needed, pc.cnt)
+
+        serial_query = (
+            select(ScratchCardSerial)
+            .where(
+                ScratchCardSerial.house_id == target_house_id,
+                ScratchCardSerial.status == "available",
+                ScratchCardSerial.product_id == pc.product_id,
+            )
+            .order_by(ScratchCardSerial.id.asc())
+            .limit(cards_to_take)
+        )
+        serial_result = await db.execute(serial_query)
+        serials = serial_result.scalars().all()
+
+        for s in serials:
+            selected.append(s)
+            running_total += amt
+            need_amount -= amt
+
+    # ── Step 5: Group into ranges (consecutive check) ────────────────────
     ranges: List[AllocationRangeSchema] = []
     i = 0
     while i < len(selected):
         s = selected[i]
-        amt = int(s.product.mrp) if s.product else 0
-        pname = s.product_name
-        pcode = s.product_code
+        p = products_map.get(s.product_id)
+        amt = int(p.mrp) if p else 0
+        pname = p.product_name if p else None
+        pcode = p.product_code if p else None
 
         start_serial = s.serial_number
         end_serial = s.serial_number
@@ -535,7 +581,8 @@ async def allocate_serials(
             nxt = selected[i]
             if nxt.product_id != s.product_id:
                 break
-            nxt_amt = int(nxt.product.mrp) if nxt.product else 0
+            nxt_p = products_map.get(nxt.product_id)
+            nxt_amt = int(nxt_p.mrp) if nxt_p else 0
             try:
                 cur_num = int(end_serial)
                 nxt_num = int(nxt.serial_number)

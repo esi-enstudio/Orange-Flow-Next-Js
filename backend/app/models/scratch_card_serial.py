@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, BigInteger, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, BigInteger, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.models.base import Base
@@ -28,6 +28,8 @@ class ScratchCardSerial(Base):
         UniqueConstraint("house_id", "product_id", "serial_number",
                          name="uq_house_product_serial"),
         UniqueConstraint("serial_number", name="uq_serial_number"),
+        Index("ix_scratch_card_serials_house_status_product",
+              "house_id", "status", "product_id"),
     )
 
     house = relationship("House", lazy="joined")
