@@ -13,27 +13,32 @@ from app.models.user import User
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.ga_section_config import GaSectionConfig
-from app.utils.activation_rules import get_excluded_codes, exclude_clause
+from app.utils.activation_rules import exclude_clause
+
+# ── Style constants (matching frontend activations export) ──
+HEADER_BG = "1E293B"
+SUBHEADER_BG = "F1F5F9"
+ROW_ALT = "F8FAFC"
+BORDER_COLOR = "E2E8F0"
+TEXT_DARK = "1E293B"
+TEXT_MUTED = "64748B"
 
 THIN_BORDER = Border(
-    left=Side(style='thin'), right=Side(style='thin'),
-    top=Side(style='thin'), bottom=Side(style='thin'),
+    left=Side(style='thin', color=BORDER_COLOR),
+    right=Side(style='thin', color=BORDER_COLOR),
+    top=Side(style='thin', color=BORDER_COLOR),
+    bottom=Side(style='thin', color=BORDER_COLOR),
 )
-HEADER_FILL = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
-TITLE_FONT = Font(name="Calibri", bold=True, size=14)
-SUB_FONT = Font(name="Calibri", size=10, color="555555")
-BODY_FONT = Font(name="Calibri", size=10)
-BOLD_FONT = Font(name="Calibri", bold=True, size=10)
+HEADER_FILL = PatternFill(start_color=HEADER_BG, end_color=HEADER_BG, fill_type="solid")
+SUBHEADER_FILL = PatternFill(start_color=SUBHEADER_BG, end_color=SUBHEADER_BG, fill_type="solid")
+ROW_ALT_FILL = PatternFill(start_color=ROW_ALT, end_color=ROW_ALT, fill_type="solid")
 
-
-def _style_header(ws, row, cols):
-    for c in range(1, cols + 1):
-        cell = ws.cell(row=row, column=c)
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = THIN_BORDER
+HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=10)
+SUBHEADER_FONT = Font(name="Calibri", bold=True, color=TEXT_DARK, size=10)
+TITLE_FONT = Font(name="Calibri", bold=True, color=TEXT_DARK, size=14)
+SUBTITLE_FONT = Font(name="Calibri", color=TEXT_MUTED, size=10)
+BODY_FONT = Font(name="Calibri", color=TEXT_DARK, size=10)
+BOLD_FONT = Font(name="Calibri", bold=True, color=TEXT_DARK, size=10)
 
 
 async def _load_export_section_configs(db: AsyncSession, house_id: int) -> dict[str, dict]:
@@ -79,6 +84,73 @@ def _apply_exclusions_to_query(query, model, exclude_product_codes: list[str], e
     return query
 
 
+def _build_sheet(ws, title_text, subtitle_text, headers, rows, numeric_cols):
+    nc = len(headers)
+
+    # Row 1: Title (merged across all columns)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=nc)
+    c = ws.cell(row=1, column=1, value=title_text)
+    c.font = TITLE_FONT
+    c.alignment = Alignment(vertical="center", horizontal="left")
+    for ci in range(1, nc + 1):
+        ws.cell(row=1, column=ci).border = THIN_BORDER
+
+    # Row 2: Subtitle (merged across all columns)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=nc)
+    c = ws.cell(row=2, column=1, value=subtitle_text)
+    c.font = SUBTITLE_FONT
+    c.alignment = Alignment(vertical="center", horizontal="left")
+    for ci in range(1, nc + 1):
+        ws.cell(row=2, column=ci).border = THIN_BORDER
+
+    # Row 4: Column headers
+    hr = 4
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(row=hr, column=ci, value=h)
+        c.font = SUBHEADER_FONT
+        c.fill = SUBHEADER_FILL
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = THIN_BORDER
+
+    # Data rows (starting at row 5)
+    dr = hr + 1
+    totals = [0] * nc
+    for ri, row_data in enumerate(rows):
+        alt = ri % 2 == 1
+        for ci, val in enumerate(row_data, 1):
+            c = ws.cell(row=dr, column=ci, value=val)
+            c.font = BODY_FONT
+            c.border = THIN_BORDER
+            c.alignment = Alignment(
+                horizontal="left" if ci == 1 else "center",
+                vertical="center"
+            )
+            if alt:
+                c.fill = ROW_ALT_FILL
+            if isinstance(val, (int, float)):
+                totals[ci - 1] += val
+        dr += 1
+
+    # Total row
+    for ci in range(1, nc + 1):
+        c = ws.cell(row=dr, column=ci)
+        c.font = BOLD_FONT
+        c.border = THIN_BORDER
+        c.alignment = Alignment(
+            horizontal="left" if ci == 1 else "center",
+            vertical="center"
+        )
+        if ci == 1:
+            c.value = "Total"
+        elif ci in numeric_cols:
+            c.value = totals[ci - 1]
+
+    # Column widths
+    for ci in range(1, nc + 1):
+        col_letter = chr(64 + ci)
+        ws.column_dimensions[col_letter].width = 20
+
+
 async def export_ga_live_performance_excel(
     db: AsyncSession,
     house_id: int,
@@ -88,7 +160,6 @@ async def export_ga_live_performance_excel(
 
     section_configs = await _load_export_section_configs(db, house_id)
 
-    # Collect exclusion rules from relevant sections
     exclude_products_total: list[str] = []
     exclude_tags_total: list[str] = []
 
@@ -100,7 +171,6 @@ async def export_ga_live_performance_excel(
 
     excluded_retailer_ids = await _get_excluded_retailer_ids_by_tags(db, house_id, exclude_tags_total)
 
-    # ── Employee data ──
     emp_rows = await db.execute(
         select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number,
                Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number,
@@ -140,7 +210,6 @@ async def export_ga_live_performance_excel(
     bp_list = [e for e in all_employees if e.employee_type == "bp"]
     sup_list = [e for e in all_employees if e.employee_type == "supervisor"]
 
-    # ── Helper: build counts for an employee's retailers ──
     async def _today_count(retailer_ids: set[int], bp_filter: bool = True):
         if not retailer_ids:
             return 0
@@ -226,37 +295,28 @@ async def export_ga_live_performance_excel(
 
     # ── Build Excel ──
     wb = Workbook()
+    date_str = str(today)
 
     # ── Sheet 1: RSO Report ──
     ws_rso = wb.active
     ws_rso.title = "RSO Report"
-    ws_rso.cell(row=1, column=1, value="RSO Performance Report").font = TITLE_FONT
-    ws_rso.cell(row=2, column=1, value=f"Date: {today}").font = SUB_FONT
     rso_headers = [
         "Name", "ITop Number", "Assisted Code",
         "Today Own", "Today Market", "Today Total",
         "Yesterday Own", "Yesterday Market", "Yesterday Total",
     ]
-    header_row = 4
-    for c, h in enumerate(rso_headers, 1):
-        ws_rso.cell(row=header_row, column=c, value=h)
-    _style_header(ws_rso, header_row, len(rso_headers))
-
-    rso_row = header_row + 1
-    totals = [0] * 9
+    rso_numeric_cols = {4, 5, 6, 7, 8, 9}
+    rso_rows = []
     for e in rso_list:
         emp_id = e.id
         ret_ids = emp_retailer_map.get(emp_id, set())
         code = e.assisted_retailer_code
-
         t_own = await _today_own_count(ret_ids, code)
         t_total = await _today_count(ret_ids)
         y_own = await _yesterday_own_count(ret_ids, code)
         y_total = await _yesterday_count(ret_ids)
-
         user_name = user_name_map.get(e.user_id) if e.user_id else ""
-
-        row_data = [
+        rso_rows.append([
             user_name or e.dms_code or f"#{emp_id}",
             e.itop_number or "",
             code or "",
@@ -266,41 +326,14 @@ async def export_ga_live_performance_excel(
             y_own,
             y_total - y_own,
             y_total,
-        ]
-        for ci, val in enumerate(row_data, 1):
-            cell = ws_rso.cell(row=rso_row, column=ci, value=val)
-            cell.font = BODY_FONT
-            cell.border = THIN_BORDER
-            cell.alignment = Alignment(horizontal="left" if ci == 1 else "center", vertical="center")
-            if isinstance(val, (int, float)):
-                totals[ci - 1] += val
-        rso_row += 1
-
-    # Total row
-    ws_rso.cell(row=rso_row, column=1, value="Total").font = BOLD_FONT
-    ws_rso.cell(row=rso_row, column=1).alignment = Alignment(horizontal="left", vertical="center")
-    ws_rso.cell(row=rso_row, column=1).border = THIN_BORDER
-    for ci in range(2, len(rso_headers) + 1):
-        cell = ws_rso.cell(row=rso_row, column=ci, value=totals[ci - 1])
-        cell.font = BOLD_FONT
-        cell.border = THIN_BORDER
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    for ci in range(1, len(rso_headers) + 1):
-        ws_rso.column_dimensions[chr(64 + ci) if ci <= 26 else "A"].width = 18
+        ])
+    _build_sheet(ws_rso, "RSO Performance Report", f"Date: {date_str}", rso_headers, rso_rows, rso_numeric_cols)
 
     # ── Sheet 2: BP Report ──
     ws_bp = wb.create_sheet("BP Report")
-    ws_bp.cell(row=1, column=1, value="BP Performance Report").font = TITLE_FONT
-    ws_bp.cell(row=2, column=1, value=f"Date: {today}").font = SUB_FONT
     bp_headers = ["Name", "Pool Number", "Assisted Code", "Today Activation", "Yesterday Activation"]
-    header_row = 4
-    for c, h in enumerate(bp_headers, 1):
-        ws_bp.cell(row=header_row, column=c, value=h)
-    _style_header(ws_bp, header_row, len(bp_headers))
-
-    bp_row = header_row + 1
-    bp_totals = [0, 0]
+    bp_numeric_cols = {4, 5}
+    bp_rows = []
     for e in bp_list:
         codes = bp_code_map.get(e.id, [])
         if e.assisted_retailer_code and e.assisted_retailer_code not in codes:
@@ -308,73 +341,32 @@ async def export_ga_live_performance_excel(
         today_count = await _bp_today(codes)
         yest_count = await _bp_yesterday(codes)
         user_name = user_name_map.get(e.user_id) if e.user_id else ""
-
-        row_data = [user_name or e.dms_code or f"#{e.id}", e.pool_number or "", e.assisted_retailer_code or "", today_count, yest_count]
-        for ci, val in enumerate(row_data, 1):
-            cell = ws_bp.cell(row=bp_row, column=ci, value=val)
-            cell.font = BODY_FONT
-            cell.border = THIN_BORDER
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            if isinstance(val, (int, float)):
-                bp_totals[ci - 4] += val
-        bp_row += 1
-
-    for ci in range(1, len(bp_headers) + 1):
-        cell = ws_bp.cell(row=bp_row, column=ci)
-        cell.font = BOLD_FONT
-        cell.border = THIN_BORDER
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        if ci == 1:
-            cell.value = "Total"
-            cell.alignment = Alignment(horizontal="left", vertical="center")
-        elif ci >= 4:
-            cell.value = bp_totals[ci - 4]
-
-    for ci in range(1, len(bp_headers) + 1):
-        ws_bp.column_dimensions[chr(64 + ci) if ci <= 26 else "A"].width = 20
+        bp_rows.append([
+            user_name or e.dms_code or f"#{e.id}",
+            e.pool_number or "",
+            e.assisted_retailer_code or "",
+            today_count,
+            yest_count,
+        ])
+    _build_sheet(ws_bp, "BP Performance Report", f"Date: {date_str}", bp_headers, bp_rows, bp_numeric_cols)
 
     # ── Sheet 3: Supervisor Report ──
     ws_sup = wb.create_sheet("Supervisor Report")
-    ws_sup.cell(row=1, column=1, value="Supervisor Performance Report").font = TITLE_FONT
-    ws_sup.cell(row=2, column=1, value=f"Date: {today}").font = SUB_FONT
     sup_headers = ["Name", "Pool Number", "Today Activation", "Yesterday Activation"]
-    header_row = 4
-    for c, h in enumerate(sup_headers, 1):
-        ws_sup.cell(row=header_row, column=c, value=h)
-    _style_header(ws_sup, header_row, len(sup_headers))
-
-    sup_row = header_row + 1
-    sup_totals = [0, 0]
+    sup_numeric_cols = {3, 4}
+    sup_rows = []
     for e in sup_list:
         ret_ids = emp_retailer_map.get(e.id, set())
         user_name = user_name_map.get(e.user_id) if e.user_id else ""
-        # Supervisor counts without BP filter (they oversee all including BP)
         today_count = await _today_count(ret_ids, bp_filter=False)
         yest_count = await _yesterday_count(ret_ids, bp_filter=False)
-
-        row_data = [user_name or e.dms_code or f"#{e.id}", e.pool_number or "", today_count, yest_count]
-        for ci, val in enumerate(row_data, 1):
-            cell = ws_sup.cell(row=sup_row, column=ci, value=val)
-            cell.font = BODY_FONT
-            cell.border = THIN_BORDER
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            if isinstance(val, (int, float)):
-                sup_totals[ci - 3] += val
-        sup_row += 1
-
-    for ci in range(1, len(sup_headers) + 1):
-        cell = ws_sup.cell(row=sup_row, column=ci)
-        cell.font = BOLD_FONT
-        cell.border = THIN_BORDER
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        if ci == 1:
-            cell.value = "Total"
-            cell.alignment = Alignment(horizontal="left", vertical="center")
-        elif ci >= 3:
-            cell.value = sup_totals[ci - 3]
-
-    for ci in range(1, len(sup_headers) + 1):
-        ws_sup.column_dimensions[chr(64 + ci) if ci <= 26 else "A"].width = 22
+        sup_rows.append([
+            user_name or e.dms_code or f"#{e.id}",
+            e.pool_number or "",
+            today_count,
+            yest_count,
+        ])
+    _build_sheet(ws_sup, "Supervisor Performance Report", f"Date: {date_str}", sup_headers, sup_rows, sup_numeric_cols)
 
     buf = io.BytesIO()
     wb.save(buf)

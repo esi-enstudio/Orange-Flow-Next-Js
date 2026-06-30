@@ -18,6 +18,7 @@ import {
 
 import SectionConfigModal from "./SectionConfigModal";
 import LiveActivationDetailModal from "./LiveActivationDetailModal";
+import { exportLiveReport } from "@/lib/export-live-report";
 import {
   PieChart, Pie, Cell,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -625,19 +626,19 @@ export default function GaLiveReportPage() {
   };
 
   const handleExport = async () => {
-    if (!effectiveHouseId) return;
+    if (!data || !houses) return;
+    const selHouse = houses.find((h) => h.id === effectiveHouseId);
     try {
-      const res = await apiClient.get("/reports/live-activations/export-performance", {
-        params: { house_id: effectiveHouseId },
-        responseType: "blob",
+      await exportLiveReport({
+        houseName: selHouse?.name ?? "",
+        houseCode: selHouse?.code ?? "",
+        totalActivations: data.summary.total_activations,
+        employeeActivation: data.summary.employee_activation,
+        marketActivation: data.summary.market_activation,
+        rsos: data.rsos,
+        bps: data.bps,
+        supervisors: data.supervisors,
       });
-      const blob = new Blob([res.data]);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ga_live_performance_${today}.xlsx`;
-      a.click();
-      window.URL.revokeObjectURL(url);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       alert(`Export failed: ${msg}`);
