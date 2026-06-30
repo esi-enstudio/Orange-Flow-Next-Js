@@ -19,6 +19,7 @@ interface SerialRecord {
 }
 
 interface StockSummary {
+  house_id: number; house_name: string; house_code: string;
   product_id: number; product_name: string; product_code: string;
   available: number; used: number; allocated: number; total: number;
 }
@@ -412,15 +413,16 @@ export default function SCSerialsPage() {
           <div className="col-span-full text-center py-6 text-gray-400 text-sm">No stock data available</div>
         ) : (
           stockSummary.map(s => (
-            <div key={s.product_id} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-4">
-              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 truncate">{s.product_name || `Product #${s.product_id}`}</p>
+            <div key={`${s.house_id}-${s.product_id}`} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-4">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 truncate">{s.product_name}</p>
               <p className="text-[11px] text-gray-400 mb-1 truncate">{s.product_code}</p>
+              <p className="text-[11px] text-primary-600 dark:text-primary-400 mb-2 font-medium">{s.house_name} ({s.house_code})</p>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-emerald-600 font-medium">{s.available || 0} avail</span>
+                <span className="text-emerald-600 font-medium">{s.available.toLocaleString('en-US')} avail</span>
                 <span className="text-gray-400">/</span>
-                <span className="text-gray-500">{s.used || 0} used</span>
+                <span className="text-gray-500">{s.used.toLocaleString('en-US')} used</span>
               </div>
-              <p className="text-[11px] text-gray-400 mt-1">Total: {s.total || 0}</p>
+              <p className="text-[11px] text-gray-400 mt-1">Total: {s.total.toLocaleString('en-US')}</p>
             </div>
           ))
         )}

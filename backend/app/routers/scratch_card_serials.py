@@ -729,40 +729,52 @@ async def stock_summary(
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
 ):
     query = select(
+        ScratchCardSerial.house_id,
         ScratchCardSerial.product_id,
         ScratchCardSerial.status,
         func.count(ScratchCardSerial.id).label("count"),
     )
     query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
-    query = query.group_by(ScratchCardSerial.product_id, ScratchCardSerial.status)
+    query = query.group_by(ScratchCardSerial.house_id, ScratchCardSerial.product_id, ScratchCardSerial.status)
     result = await db.execute(query)
     rows = result.all()
 
     product_ids = set(r.product_id for r in rows)
+    house_ids = set(r.house_id for r in rows)
     products_map = {}
+    houses_map = {}
     if product_ids:
         prod_result = await db.execute(
             select(Product).where(Product.id.in_(product_ids))
         )
         for p in prod_result.scalars().all():
             products_map[p.id] = p
+    if house_ids:
+        house_result = await db.execute(
+            select(House).where(House.id.in_(house_ids))
+        )
+        for h in house_result.scalars().all():
+            houses_map[h.id] = h
 
-    summary = []
     group = {}
     for row in rows:
-        pid = row.product_id
-        if pid not in group:
-            p = products_map.get(pid)
-            group[pid] = {
-                "product_id": pid,
-                "product_name": p.product_name if p else f"Product #{pid}",
+        key = (row.house_id, row.product_id)
+        if key not in group:
+            p = products_map.get(row.product_id)
+            h = houses_map.get(row.house_id)
+            group[key] = {
+                "house_id": row.house_id,
+                "house_name": h.name if h else f"House #{row.house_id}",
+                "house_code": h.code if h else "",
+                "product_id": row.product_id,
+                "product_name": p.product_name if p else f"Product #{row.product_id}",
                 "product_code": p.product_code if p else "",
                 "available": 0,
                 "used": 0,
                 "allocated": 0,
                 "total": 0,
             }
-        group[pid][row.status] = row.count
-        group[pid]["total"] += row.count
+        group[key][row.status] = row.count
+        group[key]["total"] += row.count
 
     return {"success": True, "data": list(group.values())}
