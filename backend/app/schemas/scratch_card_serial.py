@@ -30,6 +30,8 @@ class ScratchCardSerialSchema(BaseModel):
     notes: Optional[str] = None
     used_at: Optional[datetime] = None
     used_by: Optional[int] = None
+    used_by_name: Optional[str] = None
+    used_by_role: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

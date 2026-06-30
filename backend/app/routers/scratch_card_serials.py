@@ -60,7 +60,11 @@ def _check_house_access(record, current_user, house_context=None):
 
 
 def _serial_to_schema(record):
-    return ScratchCardSerialSchema.model_validate(record)
+    schema = ScratchCardSerialSchema.model_validate(record)
+    if record.used_by_user:
+        schema.used_by_name = record.used_by_user.name
+        schema.used_by_role = record.used_by_user.roles[0].name if record.used_by_user.roles else None
+    return schema
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +80,10 @@ async def list_serials(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
 ):
-    query = select(ScratchCardSerial).options(joinedload(ScratchCardSerial.product))
+    query = select(ScratchCardSerial).options(
+        joinedload(ScratchCardSerial.product),
+        joinedload(ScratchCardSerial.used_by_user),
+    )
     query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
 
     if pagination.search:
@@ -130,7 +137,10 @@ async def get_serial(
 ):
     result = await db.execute(
         select(ScratchCardSerial)
-        .options(joinedload(ScratchCardSerial.product))
+        .options(
+            joinedload(ScratchCardSerial.product),
+            joinedload(ScratchCardSerial.used_by_user),
+        )
         .where(ScratchCardSerial.id == serial_id)
     )
     record = result.unique().scalar_one_or_none()
@@ -639,7 +649,10 @@ async def export_serials(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.export")),
 ):
-    query = select(ScratchCardSerial).options(joinedload(ScratchCardSerial.product))
+    query = select(ScratchCardSerial).options(
+        joinedload(ScratchCardSerial.product),
+        joinedload(ScratchCardSerial.used_by_user),
+    )
     query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
 
     if product_id:

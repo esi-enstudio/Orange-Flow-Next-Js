@@ -14,6 +14,7 @@ interface SerialRecord {
   serial_number: string;
   status: string; batch_id: string | null; notes: string | null;
   used_at: string | null; used_by: number | null;
+  used_by_name: string | null; used_by_role: string | null;
   created_at: string; updated_at: string;
 }
 
@@ -354,19 +355,6 @@ export default function SCSerialsPage() {
     return formatDate(d);
   };
 
-  const statusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      available: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400",
-      used: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-      allocated: "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
-    };
-    return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${colors[status] || "bg-gray-100 text-gray-600"}`}>
-        {status}
-      </span>
-    );
-  };
-
   if (!authLoading && !hasPermission("scratch_card_serials.view")) return <AccessDenied />;
 
   return (
@@ -503,10 +491,10 @@ export default function SCSerialsPage() {
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Serial #</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Product</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Status</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Batch</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Notes</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used At</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used By</th>
                 <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Actions</th>
               </tr>
             </thead>
@@ -532,25 +520,41 @@ export default function SCSerialsPage() {
                       />
                     )}
                   </td>
-                  <td className="px-4 py-3"><span className="font-mono text-xs font-medium text-gray-900 dark:text-gray-100">{r.serial_number}</span></td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-mono text-xs font-medium ${r.status === "used" ? "line-through text-gray-400 dark:text-gray-500" : "text-gray-900 dark:text-gray-100"}`}>
+                        {r.serial_number}
+                      </span>
+                      {r.status === "used" && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.product_name || `Product #${r.product_id}`}</p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.product_code || ""}</p>
                   </td>
-                  <td className="px-4 py-3">{statusBadge(r.status)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-[11px]">{r.batch_id || "-"}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-[11px] max-w-[120px] truncate">{r.notes || "-"}</td>
-                  <td className="px-4 py-3">
-                    {r.used_at ? (
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.used_at))}</p>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.used_at))}</p>
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3">
+                      {r.used_at ? (
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.used_at))}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.used_at))}</p>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.used_by_name ? (
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.used_by_name}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.used_by_role || ""}</p>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {hasPermission("scratch_card_serials.delete") && (
                         r.status === "used" ? (
