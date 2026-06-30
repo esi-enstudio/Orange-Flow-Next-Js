@@ -88,6 +88,7 @@ export default function SCSerialsPage() {
   const [allocResult, setAllocResult] = useState<any>(null);
   const [allocError, setAllocError] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [allocNotes, setAllocNotes] = useState("");
 
   const generateBatchId = () => {
     const now = new Date();
@@ -318,18 +319,39 @@ export default function SCSerialsPage() {
     if (allocHouseId) confirmHeaders["X-House-ID"] = String(allocHouseId);
     try {
       const res = await apiClient.post("/v1/scratch-card-serials/confirm-allocation",
-        { ranges: allocResult.ranges.map((r: any) => ({ start_serial: r.start_serial, end_serial: r.end_serial })) },
+        {
+          ranges: allocResult.ranges.map((r: any) => ({ start_serial: r.start_serial, end_serial: r.end_serial })),
+          notes: allocNotes || undefined,
+        },
         { headers: confirmHeaders }
       );
       toast.success(res.data.message || "Allocation confirmed");
       setAllocResult(null);
       setAllocAmount("");
+      setAllocNotes("");
       fetchData();
       fetchSummary();
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || e?.message || "Confirmation failed");
     }
     finally { setConfirming(false); }
+  };
+
+  const formatDate = (d: Date) => {
+    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    return `${d.getDate().toString().padStart(2, "0")} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  };
+
+  const timeAgo = (d: Date) => {
+    const diff = Date.now() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return formatDate(d);
   };
 
   const statusBadge = (status: string) => {
@@ -381,7 +403,7 @@ export default function SCSerialsPage() {
             </button>
           )}
           {hasPermission("scratch_card_serials.view") && (
-            <button onClick={() => { setShowAllocate(true); setAllocAmount(""); setAllocResult(null); setAllocError(""); }}
+            <button onClick={() => { setShowAllocate(true); setAllocAmount(""); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
               className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
               <Database className="w-4 h-4" /> Allocate
             </button>
@@ -484,6 +506,7 @@ export default function SCSerialsPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Status</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Batch</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Notes</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used At</th>
                 <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Actions</th>
               </tr>
             </thead>
@@ -491,13 +514,13 @@ export default function SCSerialsPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-b border-gray-50 dark:border-slate-800/50 animate-pulse">
-                    {Array.from({ length: 7 }).map((_, j) => (
+                    {Array.from({ length: 8 }).map((_, j) => (
                       <td key={j} className="px-4 py-3"><div className="h-4 bg-gray-200 dark:bg-slate-700 rounded w-3/4" /></td>
                     ))}
                   </tr>
                 ))
               ) : data.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No serials found</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No serials found</td></tr>
               ) : data.map(r => (
                 <tr key={r.id} className={`border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${selectedIds.includes(r.id) ? 'bg-orange-50 dark:bg-orange-500/5' : ''}`}>
                   <td className="px-2 py-3">
@@ -517,6 +540,16 @@ export default function SCSerialsPage() {
                   <td className="px-4 py-3">{statusBadge(r.status)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-[11px]">{r.batch_id || "-"}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-[11px] max-w-[120px] truncate">{r.notes || "-"}</td>
+                  <td className="px-4 py-3">
+                    {r.used_at ? (
+                      <div>
+                        <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.used_at))}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.used_at))}</p>
+                      </div>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {hasPermission("scratch_card_serials.delete") && (
@@ -761,7 +794,7 @@ export default function SCSerialsPage() {
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Allocate Serials</h3>
-              <button onClick={() => { setShowAllocate(false); setAllocResult(null); setAllocError(""); }}
+              <button onClick={() => { setShowAllocate(false); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
                 className="p-1 text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
@@ -868,8 +901,19 @@ export default function SCSerialsPage() {
                   </table>
                 </div>
 
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notes (optional)</label>
+                  <textarea
+                    value={allocNotes}
+                    onChange={e => setAllocNotes(e.target.value)}
+                    placeholder="e.g. Allocated for House X monthly demand"
+                    rows={2}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-none"
+                  />
+                </div>
+
                 <div className="flex items-center justify-end gap-2">
-                  <button onClick={() => { setShowAllocate(false); setAllocResult(null); setAllocError(""); }}
+                  <button onClick={() => { setShowAllocate(false); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
                     className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
                     Cancel
                   </button>

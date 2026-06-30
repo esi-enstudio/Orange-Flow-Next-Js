@@ -73,6 +73,7 @@ class ConfirmAllocationRange(BaseModel):
 class ConfirmAllocationRequest(BaseModel):
     ranges: List[ConfirmAllocationRange] = []
     serials: List[str] = []
+    notes: Optional[str] = None
 
 
 class SerialFilterParams(BaseModel):

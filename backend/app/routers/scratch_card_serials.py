@@ -1,6 +1,6 @@
 import logging
 import math
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -608,6 +608,9 @@ async def confirm_allocation(
             continue
         rec.status = "used"
         rec.used_by = current_user.id
+        rec.used_at = datetime.utcnow() + timedelta(hours=6)
+        if payload.notes:
+            rec.notes = payload.notes
         updated += 1
 
     await db.commit()
