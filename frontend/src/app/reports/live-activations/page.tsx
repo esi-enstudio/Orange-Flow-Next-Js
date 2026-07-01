@@ -563,7 +563,15 @@ export default function GaLiveReportPage() {
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
   }
+  function todayDisplayStr() {
+    const d = new Date();
+    const day = String(d.getDate()).padStart(2, "0");
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const y = d.getFullYear();
+    return `${day}-${m}-${y}`;
+  }
   const today = todayStr();
+  const todayDisplay = todayDisplayStr();
 
   const assignedHouses = useMemo(() => user?.houses ?? [], [user]);
 
@@ -656,7 +664,7 @@ export default function GaLiveReportPage() {
       const dataUrl = await toPng(el, { quality: 1, pixelRatio: 3, backgroundColor: "#ffffff", width: 800 });
       const res = await fetch(dataUrl);
       const blobData = await res.blob();
-      return new File([blobData], `ga_live_report_${today}.png`, { type: "image/png" });
+      return new File([blobData], `ga_live_report_${todayDisplay}.png`, { type: "image/png" });
     } catch {
       return null;
     } finally {

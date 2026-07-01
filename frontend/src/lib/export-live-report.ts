@@ -45,6 +45,10 @@ const SECTION_BG = "F1F5F9";
 const TEXT_DARK = "1E293B";
 const TEXT_MUTED = "64748B";
 const WHITE = "FFFFFF";
+const MEDIUM_BG = "93C5FD";
+const LIGHT_BG = "DBEAFE";
+const MEDIUM_ORANGE = "FCD34D";
+const LIGHT_ORANGE = "FEF3C7";
 
 const thinBorder: Partial<ExcelJS.Border> = {
   style: "thin",
@@ -63,15 +67,13 @@ function sectionTitle(ws: ExcelJS.Worksheet, row: number, label: string, cols: n
   const cell = ws.getCell(row, 1);
   cell.value = label;
   cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-  cell.alignment = { vertical: "middle", horizontal: "center" };
+  cell.alignment = { vertical: "middle", horizontal: "left" };
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
   cell.border = allBorders;
-  ws.getRow(row).height = 24;
 }
 
-function headerRow(ws: ExcelJS.Worksheet, row: number, headers: string[], heights: number[] = []) {
+function headerRow(ws: ExcelJS.Worksheet, row: number, headers: string[]) {
   const r = ws.getRow(row);
-  r.height = 24;
   headers.forEach((h, i) => {
     const cell = r.getCell(i + 1);
     cell.value = h;
@@ -86,27 +88,18 @@ function dataRow(
   ws: ExcelJS.Worksheet,
   row: number,
   values: (string | number)[],
-  isTotal: boolean = false,
 ) {
   const r = ws.getRow(row);
-  r.height = 22;
+
   values.forEach((val, i) => {
     const cell = r.getCell(i + 1);
     cell.value = val;
-    cell.font = {
-      bold: isTotal,
-      size: 10,
-      name: "Calibri",
-      color: { argb: TEXT_DARK },
-    };
+    cell.font = { bold: false, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
     cell.alignment = {
       vertical: "middle",
       horizontal: i === 1 ? "left" : "center",
     };
     cell.border = allBorders;
-    if (isTotal) {
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
-    }
   });
 }
 
@@ -120,7 +113,7 @@ function formulaRow(
   totalCols: number = 10,
 ) {
   const r = ws.getRow(row);
-  r.height = 22;
+
   for (let ci = 1; ci <= totalCols; ci++) {
     const colLetter = String.fromCharCode(64 + ci);
     const cell = r.getCell(ci);
@@ -146,7 +139,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "Orange Flow";
-  const ws = wb.addWorksheet("RSO Report", {
+  const ws = wb.addWorksheet("GA Live Report", {
     pageSetup: {
       orientation: "landscape",
       fitToPage: true,
@@ -175,7 +168,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   /* ════════════════════════════════════════════
      ROW 1: Title + Summary Headers
      ════════════════════════════════════════════ */
-  ws.mergeCells(1, 1, 1, 3);
+  ws.mergeCells(1, 1, 2, 2);
   const titleCell = ws.getCell("A1");
   titleCell.value = `GA Live Report (${monthYear})`;
   titleCell.font = { bold: true, size: 14, name: "Calibri", color: { argb: TEXT_DARK } };
@@ -190,7 +183,6 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
     cell.border = allBorders;
   });
-  ws.getRow(1).height = 28;
 
   /* ════════════════════════════════════════════
      ROW 2: Summary Values
@@ -203,20 +195,15 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     cell.alignment = { vertical: "middle", horizontal: "center" };
     cell.border = allBorders;
   });
-  for (let c = 1; c <= 3; c++) {
-    ws.getCell(2, c).border = allBorders;
-  }
-  ws.getRow(2).height = 22;
 
   /* ════════════════════════════════════════════
      ROW 3: House Info
      ════════════════════════════════════════════ */
-  ws.mergeCells(3, 1, 3, 3);
+  ws.mergeCells(3, 1, 3, 10);
   const infoCell = ws.getCell("A3");
-  infoCell.value = `House: ${houseName} (${houseCode})\nGenerated: ${dateStr}, ${timeStr}`;
-  infoCell.font = { color: { argb: TEXT_MUTED }, size: 10, name: "Calibri" };
-  infoCell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
-  ws.getRow(3).height = 36;
+  infoCell.value = `House: ${houseName} (${houseCode})  -  Generated: ${dateStr}, ${timeStr}`;
+  infoCell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_MUTED } };
+  infoCell.alignment = { vertical: "middle", horizontal: "left" };
 
   /* ════════════════════════════════════════════
      ROW 4: Spacer
@@ -225,16 +212,46 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   /* ════════════════════════════════════════════
      ROW 5: RSO PERFORMANCE section title
      ════════════════════════════════════════════ */
-  sectionTitle(ws, 5, "RSO PERFORMANCE", COLS);
+  ws.mergeCells(5, 1, 5, 2);
+  ws.mergeCells(5, 5, 5, 7);
+  ws.mergeCells(5, 8, 5, 10);
+  const rsoTitleCell = ws.getCell("A5");
+  rsoTitleCell.value = "RSO PERFORMANCE";
+  rsoTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+  rsoTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+  rsoTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
+  rsoTitleCell.border = allBorders;
+  const rsoTodayCell = ws.getCell("E5");
+  rsoTodayCell.value = "Today";
+  rsoTodayCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+  rsoTodayCell.alignment = { vertical: "middle", horizontal: "center" };
+  rsoTodayCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_BG } };
+  rsoTodayCell.border = allBorders;
+  const rsoYestCell = ws.getCell("H5");
+  rsoYestCell.value = "Yesterday";
+  rsoYestCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+  rsoYestCell.alignment = { vertical: "middle", horizontal: "center" };
+  rsoYestCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
+  rsoYestCell.border = allBorders;
+  [ws.getCell("C5"), ws.getCell("D5")].forEach((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
+    cell.border = allBorders;
+  });
 
   /* ════════════════════════════════════════════
      ROW 6: RSO Headers
      ════════════════════════════════════════════ */
   headerRow(ws, 6, [
     "#", "Name", "ITop Number", "Assisted Code",
-    "Today Own", "Today Market", "Today Total",
-    "Yest Own", "Yest Market", "Yest Total",
+    "Own Code", "Market", "Total",
+    "Own Code", "Market", "Total",
   ]);
+  [ws.getCell("E6"), ws.getCell("F6"), ws.getCell("G6")].forEach((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_BG } };
+  });
+  [ws.getCell("H6"), ws.getCell("I6"), ws.getCell("J6")].forEach((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
+  });
 
   /* ════════════════════════════════════════════
      ROWS 7-24: RSO Data
@@ -255,6 +272,12 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       rso.yesterday_market,
       rso.yesterday_total,
     ]);
+    [5, 6, 7].forEach((ci) => {
+      ws.getCell(r, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_BG } };
+    });
+    [8, 9, 10].forEach((ci) => {
+      ws.getCell(r, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
+    });
     r++;
   });
   while (r <= RSO_DATA_END) {
@@ -263,7 +286,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       cell.border = allBorders;
       cell.font = { size: 10, name: "Calibri" };
     }
-    ws.getRow(r).height = 22;
+
     r++;
   }
 
@@ -271,6 +294,12 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
      ROW 25: RSO Total (formulas)
      ════════════════════════════════════════════ */
   formulaRow(ws, 25, ["E", "F", "G", "H", "I", "J"], RSO_DATA_START, RSO_DATA_END, "Total");
+  [5, 6, 7].forEach((ci) => {
+    ws.getCell(25, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_BG } };
+  });
+  [8, 9, 10].forEach((ci) => {
+    ws.getCell(25, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
+  });
 
   /* ════════════════════════════════════════════
      ROW 26: Spacer
@@ -317,14 +346,14 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       cell.border = allBorders;
       cell.font = { size: 10, name: "Calibri" };
     }
-    ws.getRow(r).height = 22;
+
     r++;
   }
 
   /* ════════════════════════════════════════════
      ROW 33: BP Subtotal (formulas)
      ════════════════════════════════════════════ */
-  formulaRow(ws, 33, ["E", "F", "G", "H", "I", "J"], BP_DATA_START, BP_DATA_END, "Subtotal");
+  formulaRow(ws, 33, ["E", "F", "G", "H", "I", "J"], BP_DATA_START, BP_DATA_END, "Total");
 
   /* ════════════════════════════════════════════
      ROW 34: Spacer
@@ -364,14 +393,14 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       cell.border = allBorders;
       cell.font = { size: 10, name: "Calibri" };
     }
-    ws.getRow(r).height = 22;
+
     r++;
   }
 
   /* ════════════════════════════════════════════
      ROW 39: Supervisor Subtotal (formulas)
      ════════════════════════════════════════════ */
-  formulaRow(ws, 39, ["D", "E"], SUP_DATA_START, SUP_DATA_END, "Subtotal", 5);
+  formulaRow(ws, 39, ["D", "E"], SUP_DATA_START, SUP_DATA_END, "Total", 5);
 
   /* ════════════════════════════════════════════
      Generate file
@@ -383,8 +412,11 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  const todayStr = now.toISOString().slice(0, 10);
-  link.setAttribute("download", `rso_report_${todayStr}.xlsx`);
+  const day = String(now.getDate()).padStart(2, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const year = now.getFullYear();
+  const displayDate = `${day}-${month}-${year}`;
+  link.setAttribute("download", `ga_live_report_${displayDate}.xlsx`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
