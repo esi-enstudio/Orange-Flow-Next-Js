@@ -166,7 +166,6 @@ export const navItems: NavItem[] = [
   },
   {
     title: "Roles & Permissions",
-    translationKey: "nav.roles",
     icon: Shield,
     color: "text-red-500",
     children: [
