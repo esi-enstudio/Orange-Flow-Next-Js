@@ -174,28 +174,6 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   titleCell.font = { bold: true, size: 14, name: "Calibri", color: { argb: TEXT_DARK } };
   titleCell.alignment = { vertical: "middle", horizontal: "left" };
 
-  const sumHeaders = ["House Need", "Ach", "Remain"];
-  ["D1", "E1", "F1"].forEach((ref, i) => {
-    const cell = ws.getCell(ref);
-    cell.value = sumHeaders[i];
-    cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
-    cell.alignment = { vertical: "middle", horizontal: "center" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
-    cell.border = allBorders;
-  });
-
-  /* ════════════════════════════════════════════
-     ROW 2: Summary Values
-     ════════════════════════════════════════════ */
-  const sumValues = [totalActivations, employeeActivation, marketActivation];
-  ["D2", "E2", "F2"].forEach((ref, i) => {
-    const cell = ws.getCell(ref);
-    cell.value = sumValues[i];
-    cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-    cell.alignment = { vertical: "middle", horizontal: "center" };
-    cell.border = allBorders;
-  });
-
   /* ════════════════════════════════════════════
      ROW 3: House Info
      ════════════════════════════════════════════ */

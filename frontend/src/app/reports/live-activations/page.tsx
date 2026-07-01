@@ -18,7 +18,7 @@ import {
 
 import SectionConfigModal from "./SectionConfigModal";
 import LiveActivationDetailModal from "./LiveActivationDetailModal";
-import { exportLiveReport } from "@/lib/export-live-report";
+import { exportLiveReport } from "@/lib/export-ga-live-report";
 import {
   PieChart, Pie, Cell,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
