@@ -68,7 +68,6 @@ function sectionTitle(ws: ExcelJS.Worksheet, row: number, label: string, cols: n
   cell.value = label;
   cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
   cell.alignment = { vertical: "middle", horizontal: "left" };
-  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
   cell.border = allBorders;
 }
 
@@ -79,7 +78,6 @@ function headerRow(ws: ExcelJS.Worksheet, row: number, headers: string[]) {
     cell.value = h;
     cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
     cell.alignment = { vertical: "middle", horizontal: "center" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
     cell.border = allBorders;
   });
 }
@@ -130,7 +128,7 @@ function formulaRow(
 }
 
 export async function exportLiveReport(payload: ExportPayload): Promise<void> {
-  const { houseName, houseCode, totalActivations, employeeActivation, marketActivation, rsos, bps, supervisors } = payload;
+  const { houseName, houseCode, rsos, bps, supervisors } = payload;
 
   const now = new Date();
   const monthYear = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -161,9 +159,12 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     { width: 12 },
     { width: 12 },
     { width: 12 },
+    { width: 12 },
+    { width: 12 },
+    { width: 12 },
   ];
 
-  const COLS = 10;
+  const COLS = 13;
 
   /* ════════════════════════════════════════════
      ROW 1: Title + Summary Headers
@@ -191,28 +192,19 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
      ROW 5: RSO PERFORMANCE section title
      ════════════════════════════════════════════ */
   ws.mergeCells(5, 1, 5, 2);
-  ws.mergeCells(5, 5, 5, 7);
-  ws.mergeCells(5, 8, 5, 10);
+  ws.mergeCells(5, 11, 5, 13);
   const rsoTitleCell = ws.getCell("A5");
   rsoTitleCell.value = "RSO PERFORMANCE";
   rsoTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
   rsoTitleCell.alignment = { vertical: "middle", horizontal: "left" };
-  rsoTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
   rsoTitleCell.border = allBorders;
-  const rsoTodayCell = ws.getCell("E5");
-  rsoTodayCell.value = "Today";
-  rsoTodayCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-  rsoTodayCell.alignment = { vertical: "middle", horizontal: "center" };
-  rsoTodayCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_BG } };
-  rsoTodayCell.border = allBorders;
-  const rsoYestCell = ws.getCell("H5");
+  const rsoYestCell = ws.getCell("K5");
   rsoYestCell.value = "Yesterday";
   rsoYestCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
   rsoYestCell.alignment = { vertical: "middle", horizontal: "center" };
   rsoYestCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
   rsoYestCell.border = allBorders;
   [ws.getCell("C5"), ws.getCell("D5")].forEach((cell) => {
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
     cell.border = allBorders;
   });
 
@@ -221,13 +213,12 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
      ════════════════════════════════════════════ */
   headerRow(ws, 6, [
     "#", "Name", "ITop Number", "Assisted Code",
+    "Today Target",
     "Own Code", "Market", "Total",
+    "%", "Remain",
     "Own Code", "Market", "Total",
   ]);
-  [ws.getCell("E6"), ws.getCell("F6"), ws.getCell("G6")].forEach((cell) => {
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_BG } };
-  });
-  [ws.getCell("H6"), ws.getCell("I6"), ws.getCell("J6")].forEach((cell) => {
+  [ws.getCell("K6"), ws.getCell("L6"), ws.getCell("M6")].forEach((cell) => {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
   });
 
@@ -243,17 +234,17 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       rso.name,
       rso.itop_number || "",
       rso.assisted_code || "",
+      0,
       rso.own_activation,
       rso.market_activation,
       rso.total_activation,
+      0,
+      0,
       rso.yesterday_own,
       rso.yesterday_market,
       rso.yesterday_total,
     ]);
-    [5, 6, 7].forEach((ci) => {
-      ws.getCell(r, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_BG } };
-    });
-    [8, 9, 10].forEach((ci) => {
+    [11, 12, 13].forEach((ci) => {
       ws.getCell(r, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
     });
     r++;
@@ -271,11 +262,8 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   /* ════════════════════════════════════════════
      ROW 25: RSO Total (formulas)
      ════════════════════════════════════════════ */
-  formulaRow(ws, 25, ["E", "F", "G", "H", "I", "J"], RSO_DATA_START, RSO_DATA_END, "Total");
-  [5, 6, 7].forEach((ci) => {
-    ws.getCell(25, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_BG } };
-  });
-  [8, 9, 10].forEach((ci) => {
+  formulaRow(ws, 25, ["F", "G", "H", "I", "J", "K", "L", "M"], RSO_DATA_START, RSO_DATA_END, "Total", 13);
+  [11, 12, 13].forEach((ci) => {
     ws.getCell(25, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
   });
 
@@ -286,15 +274,21 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   /* ════════════════════════════════════════════
      ROW 27: BP PERFORMANCE section title
      ════════════════════════════════════════════ */
-  sectionTitle(ws, 27, "BP PERFORMANCE", COLS);
+  ws.mergeCells(27, 1, 27, 2);
+  const bpTitleCell = ws.getCell("A27");
+  bpTitleCell.value = "BP PERFORMANCE";
+  bpTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+  bpTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+  bpTitleCell.border = allBorders;
 
   /* ════════════════════════════════════════════
      ROW 28: BP Headers
      ════════════════════════════════════════════ */
   headerRow(ws, 28, [
     "#", "Name", "Pool Number", "Assisted Code",
-    "Today Own", "Today Market", "Today Total",
-    "Yest Own", "Yest Market", "Yest Total",
+    "Today Target",
+    "Ach", "%", "Remain", "Yest GA",
+    "", "", "", "",
   ]);
 
   /* ════════════════════════════════════════════
@@ -309,13 +303,16 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       bp.name,
       bp.pool_number || "",
       bp.assisted_code || "",
-      bp.own_activation,
       0,
       bp.own_activation,
-      bp.yesterday_activation,
+      0,
       0,
       bp.yesterday_activation,
+      0, 0, 0, 0,
     ]);
+    [10, 11, 12, 13].forEach((ci) => {
+      ws.getCell(r, ci).value = null;
+    });
     r++;
   });
   while (r <= BP_DATA_END) {
@@ -331,7 +328,10 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   /* ════════════════════════════════════════════
      ROW 33: BP Subtotal (formulas)
      ════════════════════════════════════════════ */
-  formulaRow(ws, 33, ["E", "F", "G", "H", "I", "J"], BP_DATA_START, BP_DATA_END, "Total");
+  formulaRow(ws, 33, ["F", "G", "H", "I"], BP_DATA_START, BP_DATA_END, "Total", 13);
+  [10, 11, 12, 13].forEach((ci) => {
+    ws.getCell(33, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: WHITE } };
+  });
 
   /* ════════════════════════════════════════════
      ROW 34: Spacer
