@@ -16,6 +16,9 @@ class HouseTargetCreate(BaseModel):
     lso: int
     bso: int
     ddso: int
+    dsso: int
+    dso: int
+    dlso: int
     extra_targets: Optional[dict] = {}
 
 class HouseTargetUpdate(BaseModel):
@@ -30,6 +33,9 @@ class HouseTargetUpdate(BaseModel):
     lso: Optional[int] = None
     bso: Optional[int] = None
     ddso: Optional[int] = None
+    dsso: Optional[int] = None
+    dso: Optional[int] = None
+    dlso: Optional[int] = None
     extra_targets: Optional[dict] = None
 
 class HouseTargetResponse(BaseModel):
@@ -46,6 +52,9 @@ class HouseTargetResponse(BaseModel):
     lso: int
     bso: int
     ddso: int
+    dsso: int
+    dso: int
+    dlso: int
     extra_targets: Any
     target_date: date
     created_at: Optional[datetime] = None

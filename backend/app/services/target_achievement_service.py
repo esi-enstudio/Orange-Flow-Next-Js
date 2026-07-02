@@ -29,6 +29,9 @@ TARGET_CATEGORIES = [
     {"key": "lso", "label_en": "LSO", "label_bn": "এলএসও", "target_field": "lso"},
     {"key": "bso", "label_en": "BSO", "label_bn": "বিএসও", "target_field": "bso"},
     {"key": "ddso", "label_en": "DDSO", "label_bn": "ডিডিএসও", "target_field": "ddso"},
+    {"key": "dsso", "label_en": "DSSO", "label_bn": "ডিএসএসও", "target_field": "dsso"},
+    {"key": "dso", "label_en": "DSO", "label_bn": "ডিএসও", "target_field": "dso"},
+    {"key": "dlso", "label_en": "DLSO", "label_bn": "ডিএলএসও", "target_field": "dlso"},
 ]
 
 

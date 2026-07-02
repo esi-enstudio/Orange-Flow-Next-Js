@@ -98,7 +98,10 @@ HOUSE_COLUMN_MAP = {
     'LSO': ('lso', clean_int),
     'ALSO': ('lso', clean_int),
     'BSO': ('bso', clean_int),
-    'DDSO': ('ddso', clean_int)
+    'DDSO': ('ddso', clean_int),
+    'DSSO': ('dsso', clean_int),
+    'DSO': ('dso', clean_int),
+    'DLSO': ('dlso', clean_int)
 }
 
 # Metadata columns to exclude from extra_targets
@@ -405,10 +408,10 @@ def generate_house_target_sample_bytes():
     ws = wb.active
     ws.title = "House Targets"
     headers = ["TARGET_DATE", "HOUSE_CODE", "EV_C2C_TARGET", "SC_PRIMARY_TARGET", "TOTAL_RECHARGE_TARGET",
-               "TOTAL_GA_TARGET", "BP_GA", "RSO_GA", "EV_SCR", "SSO", "LSO", "BSO", "DDSO"]
+               "TOTAL_GA_TARGET", "BP_GA", "RSO_GA", "EV_SCR", "SSO", "LSO", "BSO", "DDSO", "DSSO", "DSO", "DLSO"]
     ws.append(headers)
-    ws.append(["2026-07-01", "DD001", "500", "300", "800", "50", "20", "10", "100", "5", "3", "2", "1"])
-    ws.append(["2026-07-01", "DD002", "600", "350", "950", "60", "25", "12", "120", "6", "4", "3", "2"])
+    ws.append(["2026-07-01", "DD001", "500", "300", "800", "50", "20", "10", "100", "5", "3", "2", "1", "2", "3", "1"])
+    ws.append(["2026-07-01", "DD002", "600", "350", "950", "60", "25", "12", "120", "6", "4", "3", "2", "3", "4", "2"])
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
@@ -448,13 +451,13 @@ async def export_house_targets_excel(records):
     ws.title = "House Targets"
     headers = ["House Code", "EV C2C Target", "SC Primary Target", "Total Recharge Target",
                "Total GA Target", "BP GA", "RSO GA", "EV SCR", "SSO", "LSO", "BSO", "DDSO",
-               "Target Date"]
+               "DSSO", "DSO", "DLSO", "Target Date"]
     ws.append(headers)
     for r in records:
         ws.append([
             r.house.code if r.house else "", r.ev_c2c_target, r.sc_primary_target,
             r.total_recharge_target, r.total_ga_target, r.bp_ga, r.rso_ga, r.ev_scr,
-            r.sso, r.lso, r.bso, r.ddso, str(r.target_date) if r.target_date else ""
+            r.sso, r.lso, r.bso, r.ddso, r.dsso, r.dso, r.dlso, str(r.target_date) if r.target_date else ""
         ])
     buf = io.BytesIO()
     wb.save(buf)
@@ -484,8 +487,8 @@ async def export_rso_targets_excel(records):
     ws = wb.active
     ws.title = "RSO Targets"
     headers = ["Employee ID", "Supervisor ID", "House Code", "EV Secondary", "SC Secondary",
-               "Total Recharge", "GA", "SSO", "LSO", "BSO", "DDSO", "Service Route",
-               "Market Type", "Thana", "Target Date"]
+               "Total Recharge", "GA", "SSO", "LSO", "BSO", "DDSO",
+               "Service Route", "Market Type", "Thana", "Target Date"]
     ws.append(headers)
     for r in records:
         ws.append([

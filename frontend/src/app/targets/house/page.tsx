@@ -17,7 +17,7 @@ interface House {
 interface HouseTargetRecord {
   id: number; house_id: number; ev_c2c_target: number; sc_primary_target: number; total_recharge_target: number;
   total_ga_target: number; bp_ga: number; rso_ga: number; ev_scr: number;
-  sso: number; lso: number; bso: number; ddso: number; target_date: string;
+  sso: number; lso: number; bso: number; ddso: number; dsso: number; dso: number; dlso: number; target_date: string;
   extra_targets?: Record<string, number>;
   house?: { id: number; name: string; code: string };
 }
@@ -61,6 +61,9 @@ export default function HouseTargetsPage() {
     lso: "",
     bso: "",
     ddso: "",
+    dsso: "",
+    dso: "",
+    dlso: "",
     extra_targets: [] as {key: string; value: string}[],
   });
   const [formLoading, setFormLoading] = useState(false);
@@ -100,7 +103,7 @@ export default function HouseTargetsPage() {
     setFormData({
       house_id: 0, target_date: "", ev_c2c_target: "", sc_primary_target: "",
       total_recharge_target: "", total_ga_target: "", bp_ga: "", rso_ga: "",
-      ev_scr: "", sso: "", lso: "", bso: "", ddso: "",
+      ev_scr: "", sso: "", lso: "", bso: "", ddso: "", dsso: "", dso: "", dlso: "",
       extra_targets: [],
     });
     setFormError("");
@@ -129,6 +132,9 @@ export default function HouseTargetsPage() {
       lso: String(item.lso || ""),
       bso: String(item.bso || ""),
       ddso: String(item.ddso || ""),
+      dsso: String(item.dsso || ""),
+      dso: String(item.dso || ""),
+      dlso: String(item.dlso || ""),
       extra_targets: extraArr,
     });
     setFormError("");
@@ -150,6 +156,9 @@ export default function HouseTargetsPage() {
     if (!formData.lso) errors.lso = "LSO is required";
     if (!formData.bso) errors.bso = "BSO is required";
     if (!formData.ddso) errors.ddso = "DDSO is required";
+    if (!formData.dsso) errors.dsso = "DSSO is required";
+    if (!formData.dso) errors.dso = "DSO is required";
+    if (!formData.dlso) errors.dlso = "DLSO is required";
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -178,6 +187,9 @@ export default function HouseTargetsPage() {
         lso: parseInt(formData.lso) || 0,
         bso: parseInt(formData.bso) || 0,
         ddso: parseInt(formData.ddso) || 0,
+        dsso: parseInt(formData.dsso) || 0,
+        dso: parseInt(formData.dso) || 0,
+        dlso: parseInt(formData.dlso) || 0,
         extra_targets: extra,
       };
       if (editingItem) {
@@ -434,14 +446,17 @@ export default function HouseTargetsPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_ga')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_sso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_lso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_dsso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_dso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_dlso')}</th>
                 {canEdit && <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('house_targets.table_actions')}</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={canEdit ? 9 : 8} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={canEdit ? 12 : 11} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={canEdit ? 9 : 8} className="text-center py-12 text-gray-400">{t('house_targets.no_data')}</td></tr>
+                <tr><td colSpan={canEdit ? 12 : 11} className="text-center py-12 text-gray-400">{t('house_targets.no_data')}</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-4 py-3 font-semibold text-gray-900 dark:text-gray-100">
@@ -456,6 +471,9 @@ export default function HouseTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_ga_target}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.lso}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dsso}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dso}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dlso}</td>
                   {canEdit && (
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
@@ -582,6 +600,45 @@ export default function HouseTargetsPage() {
                     value={formData.total_recharge_target}
                     onChange={() => {}}
                     placeholder={t('house_targets.field_total_recharge_placeholder')} />
+
+                  <div className="pt-4 border-t border-gray-50 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-bold text-amber-600 uppercase tracking-widest">Additional Targets</h4>
+                      <button type="button" onClick={() => setFormData({...formData, extra_targets: [...formData.extra_targets, {key: "", value: ""}]})}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-xl transition-colors">
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {formData.extra_targets.map((et, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <input type="text" placeholder="Target name"
+                            value={et.key}
+                            onChange={e => {
+                              const arr = [...formData.extra_targets];
+                              arr[i] = {...arr[i], key: e.target.value};
+                              setFormData({...formData, extra_targets: arr});
+                            }}
+                            className="flex-1 py-2.5 px-3 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
+                          <input type="number" placeholder="Value"
+                            value={et.value}
+                            onChange={e => {
+                              const arr = [...formData.extra_targets];
+                              arr[i] = {...arr[i], value: e.target.value};
+                              setFormData({...formData, extra_targets: arr});
+                            }}
+                            className="w-28 py-2.5 px-3 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
+                          <button type="button" onClick={() => setFormData({...formData, extra_targets: formData.extra_targets.filter((_, j) => j !== i)})}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {formData.extra_targets.length === 0 && (
+                        <p className="text-xs text-gray-400 italic">No additional targets. Click "Add" to create one.</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -631,46 +688,23 @@ export default function HouseTargetsPage() {
                       onChange={v => setFormData({...formData, ddso: v})}
                       placeholder={t('house_targets.field_ddso_placeholder')}
                       error={fieldErrors.ddso} />
+                    <InputField label={t('house_targets.field_dsso')} type="number" required
+                      value={formData.dsso}
+                      onChange={v => setFormData({...formData, dsso: v})}
+                      placeholder={t('house_targets.field_dsso_placeholder')}
+                      error={fieldErrors.dsso} />
+                    <InputField label={t('house_targets.field_dso')} type="number" required
+                      value={formData.dso}
+                      onChange={v => setFormData({...formData, dso: v})}
+                      placeholder={t('house_targets.field_dso_placeholder')}
+                      error={fieldErrors.dso} />
+                    <InputField label={t('house_targets.field_dlso')} type="number" required
+                      value={formData.dlso}
+                      onChange={v => setFormData({...formData, dlso: v})}
+                      placeholder={t('house_targets.field_dlso_placeholder')}
+                      error={fieldErrors.dlso} />
                   </div>
 
-                  <div className="pt-4 border-t border-gray-50 dark:border-slate-800">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-xs font-bold text-amber-600 uppercase tracking-widest">Additional Targets</h4>
-                      <button type="button" onClick={() => setFormData({...formData, extra_targets: [...formData.extra_targets, {key: "", value: ""}]})}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-xl transition-colors">
-                        <Plus className="w-3.5 h-3.5" /> Add
-                      </button>
-                    </div>
-                    <div className="space-y-2">
-                      {formData.extra_targets.map((et, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <input type="text" placeholder="Target name"
-                            value={et.key}
-                            onChange={e => {
-                              const arr = [...formData.extra_targets];
-                              arr[i] = {...arr[i], key: e.target.value};
-                              setFormData({...formData, extra_targets: arr});
-                            }}
-                            className="flex-1 py-2.5 px-3 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
-                          <input type="number" placeholder="Value"
-                            value={et.value}
-                            onChange={e => {
-                              const arr = [...formData.extra_targets];
-                              arr[i] = {...arr[i], value: e.target.value};
-                              setFormData({...formData, extra_targets: arr});
-                            }}
-                            className="w-28 py-2.5 px-3 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
-                          <button type="button" onClick={() => setFormData({...formData, extra_targets: formData.extra_targets.filter((_, j) => j !== i)})}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                      {formData.extra_targets.length === 0 && (
-                        <p className="text-xs text-gray-400 italic">No additional targets. Click "Add" to create one.</p>
-                      )}
-                    </div>
-                  </div>
                 </div>
               </div>
 
