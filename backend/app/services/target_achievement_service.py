@@ -275,6 +275,9 @@ class TargetAchievementService:
             "lso": target.lso or 0,
             "bso": target.bso or 0,
             "ddso": target.ddso or 0,
+            "dsso": target.dsso or 0,
+            "dso": target.dso or 0,
+            "dlso": target.dlso or 0,
             "bp_ga": target.bp_ga or 0,
             "rso_ga": target.rso_ga or 0,
         }
@@ -293,6 +296,9 @@ class TargetAchievementService:
             "lso": 0,
             "bso": 0,
             "ddso": 0,
+            "dsso": 0,
+            "dso": 0,
+            "dlso": 0,
         }
 
         categories = self._build_categories(target_map, actual_map)
@@ -355,6 +361,9 @@ class TargetAchievementService:
             "lso": target.lso or 0,
             "bso": target.bso or 0,
             "ddso": target.ddso or 0,
+            "dsso": target.dsso or 0,
+            "dso": target.dso or 0,
+            "dlso": target.dlso or 0,
             "bp_ga": target.bp_ga or 0,
             "rso_ga": target.rso_ga or 0,
         }
@@ -373,6 +382,9 @@ class TargetAchievementService:
             "lso": 0,
             "bso": 0,
             "ddso": 0,
+            "dsso": 0,
+            "dso": 0,
+            "dlso": 0,
         }
 
         categories = self._build_categories(target_map, actual_map)
@@ -439,6 +451,9 @@ class TargetAchievementService:
             "lso": target.lso or 0,
             "bso": target.bso or 0,
             "ddso": target.ddso or 0,
+            "dsso": target.dsso or 0,
+            "dso": target.dso or 0,
+            "dlso": target.dlso or 0,
         }
 
         ga_actual = await self._get_activation_count(retailer_ids=retailer_ids)
@@ -455,6 +470,9 @@ class TargetAchievementService:
             "lso": 0,
             "bso": 0,
             "ddso": 0,
+            "dsso": 0,
+            "dso": 0,
+            "dlso": 0,
         }
 
         categories = self._build_categories(target_map, actual_map)

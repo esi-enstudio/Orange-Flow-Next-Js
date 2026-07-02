@@ -20,6 +20,9 @@ class SupervisorTarget(Base):
     lso = Column(Integer, default=0)
     bso = Column(Integer, default=0)
     ddso = Column(Integer, default=0)
+    dsso = Column(Integer, default=0)
+    dso = Column(Integer, default=0)
+    dlso = Column(Integer, default=0)
     
     # Dynamic JSONB Column for any other targets
     extra_targets = Column(JSON, default={})

@@ -40,6 +40,9 @@ interface SupervisorTargetRecord {
   lso: number;
   bso: number;
   ddso: number;
+  dsso: number;
+  dso: number;
+  dlso: number;
   extra_targets?: Record<string, number>;
   target_date: string;
   house?: { id: number; name: string; code: string };
@@ -86,6 +89,9 @@ export default function SupervisorTargetsPage() {
     lso: "",
     bso: "",
     ddso: "",
+    dsso: "",
+    dso: "",
+    dlso: "",
     extra_targets: [] as {key: string; value: string}[],
   });
   const [formLoading, setFormLoading] = useState(false);
@@ -116,7 +122,11 @@ export default function SupervisorTargetsPage() {
       const res = await axios.get("/supervisor-targets", { params: { search: search || undefined, skip: page * limit, limit } });
       setData(res.data?.data || []);
       setTotalRecords(res.data?.total || 0);
-    } catch { toast.error("Failed to load"); }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.response?.data?.error?.message || err?.message || "Failed to load";
+      toast.error(msg);
+      console.error("Fetch supervisor targets error:", err);
+    }
     finally { setLoading(false); }
   }, [search, page]);
 
@@ -137,7 +147,7 @@ export default function SupervisorTargetsPage() {
     setFormData({
       house_id: 0, employee_id: 0, target_date: "", ev_secondary: "", sc_secondary: "",
       total_recharge: "", total_ga: "", bp_ga: "", rso_ga: "",
-      sso: "", lso: "", bso: "", ddso: "",
+      sso: "", lso: "", bso: "", ddso: "", dsso: "", dso: "", dlso: "",
       extra_targets: [],
     });
     setFormError("");
@@ -167,6 +177,9 @@ export default function SupervisorTargetsPage() {
       lso: String(item.lso || ""),
       bso: String(item.bso || ""),
       ddso: String(item.ddso || ""),
+      dsso: String(item.dsso || ""),
+      dso: String(item.dso || ""),
+      dlso: String(item.dlso || ""),
       extra_targets: extraArr,
     });
     setFormError("");
@@ -187,6 +200,9 @@ export default function SupervisorTargetsPage() {
     if (!formData.lso) errors.lso = "LSO is required";
     if (!formData.bso) errors.bso = "BSO is required";
     if (!formData.ddso) errors.ddso = "DDSO is required";
+    if (!formData.dsso) errors.dsso = "DSSO is required";
+    if (!formData.dso) errors.dso = "DSO is required";
+    if (!formData.dlso) errors.dlso = "DLSO is required";
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -214,6 +230,9 @@ export default function SupervisorTargetsPage() {
         lso: parseInt(formData.lso) || 0,
         bso: parseInt(formData.bso) || 0,
         ddso: parseInt(formData.ddso) || 0,
+        dsso: parseInt(formData.dsso) || 0,
+        dso: parseInt(formData.dso) || 0,
+        dlso: parseInt(formData.dlso) || 0,
         extra_targets: extra,
       };
       if (formData.house_id) payload.house_id = formData.house_id;
@@ -471,15 +490,18 @@ export default function SupervisorTargetsPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_ga')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_sso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_lso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_dsso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_dso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_dlso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_date')}</th>
                 {canEdit && <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_actions')}</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={canEdit ? 9 : 8} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={canEdit ? 12 : 11} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={canEdit ? 9 : 8} className="text-center py-12 text-gray-400">{t('supervisor_targets.no_data')}</td></tr>
+                <tr><td colSpan={canEdit ? 12 : 11} className="text-center py-12 text-gray-400">{t('supervisor_targets.no_data')}</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-4 py-3">
@@ -494,6 +516,9 @@ export default function SupervisorTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_ga}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.lso}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dsso}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dso}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dlso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString() : "-"}</td>
                   {canEdit && (
                     <td className="px-4 py-3 text-right">
@@ -678,6 +703,21 @@ export default function SupervisorTargetsPage() {
                       onChange={v => setFormData({...formData, ddso: v})}
                       placeholder={t('supervisor_targets.field_ddso_placeholder')}
                       error={fieldErrors.ddso} />
+                    <InputField label={t('supervisor_targets.field_dsso')} type="number" required
+                      value={formData.dsso}
+                      onChange={v => setFormData({...formData, dsso: v})}
+                      placeholder={t('supervisor_targets.field_dsso_placeholder')}
+                      error={fieldErrors.dsso} />
+                    <InputField label={t('supervisor_targets.field_dso')} type="number" required
+                      value={formData.dso}
+                      onChange={v => setFormData({...formData, dso: v})}
+                      placeholder={t('supervisor_targets.field_dso_placeholder')}
+                      error={fieldErrors.dso} />
+                    <InputField label={t('supervisor_targets.field_dlso')} type="number" required
+                      value={formData.dlso}
+                      onChange={v => setFormData({...formData, dlso: v})}
+                      placeholder={t('supervisor_targets.field_dlso_placeholder')}
+                      error={fieldErrors.dlso} />
                   </div>
 
                   <div className="pt-4 border-t border-gray-50 dark:border-slate-800">

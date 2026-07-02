@@ -19,6 +19,9 @@ class RSOTarget(Base):
     lso = Column(Integer, default=0)
     bso = Column(Integer, default=0)
     ddso = Column(Integer, default=0)
+    dsso = Column(Integer, default=0)
+    dso = Column(Integer, default=0)
+    dlso = Column(Integer, default=0)
 
     service_route = Column(String) # Service Route
     market_type = Column(String) # Main House/OSDO/Residential RSO

@@ -37,6 +37,9 @@ interface RSOTargetRecord {
   lso: number;
   bso: number;
   ddso: number;
+  dsso: number;
+  dso: number;
+  dlso: number;
   service_route: string;
   market_type: string;
   thana_name: string;
@@ -94,6 +97,9 @@ export default function RSOTargetsPage() {
     lso: "",
     bso: "",
     ddso: "",
+    dsso: "",
+    dso: "",
+    dlso: "",
     service_route: "",
     market_type: "",
     thana_name: "",
@@ -109,7 +115,11 @@ export default function RSOTargetsPage() {
       const res = await axios.get("/rso-targets", { params: { search: search || undefined, skip: page * limit, limit } });
       setData(res.data?.data || []);
       setTotalRecords(res.data?.total || 0);
-    } catch { toast.error("Failed to load"); }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.response?.data?.error?.message || err?.message || "Failed to load";
+      toast.error(msg);
+      console.error("Fetch RSO targets error:", err);
+    }
     finally { setLoading(false); }
   }, [search, page]);
 
@@ -120,7 +130,9 @@ export default function RSOTargetsPage() {
       const res = await apiClient.get("employees/rso-list", { params });
       const list: RSOOption[] = res.data?.data || [];
       setRsoList(list);
-    } catch {}
+    } catch (err: any) {
+      console.error("Fetch RSO list error:", err);
+    }
   };
 
   const fetchHouses = async () => {
@@ -146,7 +158,7 @@ export default function RSOTargetsPage() {
     setEditingItem(null);
     setFormData({
       house_id: 0, employee_id: 0, supervisor_id: 0, target_date: "", ev_secondary: "", sc_secondary: "",
-      total_recharge: "", ga: "", sso: "", lso: "", bso: "", ddso: "",
+      total_recharge: "", ga: "", sso: "", lso: "", bso: "", ddso: "", dsso: "", dso: "", dlso: "",
       service_route: "", market_type: "", thana_name: "", extra_targets: [],
     });
     setFormError("");
@@ -175,6 +187,9 @@ export default function RSOTargetsPage() {
       lso: String(item.lso || ""),
       bso: String(item.bso || ""),
       ddso: String(item.ddso || ""),
+      dsso: String(item.dsso || ""),
+      dso: String(item.dso || ""),
+      dlso: String(item.dlso || ""),
       service_route: item.service_route || "",
       market_type: item.market_type || "",
       thana_name: item.thana_name || "",
@@ -196,6 +211,9 @@ export default function RSOTargetsPage() {
     if (!formData.lso) errors.lso = "LSO is required";
     if (!formData.bso) errors.bso = "BSO is required";
     if (!formData.ddso) errors.ddso = "DDSO is required";
+    if (!formData.dsso) errors.dsso = "DSSO is required";
+    if (!formData.dso) errors.dso = "DSO is required";
+    if (!formData.dlso) errors.dlso = "DLSO is required";
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -222,6 +240,9 @@ export default function RSOTargetsPage() {
         lso: parseInt(formData.lso) || 0,
         bso: parseInt(formData.bso) || 0,
         ddso: parseInt(formData.ddso) || 0,
+        dsso: parseInt(formData.dsso) || 0,
+        dso: parseInt(formData.dso) || 0,
+        dlso: parseInt(formData.dlso) || 0,
         extra_targets: extra,
       };
       if (formData.supervisor_id) payload.supervisor_id = formData.supervisor_id;
@@ -481,6 +502,9 @@ export default function RSOTargetsPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_sc_secondary')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_recharge')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_ga')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_dsso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_dso')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_dlso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_route')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_date')}</th>
                 {canEdit && <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_actions')}</th>}
@@ -490,7 +514,7 @@ export default function RSOTargetsPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    {Array.from({ length: canEdit ? 9 : 8 }).map((__, j) => (
+                    {Array.from({ length: canEdit ? 12 : 11 }).map((__, j) => (
                       <td key={j} className="px-4 py-4">
                         <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded-md" />
                       </td>
@@ -498,7 +522,7 @@ export default function RSOTargetsPage() {
                   </tr>
                 ))
               ) : data.length === 0 ? (
-                <tr><td colSpan={canEdit ? 9 : 8} className="text-center py-12 text-gray-400">{t('rso_targets.no_data')}</td></tr>
+                <tr><td colSpan={canEdit ? 12 : 11} className="text-center py-12 text-gray-400">{t('rso_targets.no_data')}</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-4 py-3">
@@ -517,6 +541,9 @@ export default function RSOTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sc_secondary}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_recharge}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.ga}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dsso}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dso}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dlso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.service_route || "-"}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString() : "-"}</td>
                   {canEdit && (
@@ -696,6 +723,21 @@ export default function RSOTargetsPage() {
                       onChange={v => setFormData({...formData, ddso: v})}
                       placeholder={t('rso_targets.field_ddso_placeholder')}
                       error={fieldErrors.ddso} />
+                    <InputField label={t('rso_targets.field_dsso')} type="number" required
+                      value={formData.dsso}
+                      onChange={v => setFormData({...formData, dsso: v})}
+                      placeholder={t('rso_targets.field_dsso_placeholder')}
+                      error={fieldErrors.dsso} />
+                    <InputField label={t('rso_targets.field_dso')} type="number" required
+                      value={formData.dso}
+                      onChange={v => setFormData({...formData, dso: v})}
+                      placeholder={t('rso_targets.field_dso_placeholder')}
+                      error={fieldErrors.dso} />
+                    <InputField label={t('rso_targets.field_dlso')} type="number" required
+                      value={formData.dlso}
+                      onChange={v => setFormData({...formData, dlso: v})}
+                      placeholder={t('rso_targets.field_dlso_placeholder')}
+                      error={fieldErrors.dlso} />
                   </div>
 
                   <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-widest pt-2">Route Info</h4>

@@ -16,6 +16,9 @@ class SupervisorTargetCreate(BaseModel):
     lso: int = 0
     bso: int = 0
     ddso: int = 0
+    dsso: int = 0
+    dso: int = 0
+    dlso: int = 0
     extra_targets: Optional[dict] = {}
 
 class SupervisorTargetUpdate(BaseModel):
@@ -29,6 +32,9 @@ class SupervisorTargetUpdate(BaseModel):
     lso: Optional[int] = None
     bso: Optional[int] = None
     ddso: Optional[int] = None
+    dsso: Optional[int] = None
+    dso: Optional[int] = None
+    dlso: Optional[int] = None
     extra_targets: Optional[dict] = None
 
 class SupervisorTargetResponse(BaseModel):
@@ -45,6 +51,9 @@ class SupervisorTargetResponse(BaseModel):
     lso: int
     bso: int
     ddso: int
+    dsso: int
+    dso: int
+    dlso: int
     extra_targets: Any
     target_date: date
     created_at: Optional[datetime] = None

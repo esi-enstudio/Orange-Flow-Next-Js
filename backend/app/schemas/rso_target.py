@@ -15,6 +15,9 @@ class RSOTargetCreate(BaseModel):
     lso: int = 0
     bso: int = 0
     ddso: int = 0
+    dsso: int = 0
+    dso: int = 0
+    dlso: int = 0
     service_route: Optional[str] = None
     market_type: Optional[str] = None
     thana_name: Optional[str] = None
@@ -38,6 +41,9 @@ class RSOTargetUpdate(BaseModel):
     lso: Optional[int] = None
     bso: Optional[int] = None
     ddso: Optional[int] = None
+    dsso: Optional[int] = None
+    dso: Optional[int] = None
+    dlso: Optional[int] = None
     service_route: Optional[str] = None
     market_type: Optional[str] = None
     thana_name: Optional[str] = None
@@ -64,6 +70,9 @@ class RSOTargetResponse(BaseModel):
     lso: int
     bso: int
     ddso: int
+    dsso: int
+    dso: int
+    dlso: int
     service_route: Optional[str] = None
     market_type: Optional[str] = None
     thana_name: Optional[str] = None
