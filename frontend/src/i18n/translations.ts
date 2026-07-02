@@ -97,6 +97,7 @@ export const translations = {
       permissions: "Permissions",
       administration: "Administration",
       users: "User Management",
+      cv: "CV Management",
       settings: "System Settings",
       setup: "Initial Setup",
       more: "More",
@@ -1476,6 +1477,16 @@ export const translations = {
       total_allocated: "Total Cards",
       confirm_allocation: "Confirm & Mark Used",
     },
+    cv: {
+      list: {
+        title: "CV Management",
+        description: "Create and manage curriculum vitae",
+        create: "Create CV",
+        search_placeholder: "Search by name, mobile or NID...",
+        no_data: "No CVs found",
+        no_data_desc: "Create your first CV to get started.",
+      },
+    },
   },
   bn: {
     common: {
@@ -1579,6 +1590,7 @@ export const translations = {
       permissions: "Permissions",
       administration: "Administration",
       users: "User Management",
+      cv: "CV Management",
       settings: "System Settings",
       setup: "Initial Setup",
       more: "More",
@@ -2983,6 +2995,16 @@ export const translations = {
       remaining: "অবশিষ্ট",
       total_allocated: "মোট কার্ড",
       confirm_allocation: "নিশ্চিত করুন ও ব্যবহৃত চিহ্নিত করুন",
+    },
+    cv: {
+      list: {
+        title: "সিভি ম্যানেজমেন্ট",
+        description: "সিলেবাস ভিটা তৈরি এবং পরিচালনা করুন",
+        create: "নতুন সিভি",
+        search_placeholder: "নাম, মোবাইল বা এনআইডি দ্বারা অনুসন্ধান...",
+        no_data: "কোনো সিভি পাওয়া যায়নি",
+        no_data_desc: "শুরু করতে আপনার প্রথম সিভি তৈরি করুন।",
+      },
     },
   },
 };

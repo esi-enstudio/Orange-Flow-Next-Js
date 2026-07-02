@@ -172,7 +172,7 @@ export default function RsoDetailModal({ open, onClose, employeeId, roleType, em
                                     <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-700/20">
                                       {RECORD_FIELDS.map((f) => (
                                         <td key={f.key} className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-50 dark:border-slate-700/30 whitespace-nowrap">
-                                          {(rec as Record<string, string>)[f.key] || "—"}
+                                          {(rec as unknown as Record<string, string>)[f.key] || "—"}
                                         </td>
                                       ))}
                                     </tr>

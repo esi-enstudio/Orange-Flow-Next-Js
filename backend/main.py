@@ -67,6 +67,7 @@ from app.routers.order_collections import router as order_collections_router
 from app.routers.zoom_in import router as zoom_in_router
 from app.routers.scratch_cards import router as scratch_cards_router
 from app.routers.scratch_card_serials import router as scratch_card_serials_router
+from app.routers.cv import router as cv_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -109,6 +110,7 @@ app.include_router(order_collections_router)
 app.include_router(zoom_in_router)
 app.include_router(scratch_cards_router)
 app.include_router(scratch_card_serials_router)
+app.include_router(cv_router)
 
 app.add_middleware(
     CORSMiddleware,

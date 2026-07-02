@@ -22,6 +22,7 @@ import {
   Shield,
   ShieldCheck,
   Search,
+  FileText,
 } from "lucide-react";
 
 export interface NavItem {
@@ -37,6 +38,13 @@ export interface NavItem {
     href: string;
     icon?: LucideIcon;
     permission?: string;
+    children?: {
+      title: string;
+      translationKey?: string;
+      href: string;
+      icon?: LucideIcon;
+      permission?: string;
+    }[];
   }[];
 }
 
@@ -194,6 +202,7 @@ export const navItems: NavItem[] = [
     color: "text-cyan-500",
     children: [
       { title: "User Management", translationKey: "nav.users", href: "/users", permission: "users.view" },
+      { title: "CV Management", translationKey: "nav.cv", href: "/cv", permission: "cv.view" },
       { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "retailers.view" },
       { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },

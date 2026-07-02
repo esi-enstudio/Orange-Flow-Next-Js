@@ -305,7 +305,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (!authLoading && !user) return <AccessDenied />;
+  if (!user) return <AccessDenied />;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">

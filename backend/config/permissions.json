@@ -31,7 +31,8 @@
         "leaves": { "display_name": "Leaves", "permissions": ["leaves.view", "leaves.create", "leaves.edit", "leaves.delete", "leaves.import", "leaves.export"] },
         "mela": { "display_name": "Mela", "permissions": ["mela.view", "mela.create", "mela.edit", "mela.delete", "mela.settings", "mela.import", "mela.export"] },
         "navigation": { "display_name": "Navigation", "permissions": ["imports.data", "settings.view", "expenses.view", "attendance.view"] },
-        "zoom_in": { "display_name": "Zoom In", "permissions": ["zoom_in.view", "zoom_in.create", "zoom_in.edit", "zoom_in.delete", "zoom_in.import", "zoom_in.export"] }
+        "zoom_in": { "display_name": "Zoom In", "permissions": ["zoom_in.view", "zoom_in.create", "zoom_in.edit", "zoom_in.delete", "zoom_in.import", "zoom_in.export"] },
+        "cv": { "display_name": "CV Management", "permissions": ["cv.view", "cv.create", "cv.edit", "cv.delete", "cv.export"] }
     },
     "default_roles": [
         {

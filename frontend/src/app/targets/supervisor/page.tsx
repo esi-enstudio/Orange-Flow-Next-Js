@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
 import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown } from "lucide-react";
 import { toast } from "react-hot-toast";
@@ -110,18 +110,17 @@ export default function SupervisorTargetsPage() {
     } catch {}
   };
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const res = await axios.get("/supervisor-targets", { params: { search: search || undefined, skip: page * limit, limit } });
-        setData(res.data?.data || []);
-        setTotalRecords(res.data?.total || 0);
-      } catch { toast.error("Failed to load"); }
-      finally { setLoading(false); }
-    };
-    load();
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get("/supervisor-targets", { params: { search: search || undefined, skip: page * limit, limit } });
+      setData(res.data?.data || []);
+      setTotalRecords(res.data?.total || 0);
+    } catch { toast.error("Failed to load"); }
+    finally { setLoading(false); }
   }, [search, page]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

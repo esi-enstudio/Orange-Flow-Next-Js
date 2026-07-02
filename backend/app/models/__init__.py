@@ -35,6 +35,7 @@ from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,
     FinancialEntry, CommissionAuditLog, CommissionStaging,
 )
+from app.models.cv import CV
 from app.models.activity_log import ActivityLog
 from app.models.zoom_in import (
     ZoomInEventType, ZoomInActivity,

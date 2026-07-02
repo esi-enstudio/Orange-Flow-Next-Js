@@ -198,7 +198,6 @@ export default function EligibleBTSPage() {
       });
       toast.success(t('zoom_in.eligible_bts.messages.attach_success'));
       fetchEligibleBTS();
-      fetchAvailableBts(attachHouseCode, attachSearch);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Attach failed");
     } finally { setAttaching(false); }

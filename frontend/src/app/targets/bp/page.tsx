@@ -23,7 +23,7 @@ interface BpTarget {
   sc_secondary: number;
   total_recharge: number;
   target_date: string;
-  house?: { id: number; display_name?: string; name?: string };
+  house?: { id: number; display_name?: string; name?: string; code?: string };
   employee?: { id: number; employee_id?: string; dms_code?: string; pool_number?: string; user?: { name?: string } };
 }
 

@@ -27,3 +27,5 @@ python-slugify
 email-validator
 Pillow
 redis
+python-docx
+reportlab
