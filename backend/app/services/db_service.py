@@ -25,6 +25,18 @@ import app.models.bp_target
 import app.models.activity_log
 import app.models.product_exclusion
 import app.models.app_setting
+import app.models.scratch_card_serial
+import app.models.lifting
+import app.models.order_collection
+import app.models.bp_retailer_code
+import app.models.retailer_visit
+import app.models.zoom_in
+import app.models.leave_management
+import app.models.commission
+import app.models.ga_section_config
+import app.models.product
+import app.models.todo
+import app.models.cv
 
 logger = logging.getLogger(__name__)
 

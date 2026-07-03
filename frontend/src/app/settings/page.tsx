@@ -107,7 +107,7 @@ export default function SettingsPage() {
     finally { setUploading(false); }
   };
 
-  if (!authLoading && !hasPermission("settings.view")) {
+  if (!authLoading && !hasPermission("app_settings.manage")) {
     return <AccessDenied />;
   }
 

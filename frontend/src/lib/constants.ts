@@ -72,11 +72,11 @@ export const navItems: NavItem[] = [
       { title: "Houses", translationKey: "nav.houses", href: "/houses", permission: "houses.view" },
       { title: "Retailers", translationKey: "nav.retailers", href: "/retailers", permission: "retailers.view" },
       { title: "BTS", translationKey: "nav.bts", href: "/bts", permission: "bts.view" },
-      { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "imports.data" },
-      { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "imports.data" },
-      { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "imports.data" },
-      { title: "Scratch Card", translationKey: "nav.import_scratch_card", href: "/import/scratch-card", permission: "imports.data" },
-      { title: "SIM Issues", translationKey: "nav.import_sim_issue", href: "/import/sim-issues", permission: "imports.data" },
+      { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "imports.view" },
+      { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "imports.view" },
+      { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "imports.view" },
+      { title: "Scratch Card", translationKey: "nav.import_scratch_card", href: "/import/scratch-card", permission: "imports.view" },
+      { title: "SIM Issues", translationKey: "nav.import_sim_issue", href: "/import/sim-issues", permission: "imports.view" },
       { title: "SC Serials", translationKey: "nav.import_sc_serials", href: "/import/sc-serials", permission: "scratch_card_serials.view" },
     ]
   },
@@ -206,7 +206,7 @@ export const navItems: NavItem[] = [
       { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "retailers.view" },
       { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },
-      { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "settings.view" },
+      { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
     ]
   },
 ];

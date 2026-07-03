@@ -3,7 +3,7 @@ services:
     name: orangeflow-api
     env: python
     buildCommand: pip install -r requirements.txt && pip install uvicorn gunicorn
-    startCommand: uvicorn api_main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DB_USER
         sync: false
