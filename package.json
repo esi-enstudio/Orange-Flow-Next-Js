@@ -1,6 +1,7 @@
 {
   "dependencies": {
-    "@vercel/speed-insights": "^2.0.0"
+    "@vercel/speed-insights": "^2.0.0",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "shadcn": "^4.11.0"
