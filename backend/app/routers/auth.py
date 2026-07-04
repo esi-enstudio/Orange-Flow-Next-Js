@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import selectinload
 from PIL import Image
 from pydantic import EmailStr
 
@@ -41,9 +41,14 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserSchema)
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("users.create"))):
-    existing_user = (await db.execute(select(User).where((User.username == user_data.username) | (User.email == user_data.email)))).scalar_one_or_none()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Username or Email already registered")
+    username_exists = await db.execute(select(User).where(User.username == user_data.username))
+    if username_exists.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Username already registered")
+
+    if user_data.email:
+        email_exists = await db.execute(select(User).where(User.email == user_data.email))
+        if email_exists.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Email already registered")
 
     new_user = User(
         username=user_data.username,
@@ -65,7 +70,12 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db), cu
 
     db.add(new_user)
     await db.commit()
-    await db.refresh(new_user)
+
+    result = await db.execute(
+        select(User).options(selectinload(User.roles), selectinload(User.houses))
+        .where(User.id == new_user.id)
+    )
+    new_user = result.unique().scalar_one_or_none()
 
     for role in new_user.roles:
         if "supervisor" in role.name.lower():

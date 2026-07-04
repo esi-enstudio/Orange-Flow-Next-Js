@@ -13,6 +13,7 @@ import {
   Mail,
   Search,
   Plus,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   X,
@@ -61,6 +62,8 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  
   // Import/Export States
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -193,18 +196,34 @@ export default function UsersPage() {
     setFormLoading(true);
     setFormError("");
     
-    const payload = {
-      ...formData,
-      telegram_id: formData.telegram_id ? Number(formData.telegram_id) : null,
-      parent_id: formData.parent_id === "" ? null : Number(formData.parent_id)
-    };
-
     try {
       if (editingUser) {
-        // Assume PUT /users/:id exists
+        const payload: Record<string, unknown> = {
+          username: formData.username,
+          name: formData.name,
+          password: formData.password || undefined,
+          email: formData.email.trim() || null,
+          phone_number: formData.phone_number.trim() || null,
+          telegram_id: formData.telegram_id ? Number(formData.telegram_id) : null,
+          status: formData.status,
+          role_ids: formData.role_ids,
+          house_ids: formData.house_ids,
+          parent_id: formData.parent_id === "" ? null : Number(formData.parent_id),
+        };
         await apiClient.put(`users/${editingUser.id}`, payload);
         toast.success(t('users.toast_update_success'));
       } else {
+        const payload: Record<string, unknown> = {
+          username: formData.username,
+          name: formData.name,
+          password: formData.password,
+          email: formData.email.trim() || null,
+          phone_number: formData.phone_number.trim() || null,
+          telegram_id: formData.telegram_id ? Number(formData.telegram_id) : null,
+          role_ids: formData.role_ids,
+          house_ids: formData.house_ids,
+          parent_id: formData.parent_id === "" ? null : Number(formData.parent_id),
+        };
         await apiClient.post("auth/register", payload);
         toast.success(t('users.toast_create_success'));
       }
@@ -420,29 +439,31 @@ export default function UsersPage() {
       )}
 
       {/* Stats Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+      <div className="grid grid-cols-3 gap-4 md:gap-6">
         <StatCard title={t('users.total_users')} value={users.length} icon={Users} color="bg-blue-500" />
         <StatCard title={t('users.active_users')} value={users.filter(u => u.status === "Active").length} icon={UserCheck} color="bg-green-500" />
         <StatCard title={t('users.system_roles')} value={roles.length} icon={Shield} color="bg-purple-500" />
       </div>
 
       {/* DataTable Container */}
-      <div className="flex gap-4 md:gap-6 items-start">
-        {/* Filter Sidebar */}
-        <div className={cn(
-          "w-full md:w-72 shrink-0 transition-all duration-300 ease-in-out overflow-hidden",
-          showFilters ? "max-h-[2000px] md:max-h-none opacity-100" : "max-h-0 md:max-h-none md:opacity-100 opacity-0"
-        )}>
-          <UserMasterFilter
-            filters={filters}
-            onChange={(f) => { setFilters(f); setPage(0); }}
-            onClear={() => { setFilters(defaultFilters); setPage(0); }}
-            houses={houses}
-            roles={roles}
-          />
-        </div>
+      <div className="relative">
+        {/* Filter Overlay */}
+        {showFilters && (
+          <>
+            <div className="fixed inset-0 z-20" onClick={() => setShowFilters(false)} />
+            <div className="absolute z-30 left-0 top-0 w-full md:w-80 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+              <UserMasterFilter
+                filters={filters}
+                onChange={(f) => { setFilters(f); setPage(0); }}
+                onClear={() => { setFilters(defaultFilters); setPage(0); }}
+                houses={houses}
+                roles={roles}
+              />
+            </div>
+          </>
+        )}
 
-      <div className="flex-1 min-w-0 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
         <div className="p-4 border-b border-gray-50 dark:border-slate-800 flex items-center gap-3">
           <button
             onClick={() => setShowFilters(!showFilters)}
@@ -486,7 +507,8 @@ export default function UsersPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Desktop Table — lg+ */}
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full text-left min-w-[800px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
@@ -539,24 +561,112 @@ export default function UsersPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
-                          <button 
-                            onClick={() => openEditModal(u)}
-                            className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteClick(u.id)}
-                            className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {hasPermission("users.edit") && (
+                            <button 
+                              onClick={() => openEditModal(u)}
+                              className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {hasPermission("users.delete") && (
+                            <button 
+                              onClick={() => handleDeleteClick(u.id)}
+                              className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Accordion — below lg */}
+            <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+              {paginatedUsers.map((u) => (
+                <div key={u.id} className="transition-colors">
+                  <button
+                    onClick={() => setExpandedId(expandedId === u.id ? null : u.id)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm shrink-0">
+                      {u.name?.charAt(0) || "U"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{u.name}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">@{u.username}</p>
+                    </div>
+                    <ChevronDown className={cn(
+                      "w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200",
+                      expandedId === u.id && "rotate-180"
+                    )} />
+                  </button>
+                  <div className={cn(
+                    "overflow-hidden transition-all duration-200 ease-in-out",
+                    expandedId === u.id ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+                  )}>
+                    <div className="px-4 pb-4 space-y-3">
+                      <div className="pt-2 border-t border-gray-50 dark:border-slate-800">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                          <Mail className="w-3 h-3" /> {u.email || "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">{t('users.table_roles')}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {u.roles?.map(r => (
+                            <span key={r.id} className="px-2 py-0.5 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[9px] font-bold uppercase rounded-full border border-blue-100 dark:border-blue-500/20">
+                              {r.name}
+                            </span>
+                          ))}
+                          {(!u.roles || u.roles.length === 0) && (
+                            <span className="text-[11px] text-gray-400">—</span>
+                          )}
+                        </div>
+                      </div>
+                      {u.houses?.length ? (
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">{t('users.field_assigned_houses')}</p>
+                          <p className="text-[11px] text-gray-600 dark:text-gray-300">{u.houses.map(h => h.name).join(", ")}</p>
+                        </div>
+                      ) : null}
+                      <div className="flex items-center justify-between pt-1">
+                        <span className={cn(
+                          "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider",
+                          u.status === "Active" 
+                            ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
+                            : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+                        )}>
+                          <span className={cn("w-1 h-1 rounded-full", u.status === "Active" ? "bg-green-500" : "bg-red-500")}></span>
+                          {u.status}
+                        </span>
+                        <div className="flex gap-2">
+                          {hasPermission("users.edit") && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); openEditModal(u); }}
+                              className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {hasPermission("users.delete") && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleDeleteClick(u.id); }}
+                              className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between">
