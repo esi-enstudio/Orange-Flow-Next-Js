@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -46,7 +46,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
-import { useRef, useMemo } from "react";
+import { useMemo } from "react";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { motion, AnimatePresence } from "framer-motion";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -170,13 +170,14 @@ export default function EmployeesPage() {
   const [houses, setHouses] = useState<House[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<EmployeeFilters>({ ...defaultFilters });
   const [sortField, setSortField] = useState<string>("id");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const limit = 5;
 
   // Form State
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -242,15 +243,50 @@ export default function EmployeesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isExporting, setIsExporting] = useState(false);
 
+  const buildQueryString = () => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("per_page", "5");
+    params.set("sort_by", sortField);
+    params.set("sort_order", sortDir);
+    if (filters.search) params.set("search", filters.search);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.market_type) params.set("market_type", filters.market_type);
+    if (filters.motor_bike) params.set("motor_bike", filters.motor_bike);
+    if (filters.bicyle) params.set("bicyle", filters.bicyle);
+    if (filters.driving_license) params.set("driving_license", filters.driving_license);
+    if (filters.blood_group) params.set("blood_group", filters.blood_group);
+    if (filters.religion) params.set("religion", filters.religion);
+    if (filters.has_assisted_code !== null && filters.has_assisted_code !== undefined) {
+      params.set("has_assisted_code", String(filters.has_assisted_code));
+    }
+    if (filters.has_user !== null && filters.has_user !== undefined) {
+      params.set("has_user", String(filters.has_user));
+    }
+    if (filters.has_bank_info !== null && filters.has_bank_info !== undefined) {
+      params.set("has_bank_info", String(filters.has_bank_info));
+    }
+    if (filters.joining_date_from) params.set("joining_date_from", filters.joining_date_from);
+    if (filters.joining_date_to) params.set("joining_date_to", filters.joining_date_to);
+    if (filters.resigned_date_from) params.set("resigned_date_from", filters.resigned_date_from);
+    if (filters.resigned_date_to) params.set("resigned_date_to", filters.resigned_date_to);
+    if (filters.salary_min) params.set("salary_min", String(filters.salary_min));
+    if (filters.salary_max) params.set("salary_max", String(filters.salary_max));
+    return params.toString();
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
+      const qs = buildQueryString();
       const [empRes, housesRes, usersRes] = await Promise.all([
-        apiClient.get("employees"),
+        apiClient.get(`employees?${qs}`),
         apiClient.get("houses"),
         apiClient.get("users")
       ]);
-      setMembers(empRes.data);
+      setMembers(empRes.data.data || []);
+      setTotalCount(empRes.data.pagination?.total || 0);
+      setTotalPages(empRes.data.pagination?.total_pages || 1);
       setHouses(housesRes.data);
       setUsers(usersRes.data);
     } catch (err) {
@@ -260,11 +296,20 @@ export default function EmployeesPage() {
     }
   };
 
+  const prevFiltersRef = useRef<string>("");
+  useEffect(() => {
+    const filtersKey = JSON.stringify(filters) + selectedHouse;
+    if (prevFiltersRef.current !== "" && prevFiltersRef.current !== filtersKey) {
+      setPage(1);
+    }
+    prevFiltersRef.current = filtersKey;
+  }, [filters, selectedHouse]);
+
   useEffect(() => {
     if (!authLoading && hasPermission("employees.view")) {
       fetchData();
     }
-  }, [selectedHouse, authLoading, hasPermission]);
+  }, [page, sortField, sortDir, selectedHouse, authLoading, hasPermission]);
 
   const openViewModal = (m: Employee) => {
     setViewingMember(m);
@@ -508,81 +553,8 @@ export default function EmployeesPage() {
     }
   };
 
-  const filteredMembers = useMemo(() => {
-    return members.filter(m => {
-      // Global search
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        const match =
-          (m.user?.name?.toLowerCase() || "").includes(s) ||
-          (m.dms_code || "").toLowerCase().includes(s) ||
-          (m.itop_number || "").toLowerCase().includes(s) ||
-          (m.personal_number || "").includes(s) ||
-          (m.pool_number || "").toLowerCase().includes(s) ||
-          (m.assisted_retailer_code || "").toLowerCase().includes(s);
-        if (!match) return false;
-      }
-
-      // House
-      if (filters.house_id && m.house_id !== filters.house_id) return false;
-
-      // Role
-      if (filters.role) {
-        const userRoles = m.user?.roles?.map(r => r.name) || [];
-        if (!userRoles.some(r => r.toLowerCase() === filters.role.toLowerCase())) return false;
-      }
-
-      // Status
-      if (filters.status && m.status !== filters.status) return false;
-
-      // Market type
-      if (filters.market_type && m.market_type !== filters.market_type) return false;
-
-      // Motor bike
-      if (filters.motor_bike && m.motor_bike !== filters.motor_bike) return false;
-
-      // Bicycle
-      if (filters.bicyle && m.bicyle !== filters.bicyle) return false;
-
-      // Driving license
-      if (filters.driving_license && m.driving_license !== filters.driving_license) return false;
-
-      // Blood group
-      if (filters.blood_group && m.blood_group !== filters.blood_group) return false;
-
-      // Religion
-      if (filters.religion && m.religion !== filters.religion) return false;
-
-      // Has assisted code
-      if (filters.has_assisted_code === true && !m.assisted_retailer_code) return false;
-      if (filters.has_assisted_code === false && m.assisted_retailer_code) return false;
-
-      // Has user
-      if (filters.has_user === true && !m.user_id) return false;
-      if (filters.has_user === false && m.user_id) return false;
-
-      // Has bank info
-      if (filters.has_bank_info === true && (!m.bank_name || !m.bank_account)) return false;
-      if (filters.has_bank_info === false && m.bank_name && m.bank_account) return false;
-
-      // Joining date range
-      if (filters.joining_date_from && m.joining_date && m.joining_date < filters.joining_date_from) return false;
-      if (filters.joining_date_to && m.joining_date && m.joining_date > filters.joining_date_to) return false;
-
-      // Resigned date range
-      if (filters.resigned_date_from && m.resigned_date && m.resigned_date < filters.resigned_date_from) return false;
-      if (filters.resigned_date_to && m.resigned_date && m.resigned_date > filters.resigned_date_to) return false;
-
-      // Salary range
-      const salary = m.salary ? parseFloat(m.salary) : NaN;
-      if (filters.salary_min && !isNaN(salary) && salary < parseFloat(filters.salary_min)) return false;
-      if (filters.salary_max && !isNaN(salary) && salary > parseFloat(filters.salary_max)) return false;
-
-      return true;
-    });
-  }, [members, filters]);
-
   const handleSort = (field: string) => {
+    setPage(1);
     if (sortField === field) {
       setSortDir(d => d === "asc" ? "desc" : "asc");
     } else {
@@ -590,25 +562,6 @@ export default function EmployeesPage() {
       setSortDir("asc");
     }
   };
-
-  const sortedMembers = [...filteredMembers].sort((a, b) => {
-    const getVal = (e: Employee): string => {
-      switch (sortField) {
-        case "name": return (e.user?.name || e.dms_code || "").toLowerCase();
-        case "dms_code": return (e.dms_code || "").toLowerCase();
-        case "house": return (e.house?.name || "").toLowerCase();
-        case "assisted_code": return (e.assisted_retailer_code || "").toLowerCase();
-        case "status": return (e.status || "").toLowerCase();
-        default: return String(e.id);
-      }
-    };
-    const va = getVal(a);
-    const vb = getVal(b);
-    return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
-  });
-
-  const totalPages = Math.ceil(filteredMembers.length / limit);
-  const paginatedMembers = sortedMembers.slice(page * limit, (page + 1) * limit);
 
   if (authLoading) return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500"/></div>;
   if (!hasPermission("employees.view")) return <AccessDenied />;
@@ -675,12 +628,12 @@ export default function EmployeesPage() {
                 placeholder={t('employees.search_placeholder')} 
                 className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-1 focus:ring-primary-500 outline-none dark:text-gray-100 transition-all shadow-sm"
                 value={filters.search}
-                onChange={e => {setFilters(f => ({ ...f, search: e.target.value })); setPage(0);}}
+                onChange={e => {setFilters(f => ({ ...f, search: e.target.value })); setPage(1);}}
               />
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[10px] md:text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2 md:px-3 py-1 rounded-full whitespace-nowrap">{t('employees.count_label', { count: filteredMembers.length })}</span>
+            <span className="text-[10px] md:text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2 md:px-3 py-1 rounded-full whitespace-nowrap">{t('employees.count_label', { count: totalCount })}</span>
           </div>
         </div>
 
@@ -697,8 +650,8 @@ export default function EmployeesPage() {
               <div className="p-4">
                 <EmployeeMasterFilter
                   filters={filters}
-                  onChange={setFilters}
-                  onClear={() => setFilters({ ...defaultFilters })}
+                  onChange={(f) => { setFilters(f); setPage(1); }}
+                  onClear={() => { setFilters({ ...defaultFilters }); setPage(1); }}
                   houses={houses}
                 />
               </div>
@@ -711,7 +664,7 @@ export default function EmployeesPage() {
             <div className="w-12 h-12 border-4 border-primary-100 border-t-primary-500 rounded-full animate-spin"></div>
             <p className="text-sm font-bold text-gray-500 animate-pulse">{t('employees.loading_text')}</p>
           </div>
-        ) : filteredMembers.length === 0 ? (
+        ) : totalCount === 0 ? (
           <div className="p-12 text-center">
             <div className="w-16 h-16 bg-gray-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Users2 className="w-8 h-8 text-gray-300" />
@@ -721,7 +674,7 @@ export default function EmployeesPage() {
         ) : (
           <>
             {/* Desktop Table */}
-            <div className="hidden lg:block overflow-x-auto">
+            <div className="hidden lg:block overflow-x-auto scrollbar-custom">
               <table className="w-full text-left whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-800 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b dark:border-slate-800">
@@ -759,7 +712,7 @@ export default function EmployeesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y dark:divide-slate-800 text-sm">
-                  {paginatedMembers.map((m) => (
+                  {members.map((m) => (
                     <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -840,7 +793,7 @@ export default function EmployeesPage() {
 
             {/* Mobile Accordion */}
             <div className="lg:hidden divide-y dark:divide-slate-800">
-              {paginatedMembers.map((m) => (
+              {members.map((m) => (
                 <div key={m.id} className="transition-colors">
                   <button
                     onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
@@ -916,11 +869,11 @@ export default function EmployeesPage() {
             </div>
             <div className="p-4 border-t dark:border-slate-800 flex items-center justify-between bg-gray-50/30 dark:bg-slate-900/30">
               <p className="text-xs text-gray-500 font-medium">
-                {t('employees.showing_results', { start: filteredMembers.length > 0 ? page * limit + 1 : 0, end: Math.min((page + 1) * limit, filteredMembers.length), total: filteredMembers.length })}
+                {t('employees.showing_results', { start: totalCount === 0 ? 0 : (page - 1) * 5 + 1, end: Math.min(page * 5, totalCount), total: totalCount })}
               </p>
               <div className="flex gap-2">
-                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="p-1.5 border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95"><ChevronLeft className="w-4 h-4"/></button>
-                <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} className="p-1.5 border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95"><ChevronRight className="w-4 h-4"/></button>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="p-1.5 border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95"><ChevronLeft className="w-4 h-4"/></button>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="p-1.5 border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95"><ChevronRight className="w-4 h-4"/></button>
               </div>
             </div>
           </>

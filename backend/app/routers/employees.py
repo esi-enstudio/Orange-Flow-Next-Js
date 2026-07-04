@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, get_current_user, get_house_context
 from app.schemas.employee import EmployeeSchema, EmployeeCreate, EmployeeSelfUpdate
+from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.employee import Employee
 from app.models.house import House
 from app.models.user import User
@@ -96,8 +97,9 @@ async def list_employees_by_house_grouped(
         "total": sum(len(emps) for emps in groups.values()),
     }
 
-@router.get("", response_model=list[EmployeeSchema])
+@router.get("", response_model=PaginatedResponse)
 async def list_employees(
+    pagination: PaginationParams = Depends(),
     search: Optional[str] = Query(None, description="Global search across name, dms_code, itop_number"),
     status: Optional[str] = Query(None, description="Filter by status: Active, Resigned, Suspended, Inactive"),
     market_type: Optional[str] = Query(None, description="Filter by market type: Urban, Rural"),
@@ -119,19 +121,19 @@ async def list_employees(
     current_user: User = Depends(has_permission("employees.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    query = select(Employee).options(joinedload(Employee.house), joinedload(Employee.user).selectinload(User.roles))
+    base_query = select(Employee).options(joinedload(Employee.house), joinedload(Employee.user).selectinload(User.roles))
 
     is_admin = is_admin_user(current_user)
     if house_id:
-        query = query.where(Employee.house_id == house_id)
+        base_query = base_query.where(Employee.house_id == house_id)
     elif is_admin:
         pass
     else:
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
-            query = query.where(Employee.house_id.in_(user_house_ids))
+            base_query = base_query.where(Employee.house_id.in_(user_house_ids))
         else:
-            query = query.where(Employee.house_id == -1)
+            base_query = base_query.where(Employee.house_id == -1)
 
     conditions = []
 
@@ -207,10 +209,43 @@ async def list_employees(
         conditions.append(cast(Employee.salary, Float) <= salary_max)
 
     if conditions:
-        query = query.where(and_(*conditions))
+        base_query = base_query.where(and_(*conditions))
 
-    result = await db.execute(query.order_by(Employee.id.desc()))
-    return result.unique().scalars().all()
+    from sqlalchemy import func as sa_func
+    sort_map = {
+        "dms_code": Employee.dms_code,
+        "assisted_code": Employee.assisted_retailer_code,
+        "status": Employee.status,
+        "id": Employee.id,
+    }
+    sort_column = sort_map.get(pagination.sort_by, Employee.id)
+    order = sort_column.desc() if pagination.sort_order == "desc" else sort_column.asc()
+    count_query = select(sa_func.count(Employee.id))
+    if base_query.whereclause is not None:
+        count_query = count_query.where(base_query.whereclause)
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    offset = (pagination.page - 1) * pagination.per_page
+    query = base_query.order_by(order).offset(offset).limit(pagination.per_page)
+    result = await db.execute(query)
+    items = result.unique().scalars().all()
+    data = [EmployeeSchema.model_validate(e) for e in items]
+
+    total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
+
+    return PaginatedResponse(
+        success=True,
+        data=data,
+        pagination=PaginationMeta(
+            page=pagination.page,
+            per_page=pagination.per_page,
+            total=total,
+            total_pages=total_pages,
+            has_next=pagination.page < total_pages,
+            has_prev=pagination.page > 1,
+        )
+    )
 
 
 @router.get("/filter-options")

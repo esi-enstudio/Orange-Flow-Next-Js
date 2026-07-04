@@ -508,7 +508,7 @@ export default function UsersPage() {
         ) : (
           <>
             {/* Desktop Table — lg+ */}
-            <div className="hidden lg:block overflow-x-auto">
+            <div className="hidden lg:block overflow-x-auto scrollbar-custom">
               <table className="w-full text-left min-w-[800px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
