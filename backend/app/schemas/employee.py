@@ -54,7 +54,7 @@ class EmployeeCreate(BaseModel):
     employee_type: Optional[str] = None
     assisted_retailer_code: Optional[str] = None
     agency_id: Optional[str] = None
-    dms_code: str = Field(min_length=1)
+    dms_code: Optional[str] = None
     itop_number: Optional[str] = None
     personal_number: Optional[str] = None
     pool_number: Optional[str] = None

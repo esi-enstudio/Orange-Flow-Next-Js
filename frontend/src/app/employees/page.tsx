@@ -111,7 +111,10 @@ interface User {
   id: number;
   name: string;
   username: string;
+  email?: string;
+  phone_number?: string;
   roles?: Role[];
+  houses?: House[];
   profile_pic?: string;
 }
 
@@ -222,6 +225,9 @@ export default function EmployeesPage() {
   const [formLoading, setFormLoading] = useState(false);
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Employee | null>(null);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const userDropdownRef = useRef<HTMLDivElement>(null);
 
   // View Modal
   const [viewingMember, setViewingMember] = useState<Employee | null>(null);
@@ -282,7 +288,7 @@ export default function EmployeesPage() {
       const [empRes, housesRes, usersRes] = await Promise.all([
         apiClient.get(`employees?${qs}`),
         apiClient.get("houses"),
-        apiClient.get("users")
+        apiClient.get("users?unassigned=true")
       ]);
       setMembers(empRes.data.data || []);
       setTotalCount(empRes.data.pagination?.total || 0);
@@ -295,6 +301,26 @@ export default function EmployeesPage() {
       setLoading(false);
     }
   };
+
+  const availableUsers = useMemo(() => {
+    let list = [...users];
+    if (formData.house_id) {
+      list = list.filter(u => u.houses?.some(h => h.id === formData.house_id));
+    }
+    if (editingMember?.user) {
+      const alreadyInList = list.some(u => u.id === editingMember.user!.id);
+      if (!alreadyInList) list.unshift(editingMember.user);
+    }
+    return list;
+  }, [users, editingMember?.user, formData.house_id]);
+
+  const filteredUsers = useMemo(() => {
+    if (!userSearchQuery) return availableUsers;
+    const q = userSearchQuery.toLowerCase();
+    return availableUsers.filter(u =>
+      u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
+    );
+  }, [availableUsers, userSearchQuery]);
 
   const prevFiltersRef = useRef<string>("");
   useEffect(() => {
@@ -310,6 +336,16 @@ export default function EmployeesPage() {
       fetchData();
     }
   }, [page, sortField, sortDir, selectedHouse, authLoading, hasPermission]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
+        setShowUserDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const openViewModal = (m: Employee) => {
     setViewingMember(m);
@@ -918,7 +954,7 @@ export default function EmployeesPage() {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-5 text-gray-900 dark:text-gray-100">
+            <div className="flex-1 overflow-y-auto p-6 space-y-5 text-gray-900 dark:text-gray-100 scrollbar-custom">
               {/* Contact Info — inline badges */}
               <div className="flex flex-wrap gap-2">
                 <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-xl text-sm border border-gray-200 dark:border-transparent">
@@ -1028,7 +1064,7 @@ export default function EmployeesPage() {
       {/* Form Modal */}
       {isFormModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-y-auto max-h-[95vh] border dark:border-slate-800 animate-in fade-in zoom-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-y-auto max-h-[95vh] border dark:border-slate-800 animate-in fade-in zoom-in duration-200 scrollbar-custom">
             <div className="p-6 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
               <div>
                 <h3 className="text-lg font-bold dark:text-gray-100 flex items-center gap-2">
@@ -1077,28 +1113,79 @@ export default function EmployeesPage() {
 
                   <div className="space-y-1">
                     <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_tagged_user')}</label>
-                    <div className="relative group">
+                    <div className="relative group" ref={userDropdownRef}>
                       <div className={cn(
-                        "absolute left-3 top-1/2 -translate-y-1/2 transition-colors pointer-events-none",
+                        "absolute left-3 top-1/2 -translate-y-1/2 transition-colors pointer-events-none z-10",
                         formErrors.user_id ? "text-red-500" : "text-gray-400 group-focus-within:text-primary-500"
                       )}>
                         <Shield className="w-4 h-4" />
                       </div>
-                      <select 
+                      <input
+                        placeholder={t('employees.field_tagged_user_placeholder')}
+                        value={showUserDropdown ? userSearchQuery : (formData.user_id ? availableUsers.find(u => u.id === formData.user_id)?.name || `@${availableUsers.find(u => u.id === formData.user_id)?.username || ''}` : '')}
+                        onFocus={() => { setShowUserDropdown(true); setUserSearchQuery(''); }}
+                        onChange={e => { setUserSearchQuery(e.target.value); setShowUserDropdown(true); }}
                         className={cn(
-                          "w-full p-2.5 pl-10 bg-gray-50 dark:bg-slate-800 border rounded-xl text-sm dark:text-gray-100 outline-none transition-all appearance-none",
+                          "w-full p-2.5 pl-10 bg-gray-50 dark:bg-slate-800 border rounded-xl text-sm dark:text-gray-100 outline-none transition-all cursor-pointer",
                           formErrors.user_id ? "border-red-500/50 ring-1 ring-red-500/10" : "border-transparent focus:ring-1 focus:ring-primary-500 focus:bg-white dark:focus:bg-slate-800"
                         )}
-                        value={formData.user_id || ""}
-                        onChange={e => setFormData({...formData, user_id: e.target.value ? parseInt(e.target.value) : undefined})}
-                      >
-                        <option value="">{t('employees.field_tagged_user_placeholder')}</option>
-                        {users.filter(u => {
-                          if (editingMember?.user_id === u.id) return true;
-                          return !members.some(m => m.user_id === u.id && m.id !== editingMember?.id);
-                        }).map(u => <option key={u.id} value={u.id}>{u.name} (@{u.username})</option>)}
-                      </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                        readOnly={!showUserDropdown}
+                      />
+                      <ChevronDown className={cn(
+                        "absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none transition-transform",
+                        showUserDropdown && "rotate-180"
+                      )} />
+                      {showUserDropdown && (
+                        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-xl shadow-xl max-h-60 overflow-y-auto scrollbar-custom">
+                          <div className="sticky top-0 bg-white dark:bg-slate-800 px-3 py-2 border-b dark:border-slate-700">
+                            <input
+                              autoFocus
+                              placeholder={t('employees.search_user_placeholder')}
+                              value={userSearchQuery}
+                              onChange={e => setUserSearchQuery(e.target.value)}
+                              className="w-full p-2 bg-gray-100 dark:bg-slate-700 rounded-lg text-sm outline-none dark:text-gray-100"
+                            />
+                          </div>
+                          {filteredUsers.length === 0 ? (
+                            <div className="px-3 py-4 text-center text-sm text-gray-400">{t('employees.no_users_found')}</div>
+                          ) : filteredUsers.map(u => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => {
+                                setFormData({...formData, user_id: formData.user_id === u.id ? undefined : u.id});
+                                setShowUserDropdown(false);
+                                setUserSearchQuery('');
+                              }}
+                              className={cn(
+                                "w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors text-left",
+                                formData.user_id === u.id && "bg-primary-50 dark:bg-primary-500/10"
+                              )}
+                            >
+                              <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs shrink-0">
+                                {u.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{u.name}</p>
+                                <p className="text-[11px] text-gray-500 truncate flex items-center gap-1 flex-wrap">
+                                  {u.phone_number ? (
+                                    <>{u.phone_number}</>
+                                  ) : (
+                                    <>{u.email || "—"}</>
+                                  )}
+                                  {u.houses?.length ? (
+                                    <span className="flex items-center gap-0.5">
+                                      {" · "}
+                                      {u.houses.map(h => h.code).join(", ")}
+                                    </span>
+                                  ) : null}
+                                </p>
+                              </div>
+                              {formData.user_id === u.id && <Check className="w-4 h-4 text-primary-500 shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {formErrors.user_id && <p className="text-[11px] text-red-500 mt-0.5">{formErrors.user_id}</p>}
                   </div>
@@ -1130,7 +1217,7 @@ export default function EmployeesPage() {
                     {formErrors.status && <p className="text-[11px] text-red-500 mt-0.5">{formErrors.status}</p>}
                   </div>
 
-                  <InputField label={t('employees.field_dms_code')} icon={Smartphone} value={formData.dms_code} onChange={(v: string) => setFormData({...formData, dms_code: v})} required error={formErrors.dms_code} />
+                  <InputField label={t('employees.field_dms_code')} icon={Smartphone} value={formData.dms_code} onChange={(v: string) => setFormData({...formData, dms_code: v})} error={formErrors.dms_code} />
                   <InputField label={t('employees.field_itop')} type="tel" icon={SmartphoneNfc} value={formData.itop_number} onChange={(v: string) => setFormData({...formData, itop_number: v})} error={formErrors.itop_number} />
                   <InputField label={t('employees.field_personal_number')} type="tel" icon={Phone} value={formData.personal_number} onChange={(v: string) => setFormData({...formData, personal_number: v})} error={formErrors.personal_number} />
                 </div>

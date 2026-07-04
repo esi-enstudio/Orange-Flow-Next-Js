@@ -529,7 +529,11 @@ export default function UsersPage() {
                           <div>
                             <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{u.name}</p>
                             <p className="text-[10px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                                <Hash className="w-2.5 h-2.5" /> @{u.username} <Mail className="w-2.5 h-2.5 ml-1" /> {u.email}
+                              {u.phone_number ? (
+                                <><Phone className="w-2.5 h-2.5" /> {u.phone_number}</>
+                              ) : (
+                                <><Mail className="w-2.5 h-2.5" /> {u.email || "—"}</>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -541,11 +545,11 @@ export default function UsersPage() {
                               {r.name}
                             </span>
                           ))}
-                          {u.houses?.length ? (
-                            <span className="px-2 py-0.5 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 text-[9px] font-bold uppercase rounded-full border border-purple-100 dark:border-purple-500/20">
-                              {t('users.houses_count', { count: u.houses.length })}
+                          {u.houses?.length ? u.houses.map(h => (
+                            <span key={h.id} className="px-2 py-0.5 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 text-[9px] font-bold uppercase rounded-full border border-purple-100 dark:border-purple-500/20">
+                              {h.code}
                             </span>
-                          ) : null}
+                          )) : null}
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -598,7 +602,13 @@ export default function UsersPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{u.name}</p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">@{u.username}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate flex items-center gap-1">
+                        {u.phone_number ? (
+                          <><Phone className="w-2.5 h-2.5 shrink-0" /> {u.phone_number}</>
+                        ) : (
+                          <><Mail className="w-2.5 h-2.5 shrink-0" /> {u.email || "—"}</>
+                        )}
+                      </p>
                     </div>
                     <ChevronDown className={cn(
                       "w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200",
@@ -631,7 +641,13 @@ export default function UsersPage() {
                       {u.houses?.length ? (
                         <div>
                           <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">{t('users.field_assigned_houses')}</p>
-                          <p className="text-[11px] text-gray-600 dark:text-gray-300">{u.houses.map(h => h.name).join(", ")}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {u.houses.map(h => (
+                              <span key={h.id} className="px-2 py-0.5 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 text-[9px] font-bold uppercase rounded-full border border-purple-100 dark:border-purple-500/20">
+                                {h.code}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
                       <div className="flex items-center justify-between pt-1">

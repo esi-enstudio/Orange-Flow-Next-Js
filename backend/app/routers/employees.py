@@ -341,7 +341,7 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
     house = await db.get(House, emp_data.house_id)
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
-    if emp_data.dms_code != emp.dms_code:
+    if emp_data.dms_code and emp_data.dms_code != emp.dms_code:
         existing = (await db.execute(select(Employee).where(Employee.dms_code == emp_data.dms_code))).scalar_one_or_none()
         if existing: raise HTTPException(status_code=422, detail=[{"loc": ["body", "dms_code"], "msg": "DMS code already in use by another employee", "type": "value_error"}])
     if emp_data.user_id:
