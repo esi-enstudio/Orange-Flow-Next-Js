@@ -171,6 +171,7 @@ export default function EmployeesPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<EmployeeFilters>({ ...defaultFilters });
   const [sortField, setSortField] = useState<string>("id");
@@ -615,50 +616,50 @@ export default function EmployeesPage() {
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
         <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 font-mono tracking-tight flex items-center gap-2">
-              <Users2 className="w-6 h-6 text-primary-500" />
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 font-mono tracking-tight flex items-center gap-2">
+              <Users2 className="w-5 h-5 md:w-6 md:h-6 text-primary-500" />
               {t('employees.title')}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('employees.description')}</p>
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-0.5 md:mt-1">{t('employees.description')}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 md:gap-2">
           <button 
             onClick={handleExport}
             disabled={isExporting}
-            className="px-4 py-2 bg-white dark:bg-slate-900 border dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            className="px-2.5 md:px-4 py-2 bg-white dark:bg-slate-900 border dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-xs md:text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-1 md:gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
           >
-            {isExporting ? <Loader2 className="w-4 h-4 animate-spin"/> : <Download className="w-4 h-4 text-primary-500"/>}
-            {t('employees.export')}
+            {isExporting ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin"/> : <Download className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary-500"/>}
+            <span className="hidden xs:inline">{t('employees.export')}</span>
           </button>
           <button 
             onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
-            className="px-4 py-2 bg-white dark:bg-slate-900 border dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            className="px-2.5 md:px-4 py-2 bg-white dark:bg-slate-900 border dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-xs md:text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-1 md:gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
           >
-            {isImporting ? <Loader2 className="w-4 h-4 animate-spin"/> : <Upload className="w-4 h-4 text-primary-500"/>}
-            {t('employees.import')}
+            {isImporting ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin"/> : <Upload className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary-500"/>}
+            <span className="hidden xs:inline">{t('employees.import')}</span>
           </button>
           <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx,.xls"/>
           <button 
             onClick={openAddModal}
-            className="px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 flex items-center gap-2 transition-all shadow-lg shadow-primary-200 dark:shadow-none active:scale-95"
+            className="px-2.5 md:px-4 py-2 bg-primary-600 text-white rounded-xl text-xs md:text-sm font-bold hover:bg-primary-700 flex items-center gap-1 md:gap-2 transition-all shadow-lg shadow-primary-200 dark:shadow-none active:scale-95"
           >
-            <Plus className="w-4 h-4" />
-            {t('employees.add_new')}
+            <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
+            <span className="hidden xs:inline">{t('employees.add_new')}</span>
           </button>
         </div>
       </div>
 
       {/* Main Content */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border dark:border-slate-800 shadow-sm overflow-hidden transition-all duration-300">
-        <div className="p-4 border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex flex-col md:flex-row gap-4 justify-between items-center">
-          <div className="flex items-center gap-2 w-full md:w-auto">
+        <div className="p-3 md:p-4 border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex flex-row gap-2 md:gap-4 justify-between items-center">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={cn(
-                "p-2 rounded-xl border transition-all active:scale-95",
+                "p-2 rounded-xl border transition-all active:scale-95 shrink-0",
                 showFilters
                   ? "bg-primary-500 text-white border-primary-500 shadow-sm"
                   : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
@@ -678,8 +679,8 @@ export default function EmployeesPage() {
               />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-3 py-1 rounded-full">{t('employees.count_label', { count: filteredMembers.length })}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] md:text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2 md:px-3 py-1 rounded-full whitespace-nowrap">{t('employees.count_label', { count: filteredMembers.length })}</span>
           </div>
         </div>
 
@@ -719,8 +720,9 @@ export default function EmployeesPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
+            {/* Desktop Table */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-left whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-800 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b dark:border-slate-800">
                     <th className="px-6 py-4">
@@ -834,6 +836,83 @@ export default function EmployeesPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Accordion */}
+            <div className="lg:hidden divide-y dark:divide-slate-800">
+              {paginatedMembers.map((m) => (
+                <div key={m.id} className="transition-colors">
+                  <button
+                    onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors text-left"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs shadow-inner overflow-hidden shrink-0">
+                      {m.user?.profile_pic ? (
+                        <img src={profilePicUrl(m.user.profile_pic)!} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        (m.user?.name || m.dms_code).charAt(0)
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{m.user?.name || m.dms_code}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{m.dms_code}</p>
+                    </div>
+                    <ChevronDown className={cn(
+                      "w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200",
+                      expandedId === m.id && "rotate-180"
+                    )} />
+                  </button>
+                  <div className={cn(
+                    "overflow-hidden transition-all duration-200 ease-in-out",
+                    expandedId === m.id ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+                  )}>
+                    <div className="px-4 pb-4 space-y-3">
+                      <div className="pt-2 border-t dark:border-slate-800 space-y-2">
+                        <p className="text-[11px] text-gray-500 flex items-center gap-1.5"><Phone className="w-3 h-3" /> {m.personal_number}</p>
+                        <p className="text-[11px] text-gray-500 flex items-center gap-1.5"><Smartphone className="w-3 h-3" /> {m.itop_number || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{t('employees.table_house')}</p>
+                        <p className="text-[11px] text-gray-700 dark:text-gray-300">
+                          {m.house ? `${m.house.name} (${m.house.code})` : t('employees.no_house')}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Assisted Code</p>
+                        <p className="text-[11px] text-gray-700 dark:text-gray-300">{m.assisted_retailer_code || "—"}</p>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <div className="relative inline-block">
+                          <div className={cn(
+                            "px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1",
+                            m.status === "Active" ? "bg-green-50 text-green-700 dark:bg-green-900/40 dark:text-green-300" : 
+                            m.status === "Resigned" ? "bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300" :
+                            m.status === "Inactive" ? "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-gray-300" :
+                            "bg-primary-50 text-primary-700 dark:bg-indigo-900/40 dark:text-indigo-300"
+                          )}>
+                            <span>{m.status || "—"}</span>
+                            <ChevronDown className="w-3 h-3 opacity-50" />
+                          </div>
+                          <select 
+                            value={m.status}
+                            onChange={(e) => { e.stopPropagation(); handleStatusChange(m.id, e.target.value); }}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          >
+                            <option value="Active">Active</option>
+                            <option value="Resigned">Resigned</option>
+                            <option value="Suspended">Suspended</option>
+                            <option value="Inactive">Inactive</option>
+                          </select>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={(e) => { e.stopPropagation(); openViewModal(m); }} className="p-2 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg text-gray-400 hover:text-blue-600 transition-all"><Eye className="w-4 h-4"/></button>
+                          <button onClick={(e) => { e.stopPropagation(); setDeletingId(m.id); setIsConfirmOpen(true); }} className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg text-gray-400 hover:text-red-600 transition-all"><Trash2 className="w-4 h-4"/></button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
             <div className="p-4 border-t dark:border-slate-800 flex items-center justify-between bg-gray-50/30 dark:bg-slate-900/30">
               <p className="text-xs text-gray-500 font-medium">
