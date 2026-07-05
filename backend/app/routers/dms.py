@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import asyncio
@@ -5,6 +6,7 @@ from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -709,4 +711,196 @@ async def issue_sims(
         total_skipped=skipped_count,
         total_failed=failed_count,
         results=results_list
+    )
+
+
+def _emit(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+async def _sim_issue_stream(payload: SIMIssueRequest, db: AsyncSession, current_user: User):
+    is_admin = is_admin_user(current_user)
+
+    # 1. Validate house
+    yield _emit("log", {"message": "🔍 Validating distribution house..."})
+    result = await db.execute(select(House).where(House.id == payload.house_id))
+    house = result.scalar_one_or_none()
+    if not house:
+        yield _emit("error", {"message": "Distribution house not found."})
+        return
+    if not is_admin:
+        user_house_ids = [h.id for h in current_user.houses]
+        if house.id not in user_house_ids:
+            yield _emit("error", {"message": "You do not have access to this distribution house."})
+            return
+
+    yield _emit("log", {"message": f"✅ House: {house.name} ({house.code})"})
+
+    # 2. Validate retailer
+    yield _emit("log", {"message": "🔍 Validating retailer..."})
+    result = await db.execute(select(Retailer).where(Retailer.id == payload.retailer_id))
+    retailer = result.scalar_one_or_none()
+    if not retailer:
+        yield _emit("error", {"message": "Retailer not found."})
+        return
+    if retailer.house_id != house.id:
+        yield _emit("error", {"message": "Retailer does not belong to the selected house."})
+        return
+
+    yield _emit("log", {"message": f"✅ Retailer: {retailer.name} ({retailer.retailer_code})"})
+
+    # 3. Parse serial numbers
+    try:
+        serials = parse_serial_input(payload.input_value)
+    except ValueError as e:
+        yield _emit("error", {"message": str(e)})
+        return
+
+    if not serials:
+        yield _emit("complete", {
+            "house_id": house.id, "house_name": house.name, "house_code": house.code,
+            "retailer_code": retailer.retailer_code, "retailer_name": retailer.name,
+            "total_processed": 0, "total_success": 0, "total_skipped": 0, "total_failed": 0,
+            "results": []
+        })
+        return
+
+    yield _emit("log", {"message": f"📄 Parsed {len(serials)} SIM serials"})
+
+    if not house.dms_user or not house.dms_pass or not house.dms_house_id:
+        yield _emit("error", {"message": "DMS credentials not configured for this house."})
+        return
+
+    credentials = {
+        "user": house.dms_user,
+        "pass": house.dms_pass,
+        "house_id": house.dms_house_id,
+        "house_name": house.name,
+        "code": house.code
+    }
+
+    # 4. Check DMS status of serials
+    yield _emit("log", {"message": "🚀 Launching browser automation..."})
+    yield _emit("log", {"message": "🔍 Checking SIM status in DMS portal..."})
+
+    try:
+        scanned_data, error = await run_sim_issue_status(serials, credentials)
+        if error:
+            yield _emit("error", {"message": f"DMS analysis failed: {error}"})
+            return
+    except Exception as e:
+        yield _emit("error", {"message": f"DMS query automation failed: {str(e)}"})
+        return
+
+    if not scanned_data:
+        scanned_data = []
+
+    yield _emit("log", {"message": f"📊 DMS scan complete — {len(scanned_data)} SIMs found"})
+
+    # Map scanned results
+    scanned_map = {}
+    for d in scanned_data:
+        sim = d.get("SIM No", "").strip().replace("'", "")
+        if sim:
+            scanned_map[sim] = d
+
+    results_list = []
+    ready_serials = []
+    success_count = 0
+    skipped_count = 0
+    failed_count = 0
+
+    target_code = str(house.code).strip().upper()
+
+    yield _emit("log", {"message": "📋 Processing scan results..."})
+
+    for sim in serials:
+        if sim in scanned_map:
+            d = scanned_map[sim]
+            dms_distro = str(d.get("Distributor", "")).strip().upper()
+            retailer_val = str(d.get("Retailer", "")).strip()
+            act_date = str(d.get("Activation Date", "")).strip()
+            msisdn = d.get("MSISDN", d.get("Mobile No", ""))
+
+            if target_code not in dms_distro:
+                results_list.append({"sim_no": sim, "status": "Failed", "message": f"Belongs to other house ({d.get('Distributor')})"})
+                failed_count += 1
+            elif act_date:
+                results_list.append({"sim_no": sim, "status": "Failed", "message": f"Already active (MSISDN: {msisdn})"})
+                failed_count += 1
+            elif retailer_val and retailer_val != "Select" and retailer_val != "N/A":
+                if retailer.retailer_code in retailer_val or retailer.name in retailer_val:
+                    results_list.append({"sim_no": sim, "status": "Skipped", "message": f"Already issued to this retailer ({retailer_val})"})
+                    skipped_count += 1
+                else:
+                    results_list.append({"sim_no": sim, "status": "Failed", "message": f"Already issued to retailer: {retailer_val}"})
+                    failed_count += 1
+            else:
+                ready_serials.append(sim)
+        else:
+            results_list.append({"sim_no": sim, "status": "Failed", "message": "Not found in DMS system"})
+            failed_count += 1
+
+    yield _emit("log", {"message": f"📊 Results: {len(ready_serials)} ready, {success_count} success, {skipped_count} skipped, {failed_count} failed"})
+
+    # 5. Execute DMS issue
+    if ready_serials:
+        yield _emit("log", {"message": f"📤 Submitting {len(ready_serials)} SIMs to DMS for issuance..."})
+        try:
+            finalize_res = await run_finalize_issue(ready_serials, retailer.retailer_code, credentials)
+            if finalize_res.startswith("✅"):
+                today = date.today()
+                records_to_create = []
+                for sim in ready_serials:
+                    results_list.append({"sim_no": sim, "status": "Success", "message": f"Successfully issued to {retailer.retailer_code}"})
+                    success_count += 1
+                    records_to_create.append(SimIssue(
+                        issue_date=today, distributor_code=house.code, distributor_name=house.name,
+                        house_id=house.id, cluster_market=getattr(retailer, "district", None),
+                        retailer_code=retailer.retailer_code, retailer_name=retailer.name,
+                        retailer_id=retailer.id, sim_no=sim
+                    ))
+
+                if records_to_create:
+                    try:
+                        db.add_all(records_to_create)
+                        await db.commit()
+                    except Exception as e:
+                        await db.rollback()
+                        logger.error(f"Failed to record SIM issues in database: {str(e)}")
+
+                yield _emit("log", {"message": f"✅ {finalize_res}"})
+            else:
+                for sim in ready_serials:
+                    results_list.append({"sim_no": sim, "status": "Failed", "message": f"DMS issue failed: {finalize_res}"})
+                    failed_count += 1
+                yield _emit("log", {"message": f"❌ DMS issuance failed: {finalize_res}"})
+        except Exception as e:
+            for sim in ready_serials:
+                results_list.append({"sim_no": sim, "status": "Failed", "message": f"DMS issue error: {str(e)}"})
+                failed_count += 1
+            yield _emit("log", {"message": f"❌ DMS issuance error: {str(e)}"})
+
+    yield _emit("log", {"message": "✅ SIM Issue process completed!"})
+
+    yield _emit("complete", {
+        "house_id": house.id, "house_name": house.name, "house_code": house.code,
+        "retailer_code": retailer.retailer_code, "retailer_name": retailer.name,
+        "total_processed": len(serials),
+        "total_success": success_count,
+        "total_skipped": skipped_count,
+        "total_failed": failed_count,
+        "results": results_list
+    })
+
+
+@router.post("/sim-issue/stream")
+async def issue_sims_stream(
+    payload: SIMIssueRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("dms.sim_issue"))
+):
+    return StreamingResponse(
+        _sim_issue_stream(payload, db, current_user),
+        media_type="text/event-stream"
     )

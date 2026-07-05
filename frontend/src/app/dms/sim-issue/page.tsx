@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import apiClient from "@/lib/api";
 import { useLanguage } from "@/i18n/useLanguage";
 import { toast } from "react-hot-toast";
 import { cn } from "@/lib/utils";
+import { fetchEventSource } from "@microsoft/fetch-event-source";
+import Cookies from "js-cookie";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import {
@@ -51,32 +53,6 @@ interface IssueResultItem {
   message: string | null;
 }
 
-const loadingTipsEn = [
-  "Spawning automated browser instance...",
-  "Navigating to Banglalink DMS Portal...",
-  "Authenticating with distributor credentials...",
-  "Bypassing/verifying session credentials...",
-  "Navigating to SIM Issue page...",
-  "Selecting targeted retailer code...",
-  "Uploading SIM serial numbers...",
-  "Running validation in DMS database...",
-  "Issuing SIMs to the retailer...",
-  "Finalizing issue results..."
-];
-
-const loadingTipsBn = [
-  "Starting automated browser instance...",
-  "Navigating to Banglalink DMS portal...",
-  "Logging in with distributor user ID...",
-  "Verifying session credentials...",
-  "Loading SIM Issue page...",
-  "Selecting targeted retailer code...",
-  "Uploading SIM serial numbers...",
-  "Running validation in DMS database...",
-  "Issuing SIMs to the retailer...",
-  "Finalizing issue results..."
-];
-
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -119,7 +95,7 @@ export default function SIMIssuePage() {
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [tipIndex, setTipIndex] = useState(0);
+  const [logs, setLogs] = useState<string[]>([]);
   const [results, setResults] = useState<IssueResultItem[]>([]);
   const [issueInfo, setIssueInfo] = useState<{
     houseName: string;
@@ -132,6 +108,13 @@ export default function SIMIssuePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showConfirm, setShowConfirm] = useState(false);
   const pageSize = 10;
+  const logContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs]);
 
   useEffect(() => {
     const fetchHouses = async () => {
@@ -202,20 +185,12 @@ export default function SIMIssuePage() {
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    let tipsTimer: NodeJS.Timeout;
     if (loading) {
       setElapsedTime(0);
-      setTipIndex(0);
       timer = setInterval(() => setElapsedTime((p) => p + 1), 1000);
-      tipsTimer = setInterval(() => setTipIndex((p) => (p + 1) % loadingTipsEn.length), 3500);
     }
-    return () => {
-      clearInterval(timer);
-      clearInterval(tipsTimer);
-    };
+    return () => clearInterval(timer);
   }, [loading]);
-
-  const activeTips = useMemo(() => (language === "bn" ? loadingTipsBn : loadingTipsEn), [language]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,33 +201,56 @@ export default function SIMIssuePage() {
     setShowConfirm(true);
   };
 
-  const confirmIssue = async () => {
+  const confirmIssue = () => {
     setShowConfirm(false);
     setLoading(true);
     setResults([]);
+    setLogs([]);
     setCurrentPage(1);
     setStatusFilter("All");
 
-    try {
-      const res = await apiClient.post("dms/sim-issue", {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+    const url = `${baseUrl}/dms/sim-issue/stream`;
+
+    fetchEventSource(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${Cookies.get("token")}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
         house_id: Number(selectedHouseId),
         retailer_id: selectedRetailer!.id,
         input_value: inputValue
-      });
-      setResults(res.data.results);
-      setIssueInfo({
-        houseName: res.data.house_name,
-        houseCode: res.data.house_code,
-        retailerCode: res.data.retailer_code,
-        retailerName: res.data.retailer_name
-      });
-      toast.success(`Successfully issued ${res.data.total_success} SIM(s) to ${res.data.retailer_name}!`);
-    } catch (err: any) {
-      const errMsg = err.response?.data?.detail || err.message || "Issue process failed";
-      toast.error(errMsg);
-    } finally {
-      setLoading(false);
-    }
+      }),
+      onmessage(ev) {
+        if (ev.event === "log") {
+          const data = JSON.parse(ev.data);
+          setLogs(prev => [...prev, data.message]);
+        } else if (ev.event === "error") {
+          const data = JSON.parse(ev.data);
+          setLogs(prev => [...prev, `❌ ${data.message}`]);
+          toast.error(data.message);
+          setLoading(false);
+        } else if (ev.event === "complete") {
+          const data = JSON.parse(ev.data);
+          setResults(data.results);
+          setIssueInfo({
+            houseName: data.house_name,
+            houseCode: data.house_code,
+            retailerCode: data.retailer_code,
+            retailerName: data.retailer_name
+          });
+          toast.success(`Successfully issued ${data.total_success} SIM(s) to ${data.retailer_name}!`);
+          setLoading(false);
+        }
+      },
+      onerror(err) {
+        toast.error("Connection lost. Please try again.");
+        setLoading(false);
+        throw err;
+      }
+    });
   };
 
   const stats = useMemo(() => {
@@ -707,19 +705,47 @@ export default function SIMIssuePage() {
                   {t("sim_issue.issuing")}
                 </h4>
 
-                <div className="h-6 mt-2 overflow-hidden max-w-md">
-                  <AnimatePresence mode="wait">
-                    <motion.p
-                      key={tipIndex}
-                      initial={{ y: 20, opacity: 0 }}
-                      animate={{ y: 0, opacity: 1 }}
-                      exit={{ y: -20, opacity: 0 }}
-                      transition={{ duration: 0.3 }}
-                      className="text-sm font-medium text-gray-400 dark:text-gray-500"
-                    >
-                      {activeTips[tipIndex]}
-                    </motion.p>
-                  </AnimatePresence>
+                <div className="mt-4 w-full max-w-lg">
+                  <div ref={logContainerRef} className="bg-gray-900/90 dark:bg-slate-950/90 border border-gray-700/50 dark:border-slate-800/60 rounded-2xl p-4 max-h-48 overflow-y-auto text-left shadow-2xl backdrop-blur-sm">
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-700/30 dark:border-slate-800/60">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                      </span>
+                      <span className="text-[10px] font-bold text-gray-500 dark:text-gray-500 uppercase tracking-widest">Live Log</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {logs.map((log, i) => (
+                        <motion.p
+                          key={i}
+                          initial={{ opacity: 0, x: -12 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ type: "spring", stiffness: 200, damping: 20 }}
+                          className="text-[11px] font-mono leading-relaxed"
+                        >
+                          {log.startsWith("✅") || log.startsWith("📤") || log.startsWith("📊") || log.startsWith("📄") ? (
+                            <span className="text-emerald-400">{log}</span>
+                          ) : log.startsWith("❌") ? (
+                            <span className="text-red-400">{log}</span>
+                          ) : log.startsWith("🔍") || log.startsWith("🚀") ? (
+                            <span className="text-blue-400">{log}</span>
+                          ) : log.startsWith("⚠️") ? (
+                            <span className="text-amber-400">{log}</span>
+                          ) : (
+                            <span className="text-gray-300 dark:text-gray-400">{log}</span>
+                          )}
+                        </motion.p>
+                      ))}
+                      {logs.length === 0 && (
+                        <p className="text-[11px] font-mono text-gray-500 animate-pulse">
+                          <span className="text-emerald-400">$</span> Initializing automation...
+                        </p>
+                      )}
+                      <p className="text-[11px] font-mono text-gray-600 animate-pulse">
+                        <span className="text-gray-600">_</span>
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <motion.span
