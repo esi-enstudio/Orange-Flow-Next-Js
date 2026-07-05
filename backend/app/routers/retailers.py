@@ -108,7 +108,11 @@ async def get_retailers_by_house(
         user_house_ids = [h.id for h in current_user.houses]
         if house_id not in user_house_ids:
             raise HTTPException(status_code=403, detail="You do not have access to this house")
-    query = select(Retailer).where(Retailer.house_id == house_id)
+    query = (
+        select(Retailer)
+        .options(joinedload(Retailer.employee))
+        .where(Retailer.house_id == house_id)
+    )
     if search:
         pattern = f"%{search}%"
         query = query.where(
@@ -118,9 +122,16 @@ async def get_retailers_by_house(
         )
     query = query.order_by(Retailer.name)
     result = await db.execute(query)
-    retailers = result.scalars().all()
+    retailers = result.unique().scalars().all()
     return [
-        {"id": r.id, "retailer_code": r.retailer_code, "name": r.name, "itop_number": r.itop_number}
+        {
+            "id": r.id,
+            "retailer_code": r.retailer_code,
+            "name": r.name,
+            "itop_number": r.itop_number,
+            "employee_id": r.employee_id,
+            "employee_itop_number": r.employee.itop_number if r.employee else None
+        }
         for r in retailers
     ]
 
