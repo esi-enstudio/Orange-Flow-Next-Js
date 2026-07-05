@@ -335,7 +335,7 @@ export default function EmployeesPage() {
     if (!authLoading && hasPermission("employees.view")) {
       fetchData();
     }
-  }, [page, sortField, sortDir, selectedHouse, authLoading, hasPermission]);
+  }, [page, sortField, sortDir, selectedHouse, authLoading, hasPermission, filters]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
