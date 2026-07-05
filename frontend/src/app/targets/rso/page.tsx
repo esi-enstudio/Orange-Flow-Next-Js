@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown } from "lucide-react";
+import { Search, Upload, Download, ChevronLeft, ChevronRight, ChevronUp, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown, Filter, SlidersHorizontal } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import apiClient from "@/lib/api";
@@ -61,19 +61,23 @@ interface RSOTargetRecord {
 type ErrDict = Record<string, string>;
 
 export default function RSOTargetsPage() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<RSOTargetRecord[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [importProgress, setImportProgress] = useState<{percent: number; message: string} | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{message: string; count: number} | null>(null);
   const [summaryType, setSummaryType] = useState<"success" | "error">("success");
-  const limit = 50;
+  const perPage = 5;
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filters, setFilters] = useState({ house_id: 0, market_type: "", target_date: "" });
+  const [filterHouses, setFilterHouses] = useState<House[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -112,16 +116,22 @@ export default function RSOTargetsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get("/rso-targets", { params: { search: search || undefined, skip: page * limit, limit } });
+      const params: Record<string, any> = { page, per_page: perPage };
+      if (search) params.search = search;
+      if (filters.target_date) params.target_date = filters.target_date + "-01";
+      if (filters.market_type) params.market_type = filters.market_type;
+      if (filters.house_id) params.house_id = String(filters.house_id);
+      const res = await axios.get("/rso-targets", { params });
       setData(res.data?.data || []);
-      setTotalRecords(res.data?.total || 0);
+      setTotalRecords(res.data?.pagination?.total || 0);
+      setTotalPages(res.data?.pagination?.total_pages || 1);
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.response?.data?.error?.message || err?.message || "Failed to load";
       toast.error(msg);
       console.error("Fetch RSO targets error:", err);
     }
     finally { setLoading(false); }
-  }, [search, page]);
+  }, [search, page, filters]);
 
   const fetchRsoList = async (houseId?: number) => {
     try {
@@ -139,10 +149,11 @@ export default function RSOTargetsPage() {
     try {
       const res = await apiClient.get("houses");
       setHouses(res.data || []);
+      setFilterHouses(res.data || []);
     } catch {}
   };
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchHouses(); fetchData(); }, [fetchData]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -367,8 +378,6 @@ export default function RSOTargetsPage() {
     } catch { toast.error("Download failed"); }
   };
 
-  const totalPages = Math.ceil(totalRecords / limit);
-
   if (!authLoading && !hasPermission("targets.view")) { return <AccessDenied />; }
 
   const canEdit = hasPermission("targets.edit");
@@ -485,15 +494,66 @@ export default function RSOTargetsPage() {
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
         <div className="p-4 border-b border-gray-100 dark:border-slate-800">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder={t('rso_targets.search_placeholder')} value={search}
-              onChange={e => { setSearch(e.target.value); setPage(0); }}
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none dark:text-gray-100" />
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input type="text" placeholder={t('rso_targets.search_placeholder')} value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none dark:text-gray-100" />
+            </div>
+            <button onClick={() => setFilterOpen(!filterOpen)}
+              className={`p-2 rounded-xl border transition-colors ${
+                filterOpen
+                  ? "bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-500/10 dark:border-rose-800"
+                  : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+              }`}
+              title="Filters"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+
+        {filterOpen && (
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
+            <div className="flex items-end gap-4 flex-wrap">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase block">House</label>
+                <select value={filters.house_id} onChange={e => { setFilters(f => ({...f, house_id: parseInt(e.target.value)})); setPage(1); }}
+                  className="py-1.5 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs dark:text-gray-200 outline-none focus:border-rose-500/30 transition-all">
+                  <option value={0} className="dark:bg-slate-800">All Houses</option>
+                  {filterHouses.map(h => (
+                    <option key={h.id} value={h.id} className="dark:bg-slate-800">{h.name} ({h.code})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase block">Market Type</label>
+                <select value={filters.market_type} onChange={e => { setFilters(f => ({...f, market_type: e.target.value})); setPage(1); }}
+                  className="py-1.5 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs dark:text-gray-200 outline-none focus:border-rose-500/30 transition-all">
+                  <option value="" className="dark:bg-slate-800">All</option>
+                  <option value="Main House" className="dark:bg-slate-800">Main House</option>
+                  <option value="OSDO" className="dark:bg-slate-800">OSDO</option>
+                  <option value="Residential RSO" className="dark:bg-slate-800">Residential RSO</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase block">Target Month</label>
+                <input type="month" value={filters.target_date} onChange={e => { setFilters(f => ({...f, target_date: e.target.value})); setPage(1); }}
+                  className="py-1.5 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs dark:text-gray-200 outline-none focus:border-rose-500/30 transition-all" />
+              </div>
+              {(filters.house_id || filters.market_type || filters.target_date) && (
+                <button onClick={() => { setFilters({ house_id: 0, market_type: "", target_date: "" }); setPage(1); }}
+                  className="py-1.5 px-3 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto scrollbar-custom">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_rso')}</th>
@@ -566,31 +626,14 @@ export default function RSOTargetsPage() {
         {totalRecords > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-slate-800">
             <span className="text-xs text-gray-400">
-              {t('rso_targets.showing_results', { start: page * limit + 1, end: Math.min((page + 1) * limit, totalRecords), total: totalRecords })}
+              {t('rso_targets.showing_results', { start: (page - 1) * perPage + 1, end: Math.min(page * perPage, totalRecords), total: totalRecords })}
             </span>
             <div className="flex items-center gap-3">
-              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
                 <ChevronLeft className="w-3.5 h-3.5" /> Prev
               </button>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                  const startPage = Math.max(0, Math.min(page - 2, totalPages - 5));
-                  const p = startPage + i;
-                  if (p >= totalPages) return null;
-                  return (
-                    <button key={p} onClick={() => setPage(p)}
-                      className={`w-8 h-8 text-sm rounded-lg font-medium transition-colors ${
-                        p === page
-                          ? "bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300"
-                          : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800"
-                      }`}>
-                      {p + 1}
-                    </button>
-                  );
-                })}
-              </div>
-              <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * limit >= totalRecords}
+              <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
                 Next <ChevronRight className="w-3.5 h-3.5" />
               </button>

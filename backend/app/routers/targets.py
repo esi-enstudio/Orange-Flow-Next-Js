@@ -317,10 +317,10 @@ async def delete_supervisor_target(
 
 @router.get("/rso-targets")
 async def get_rso_targets(
-    search: Optional[str] = None,
+    pagination: PaginationParams = Depends(),
     target_date_param: Optional[str] = Query(None, alias="target_date"),
-    skip: int = 0,
-    limit: int = 100,
+    market_type: Optional[str] = Query(None),
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
     db: AsyncSession = Depends(get_db),
     current_user = Depends(has_permission("targets.view")),
     house_id: Optional[int] = Depends(get_house_context)
@@ -333,15 +333,35 @@ async def get_rso_targets(
             joinedload(RSOTarget.supervisor).joinedload(Employee.user),
         )
     )
-    if house_id: query = query.where(RSOTarget.house_id == house_id)
+    active_house = filter_house_id or house_id
+    if active_house: query = query.where(RSOTarget.house_id == active_house)
     if target_date_param:
         query = query.where(RSOTarget.target_date == date.fromisoformat(target_date_param))
+    if market_type:
+        query = query.where(RSOTarget.market_type == market_type)
+    if pagination.search:
+        query = query.where(
+            RSOTarget.employee.has(Employee.dms_code.ilike(f"%{pagination.search}%"))
+        )
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.execute(count_query)
     total_count = total.scalar()
-    result = await db.execute(query.offset(skip).limit(limit).order_by(RSOTarget.id.desc()))
+    offset = (pagination.page - 1) * pagination.per_page
+    result = await db.execute(query.offset(offset).limit(pagination.per_page).order_by(RSOTarget.id.desc()))
     records = result.unique().scalars().all()
-    return {"total": total_count, "data": records}
+    total_pages = max(1, (total_count + pagination.per_page - 1) // pagination.per_page)
+    return {
+        "success": True,
+        "data": records,
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": total_count,
+            "total_pages": total_pages,
+            "has_next": pagination.page < total_pages,
+            "has_prev": pagination.page > 1,
+        }
+    }
 
 @router.get("/rso-targets/sample")
 async def download_rso_target_sample(
