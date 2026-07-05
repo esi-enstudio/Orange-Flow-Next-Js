@@ -16,6 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { ReportsSheet } from "./ReportsSheet";
 import { DMSSheet } from "./DMSSheet";
+import { MoreSheet } from "./MoreSheet";
 
 const reportPermissions = [
   "reports.view",
@@ -39,14 +40,12 @@ export function MobileNav() {
   const { hasPermission } = useAuth();
   const [reportsOpen, setReportsOpen] = useState(false);
   const [dmsOpen, setDmsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const canViewAnyReport = reportPermissions.some(p => hasPermission(p));
   const canViewAnyDms = dmsPermissions.some(p => hasPermission(p));
 
-  const linkItems = [
-    { key: "employees", title: t('nav.employees'), href: "/employees", icon: Users,   permission: "employees.view" },
-    { key: "more",      title: t('nav.more'),      href: "/more",      icon: Menu },
-  ].filter(item => !item.permission || hasPermission(item.permission));
+  const canViewEmployees = hasPermission("employees.view");
 
   return (
     <>
@@ -89,24 +88,31 @@ export function MobileNav() {
             </button>
           )}
 
-          {linkItems.map((item) => (
+          {canViewEmployees && (
             <Link
-              key={item.key}
-              href={item.href}
+              href="/employees"
               className={cn(
                 "flex flex-col items-center gap-1 transition-colors",
-                pathname.startsWith(item.href) ? "text-primary-600 dark:text-primary-400" : "text-gray-400 dark:text-gray-500"
+                pathname.startsWith("/employees") ? "text-primary-600 dark:text-primary-400" : "text-gray-400 dark:text-gray-500"
               )}
             >
-              <item.icon className="w-5 h-5" />
-              <span className="text-[10px] font-medium">{item.title}</span>
+              <Users className="w-5 h-5" />
+              <span className="text-[10px] font-medium">{t('nav.employees')}</span>
             </Link>
-          ))}
+          )}
+          <button
+            onClick={() => setMoreOpen(true)}
+            className="flex flex-col items-center gap-1 transition-colors text-gray-400 dark:text-gray-500"
+          >
+            <Menu className="w-5 h-5" />
+            <span className="text-[10px] font-medium">{t('nav.more')}</span>
+          </button>
         </div>
       </div>
 
       <ReportsSheet open={reportsOpen} onClose={() => setReportsOpen(false)} />
       <DMSSheet open={dmsOpen} onClose={() => setDmsOpen(false)} />
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} />
     </>
   );
 }

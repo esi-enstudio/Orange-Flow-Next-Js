@@ -2,7 +2,7 @@
 
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
-import { Bell, Search, Loader2, Menu } from "lucide-react";
+import { Bell, Search, Loader2 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/context/AuthContext";
 import { usePathname } from "next/navigation";
@@ -41,15 +41,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen bg-[#F8FAFC] dark:bg-slate-950 transition-colors duration-300">
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between px-4 md:px-8 sticky top-0 z-40 transition-colors duration-300 gap-4">
+        <header className="hidden md:flex h-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 items-center justify-between px-4 md:px-8 sticky top-0 z-40 transition-colors duration-300 gap-4">
           <div className="flex items-center gap-3 md:gap-6 flex-1 min-w-0">
-            <button 
-              onClick={() => setIsSidebarOpen(true)}
-              className="md:hidden flex-shrink-0 w-10 h-10 bg-gray-50 dark:bg-slate-800 rounded-xl flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-primary-500 transition-colors"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            
             <div className="relative hidden lg:block max-w-xs w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input 
