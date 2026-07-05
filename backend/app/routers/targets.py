@@ -7,6 +7,7 @@ from sqlalchemy.orm import joinedload
 from datetime import date, datetime
 
 from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context, get_current_user
+from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.house_target import HouseTarget
 from app.models.supervisor_target import SupervisorTarget
 from app.models.rso_target import RSOTarget
@@ -167,10 +168,8 @@ async def get_house_target(
 
 @router.get("/supervisor-targets")
 async def get_supervisor_targets(
-    search: Optional[str] = None,
+    pagination: PaginationParams = Depends(),
     target_date_param: Optional[str] = Query(None, alias="target_date"),
-    skip: int = 0,
-    limit: int = 100,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(has_permission("targets.view")),
     house_id: Optional[int] = Depends(get_house_context)
@@ -182,12 +181,27 @@ async def get_supervisor_targets(
     if house_id: query = query.where(SupervisorTarget.house_id == house_id)
     if target_date_param:
         query = query.where(SupervisorTarget.target_date == date.fromisoformat(target_date_param))
+    if pagination.search:
+        query = query.where(SupervisorTarget.employee.has(Employee.dms_code.ilike(f"%{pagination.search}%")))
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.execute(count_query)
     total_count = total.scalar()
-    result = await db.execute(query.offset(skip).limit(limit).order_by(SupervisorTarget.id.desc()))
+    offset = (pagination.page - 1) * pagination.per_page
+    result = await db.execute(query.offset(offset).limit(pagination.per_page).order_by(SupervisorTarget.id.desc()))
     records = result.unique().scalars().all()
-    return {"total": total_count, "data": records}
+    total_pages = max(1, (total_count + pagination.per_page - 1) // pagination.per_page)
+    return {
+        "success": True,
+        "data": records,
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": total_count,
+            "total_pages": total_pages,
+            "has_next": pagination.page < total_pages,
+            "has_prev": pagination.page > 1,
+        }
+    }
 
 @router.get("/supervisor-targets/sample")
 async def download_supervisor_target_sample(

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown } from "lucide-react";
+import { Search, Upload, Download, ChevronLeft, ChevronRight, ChevronUp, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import apiClient from "@/lib/api";
@@ -52,23 +52,25 @@ interface SupervisorTargetRecord {
 type ErrDict = Record<string, string>;
 
 export default function SupervisorTargetsPage() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<SupervisorTargetRecord[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [importProgress, setImportProgress] = useState<{percent: number; message: string} | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{message: string; count: number} | null>(null);
   const [summaryType, setSummaryType] = useState<"success" | "error">("success");
-  const limit = 50;
+  const perPage = 20;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<SupervisorTargetRecord | null>(null);
@@ -104,7 +106,7 @@ export default function SupervisorTargetsPage() {
       if (houseId) params.house_id = String(houseId);
       const res = await apiClient.get("employees/supervisors-list", { params });
       const list: SupervisorOption[] = res.data?.data || [];
-      const filtered = list.filter(s => s.id != null && (s.employee_id?.startsWith("SUP") || s.dms_code?.startsWith("SUP")));
+      const filtered = list.filter(s => s.id != null);
       setSupervisors(filtered);
     } catch {}
   };
@@ -119,9 +121,10 @@ export default function SupervisorTargetsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get("/supervisor-targets", { params: { search: search || undefined, skip: page * limit, limit } });
+      const res = await axios.get("/supervisor-targets", { params: { search: search || undefined, page, per_page: perPage } });
       setData(res.data?.data || []);
-      setTotalRecords(res.data?.total || 0);
+      setTotalRecords(res.data?.pagination?.total || 0);
+      setTotalPages(res.data?.pagination?.total_pages || 1);
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.response?.data?.error?.message || err?.message || "Failed to load";
       toast.error(msg);
@@ -354,7 +357,7 @@ export default function SupervisorTargetsPage() {
     } catch { toast.error("Download failed"); }
   };
 
-  const totalPages = Math.ceil(totalRecords / limit);
+
 
   if (!authLoading && !hasPermission("targets.view")) { return <AccessDenied />; }
 
@@ -475,12 +478,13 @@ export default function SupervisorTargetsPage() {
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder={t('supervisor_targets.search_placeholder')} value={search}
-              onChange={e => { setSearch(e.target.value); setPage(0); }}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
               className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none dark:text-gray-100" />
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        {/* Desktop Table */}
+        <div className="hidden lg:block overflow-x-auto scrollbar-custom">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_employee')}</th>
@@ -519,7 +523,7 @@ export default function SupervisorTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dsso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dlso}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString() : "-"}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString(language, { month: 'long' }) : "-"}</td>
                   {canEdit && (
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
@@ -537,34 +541,74 @@ export default function SupervisorTargetsPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile Accordion */}
+        <div className="lg:hidden divide-y dark:divide-slate-800">
+          {loading ? (
+            <div className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>
+          ) : data.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">{t('supervisor_targets.no_data')}</div>
+          ) : data.map((r) => (
+            <div key={r.id}>
+              <button
+                onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                    {r.employee?.user?.name || r.employee?.pool_number || `#${r.employee_id}`}
+                  </div>
+                  {r.employee?.dms_code && (
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{r.employee.dms_code}</div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0 ml-2">
+                  <span className="text-xs text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString(language, { month: 'long' }) : "-"}</span>
+                  {expandedId === r.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                </div>
+              </button>
+              <div
+                className="overflow-hidden transition-all duration-300 ease-in-out"
+                style={{ maxHeight: expandedId === r.id ? '500px' : '0px', opacity: expandedId === r.id ? 1 : 0 }}
+              >
+                <div className="px-4 pb-3 pt-1 space-y-1.5">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_ev_secondary')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.ev_secondary}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_sc_secondary')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.sc_secondary}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_recharge')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.total_recharge}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_ga')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.total_ga}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_sso')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.sso}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_lso')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.lso}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_dsso')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.dsso}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_dso')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.dso}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_dlso')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.dlso}</span></div>
+                  </div>
+                  {canEdit && (
+                    <div className="flex gap-2 pt-2.5 border-t dark:border-slate-800 mt-2">
+                      <button onClick={() => openEditModal(r)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-colors">
+                        <Edit2 className="w-3.5 h-3.5" /> Edit
+                      </button>
+                      <button onClick={() => handleDeleteClick(r.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
         {totalRecords > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-slate-800">
             <span className="text-xs text-gray-400">
-              {t('supervisor_targets.showing_results', { start: page * limit + 1, end: Math.min((page + 1) * limit, totalRecords), total: totalRecords })}
+              {t('supervisor_targets.showing_results', { start: (page - 1) * perPage + 1, end: Math.min(page * perPage, totalRecords), total: totalRecords })}
             </span>
             <div className="flex items-center gap-3">
-              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
                 <ChevronLeft className="w-3.5 h-3.5" /> Prev
               </button>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                  const startPage = Math.max(0, Math.min(page - 2, totalPages - 5));
-                  const p = startPage + i;
-                  if (p >= totalPages) return null;
-                  return (
-                    <button key={p} onClick={() => setPage(p)}
-                      className={`w-8 h-8 text-sm rounded-lg font-medium transition-colors ${
-                        p === page
-                          ? "bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300"
-                          : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800"
-                      }`}>
-                      {p + 1}
-                    </button>
-                  );
-                })}
-              </div>
-              <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * limit >= totalRecords}
+              <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
                 Next <ChevronRight className="w-3.5 h-3.5" />
               </button>

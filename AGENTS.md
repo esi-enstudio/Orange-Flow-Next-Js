@@ -832,6 +832,8 @@ module.delete
 </td>
 ```
 
+3. **Responsive — Collapsible Rows** — Small screen-এ (`lg` breakpoint-এর নিচে) টেবিলের row গুলো **collapsible/expandable accordion**-এ convert হবে। Desktop টেবিল (`hidden lg:table`) লুকিয়ে mobile-friendly accordion list (`lg:hidden`) দেখাতে হবে। প্রতিটি accordion-এ শুধু মূল তথ্য (name, identifier) visible থাকবে, остальные details click-এ expand হবে। একসাথে শুধু একটি row expand রাখতে হবে। বিস্তারিত জন্য নিচের **Responsive Table — Accordion Behavior** সেকশন দেখুন।
+
 ---
 
 # Import/Export Rules
