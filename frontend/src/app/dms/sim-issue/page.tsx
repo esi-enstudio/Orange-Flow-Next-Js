@@ -406,7 +406,7 @@ export default function SIMIssuePage() {
         </motion.div>
 
         {/* Main Entry Card */}
-        <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm relative">
+        <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm relative overflow-hidden">
           {/* Glow decoration */}
           <motion.div
             initial={{ opacity: 0, scale: 0.5 }}
@@ -661,12 +661,10 @@ export default function SIMIssuePage() {
 
                 {/* Submit Block */}
                 <div className="flex justify-end pt-2">
-                  <motion.button
+                  <button
                     type="submit"
                     disabled={loading || parsedCount === 0 || parsedCount > 500 || !selectedHouseId || !selectedRetailer}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="px-8 py-3.5 bg-gradient-to-tr from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:translate-y-[1px] shadow-orange-200 dark:shadow-none flex items-center gap-2"
+                    className="px-8 py-3.5 bg-gradient-to-tr from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     {loading ? (
                       <>
@@ -679,7 +677,7 @@ export default function SIMIssuePage() {
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
-                  </motion.button>
+                  </button>
                 </div>
               </>
             )}
