@@ -406,7 +406,7 @@ export default function SIMIssuePage() {
         </motion.div>
 
         {/* Main Entry Card */}
-        <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm relative overflow-hidden">
+        <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm relative">
           {/* Glow decoration */}
           <motion.div
             initial={{ opacity: 0, scale: 0.5 }}
