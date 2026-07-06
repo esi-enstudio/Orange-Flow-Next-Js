@@ -11,11 +11,22 @@ import {
   Plus, Search, ChevronLeft, ChevronRight,
   Eye, Pencil, Trash2, ChartNoAxesColumnIncreasing, FileDown,
   Calendar, Activity, Layers, CalendarDays,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, TrendingUp,
 } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import CreateEventModal from "./_components/CreateEventModal";
 import DeleteConfirmModal from "./_components/DeleteConfirmModal";
 
@@ -356,42 +367,71 @@ export default function ZoomInPage() {
           </div>
 
           {/* Right: Daily Chart */}
-          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm">
-            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-4">Daily Events</h3>
-            <div className="h-48">
-              {chartData.length === 0 || chartData.every((d) => d.count === 0) ? (
-                <div className="flex items-center justify-center h-full text-xs text-gray-400">No events this month</div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis
-                      dataKey="day"
-                      tick={{ fontSize: 11, fill: "#9ca3af" }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fontSize: 11, fill: "#9ca3af" }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#1e293b",
-                        border: "none",
-                        borderRadius: 8,
-                        color: "#f1f5f9",
-                        fontSize: 12,
-                      }}
-                      labelFormatter={(label) => `Day ${label}`}
-                    />
-                    <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={24} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+          <div className="lg:col-span-2">
+            <Card className="py-0">
+              <CardHeader className="flex flex-col items-stretch border-b p-0! sm:flex-row">
+                <div className="flex flex-1 flex-col justify-center gap-1 px-6 pt-4 pb-3 sm:py-0!">
+                  <CardTitle>Daily Events</CardTitle>
+                  <CardDescription>
+                    Events per day for{" "}
+                    {new Date(dateFrom + "T00:00:00").toLocaleDateString("en-US", {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </CardDescription>
+                </div>
+                <div className="flex">
+                  <div className="relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l sm:border-t-0 sm:border-l sm:px-8 sm:py-6">
+                    <span className="text-xs text-muted-foreground">Total Events</span>
+                    <span className="text-lg leading-none font-bold sm:text-3xl">
+                      {chartData.reduce((s, d) => s + d.count, 0).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="px-2 sm:p-6">
+                {chartData.length === 0 || chartData.every((d) => d.count === 0) ? (
+                  <div className="flex items-center justify-center h-[250px] text-xs text-muted-foreground">
+                    No events this month
+                  </div>
+                ) : (
+                  <ChartContainer
+                    config={{
+                      count: {
+                        label: "Events",
+                        color: "var(--chart-1)",
+                      },
+                    } satisfies ChartConfig}
+                    className="aspect-auto h-[250px] w-full"
+                  >
+                    <BarChart
+                      accessibilityLayer
+                      data={chartData}
+                      margin={{ left: 12, right: 12 }}
+                    >
+                      <CartesianGrid vertical={false} />
+                      <XAxis
+                        dataKey="day"
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        tick={{ fontSize: 11, fill: "#9ca3af" }}
+                      />
+                      <ChartTooltip
+                        cursor={{ fill: "rgba(0,0,0,0.03)" }}
+                        content={<ChartTooltipContent indicator="dot" />}
+                      />
+                      <Bar
+                        dataKey="count"
+                        fill="var(--color-count)"
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={24}
+                      />
+                    </BarChart>
+                  </ChartContainer>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       )}
