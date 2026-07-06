@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -8,16 +8,14 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { toast } from "react-hot-toast";
 import {
-  Plus,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  Pencil,
-  Trash2,
-  ChartNoAxesColumnIncreasing,
-  FileDown,
+  Plus, Search, ChevronLeft, ChevronRight,
+  Eye, Pencil, Trash2, ChartNoAxesColumnIncreasing, FileDown,
+  Calendar, Activity, Layers, CalendarDays,
+  ChevronDown, ChevronUp,
 } from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
 import CreateEventModal from "./_components/CreateEventModal";
 import DeleteConfirmModal from "./_components/DeleteConfirmModal";
 
@@ -52,6 +50,60 @@ interface PaginatedResponse {
   };
 }
 
+interface DashboardSummary {
+  total_events: number;
+  total_activations: number;
+  total_allocated: number;
+  remaining_allocations: number;
+  allocation_used_pct: number;
+  event_type_breakdown: { event_type: string; thana: string; allocated: number; created: number; remaining: number }[];
+  daily_events: { date: string; count: number }[];
+}
+
+const perPage = 5;
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  subtitle,
+  color,
+}: {
+  icon: typeof Calendar;
+  label: string;
+  value: string | number;
+  subtitle?: string;
+  color: string;
+}) {
+  const colorMap: Record<string, string> = {
+    blue: "bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    emerald: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    violet: "bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400",
+    amber: "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-all duration-300">
+      <div className="flex items-start justify-between">
+        <div className="space-y-1.5">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {label}
+          </p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {value}
+          </p>
+          {subtitle && (
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">{subtitle}</p>
+          )}
+        </div>
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${colorMap[color] || colorMap.blue}`}>
+          <Icon className="w-5 h-5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ZoomInPage() {
   const { hasPermission, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -59,6 +111,7 @@ export default function ZoomInPage() {
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, total_pages: 0, has_next: false, has_prev: false });
@@ -67,6 +120,9 @@ export default function ZoomInPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
 
   function getDefaultFrom(): string {
     const now = new Date();
@@ -82,13 +138,9 @@ export default function ZoomInPage() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const params: Record<string, string> = {
-        date_from: dateFrom,
-        date_to: dateTo,
-      };
+      const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
       const res = await apiClient.get("zoom-in/events/export", {
-        params,
-        responseType: "blob",
+        params, responseType: "blob",
       });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
@@ -106,14 +158,26 @@ export default function ZoomInPage() {
     }
   };
 
-  const fetchEvents = async () => {
+  const fetchDashboard = useCallback(async (month?: string) => {
+    setDashboardLoading(true);
+    try {
+      const params: Record<string, string> = {};
+      if (month) params.month = month;
+      const res = await apiClient.get<DashboardSummary>("zoom-in/dashboard/summary", { params });
+      setDashboard(res.data);
+    } catch {
+      // silent
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, []);
+
+  const fetchEvents = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string> = {
-        page: String(page),
-        per_page: "5",
-        date_from: dateFrom,
-        date_to: dateTo,
+        page: String(page), per_page: String(perPage),
+        date_from: dateFrom, date_to: dateTo,
       };
       if (search) params.search = search;
       const res = await apiClient.get<PaginatedResponse>("zoom-in/events", { params });
@@ -124,17 +188,20 @@ export default function ZoomInPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, search, dateFrom, dateTo, t]);
 
   useEffect(() => {
     if (authLoading || !hasPermission("zoom_in.view")) return;
     fetchEvents();
-  }, [authLoading]);
+    // Use month from dateFrom for dashboard summary
+    const month = dateFrom.substring(0, 7);
+    fetchDashboard(month);
+  }, [authLoading, hasPermission, dateFrom]);
 
   useEffect(() => {
     if (authLoading || !hasPermission("zoom_in.view")) return;
     fetchEvents();
-  }, [page, search, dateFrom, dateTo]);
+  }, [page, search, dateTo]);
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
@@ -144,6 +211,7 @@ export default function ZoomInPage() {
       toast.success(t("zoom_in.messages.delete_success"));
       setDeleteTarget(null);
       fetchEvents();
+      fetchDashboard(dateFrom.substring(0, 7));
     } catch {
       toast.error(t("common.error"));
     } finally {
@@ -151,12 +219,27 @@ export default function ZoomInPage() {
     }
   };
 
+  const onModalSuccess = () => {
+    fetchEvents();
+    fetchDashboard(dateFrom.substring(0, 7));
+  };
+
+  const chartData = (dashboard?.daily_events || []).map((d) => ({
+    day: new Date(d.date).getDate().toString(),
+    count: d.count,
+  }));
+
+  const allocationUsedPct = dashboard?.allocation_used_pct ?? 0;
+  const totalAllocated = dashboard?.total_allocated ?? 0;
+  const createdFromAlloc = totalAllocated - (dashboard?.remaining_allocations ?? 0);
+
   if (!authLoading && !hasPermission("zoom_in.view")) {
     return <AccessDenied />;
   }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* ─── Header ───────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.title")}</h1>
@@ -167,7 +250,7 @@ export default function ZoomInPage() {
             <button
               onClick={handleExport}
               disabled={exporting}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-bold hover:bg-green-600 transition-colors shadow-sm disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-bold hover:bg-emerald-600 transition-all shadow-sm disabled:opacity-50"
             >
               <FileDown className="w-4 h-4" />
               {t("common.export")}
@@ -176,7 +259,7 @@ export default function ZoomInPage() {
           {hasPermission("zoom_in.create") && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl text-sm font-bold hover:bg-primary-600 transition-all shadow-sm"
             >
               <Plus className="w-4 h-4" />
               {t("zoom_in.create_event")}
@@ -185,6 +268,135 @@ export default function ZoomInPage() {
         </div>
       </div>
 
+      {/* ─── Stats Cards ──────────────────────────────────────── */}
+      {dashboardLoading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 animate-pulse">
+              <div className="space-y-3">
+                <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded" />
+                <div className="h-7 w-16 bg-gray-200 dark:bg-slate-700 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : dashboard ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            icon={CalendarDays}
+            label={t("zoom_in.title")}
+            value={dashboard.total_events}
+            subtitle="Total Events"
+            color="blue"
+          />
+          <StatCard
+            icon={Activity}
+            label="Activations"
+            value={dashboard.total_events > 0 ? "—" : "0"}
+            subtitle={dashboard.total_events > 0 ? "from events" : "No data"}
+            color="emerald"
+          />
+          <StatCard
+            icon={Layers}
+            label="Allocation Used"
+            value={`${allocationUsedPct}%`}
+            subtitle={`${createdFromAlloc} of ${totalAllocated}`}
+            color="violet"
+          />
+          <StatCard
+            icon={Calendar}
+            label="Remaining"
+            value={dashboard.remaining_allocations}
+            subtitle="Available slots"
+            color="amber"
+          />
+        </div>
+      ) : null}
+
+      {/* ─── Middle Section: Progress + Chart ─────────────────── */}
+      {!dashboardLoading && dashboard && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left: Allocation Progress */}
+          <div className="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-4">Allocation Progress</h3>
+            {dashboard.event_type_breakdown.length === 0 ? (
+              <p className="text-xs text-gray-400">No allocations for this month</p>
+            ) : (
+              <div className="space-y-4">
+                {dashboard.event_type_breakdown.map((et, idx) => {
+                  const pct = et.allocated > 0 ? Math.min(100, (et.created / et.allocated) * 100) : 0;
+                  const barColor = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500";
+                  return (
+                    <div key={`${et.event_type}-${et.thana}-${idx}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{et.event_type}</span>
+                          {et.thana && (
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1.5">— {et.thana}</span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0 ml-2">
+                          {et.created}/{et.allocated}
+                        </span>
+                      </div>
+                      <div className="h-2 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ease-out ${barColor}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      {et.remaining > 0 && (
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{et.remaining} remaining</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Right: Daily Chart */}
+          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-4">Daily Events</h3>
+            <div className="h-48">
+              {chartData.length === 0 || chartData.every((d) => d.count === 0) ? (
+                <div className="flex items-center justify-center h-full text-xs text-gray-400">No events this month</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis
+                      dataKey="day"
+                      tick={{ fontSize: 11, fill: "#9ca3af" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fontSize: 11, fill: "#9ca3af" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#1e293b",
+                        border: "none",
+                        borderRadius: 8,
+                        color: "#f1f5f9",
+                        fontSize: 12,
+                      }}
+                      labelFormatter={(label) => `Day ${label}`}
+                    />
+                    <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={24} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Filters ──────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex gap-3 flex-wrap">
           <div>
@@ -192,7 +404,7 @@ export default function ZoomInPage() {
               type="date"
               value={dateFrom}
               onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-              className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
+              className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
             />
           </div>
           <div>
@@ -200,7 +412,7 @@ export default function ZoomInPage() {
               type="date"
               value={dateTo}
               onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-              className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
+              className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
             />
           </div>
         </div>
@@ -209,13 +421,14 @@ export default function ZoomInPage() {
           <input
             type="text"
             placeholder="Search..."
-            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
+            className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
       </div>
 
+      {/* ─── Events Table / Loading / Empty ───────────────────── */}
       {loading ? (
         <div className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
           {[1, 2, 3, 4, 5].map((i) => (
@@ -237,43 +450,136 @@ export default function ZoomInPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("zoom_in.messages.no_events_desc")}</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
-          <div className="overflow-x-auto scrollbar-custom">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50">
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.date")}</th>
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.house")}</th>
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.thana")}</th>
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.event_type")}</th>
-                  <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.activation_count")}</th>
-                  <th className="text-right px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.actions")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
-                {events.map((event) => {
-                  const d = new Date(event.date);
-                  const formattedDate = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-                  return (
-                  <tr key={event.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="whitespace-nowrap px-6 py-4 text-gray-900 dark:text-gray-100 font-medium">{formattedDate}</td>
-                    <td className="whitespace-nowrap px-6 py-4">
-                      <div className="text-gray-900 dark:text-gray-100 font-medium">{event.house_name || "—"}</div>
-                      {event.house_code && <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">{event.house_code}</div>}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-gray-700 dark:text-gray-300">{event.thana}</td>
-                    <td className="whitespace-nowrap px-6 py-4">
-                      <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
-                        {event.event_type_name || "—"}
+        <>
+          {/* ─── Desktop Table ─────────────────────────────────── */}
+          <div className="hidden lg:block bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
+            <div className="overflow-x-auto scrollbar-custom">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50">
+                    <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.date")}</th>
+                    <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.house")}</th>
+                    <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.thana")}</th>
+                    <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.event_type")}</th>
+                    <th className="text-left px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.fields.activation_count")}</th>
+                    <th className="text-right px-6 py-4 font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{t("zoom_in.table.actions")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
+                  {events.map((event) => {
+                    const d = new Date(event.date);
+                    const formattedDate = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+                    return (
+                      <tr key={event.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <td className="whitespace-nowrap px-6 py-4 text-gray-900 dark:text-gray-100 font-medium">{formattedDate}</td>
+                        <td className="whitespace-nowrap px-6 py-4">
+                          <div className="text-gray-900 dark:text-gray-100 font-medium">{event.house_name || "—"}</div>
+                          {event.house_code && <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">{event.house_code}</div>}
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-gray-700 dark:text-gray-300">{event.thana}</td>
+                        <td className="whitespace-nowrap px-6 py-4">
+                          <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
+                            {event.event_type_name || "—"}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-gray-900 dark:text-gray-100 font-bold">{event.activation_count ?? 0}</td>
+                        <td className="whitespace-nowrap px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => router.push(`/zoom-in/${event.id}`)}
+                              className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-all"
+                              title="View"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            {hasPermission("zoom_in.edit") && (
+                              <button
+                                onClick={() => setEditEventId(event.id)}
+                                className="p-2 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition-all"
+                                title="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            {hasPermission("zoom_in.delete") && (
+                              <button
+                                onClick={() => setDeleteTarget({ id: event.id, label: `#${event.id} — ${event.house_name || event.date}` })}
+                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* ─── Mobile Accordion ──────────────────────────────── */}
+          <div className="lg:hidden space-y-3">
+            {events.map((event) => {
+              const d = new Date(event.date);
+              const formattedDate = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+              const isExpanded = expandedId === event.id;
+              return (
+                <div
+                  key={event.id}
+                  className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 overflow-hidden"
+                >
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : event.id)}
+                    className="w-full flex items-center justify-between p-4 text-left"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 text-xs font-bold shrink-0">
+                        {event.id}
                       </span>
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-gray-900 dark:text-gray-100 font-bold">{event.activation_count ?? 0}</td>
-                    <td className="whitespace-nowrap px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
+                          {event.house_name || "—"}
+                        </p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                          {event.thana} · {event.event_type_name || "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-bold text-gray-900 dark:text-gray-100">{event.activation_count ?? 0}</span>
+                      {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <div className="px-4 pb-4 pt-0 border-t border-gray-100 dark:border-slate-800 space-y-3">
+                      <div className="grid grid-cols-2 gap-3 pt-3">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("zoom_in.table.date")}</p>
+                          <p className="text-xs font-medium text-gray-900 dark:text-gray-100 mt-0.5">{formattedDate}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("zoom_in.fields.house")}</p>
+                          <p className="text-xs font-medium text-gray-900 dark:text-gray-100 mt-0.5">{event.house_name || "—"}</p>
+                          {event.house_code && <p className="text-[10px] text-gray-400">{event.house_code}</p>}
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("zoom_in.fields.thana")}</p>
+                          <p className="text-xs font-medium text-gray-900 dark:text-gray-100 mt-0.5">{event.thana}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("zoom_in.fields.event_type")}</p>
+                          <span className="inline-flex mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
+                            {event.event_type_name || "—"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
                         <button
                           onClick={() => router.push(`/zoom-in/${event.id}`)}
                           className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-all"
-                          title="View"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -281,7 +587,6 @@ export default function ZoomInPage() {
                           <button
                             onClick={() => setEditEventId(event.id)}
                             className="p-2 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition-all"
-                            title="Edit"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -290,32 +595,31 @@ export default function ZoomInPage() {
                           <button
                             onClick={() => setDeleteTarget({ id: event.id, label: `#${event.id} — ${event.house_name || event.date}` })}
                             className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all"
-                            title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </div>
+        </>
       )}
 
+      {/* ─── Pagination ───────────────────────────────────────── */}
       {!loading && pagination.total_pages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            Showing {(page - 1) * 5 + 1} to {Math.min(page * 5, pagination.total)} of {pagination.total}
+            Showing {(page - 1) * perPage + 1} to {Math.min(page * perPage, pagination.total)} of {pagination.total}
           </p>
           <div className="flex items-center gap-4">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={!pagination.has_prev}
-              className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
+              className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
               {t("common.prev")}
@@ -324,7 +628,7 @@ export default function ZoomInPage() {
             <button
               onClick={() => setPage((p) => p + 1)}
               disabled={!pagination.has_next}
-              className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
+              className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
             >
               {t("common.next")}
               <ChevronRight className="w-4 h-4" />
@@ -333,16 +637,17 @@ export default function ZoomInPage() {
         </div>
       )}
 
+      {/* ─── Modals ───────────────────────────────────────────── */}
       <CreateEventModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSuccess={fetchEvents}
+        onSuccess={onModalSuccess}
       />
       <CreateEventModal
         isOpen={!!editEventId}
         editEventId={editEventId}
         onClose={() => setEditEventId(null)}
-        onSuccess={fetchEvents}
+        onSuccess={onModalSuccess}
       />
       <DeleteConfirmModal
         isOpen={!!deleteTarget}

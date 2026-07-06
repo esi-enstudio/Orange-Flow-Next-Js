@@ -85,9 +85,19 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
   const [otherRetailerCode, setOtherRetailerCode] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const [allocationInfo, setAllocationInfo] = useState<{
+    has_allocation: boolean;
+    allocated_count: number;
+    created_count: number;
+    remaining: number;
+    loading: boolean;
+    error?: string;
+  }>({ has_allocation: false, allocated_count: 0, created_count: 0, remaining: 0, loading: false });
+
   const resetForm = () => {
     suppressEffects.current = false;
     setErrors({});
+    setAllocationInfo({ has_allocation: false, allocated_count: 0, created_count: 0, remaining: 0, loading: false });
     setHouseId("");
     setDate(new Date().toISOString().split("T")[0]);
     setEventTypeId("");
@@ -252,6 +262,42 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
     };
     fetchRetailers();
   }, [houseId]);
+
+  // ─── Allocation Check ─────────────────────────────────────────
+  useEffect(() => {
+    if (!houseId || !date || !eventTypeId || !thana) {
+      setAllocationInfo({ has_allocation: false, allocated_count: 0, created_count: 0, remaining: 0, loading: false });
+      return;
+    }
+    const month = date.substring(0, 7);
+    setAllocationInfo(prev => ({ ...prev, loading: true }));
+    apiClient.get("zoom-in/allocations/check", {
+      params: {
+        house_id: houseId,
+        event_type_id: eventTypeId,
+        thana,
+        month,
+        exclude_event_id: editEventId || undefined,
+      },
+    }).then(res => {
+      setAllocationInfo({
+        has_allocation: res.data.has_allocation,
+        allocated_count: res.data.allocated_count,
+        created_count: res.data.created_count,
+        remaining: res.data.remaining,
+        loading: false,
+      });
+    }).catch(() => {
+      setAllocationInfo({
+        has_allocation: false,
+        allocated_count: 0,
+        created_count: 0,
+        remaining: 0,
+        loading: false,
+        error: t("zoom_in.messages.load_failed"),
+      });
+    });
+  }, [houseId, date, eventTypeId, thana, editEventId]);
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
@@ -420,6 +466,61 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
 
             <hr className="border-gray-100 dark:border-slate-800" />
 
+            {/* ─── Allocation Status ──────────────────────────── */}
+            {allocationInfo.loading && (
+              <div className="flex items-center gap-2 px-4 py-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                <span className="text-sm text-blue-700 dark:text-blue-400">{t("common.loading")}</span>
+              </div>
+            )}
+            {!allocationInfo.loading && houseId && date && eventTypeId && thana && (
+              <div className={`px-4 py-3 rounded-xl border text-sm ${
+                !allocationInfo.has_allocation
+                  ? "bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-700 dark:text-red-400"
+                  : allocationInfo.remaining === 0
+                  ? "bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-700 dark:text-red-400"
+                  : allocationInfo.remaining <= 2
+                  ? "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900 text-amber-700 dark:text-amber-400"
+                  : "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400"
+              }`}>
+                {!allocationInfo.has_allocation ? (
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5">⚠️</span>
+                    <div>
+                      <p className="font-bold">{t("zoom_in.messages.no_allocation_error")}</p>
+                      <p className="text-xs mt-1 opacity-80">
+                        {t("zoom_in.fields.month")}: {date.substring(0, 7)} |{" "}
+                        {t("zoom_in.fields.thana")}: {thana} |{" "}
+                        {t("zoom_in.fields.event_type")}: {eventTypes.find(et => et.id === Number(eventTypeId))?.name || ""}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold">{t("zoom_in.messages.allocation_check_title")}:</span>
+                      <span>{t("zoom_in.messages.allocation_info", {
+                        allocated: allocationInfo.allocated_count,
+                        created: allocationInfo.created_count,
+                        remaining: allocationInfo.remaining,
+                      })}</span>
+                    </div>
+                    <span className={`font-bold text-xs px-2 py-0.5 rounded-full ${
+                      allocationInfo.remaining === 0
+                        ? "bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200"
+                        : allocationInfo.remaining <= 2
+                        ? "bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200"
+                        : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200"
+                    }`}>
+                      {allocationInfo.remaining === 0
+                        ? t("zoom_in.messages.allocation_exceeded_error")
+                        : t("zoom_in.messages.allocation_remaining", { remaining: allocationInfo.remaining })}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
@@ -546,7 +647,7 @@ export default function CreateEventModal({ isOpen, onClose, onSuccess, editEvent
               </button>
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || Boolean(!allocationInfo.loading && houseId && date && eventTypeId && thana && (!allocationInfo.has_allocation || allocationInfo.remaining === 0))}
                 className="px-6 py-2.5 bg-primary-500 text-white rounded-xl text-sm font-bold hover:bg-primary-600 transition-colors disabled:opacity-50 flex items-center gap-2"
               >
                 {submitting ? (

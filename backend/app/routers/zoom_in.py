@@ -2,6 +2,7 @@ from typing import Optional
 from datetime import datetime, date, timedelta
 import logging
 import io
+from collections import defaultdict
 
 import os
 import shutil
@@ -17,7 +18,7 @@ from app.schemas.zoom_in import (
     ZoomInActivitySchema, ZoomInActivityCreate, ZoomInActivityUpdate,
     ZoomInAllocationCreate, ZoomInAllocationUpdate, ZoomInAllocationResponse,
     ZoomInEventCreate, ZoomInEventUpdate, ZoomInEventResponse,
-    CurrentMonthSummary,
+    CurrentMonthSummary, AllocationCheckResponse, DashboardSummaryResponse,
     BulkAllocationCreate, BulkAllocationItem,
 )
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
@@ -641,6 +642,217 @@ async def update_allocation(
     return {"success": True, "message": "Allocation updated", "id": allocation.id}
 
 
+@router.get("/allocations/check", response_model=AllocationCheckResponse)
+async def check_allocation(
+    house_id: int = Query(...),
+    event_type_id: int = Query(...),
+    thana: str = Query(...),
+    month: str = Query(..., description="Month (YYYY-MM)"),
+    exclude_event_id: Optional[int] = Query(None, description="Exclude this event ID from count (for edit)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("zoom_in.view")),
+):
+    try:
+        target_month = datetime.strptime(month, "%Y-%m").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
+
+    alloc_result = await db.execute(
+        select(ZoomInAllocation).options(
+            joinedload(ZoomInAllocation.house),
+            joinedload(ZoomInAllocation.event_type),
+        ).where(
+            ZoomInAllocation.house_id == house_id,
+            ZoomInAllocation.month == target_month,
+            ZoomInAllocation.event_type_id == event_type_id,
+            ZoomInAllocation.thana == thana,
+            ZoomInAllocation.is_deleted == False,
+        )
+    )
+    allocation = alloc_result.scalar_one_or_none()
+
+    if not allocation:
+        return AllocationCheckResponse(
+            has_allocation=False,
+            allocated_count=0,
+            created_count=0,
+            remaining=0,
+            month=month,
+        )
+
+    event_count_query = select(func.count(ZoomInEvent.id)).where(
+        ZoomInEvent.house_id == house_id,
+        func.date_trunc("month", ZoomInEvent.date) == target_month,
+        ZoomInEvent.event_type_id == event_type_id,
+        ZoomInEvent.thana == thana,
+    )
+    if exclude_event_id:
+        event_count_query = event_count_query.where(ZoomInEvent.id != exclude_event_id)
+
+    count_result = await db.execute(event_count_query)
+    created_count = count_result.scalar() or 0
+
+    remaining = max(0, allocation.count - created_count)
+
+    return AllocationCheckResponse(
+        has_allocation=True,
+        allocated_count=allocation.count,
+        created_count=created_count,
+        remaining=remaining,
+        month=month,
+        house_name=allocation.house.name if allocation.house else None,
+        event_type_name=allocation.event_type.name if allocation.event_type else None,
+        thana=allocation.thana,
+    )
+
+
+@router.get("/dashboard/summary", response_model=DashboardSummaryResponse)
+async def get_dashboard_summary(
+    month: Optional[str] = Query(None, description="Month (YYYY-MM), defaults to current"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("zoom_in.view")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    if month:
+        target_month = datetime.strptime(month, "%Y-%m").date()
+    else:
+        today = date.today()
+        target_month = date(today.year, today.month, 1)
+
+    next_month = date(target_month.year + target_month.month // 12, target_month.month % 12 + 1, 1)
+    month_end = next_month - timedelta(days=1)
+
+    user_house_ids = [h.id for h in current_user.houses]
+    is_admin = is_admin_user(current_user)
+
+    effective_house_id = house_id
+    if not effective_house_id and not is_admin and user_house_ids:
+        effective_house_id = user_house_ids[0]
+
+    house_filter = []
+    if effective_house_id:
+        house_filter = [ZoomInEvent.house_id == effective_house_id]
+    elif not is_admin:
+        if user_house_ids:
+            house_filter = [ZoomInEvent.house_id.in_(user_house_ids)]
+        else:
+            house_filter = [ZoomInEvent.house_id == -1]
+
+    # ─── Total Events & Activations ─────────────────────────────
+    event_query = select(
+        func.count(ZoomInEvent.id).label("total_events"),
+        func.coalesce(func.sum(ZoomInEvent.id), 0).label("total_activations"),
+    ).where(
+        ZoomInEvent.date >= target_month,
+        ZoomInEvent.date <= month_end,
+        *house_filter,
+    )
+
+    # Count events only (activations are calculated per-event, so total_events is count)
+    count_query = select(func.count(ZoomInEvent.id)).where(
+        ZoomInEvent.date >= target_month,
+        ZoomInEvent.date <= month_end,
+        *house_filter,
+    )
+    total_result = await db.execute(count_query)
+    total_events = total_result.scalar() or 0
+
+    # ─── Daily Event Counts ──────────────────────────────────────
+    daily_query = select(
+        ZoomInEvent.date,
+        func.count(ZoomInEvent.id).label("cnt"),
+    ).where(
+        ZoomInEvent.date >= target_month,
+        ZoomInEvent.date <= month_end,
+        *house_filter,
+    ).group_by(ZoomInEvent.date).order_by(ZoomInEvent.date)
+
+    daily_result = await db.execute(daily_query)
+    daily_map: dict[str, int] = {}
+    for row in daily_result.all():
+        daily_map[str(row.date)] = row.cnt
+
+    daily_events = []
+    current = target_month
+    while current <= month_end:
+        daily_events.append({"date": str(current), "count": daily_map.get(str(current), 0)})
+        current += timedelta(days=1)
+
+    # ─── Allocations ────────────────────────────────────────────
+    alloc_query = select(ZoomInAllocation).options(
+        joinedload(ZoomInAllocation.event_type),
+    ).where(
+        ZoomInAllocation.month == target_month,
+        ZoomInAllocation.is_deleted == False,
+    )
+    if effective_house_id:
+        alloc_query = alloc_query.where(ZoomInAllocation.house_id == effective_house_id)
+
+    alloc_result = await db.execute(alloc_query)
+    allocations = alloc_result.unique().scalars().all()
+
+    total_allocated = sum(a.count for a in allocations)
+
+    # ─── Events Per Event Type ──────────────────────────────────
+    event_type_query = select(
+        ZoomInEvent.event_type_id,
+        func.count(ZoomInEvent.id).label("cnt"),
+    ).where(
+        ZoomInEvent.date >= target_month,
+        ZoomInEvent.date <= month_end,
+        *house_filter,
+    ).group_by(ZoomInEvent.event_type_id)
+
+    event_type_result = await db.execute(event_type_query)
+    event_type_counts: dict[int, int] = {}
+    for row in event_type_result.all():
+        event_type_counts[row.event_type_id] = row.cnt
+
+    # ─── Events Per (Event Type + Thana) ────────────────────────
+    event_thana_query = select(
+        ZoomInEvent.event_type_id,
+        ZoomInEvent.thana,
+        func.count(ZoomInEvent.id).label("cnt"),
+    ).where(
+        ZoomInEvent.date >= target_month,
+        ZoomInEvent.date <= month_end,
+        *house_filter,
+    ).group_by(ZoomInEvent.event_type_id, ZoomInEvent.thana)
+
+    et_result = await db.execute(event_thana_query)
+    event_thana_counts: dict[tuple[int, str], int] = {}
+    for row in et_result.all():
+        event_thana_counts[(row.event_type_id, row.thana)] = row.cnt
+
+    # ─── Build Breakdown (per allocation row, with thana) ───────
+    event_type_breakdown = []
+    for a in allocations:
+        et_name = a.event_type.name if a.event_type else f"Type {a.event_type_id}"
+        key = (a.event_type_id, a.thana)
+        created = event_thana_counts.get(key, 0)
+        remaining = max(0, a.count - created)
+        event_type_breakdown.append({
+            "event_type": et_name,
+            "thana": a.thana,
+            "allocated": a.count,
+            "created": created,
+            "remaining": remaining,
+        })
+    total_created_events_from_alloc = sum(b["created"] for b in event_type_breakdown)
+    remaining_allocations = max(0, total_allocated - total_created_events_from_alloc)
+    allocation_used_pct = round((total_created_events_from_alloc / total_allocated * 100) if total_allocated > 0 else 0, 1)
+
+    return DashboardSummaryResponse(
+        total_events=total_events,
+        total_activations=0,
+        total_allocated=total_allocated,
+        remaining_allocations=remaining_allocations,
+        allocation_used_pct=allocation_used_pct,
+        event_type_breakdown=event_type_breakdown,
+        daily_events=daily_events,
+    )
+
+
 # ─── Event Endpoints ────────────────────────────────────────────
 
 @router.get("/events")
@@ -1091,6 +1303,41 @@ async def create_event(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("zoom_in.create")),
 ):
+    # ─── Allocation Check ────────────────────────────────────────
+    target_month = data.date.replace(day=1)
+    alloc_result = await db.execute(
+        select(ZoomInAllocation).where(
+            ZoomInAllocation.house_id == data.house_id,
+            ZoomInAllocation.month == target_month,
+            ZoomInAllocation.event_type_id == data.event_type_id,
+            ZoomInAllocation.thana == data.thana,
+            ZoomInAllocation.is_deleted == False,
+        )
+    )
+    allocation = alloc_result.scalar_one_or_none()
+
+    if not allocation:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No allocation found for {data.thana} thana in {target_month.strftime('%B %Y')} with this event type. Please configure an allocation first."
+        )
+
+    event_count_query = select(func.count(ZoomInEvent.id)).where(
+        ZoomInEvent.house_id == data.house_id,
+        func.date_trunc("month", ZoomInEvent.date) == target_month,
+        ZoomInEvent.event_type_id == data.event_type_id,
+        ZoomInEvent.thana == data.thana,
+    )
+    count_result = await db.execute(event_count_query)
+    created_count = count_result.scalar() or 0
+
+    if created_count >= allocation.count:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Allocation limit reached for {data.thana} thana in {target_month.strftime('%B %Y')}. "
+                   f"Allocated: {allocation.count}, Already created: {created_count}, Remaining: 0."
+        )
+
     event = ZoomInEvent(
         house_id=data.house_id,
         date=data.date,
@@ -1324,6 +1571,46 @@ async def update_event(
     event = result.unique().scalar_one_or_none()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+
+    new_date = data.date if data.date is not None else event.date
+    new_event_type_id = data.event_type_id if data.event_type_id is not None else event.event_type_id
+    new_thana = data.thana if data.thana is not None else event.thana
+
+    # ─── Allocation Check on update ──────────────────────────────
+    target_month = new_date.replace(day=1)
+    alloc_result = await db.execute(
+        select(ZoomInAllocation).where(
+            ZoomInAllocation.house_id == event.house_id,
+            ZoomInAllocation.month == target_month,
+            ZoomInAllocation.event_type_id == new_event_type_id,
+            ZoomInAllocation.thana == new_thana,
+            ZoomInAllocation.is_deleted == False,
+        )
+    )
+    allocation = alloc_result.scalar_one_or_none()
+
+    if not allocation:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No allocation found for {new_thana} thana in {target_month.strftime('%B %Y')} with this event type. Please configure an allocation first."
+        )
+
+    event_count_query = select(func.count(ZoomInEvent.id)).where(
+        ZoomInEvent.house_id == event.house_id,
+        func.date_trunc("month", ZoomInEvent.date) == target_month,
+        ZoomInEvent.event_type_id == new_event_type_id,
+        ZoomInEvent.thana == new_thana,
+        ZoomInEvent.id != event_id,
+    )
+    count_result = await db.execute(event_count_query)
+    created_count = count_result.scalar() or 0
+
+    if created_count >= allocation.count:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Allocation limit reached for {new_thana} thana in {target_month.strftime('%B %Y')}. "
+                   f"Allocated: {allocation.count}, Already created: {created_count}, Remaining: 0."
+        )
 
     if data.date is not None:
         event.date = data.date

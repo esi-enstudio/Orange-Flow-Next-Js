@@ -148,3 +148,37 @@ class ZoomInEventResponse(BaseModel):
 class CurrentMonthSummary(BaseModel):
     total_budget: float = 0
     event_type_summaries: List[dict] = []
+
+
+class AllocationCheckResponse(BaseModel):
+    has_allocation: bool = False
+    allocated_count: int = 0
+    created_count: int = 0
+    remaining: int = 0
+    month: Optional[str] = None
+    house_name: Optional[str] = None
+    event_type_name: Optional[str] = None
+    thana: Optional[str] = None
+
+
+class EventTypeBreakdown(BaseModel):
+    event_type: str
+    thana: str = ""
+    allocated: int = 0
+    created: int = 0
+    remaining: int = 0
+
+
+class DailyEventCount(BaseModel):
+    date: str
+    count: int = 0
+
+
+class DashboardSummaryResponse(BaseModel):
+    total_events: int = 0
+    total_activations: int = 0
+    total_allocated: int = 0
+    remaining_allocations: int = 0
+    allocation_used_pct: float = 0.0
+    event_type_breakdown: List[EventTypeBreakdown] = []
+    daily_events: List[DailyEventCount] = []
