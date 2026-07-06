@@ -7,7 +7,7 @@ import os
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Response
 from pydantic import BaseModel
-from sqlalchemy import select, func, and_, case, delete as sa_delete, literal_column
+from sqlalchemy import select, func, and_, case, delete as sa_delete, literal_column, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -646,6 +646,8 @@ async def update_allocation(
 @router.get("/events")
 async def get_events(
     pagination: PaginationParams = Depends(),
+    date_from: Optional[date] = Query(None, description="Filter start date (inclusive)"),
+    date_to: Optional[date] = Query(None, description="Filter end date (inclusive)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("zoom_in.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -669,6 +671,11 @@ async def get_events(
             base_query = base_query.where(ZoomInEvent.house_id.in_(user_house_ids))
         else:
             base_query = base_query.where(ZoomInEvent.house_id == -1)
+
+    if date_from:
+        base_query = base_query.where(ZoomInEvent.date >= date_from)
+    if date_to:
+        base_query = base_query.where(ZoomInEvent.date <= date_to)
 
     if pagination.search:
         search_pattern = f"%{pagination.search}%"
@@ -811,6 +818,8 @@ async def get_events(
 
 @router.get("/events/export")
 async def export_events(
+    date_from: Optional[date] = Query(None, description="Filter start date (inclusive)"),
+    date_to: Optional[date] = Query(None, description="Filter end date (inclusive)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("zoom_in.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -837,6 +846,11 @@ async def export_events(
             base_query = base_query.where(ZoomInEvent.house_id.in_(user_house_ids))
         else:
             base_query = base_query.where(ZoomInEvent.house_id == -1)
+
+    if date_from:
+        base_query = base_query.where(ZoomInEvent.date >= date_from)
+    if date_to:
+        base_query = base_query.where(ZoomInEvent.date <= date_to)
 
     base_query = base_query.order_by(ZoomInEvent.date.desc())
 
@@ -874,6 +888,89 @@ async def export_events(
                 "dms_code": emp.dms_code,
             }
 
+    today = date.today()
+
+    # ─── Batch Activation Counts (GA) ────────────────────────────
+    all_ga_code_event: dict[int, set[str]] = {}
+    all_ga_emp_ids = set()
+    for e in events:
+        codes: set[str] = set()
+        for r in e.rsos:
+            all_ga_emp_ids.add(r.employee_id)
+        for b in e.bps:
+            all_ga_emp_ids.add(b.employee_id)
+        for r in e.retailers:
+            if r.retailer_code:
+                codes.add(r.retailer_code)
+        all_ga_code_event[e.id] = codes
+
+    ga_emp_code_map: dict[int, str] = {}
+    if all_ga_emp_ids:
+        ga_emp_result = await db.execute(
+            select(Employee.id, Employee.assisted_retailer_code).where(
+                Employee.id.in_(list(all_ga_emp_ids)),
+                Employee.assisted_retailer_code.isnot(None),
+            )
+        )
+        for row in ga_emp_result.all():
+            if row.assisted_retailer_code:
+                ga_emp_code_map[row.id] = row.assisted_retailer_code
+
+    for e in events:
+        codes = all_ga_code_event[e.id]
+        for r in e.rsos:
+            code = ga_emp_code_map.get(r.employee_id)
+            if code:
+                codes.add(code)
+        for b in e.bps:
+            code = ga_emp_code_map.get(b.employee_id)
+            if code:
+                codes.add(code)
+        all_ga_code_event[e.id] = codes
+
+    excl_result = await db.execute(select(ExcludedProductCode.product_code))
+    excluded_codes = {row[0] for row in excl_result.all()}
+
+    ga_counts: dict[int, int] = {}
+    today_events: list[ZoomInEvent] = []
+    past_events: list[ZoomInEvent] = []
+    for e in events:
+        if e.date == today:
+            today_events.append(e)
+        else:
+            past_events.append(e)
+
+    async def _batch_ga_counts(evts: list[ZoomInEvent], model):
+        if not evts:
+            return
+        code_to_event: dict[str, list[int]] = {}
+        for e in evts:
+            for code in all_ga_code_event.get(e.id, set()):
+                code_to_event.setdefault(code, []).append(e.id)
+        if not code_to_event:
+            return
+        query = select(
+            model.retailer_code,
+            func.count().label("cnt")
+        ).where(
+            model.retailer_code.in_(list(code_to_event.keys())),
+        )
+        if model is LiveActivation:
+            query = query.where(model.activation_date == today)
+        else:
+            dates = {e.date for e in evts}
+            query = query.where(model.activation_date.in_(list(dates)))
+        if excluded_codes:
+            query = query.where(~model.product_code.in_(list(excluded_codes)))
+        query = query.group_by(model.retailer_code)
+        count_result = await db.execute(query)
+        for row in count_result.all():
+            for eid in code_to_event.get(row[0], []):
+                ga_counts[eid] = ga_counts.get(eid, 0) + row[1]
+
+    await _batch_ga_counts(today_events, LiveActivation)
+    await _batch_ga_counts(past_events, Activation)
+
     # ─── Build workbook ───
     wb = Workbook()
     ws = wb.active
@@ -888,11 +985,12 @@ async def export_events(
         "RSO Assisted Code 1", "RSO Assisted Code 2", "RSO Assisted Code 3", "RSO Assisted Code 4", "RSO Assisted Code 5",
         "BP Assisted Code 1", "BP Assisted Code 2", "BP Assisted Code 3", "BP Assisted Code 4",
         "SSO Code 1", "SSO Code 2", "SSO Code 3", "SSO Code 4",
+        "GA",
     ]
 
     header_font = Font(bold=True, color="FFFFFF", size=11)
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    header_alignment = Alignment(horizontal="center", vertical="center")
     thin_border = Border(
         left=Side(style="thin"),
         right=Side(style="thin"),
@@ -908,9 +1006,6 @@ async def export_events(
         cell.border = thin_border
 
     cell_font = Font(size=10)
-    cell_alignment = Alignment(vertical="center", wrap_text=True)
-
-    today = date.today()
 
     for row_idx, e in enumerate(events, 2):
         bts_codes: list[str] = []
@@ -961,18 +1056,20 @@ async def export_events(
             *_pad(rso_codes, 5),
             *_pad(bp_codes, 4),
             *_pad(sso_codes, 4),
+            ga_counts.get(e.id, 0),
         ]
 
         for col_idx, val in enumerate(row_data, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=val)
             cell.font = cell_font
-            cell.alignment = cell_alignment
+            cell.alignment = Alignment(vertical="center")
             cell.border = thin_border
 
     # ─── Column widths ───
-    col_widths = [18, 18, 12, 18, 14, 14, 14, 14, 14, 30, 18, 28, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20]
+    from openpyxl.utils import get_column_letter
+    col_widths = [18, 18, 12, 18, 14, 14, 14, 14, 14, 30, 18, 28, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 12]
     for i, w in enumerate(col_widths, 1):
-        ws.column_dimensions[chr(64 + i) if i <= 26 else "A"].width = w
+        ws.column_dimensions[get_column_letter(i)].width = w
 
     # Freeze header row
     ws.freeze_panes = "A2"

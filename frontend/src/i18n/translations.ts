@@ -31,6 +31,7 @@ export const translations = {
       prev: "Prev",
       reset: "Reset",
       all: "All",
+      export: "Export",
       action_failed: "Action failed",
       name_required: "Name is required",
       username_required: "Username is required",
@@ -1132,6 +1133,8 @@ export const translations = {
       },
       table: {
         date: "Date",
+        date_from: "Date From",
+        date_to: "Date To",
         house: "House",
         thana: "Thana",
         event_type: "Event Type",
@@ -1550,6 +1553,7 @@ export const translations = {
       prev: "Prev",
       reset: "Reset",
       all: "All",
+      export: "এক্সপোর্ট",
       action_failed: "Action failed",
       name_required: "Name is required",
       username_required: "Username is required",
@@ -2683,6 +2687,8 @@ export const translations = {
       },
       table: {
         date: "তারিখ",
+        date_from: "শুরুর তারিখ",
+        date_to: "শেষ তারিখ",
         house: "হাউস",
         thana: "থানা",
         event_type: "ইভেন্টের ধরন",

@@ -68,16 +68,32 @@ export default function ZoomInPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  function getDefaultFrom(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  }
+  function getDefaultTo(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  const [dateFrom, setDateFrom] = useState(getDefaultFrom);
+  const [dateTo, setDateTo] = useState(getDefaultTo);
+
   const handleExport = async () => {
     setExporting(true);
     try {
+      const params: Record<string, string> = {
+        date_from: dateFrom,
+        date_to: dateTo,
+      };
       const res = await apiClient.get("zoom-in/events/export", {
+        params,
         responseType: "blob",
       });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `zoom_in_events_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.xlsx`;
+      a.download = `zoom_in_events_${dateFrom}_to_${dateTo}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -96,6 +112,8 @@ export default function ZoomInPage() {
       const params: Record<string, string> = {
         page: String(page),
         per_page: "5",
+        date_from: dateFrom,
+        date_to: dateTo,
       };
       if (search) params.search = search;
       const res = await apiClient.get<PaginatedResponse>("zoom-in/events", { params });
@@ -116,7 +134,7 @@ export default function ZoomInPage() {
   useEffect(() => {
     if (authLoading || !hasPermission("zoom_in.view")) return;
     fetchEvents();
-  }, [page, search]);
+  }, [page, search, dateFrom, dateTo]);
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
@@ -168,6 +186,24 @@ export default function ZoomInPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex gap-3 flex-wrap">
+          <div>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+              className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
+            />
+          </div>
+          <div>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+              className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
+            />
+          </div>
+        </div>
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -202,7 +238,7 @@ export default function ZoomInPage() {
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scrollbar-custom">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50">
