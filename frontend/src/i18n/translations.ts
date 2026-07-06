@@ -1127,6 +1127,8 @@ export const translations = {
         no_events_desc: "Create a new event to get started",
         no_allocations: "No allocations for this month",
         load_failed: "Failed to load data",
+        export_success: "Events exported successfully",
+        export_failed: "Failed to export events",
       },
       table: {
         date: "Date",
@@ -2676,6 +2678,8 @@ export const translations = {
         no_events_desc: "শুরু করতে একটি নতুন ইভেন্ট তৈরি করুন",
         no_allocations: "এই মাসের জন্য কোনো বরাদ্দ নেই",
         load_failed: "ডেটা লোড করতে ব্যর্থ হয়েছে",
+        export_success: "ইভেন্ট সফলভাবে এক্সপোর্ট হয়েছে",
+        export_failed: "ইভেন্ট এক্সপোর্ট করতে ব্যর্থ হয়েছে",
       },
       table: {
         date: "তারিখ",

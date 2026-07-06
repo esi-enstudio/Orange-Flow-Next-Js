@@ -1,6 +1,7 @@
 from typing import Optional
 from datetime import datetime, date, timedelta
 import logging
+import io
 
 import os
 import shutil
@@ -805,6 +806,185 @@ async def get_events(
             has_next=pagination.page < total_pages,
             has_prev=pagination.page > 1,
         ),
+    )
+
+
+@router.get("/events/export")
+async def export_events(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("zoom_in.view")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    base_query = select(ZoomInEvent).options(
+        joinedload(ZoomInEvent.house),
+        joinedload(ZoomInEvent.event_type),
+        joinedload(ZoomInEvent.activity),
+        joinedload(ZoomInEvent.bts_list),
+        joinedload(ZoomInEvent.rsos),
+        joinedload(ZoomInEvent.bps),
+        joinedload(ZoomInEvent.retailers),
+    )
+
+    is_admin = is_admin_user(current_user)
+    if house_id:
+        base_query = base_query.where(ZoomInEvent.house_id == house_id)
+    elif not is_admin:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            base_query = base_query.where(ZoomInEvent.house_id.in_(user_house_ids))
+        else:
+            base_query = base_query.where(ZoomInEvent.house_id == -1)
+
+    base_query = base_query.order_by(ZoomInEvent.date.desc())
+
+    result = await db.execute(base_query)
+    events = result.unique().scalars().all()
+
+    # ─── Batch fetch BTS details ───
+    all_bts_ids = set()
+    for e in events:
+        for b in e.bts_list:
+            all_bts_ids.add(b.bts_id)
+    bts_map: dict[int, tuple] = {}
+    if all_bts_ids:
+        bts_result = await db.execute(
+            select(BTS).where(BTS.id.in_(list(all_bts_ids)))
+        )
+        for bts in bts_result.scalars().all():
+            bts_map[bts.id] = bts
+
+    # ─── Batch fetch employee assisted codes ───
+    all_emp_ids = set()
+    for e in events:
+        for r in e.rsos:
+            all_emp_ids.add(r.employee_id)
+        for b in e.bps:
+            all_emp_ids.add(b.employee_id)
+    emp_map: dict[int, dict] = {}
+    if all_emp_ids:
+        emp_result = await db.execute(
+            select(Employee).where(Employee.id.in_(list(all_emp_ids)))
+        )
+        for emp in emp_result.scalars().all():
+            emp_map[emp.id] = {
+                "assisted_retailer_code": emp.assisted_retailer_code,
+                "dms_code": emp.dms_code,
+            }
+
+    # ─── Build workbook ───
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Zoom In Events"
+
+    headers = [
+        "Cluster", "Region", "DD Code", "Thana",
+        "BTS Code 1", "BTS Code 2", "BTS Code 3", "BTS Code 4", "BTS Code 5",
+        "Event Location Address",
+        "Event Type", "Activity Selection (Only for Zoom IN)",
+        "Activity Date (MM-DD-YYYY)",
+        "RSO Assisted Code 1", "RSO Assisted Code 2", "RSO Assisted Code 3", "RSO Assisted Code 4", "RSO Assisted Code 5",
+        "BP Assisted Code 1", "BP Assisted Code 2", "BP Assisted Code 3", "BP Assisted Code 4",
+        "SSO Code 1", "SSO Code 2", "SSO Code 3", "SSO Code 4",
+    ]
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    cell_font = Font(size=10)
+    cell_alignment = Alignment(vertical="center", wrap_text=True)
+
+    today = date.today()
+
+    for row_idx, e in enumerate(events, 2):
+        bts_codes: list[str] = []
+        addresses: list[str] = []
+        clusters: set[str] = set()
+        regions: set[str] = set()
+        for b in e.bts_list:
+            bts = bts_map.get(b.bts_id)
+            if bts:
+                if bts.bts_code:
+                    bts_codes.append(bts.bts_code)
+                if bts.short_address:
+                    addresses.append(bts.short_address)
+                if bts.cluster:
+                    clusters.add(bts.cluster)
+                if bts.region:
+                    regions.add(bts.region)
+
+        rso_codes: list[str] = []
+        for r in e.rsos:
+            emp = emp_map.get(r.employee_id)
+            code = emp["assisted_retailer_code"] if emp and emp.get("assisted_retailer_code") else (emp["dms_code"] if emp else "")
+            if code:
+                rso_codes.append(code)
+
+        bp_codes: list[str] = []
+        for b in e.bps:
+            emp = emp_map.get(b.employee_id)
+            code = emp["assisted_retailer_code"] if emp and emp.get("assisted_retailer_code") else (emp["dms_code"] if emp else "")
+            if code:
+                bp_codes.append(code)
+
+        sso_codes: list[str] = [r.retailer_code for r in e.retailers if r.retailer_code]
+
+        def _pad(lst: list[str], n: int) -> list[str]:
+            return (lst + [""] * n)[:n]
+
+        row_data = [
+            ", ".join(sorted(clusters)) if clusters else "",
+            ", ".join(sorted(regions)) if regions else "",
+            e.house.code if e.house else "",
+            e.thana or "",
+            *_pad(bts_codes, 5),
+            ", ".join(addresses) if addresses else "",
+            e.event_type.name if e.event_type else "",
+            e.activity.name if e.activity else "",
+            e.date.strftime("%m-%d-%Y") if e.date else "",
+            *_pad(rso_codes, 5),
+            *_pad(bp_codes, 4),
+            *_pad(sso_codes, 4),
+        ]
+
+        for col_idx, val in enumerate(row_data, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.font = cell_font
+            cell.alignment = cell_alignment
+            cell.border = thin_border
+
+    # ─── Column widths ───
+    col_widths = [18, 18, 12, 18, 14, 14, 14, 14, 14, 30, 18, 28, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[chr(64 + i) if i <= 26 else "A"].width = w
+
+    # Freeze header row
+    ws.freeze_panes = "A2"
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=zoom_in_events_{date.today().strftime('%Y%m%d')}.xlsx"}
     )
 
 

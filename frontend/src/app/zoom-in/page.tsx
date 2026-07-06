@@ -16,6 +16,7 @@ import {
   Pencil,
   Trash2,
   ChartNoAxesColumnIncreasing,
+  FileDown,
 } from "lucide-react";
 import CreateEventModal from "./_components/CreateEventModal";
 import DeleteConfirmModal from "./_components/DeleteConfirmModal";
@@ -65,6 +66,29 @@ export default function ZoomInPage() {
   const [editEventId, setEditEventId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await apiClient.get("zoom-in/events/export", {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `zoom_in_events_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success(t("zoom_in.messages.export_success"));
+    } catch {
+      toast.error(t("zoom_in.messages.export_failed"));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const fetchEvents = async () => {
     setLoading(true);
@@ -121,6 +145,16 @@ export default function ZoomInPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("zoom_in.description")}</p>
         </div>
         <div className="flex flex-wrap gap-3">
+          {hasPermission("zoom_in.export") && (
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-bold hover:bg-green-600 transition-colors shadow-sm disabled:opacity-50"
+            >
+              <FileDown className="w-4 h-4" />
+              {t("common.export")}
+            </button>
+          )}
           {hasPermission("zoom_in.create") && (
             <button
               onClick={() => setShowCreateModal(true)}
