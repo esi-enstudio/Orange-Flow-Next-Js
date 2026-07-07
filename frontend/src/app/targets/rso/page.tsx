@@ -148,8 +148,9 @@ export default function RSOTargetsPage() {
   const fetchHouses = async () => {
     try {
       const res = await apiClient.get("houses");
-      setHouses(res.data || []);
-      setFilterHouses(res.data || []);
+      const h = res.data.data || res.data || [];
+      setHouses(h);
+      setFilterHouses(h);
     } catch {}
   };
 

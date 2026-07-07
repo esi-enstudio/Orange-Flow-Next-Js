@@ -66,7 +66,7 @@ export default function RetailerMarkingPage() {
   }, [authLoading, hasPermission, router]);
 
   const fetchHouses = useCallback(async () => {
-    try { const res = await apiClient.get("houses"); setHouses(res.data); } catch {}
+    try { const res = await apiClient.get("houses"); setHouses(res.data.data || res.data); } catch {}
   }, []);
 
   const fetchTags = useCallback(async (houseId?: number | string) => {

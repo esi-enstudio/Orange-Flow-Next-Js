@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { 
-  Home, 
-  Plus, 
-  Search, 
-  Trash2, 
-  MapPin, 
-  Layers, 
-  ChevronLeft, 
+import {
+  Home,
+  Plus,
+  Trash2,
+  MapPin,
+  Layers,
+  ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Loader2,
   X,
   Check,
@@ -27,13 +27,18 @@ import {
   Eye,
   EyeOff,
   Calendar,
-  Lock
+  Lock,
+  SlidersHorizontal,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
+import HouseMasterFilter from "@/components/houses/HouseMasterFilter";
+import type { HouseFilters } from "@/types/house";
+import { defaultFilters } from "@/types/house";
 
 interface House {
   id: number;
@@ -63,11 +68,15 @@ export default function HousesPage() {
   const { hasPermission, loading: authLoading } = useAuth();
   const router = useRouter();
   const { t } = useLanguage();
+
   const [houses, setHouses] = useState<House[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(0);
-  const limit = 5;
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<HouseFilters>({ ...defaultFilters });
 
   useEffect(() => {
     if (!authLoading && !hasPermission("houses.view")) {
@@ -82,7 +91,7 @@ export default function HousesPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [editingHouse, setEditingHouse] = useState<House | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  
+
   const [formData, setFormData] = useState({
     name: "",
     code: "",
@@ -109,24 +118,39 @@ export default function HousesPage() {
   const [formError, setFormError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const fetchHouses = async () => {
+  const buildQueryString = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("per_page", "10");
+    if (filters.search) params.set("search", filters.search);
+    if (filters.cluster) params.set("cluster", filters.cluster);
+    if (filters.region) params.set("region", filters.region);
+    if (filters.wh_region) params.set("wh_region", filters.wh_region);
+    if (filters.district) params.set("district", filters.district);
+    if (filters.is_active !== null) params.set("is_active", String(filters.is_active));
+    return params.toString();
+  }, [page, filters]);
+
+  const fetchHouses = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await apiClient.get("houses");
-      const data = response.data.sort((a: House, b: House) => b.id - a.id);
-      setHouses(data);
+      const qs = buildQueryString();
+      const response = await apiClient.get(`houses?${qs}`);
+      setHouses(response.data.data || []);
+      setTotalCount(response.data.pagination?.total || 0);
+      setTotalPages(response.data.pagination?.total_pages || 1);
     } catch (err) {
       console.error("Failed to fetch houses", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [buildQueryString]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("houses.view")) {
       fetchHouses();
     }
-  }, [authLoading, hasPermission]);
+  }, [authLoading, hasPermission, fetchHouses]);
 
   const openAddModal = () => {
     setEditingHouse(null);
@@ -184,11 +208,11 @@ export default function HousesPage() {
     if (!formData.address.trim()) errors.address = "Full address is required";
     if (!formData.lifting_date) errors.lifting_date = "Lifting date is required";
     if (!formData.proprietor_name.trim()) errors.proprietor_name = "Proprietor name is required";
-    
+
     if (formData.proprietor_contact && !bdPhoneRegex.test(formData.proprietor_contact)) {
       errors.proprietor_contact = "Invalid BD mobile number (e.g. 01712345678)";
     }
-    
+
     if (!formData.poc_name.trim()) errors.poc_name = "POC name is required";
     if (!formData.poc_mobile.trim()) {
       errors.poc_mobile = "POC mobile is required";
@@ -259,10 +283,10 @@ export default function HousesPage() {
   const toggleStatus = async (house: House) => {
     try {
       const newStatus = !house.is_active;
-      const updatedData = { 
-        ...house, 
+      const updatedData = {
+        ...house,
         is_active: newStatus,
-        lifting_date: house.lifting_date ? house.lifting_date.split(" ")[0] : "" 
+        lifting_date: house.lifting_date ? house.lifting_date.split(" ")[0] : ""
       };
       await apiClient.put(`houses/${house.id}`, updatedData);
       toast.success(`${house.name} is now ${newStatus ? t('common.active') : t('common.inactive')}`);
@@ -272,13 +296,15 @@ export default function HousesPage() {
     }
   };
 
-  const filteredHouses = houses.filter(h => 
-    h.name?.toLowerCase().includes(search.toLowerCase()) || 
-    h.code?.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleFilterChange = (f: HouseFilters) => {
+    setFilters(f);
+    setPage(1);
+  };
 
-  const paginatedHouses = filteredHouses.slice(page * limit, (page + 1) * limit);
-  const totalPages = Math.ceil(filteredHouses.length / limit);
+  const handleClearFilters = () => {
+    setFilters({ ...defaultFilters });
+    setPage(1);
+  };
 
   if (!authLoading && !hasPermission("houses.view")) {
     return <AccessDenied />;
@@ -291,7 +317,7 @@ export default function HousesPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 transition-colors">{t('houses.title')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t('houses.description')}</p>
         </div>
-        <button 
+        <button
           onClick={openAddModal}
           className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none"
         >
@@ -300,127 +326,274 @@ export default function HousesPage() {
         </button>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
-        <div className="p-4 border-b border-gray-50 dark:border-slate-800">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input 
-              type="text" 
-              placeholder={t('houses.search_placeholder')}
-              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(0);
-              }}
-            />
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-4">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500"></div>
-          </div>
-        ) : filteredHouses.length === 0 ? (
-          <div className="py-20 text-center">
-            <Home className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400 font-medium">{t('houses.no_houses')}</p>
-          </div>
-        ) : (
+      <div className="relative">
+        {/* Filter Overlay */}
+        {showFilters && (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left min-w-[800px]">
-                <thead>
-                  <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
-                    <th className="px-6 py-4">{t('houses.table_info')}</th>
-                    <th className="px-6 py-4">{t('houses.table_location')}</th>
-                    <th className="px-6 py-4">{t('houses.table_poc')}</th>
-                    <th className="px-6 py-4">{t('houses.table_status')}</th>
-                    <th className="px-6 py-4 text-right">{t('houses.table_actions')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
-                  {paginatedHouses.map((house) => (
-                    <tr key={house.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm">
-                            <Home className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{house.name}</p>
-                            <p className="text-[10px] font-mono text-gray-500 dark:text-gray-400">{house.code}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="space-y-1">
-                          <p className="text-xs text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-                            <Layers className="w-3 h-3 text-primary-500" /> {house.cluster}
-                          </p>
-                          <p className="text-[10px] text-gray-500 dark:text-gray-500 flex items-center gap-1.5">
-                            <MapPin className="w-3 h-3" /> {house.region} {house.district ? `(${house.district})` : ""}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                         <div className="space-y-1">
-                          <p className="text-xs font-bold text-gray-700 dark:text-gray-200">{house.poc_name || "N/A"}</p>
-                          <p className="text-[10px] text-gray-500 dark:text-gray-400">{house.poc_mobile || "No Contact"}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => toggleStatus(house)}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all hover:opacity-80 active:scale-95 cursor-pointer",
-                            house.is_active 
-                              ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
-                              : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
-                          )}
-                          title="Click to toggle status"
-                        >
-                          <span className={cn("w-1.5 h-1.5 rounded-full", house.is_active ? "bg-green-500" : "bg-red-500")}></span>
-                          {house.is_active ? t('common.active') : t('common.inactive')}
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button 
-                            onClick={() => openEditModal(house)}
-                            className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all"
-                            title={t('common.edit')}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteClick(house.id)}
-                            className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all"
-                            title={t('common.delete')}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {t('houses.showing_results', { start: filteredHouses.length === 0 ? 0 : (page * limit) + 1, end: Math.min((page + 1) * limit, filteredHouses.length), total: filteredHouses.length })}
-              </p>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronLeft className="w-4 h-4"/></button>
-                <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronRight className="w-4 h-4"/></button>
-              </div>
+            <div className="fixed inset-0 z-20" onClick={() => setShowFilters(false)} />
+            <div className="absolute z-30 left-0 top-0 w-full md:w-80 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+              <HouseMasterFilter
+                filters={filters}
+                onChange={handleFilterChange}
+                onClear={handleClearFilters}
+              />
             </div>
           </>
         )}
+
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
+          {/* Header bar with filter/search */}
+          <div className="p-4 border-b border-gray-50 dark:border-slate-800 flex items-center gap-3">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={cn(
+                "p-2 rounded-xl border transition-all shrink-0",
+                showFilters
+                  ? "bg-primary-50 dark:bg-primary-500/10 border-primary-200 dark:border-primary-500/30 text-primary-600"
+                  : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-400 hover:text-gray-600"
+              )}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+              <input
+                type="text"
+                placeholder={t('houses.search_placeholder')}
+                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
+                value={filters.search}
+                onChange={(e) => {
+                  setFilters({ ...filters, search: e.target.value });
+                  setPage(1);
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Loading */}
+          {loading ? (
+            <div className="divide-y divide-gray-50 dark:divide-slate-800">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-6 py-5 animate-pulse">
+                  <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  </div>
+                  <div className="hidden sm:block flex-1 space-y-2">
+                    <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : houses.length === 0 ? (
+            <div className="py-20 text-center">
+              <Home className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400 font-medium">{t('houses.no_houses')}</p>
+            </div>
+          ) : (
+            <>
+              {/* Desktop Table — lg+ */}
+              <div className="hidden lg:block overflow-x-auto scrollbar-custom">
+                <table className="w-full text-left whitespace-nowrap">
+                  <thead>
+                    <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
+                      <th className="px-6 py-4">{t('houses.table_info')}</th>
+                      <th className="px-6 py-4">{t('houses.table_location')}</th>
+                      <th className="px-6 py-4">{t('houses.table_poc')}</th>
+                      <th className="px-6 py-4">{t('houses.table_status')}</th>
+                      <th className="px-6 py-4 text-right">{t('houses.table_actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
+                    {houses.map((house) => (
+                      <tr key={house.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors group">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm">
+                              <Home className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{house.name}</p>
+                              <p className="text-[10px] font-mono text-gray-500 dark:text-gray-400">{house.code}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="space-y-1">
+                            <p className="text-xs text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                              <Layers className="w-3 h-3 text-primary-500" /> {house.cluster}
+                            </p>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-500 flex items-center gap-1.5">
+                              <MapPin className="w-3 h-3" /> {house.region} {house.district ? `(${house.district})` : ""}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="space-y-1">
+                            <p className="text-xs font-bold text-gray-700 dark:text-gray-200">{house.poc_name || "N/A"}</p>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400">{house.poc_mobile || "No Contact"}</p>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <button
+                            onClick={() => toggleStatus(house)}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all hover:opacity-80 active:scale-95 cursor-pointer",
+                              house.is_active
+                                ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
+                                : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+                            )}
+                            title="Click to toggle status"
+                          >
+                            <span className={cn("w-1.5 h-1.5 rounded-full", house.is_active ? "bg-green-500" : "bg-red-500")}></span>
+                            {house.is_active ? t('common.active') : t('common.inactive')}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => openEditModal(house)}
+                              className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all"
+                              title={t('common.edit')}
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(house.id)}
+                              className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all"
+                              title={t('common.delete')}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Accordion — below lg */}
+              <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+                {houses.map((house) => (
+                  <div key={house.id} className="transition-colors">
+                    {/* Always visible header */}
+                    <button
+                      onClick={() => setExpandedId(expandedId === house.id ? null : house.id)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm shrink-0">
+                          <Home className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{house.name}</p>
+                          <p className="text-[10px] font-mono text-gray-500 dark:text-gray-400 truncate">{house.code}</p>
+                        </div>
+                      </div>
+                      <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-300", expandedId === house.id && "rotate-180")} />
+                    </button>
+                    {/* Expandable content */}
+                    {expandedId === house.id && (
+                      <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                        <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Cluster</p>
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{house.cluster}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Region</p>
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{house.region}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">WH Region</p>
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{house.wh_region}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">District</p>
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{house.district}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">POC Name</p>
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{house.poc_name || "N/A"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">POC Mobile</p>
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{house.poc_mobile || "No Contact"}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between pt-1">
+                          <button
+                            onClick={() => toggleStatus(house)}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all",
+                              house.is_active
+                                ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
+                                : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+                            )}
+                          >
+                            <span className={cn("w-1.5 h-1.5 rounded-full", house.is_active ? "bg-green-500" : "bg-red-500")}></span>
+                            {house.is_active ? t('common.active') : t('common.inactive')}
+                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => openEditModal(house)}
+                              className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(house.id)}
+                              className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Pagination */}
+              <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t('houses.showing_results', {
+                    start: totalCount === 0 ? 0 : (page - 1) * 10 + 1,
+                    end: Math.min(page * 10, totalCount),
+                    total: totalCount
+                  })}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-bold text-gray-500 dark:text-gray-400 px-2">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
+      {/* Create/Edit Modal */}
       {isFormModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white dark:bg-slate-900 w-full max-w-4xl h-full md:h-auto md:max-h-[90vh] md:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
@@ -436,51 +609,51 @@ export default function HousesPage() {
 
             <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 scrollbar-hide">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                
+
                 <div className="space-y-4">
-                  <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest flex items-center gap-2"><Home className="w-4 h-4"/> {t('houses.section_basic')}</h4>
+                  <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest flex items-center gap-2"><Home className="w-4 h-4" /> {t('houses.section_basic')}</h4>
                   <div className="space-y-4">
-                    <InputField label={t('houses.field_house_name')} required value={formData.name} onChange={(v: string) => setFormData({...formData, name: v})} placeholder={t('houses.field_house_name_placeholder')} leftIcon={Home} error={fieldErrors.name} />
-                    <InputField label={t('houses.field_house_code')} required value={formData.code} onChange={(v: string) => setFormData({...formData, code: v.toUpperCase()})} placeholder={t('houses.field_house_code_placeholder')} disabled={!!editingHouse} leftIcon={Briefcase} error={fieldErrors.code} />
+                    <InputField label={t('houses.field_house_name')} required value={formData.name} onChange={(v: string) => setFormData({ ...formData, name: v })} placeholder={t('houses.field_house_name_placeholder')} leftIcon={Home} error={fieldErrors.name} />
+                    <InputField label={t('houses.field_house_code')} required value={formData.code} onChange={(v: string) => setFormData({ ...formData, code: v.toUpperCase() })} placeholder={t('houses.field_house_code_placeholder')} disabled={!!editingHouse} leftIcon={Briefcase} error={fieldErrors.code} />
                     <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_cluster')} value={formData.cluster} onChange={(v: string) => setFormData({...formData, cluster: v})} placeholder={t('houses.field_cluster_placeholder')} leftIcon={Layers} error={fieldErrors.cluster} />
-                      <InputField label={t('houses.field_region')} value={formData.region} onChange={(v: string) => setFormData({...formData, region: v})} placeholder={t('houses.field_region_placeholder')} leftIcon={Globe} error={fieldErrors.region} />
+                      <InputField label={t('houses.field_cluster')} value={formData.cluster} onChange={(v: string) => setFormData({ ...formData, cluster: v })} placeholder={t('houses.field_cluster_placeholder')} leftIcon={Layers} error={fieldErrors.cluster} />
+                      <InputField label={t('houses.field_region')} value={formData.region} onChange={(v: string) => setFormData({ ...formData, region: v })} placeholder={t('houses.field_region_placeholder')} leftIcon={Globe} error={fieldErrors.region} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_wh_region')} value={formData.wh_region} onChange={(v: string) => setFormData({...formData, wh_region: v})} placeholder={t('houses.field_wh_region_placeholder')} leftIcon={MapPin} error={fieldErrors.wh_region} />
-                      <InputField label={t('houses.field_district')} value={formData.district} onChange={(v: string) => setFormData({...formData, district: v})} placeholder={t('houses.field_district_placeholder')} leftIcon={MapPin} error={fieldErrors.district} />
+                      <InputField label={t('houses.field_wh_region')} value={formData.wh_region} onChange={(v: string) => setFormData({ ...formData, wh_region: v })} placeholder={t('houses.field_wh_region_placeholder')} leftIcon={MapPin} error={fieldErrors.wh_region} />
+                      <InputField label={t('houses.field_district')} value={formData.district} onChange={(v: string) => setFormData({ ...formData, district: v })} placeholder={t('houses.field_district_placeholder')} leftIcon={MapPin} error={fieldErrors.district} />
                     </div>
-                    <InputField label={t('houses.field_address')} value={formData.address} onChange={(v: string) => setFormData({...formData, address: v})} placeholder={t('houses.field_address_placeholder')} leftIcon={MapPin} error={fieldErrors.address} />
-                    <InputField label={t('houses.field_email')} type="email" value={formData.email} onChange={(v: string) => setFormData({...formData, email: v})} placeholder={t('houses.field_email_placeholder')} leftIcon={Mail} error={fieldErrors.email} />
-                    <InputField label={t('houses.field_lifting_date')} type="date" value={formData.lifting_date} onChange={(v: string) => setFormData({...formData, lifting_date: v})} leftIcon={Calendar} error={fieldErrors.lifting_date} />
+                    <InputField label={t('houses.field_address')} value={formData.address} onChange={(v: string) => setFormData({ ...formData, address: v })} placeholder={t('houses.field_address_placeholder')} leftIcon={MapPin} error={fieldErrors.address} />
+                    <InputField label={t('houses.field_email')} type="email" value={formData.email} onChange={(v: string) => setFormData({ ...formData, email: v })} placeholder={t('houses.field_email_placeholder')} leftIcon={Mail} error={fieldErrors.email} />
+                    <InputField label={t('houses.field_lifting_date')} type="date" value={formData.lifting_date} onChange={(v: string) => setFormData({ ...formData, lifting_date: v })} leftIcon={Calendar} error={fieldErrors.lifting_date} />
                   </div>
                 </div>
 
                 <div className="space-y-6">
                   <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-purple-600 uppercase tracking-widest flex items-center gap-2"><User className="w-4 h-4"/> {t('houses.section_management')}</h4>
+                    <h4 className="text-xs font-bold text-purple-600 uppercase tracking-widest flex items-center gap-2"><User className="w-4 h-4" /> {t('houses.section_management')}</h4>
                     <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_proprietor_name')} value={formData.proprietor_name} onChange={(v: string) => setFormData({...formData, proprietor_name: v})} placeholder={t('houses.field_proprietor_name_placeholder')} leftIcon={User} error={fieldErrors.proprietor_name} />
-                      <InputField label={t('houses.field_proprietor_contact')} type="number" value={formData.proprietor_contact} onChange={(v: string) => setFormData({...formData, proprietor_contact: v})} placeholder={t('houses.field_proprietor_contact_placeholder')} leftIcon={Phone} error={fieldErrors.proprietor_contact} onlyNumbers />
+                      <InputField label={t('houses.field_proprietor_name')} value={formData.proprietor_name} onChange={(v: string) => setFormData({ ...formData, proprietor_name: v })} placeholder={t('houses.field_proprietor_name_placeholder')} leftIcon={User} error={fieldErrors.proprietor_name} />
+                      <InputField label={t('houses.field_proprietor_contact')} type="number" value={formData.proprietor_contact} onChange={(v: string) => setFormData({ ...formData, proprietor_contact: v })} placeholder={t('houses.field_proprietor_contact_placeholder')} leftIcon={Phone} error={fieldErrors.proprietor_contact} onlyNumbers />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_poc_name')} value={formData.poc_name} onChange={(v: string) => setFormData({...formData, poc_name: v})} placeholder={t('houses.field_poc_name_placeholder')} leftIcon={User} error={fieldErrors.poc_name} />
-                      <InputField label={t('houses.field_poc_mobile')} type="number" value={formData.poc_mobile} onChange={(v: string) => setFormData({...formData, poc_mobile: v})} placeholder={t('houses.field_poc_mobile_placeholder')} leftIcon={Phone} error={fieldErrors.poc_mobile} onlyNumbers />
+                      <InputField label={t('houses.field_poc_name')} value={formData.poc_name} onChange={(v: string) => setFormData({ ...formData, poc_name: v })} placeholder={t('houses.field_poc_name_placeholder')} leftIcon={User} error={fieldErrors.poc_name} />
+                      <InputField label={t('houses.field_poc_mobile')} type="number" value={formData.poc_mobile} onChange={(v: string) => setFormData({ ...formData, poc_mobile: v })} placeholder={t('houses.field_poc_mobile_placeholder')} leftIcon={Phone} error={fieldErrors.poc_mobile} onlyNumbers />
                     </div>
                     <div className="h-[1px] bg-gray-100 dark:bg-slate-800 my-2" />
                     <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_latitude')} value={formData.latitude} onChange={(v: string) => setFormData({...formData, latitude: v})} placeholder={t('houses.field_latitude_placeholder')} leftIcon={Globe} error={fieldErrors.latitude} />
-                      <InputField label={t('houses.field_longitude')} value={formData.longitude} onChange={(v: string) => setFormData({...formData, longitude: v})} placeholder={t('houses.field_longitude_placeholder')} leftIcon={Globe} error={fieldErrors.longitude} />
+                      <InputField label={t('houses.field_latitude')} value={formData.latitude} onChange={(v: string) => setFormData({ ...formData, latitude: v })} placeholder={t('houses.field_latitude_placeholder')} leftIcon={Globe} error={fieldErrors.latitude} />
+                      <InputField label={t('houses.field_longitude')} value={formData.longitude} onChange={(v: string) => setFormData({ ...formData, longitude: v })} placeholder={t('houses.field_longitude_placeholder')} leftIcon={Globe} error={fieldErrors.longitude} />
                     </div>
-                    <InputField label={t('houses.field_bts_id')} value={formData.bts_id} onChange={(v: string) => setFormData({...formData, bts_id: v})} placeholder={t('houses.field_bts_id_placeholder')} leftIcon={Smartphone} error={fieldErrors.bts_id} />
+                    <InputField label={t('houses.field_bts_id')} value={formData.bts_id} onChange={(v: string) => setFormData({ ...formData, bts_id: v })} placeholder={t('houses.field_bts_id_placeholder')} leftIcon={Smartphone} error={fieldErrors.bts_id} />
                   </div>
 
                   <div className="space-y-4 pt-2">
-                    <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2"><Key className="w-4 h-4"/> {t('houses.section_dms')}</h4>
-                    <InputField label={t('houses.field_dms_house_id')} value={formData.dms_house_id} onChange={(v: string) => setFormData({...formData, dms_house_id: v})} placeholder={t('houses.field_dms_house_id_placeholder')} leftIcon={Key} error={fieldErrors.dms_house_id} />
+                    <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2"><Key className="w-4 h-4" /> {t('houses.section_dms')}</h4>
+                    <InputField label={t('houses.field_dms_house_id')} value={formData.dms_house_id} onChange={(v: string) => setFormData({ ...formData, dms_house_id: v })} placeholder={t('houses.field_dms_house_id_placeholder')} leftIcon={Key} error={fieldErrors.dms_house_id} />
                     <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_dms_user')} value={formData.dms_user} onChange={(v: string) => setFormData({...formData, dms_user: v})} placeholder={t('houses.field_dms_user_placeholder')} leftIcon={User} error={fieldErrors.dms_user} />
-                      <InputField label={t('houses.field_dms_pass')} type="password" value={formData.dms_pass} onChange={(v: string) => setFormData({...formData, dms_pass: v})} placeholder="••••" leftIcon={Lock} error={fieldErrors.dms_pass} />
+                      <InputField label={t('houses.field_dms_user')} value={formData.dms_user} onChange={(v: string) => setFormData({ ...formData, dms_user: v })} placeholder={t('houses.field_dms_user_placeholder')} leftIcon={User} error={fieldErrors.dms_user} />
+                      <InputField label={t('houses.field_dms_pass')} type="password" value={formData.dms_pass} onChange={(v: string) => setFormData({ ...formData, dms_pass: v })} placeholder="••••" leftIcon={Lock} error={fieldErrors.dms_pass} />
                     </div>
                   </div>
                 </div>
@@ -548,8 +721,8 @@ function InputField({ label, value, onChange, placeholder, required = false, typ
             "w-full py-3 bg-gray-50 dark:bg-slate-800/50 border transition-all dark:text-gray-100 outline-none disabled:opacity-50 rounded-2xl text-sm",
             Icon ? "pl-11" : "pl-4",
             isPassword ? "pr-12" : "pr-4",
-            error 
-              ? "border-red-500/50 focus:border-red-500 ring-1 ring-red-500/10" 
+            error
+              ? "border-red-500/50 focus:border-red-500 ring-1 ring-red-500/10"
               : "border-transparent focus:border-primary-500/30"
           )}
           placeholder={placeholder}

@@ -110,7 +110,7 @@ export default function UsersPage() {
       ]);
       setUsers(usersRes.data);
       setRoles(rolesRes.data);
-      setHouses(housesRes.data);
+      setHouses(housesRes.data.data || housesRes.data);
     } catch (err) {
       console.error("Failed to fetch data", err);
       toast.error(t('users.toast_load_failed'));

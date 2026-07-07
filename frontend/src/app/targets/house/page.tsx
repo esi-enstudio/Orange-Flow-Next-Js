@@ -83,7 +83,7 @@ export default function HouseTargetsPage() {
   const fetchHouses = async () => {
     try {
       const res = await apiClient.get("houses");
-      setHouses(res.data || []);
+      setHouses(res.data.data || res.data || []);
     } catch {}
   };
 

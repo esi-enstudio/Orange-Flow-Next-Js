@@ -293,7 +293,7 @@ export default function EmployeesPage() {
       setMembers(empRes.data.data || []);
       setTotalCount(empRes.data.pagination?.total || 0);
       setTotalPages(empRes.data.pagination?.total_pages || 1);
-      setHouses(housesRes.data);
+      setHouses(housesRes.data.data || housesRes.data);
       setUsers(usersRes.data);
     } catch (err) {
       toast.error(t('employees.toast_load_failed'));

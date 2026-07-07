@@ -102,11 +102,11 @@ export default function BTSPage() {
 
       const [btsRes, houseRes, filterRes] = await Promise.all([
         apiClient.get("bts", { params }),
-        apiClient.get("houses").catch(() => ({ data: [] })),
+        apiClient.get("houses").then(r => ({ data: r.data.data || r.data })).catch(() => ({ data: [] })),
         apiClient.get("bts/filters", { params: filterHouse ? { filter_house_id: filterHouse } : {} }).catch(() => ({ data: { thanas: [] } }))
       ]);
       setBtsList(btsRes.data);
-      setHouses(houseRes.data);
+      setHouses(houseRes.data || []);
       setThanas(filterRes.data.thanas || []);
     } catch (err) {
       console.error("Failed to fetch BTS", err);
