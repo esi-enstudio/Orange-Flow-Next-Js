@@ -1937,9 +1937,36 @@ async def detach_eligible_bts(
     return {"success": True, "message": "BTS removed from eligible list"}
 
 
+@router.get("/eligible-bts/thana-options")
+async def get_available_bts_thana_options(
+    house_code: str = Query(..., description="House code to check against"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("zoom_in.view")),
+):
+    result = await db.execute(select(House.id).where(House.code == house_code.strip().upper()))
+    house = result.scalar_one_or_none()
+    if not house:
+        raise HTTPException(status_code=404, detail=f"House '{house_code}' not found")
+
+    if not is_admin_user(current_user):
+        user_hids = [h.id for h in current_user.houses]
+        if house not in user_hids:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    subq = select(MelaEligibleBTS.bts_id).where(MelaEligibleBTS.house_id == house).subquery()
+    query = select(BTS.thana).where(
+        BTS.id.notin_(subq),
+        BTS.thana.isnot(None),
+        BTS.thana != "",
+    ).distinct().order_by(BTS.thana)
+    result = await db.execute(query)
+    return [row[0] for row in result.all()]
+
+
 @router.get("/eligible-bts/available")
 async def get_available_bts(
     search: Optional[str] = Query(None),
+    thana: Optional[str] = Query(None),
     house_code: str = Query(..., description="House code to check against"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("zoom_in.view")),
@@ -1956,6 +1983,8 @@ async def get_available_bts(
 
     subq = select(MelaEligibleBTS.bts_id).where(MelaEligibleBTS.house_id == house).subquery()
     query = select(BTS).where(BTS.id.notin_(subq))
+    if thana:
+        query = query.where(BTS.thana == thana)
     if search:
         pattern = f"%{search}%"
         query = query.where(

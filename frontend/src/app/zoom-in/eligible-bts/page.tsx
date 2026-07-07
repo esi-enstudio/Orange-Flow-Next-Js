@@ -83,10 +83,14 @@ export default function EligibleBTSPage() {
 
   const [showAttachModal, setShowAttachModal] = useState(false);
   const [attachHouseCode, setAttachHouseCode] = useState("");
+  const [attachThana, setAttachThana] = useState("");
+  const [thanaOptions, setThanaOptions] = useState<string[]>([]);
+  const [thanaLoading, setThanaLoading] = useState(false);
   const [attachSearch, setAttachSearch] = useState("");
   const [availableBts, setAvailableBts] = useState<BTSData[]>([]);
   const [availableLoading, setAvailableLoading] = useState(false);
   const [attaching, setAttaching] = useState(false);
+  const [houses, setHouses] = useState<{ id: number; name: string; code: string }[]>([]);
 
   useEffect(() => {
     if (!authLoading && !hasPermission("zoom_in.view")) {
@@ -121,18 +125,49 @@ export default function EligibleBTSPage() {
   }, [search, authLoading, hasPermission]);
 
   useEffect(() => {
-    if (!showAttachModal || !attachHouseCode.trim()) { setAvailableBts([]); return; }
+    if (showAttachModal) {
+      apiClient.get<{ id: number; name: string; code: string }[]>("houses/accessible").then(res => {
+        setHouses(res.data);
+        const defaultHouse = res.data.length === 1 ? res.data[0] : null;
+        if (defaultHouse) setAttachHouseCode(defaultHouse.code);
+      }).catch(() => {});
+    } else {
+      setHouses([]);
+      setAttachHouseCode("");
+      setAttachThana("");
+      setThanaOptions([]);
+      setAttachSearch("");
+      setAvailableBts([]);
+    }
+  }, [showAttachModal]);
+
+  useEffect(() => {
+    if (!showAttachModal || !attachHouseCode.trim()) { setThanaOptions([]); setAttachThana(""); return; }
+    setThanaLoading(true);
+    apiClient.get<string[]>("zoom-in/eligible-bts/thana-options", {
+      params: { house_code: attachHouseCode.trim().toUpperCase() }
+    }).then(res => {
+      setThanaOptions(res.data);
+    }).catch(() => setThanaOptions([]))
+    .finally(() => setThanaLoading(false));
+  }, [attachHouseCode, showAttachModal]);
+
+  useEffect(() => {
+    if (!showAttachModal || !attachHouseCode.trim() || !attachThana.trim()) { setAvailableBts([]); return; }
     const timer = setTimeout(async () => {
       setAvailableLoading(true);
       try {
-        const params: Record<string, string> = { house_code: attachHouseCode.trim().toUpperCase() };
+        const params: Record<string, string> = {
+          house_code: attachHouseCode.trim().toUpperCase(),
+          thana: attachThana,
+        };
         if (attachSearch) params.search = attachSearch;
         const res = await apiClient.get("zoom-in/eligible-bts/available", { params });
         setAvailableBts(res.data);
       } catch { setAvailableBts([]); } finally { setAvailableLoading(false); }
     }, 300);
     return () => clearTimeout(timer);
-  }, [attachSearch, attachHouseCode, showAttachModal]);
+  }, [attachThana, attachSearch, attachHouseCode, showAttachModal]);
 
   const handleImportClick = () => fileInputRef.current?.click();
 
@@ -232,7 +267,7 @@ export default function EligibleBTSPage() {
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
           {hasPermission("zoom_in.create") && (
             <button
-              onClick={() => { setAttachHouseCode(""); setAttachSearch(""); setAvailableBts([]); setShowAttachModal(true); }}
+              onClick={() => { setAttachHouseCode(""); setAttachThana(""); setThanaOptions([]); setAttachSearch(""); setAvailableBts([]); setHouses([]); setShowAttachModal(true); }}
               className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-primary-50 dark:hover:bg-primary-500/10 hover:text-primary-600 dark:hover:text-primary-400 transition-colors shadow-sm"
             >
               <Plus className="w-4 h-4" />
@@ -313,7 +348,7 @@ export default function EligibleBTSPage() {
           <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t('zoom_in.eligible_bts.no_data')}</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('zoom_in.eligible_bts.no_data_hint')}</p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <button onClick={() => { setAttachHouseCode(""); setAttachSearch(""); setAvailableBts([]); setShowAttachModal(true); }}
+            <button onClick={() => { setAttachHouseCode(""); setAttachThana(""); setThanaOptions([]); setAttachSearch(""); setAvailableBts([]); setHouses([]); setShowAttachModal(true); }}
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-50 dark:bg-primary-500/10 border border-primary-200 dark:border-primary-500/20 text-primary-700 dark:text-primary-300 rounded-xl text-sm font-bold hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -464,7 +499,7 @@ export default function EligibleBTSPage() {
 
       {showAttachModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col mx-4 animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col mx-4 animate-in zoom-in-95 duration-200 scrollbar-custom">
             <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-slate-800">
               <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t('zoom_in.eligible_bts.attach')}</h2>
               <button onClick={() => setShowAttachModal(false)}
@@ -474,40 +509,64 @@ export default function EligibleBTSPage() {
             <div className="p-6 space-y-4 flex-1 overflow-y-auto">
               <div>
                 <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5 block">{t('zoom_in.eligible_bts.house_code')}</label>
-                <input type="text" value={attachHouseCode} onChange={e => { setAttachHouseCode(e.target.value.toUpperCase()); setAttachSearch(""); setAvailableBts([]); }}
-                  placeholder="e.g. MYMVAI01"
-                  className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
-                />
+                <select
+                  value={attachHouseCode}
+                  onChange={e => { setAttachHouseCode(e.target.value); setAttachSearch(""); setAvailableBts([]); }}
+                  className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100 appearance-none"
+                >
+                  <option value="">{t('zoom_in.fields.select_house')}</option>
+                  {houses.map(h => (
+                    <option key={h.id} value={h.code}>{h.name} ({h.code})</option>
+                  ))}
+                </select>
               </div>
               {attachHouseCode.trim() && (
-                <div>
-                  <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5 block">{t('zoom_in.eligible_bts.search_bts')}</label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input type="text" value={attachSearch} onChange={e => setAttachSearch(e.target.value)}
-                      placeholder={t('zoom_in.eligible_bts.search_placeholder')}
-                      className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
-                    />
+                <>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5 block">Thana</label>
+                    <select
+                      value={attachThana}
+                      onChange={e => { setAttachThana(e.target.value); setAttachSearch(""); setAvailableBts([]); }}
+                      className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100 appearance-none"
+                      disabled={thanaLoading}
+                    >
+                      <option value="">Select Thana</option>
+                      {thanaOptions.map(th => (
+                        <option key={th} value={th}>{th}</option>
+                      ))}
+                    </select>
                   </div>
-                </div>
+                  {attachThana.trim() && (
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5 block">{t('zoom_in.eligible_bts.search_bts')}</label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input type="text" value={attachSearch} onChange={e => setAttachSearch(e.target.value)}
+                          placeholder={t('zoom_in.eligible_bts.search_placeholder')}
+                          className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
-              <div className="max-h-60 overflow-y-auto space-y-1">
+              <div className="max-h-60 overflow-y-auto scrollbar-custom space-y-1">
                 {availableLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
                   </div>
-                ) : availableBts.length === 0 && attachHouseCode.trim() ? (
+                ) : attachThana.trim() && availableBts.length === 0 && !availableLoading ? (
                   <p className="text-sm text-gray-400 text-center py-6">{t('zoom_in.eligible_bts.no_available_bts')}</p>
                 ) : (
                   availableBts.map(b => (
                     <button key={b.id} onClick={() => handleAttach(b.bts_code)} disabled={attaching}
-                      className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-primary-50 dark:hover:bg-primary-500/10 border border-transparent hover:border-primary-200 dark:hover:border-primary-500/20 transition-all group disabled:opacity-50 text-left"
+                      className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-primary-50 dark:hover:bg-slate-800 border border-gray-100 dark:border-slate-700 hover:border-primary-200 dark:hover:border-primary-500/30 transition-all group disabled:opacity-50 text-left"
                     >
                       <div>
                         <p className="text-sm font-bold text-gray-900 dark:text-gray-100 group-hover:text-primary-600 dark:group-hover:text-primary-400">{b.bts_code}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{b.site_id} — {b.thana || "N/A"}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{b.short_address || b.address || "—"}</p>
                       </div>
-                      <Plus className="w-4 h-4 text-gray-400 group-hover:text-primary-500 shrink-0" />
+                      <Plus className="w-4 h-4 text-gray-400 dark:text-gray-500 group-hover:text-primary-400 dark:group-hover:text-primary-400 shrink-0" />
                     </button>
                   ))
                 )}
