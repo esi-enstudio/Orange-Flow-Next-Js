@@ -339,21 +339,21 @@ export default function ZoomInPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: Allocation Progress */}
           <div className="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm">
-            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-4">Allocation Progress</h3>
+            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-3">Allocation Progress</h3>
             {dashboard.event_type_breakdown.length === 0 ? (
               <p className="text-xs text-gray-400">No allocations for this month</p>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {dashboard.event_type_breakdown.map((et, idx) => {
                   const pct = et.allocated > 0 ? Math.min(100, (et.created / et.allocated) * 100) : 0;
                   const barColor = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500";
                   return (
                     <div key={`${et.event_type}-${et.thana}-${idx}`}>
                       <div className="flex items-center justify-between mb-1">
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex items-center gap-1">
                           <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{et.event_type}</span>
                           {et.thana && (
-                            <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1.5">— {et.thana}</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">— {et.thana}</span>
                           )}
                         </div>
                         <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0 ml-2">
@@ -366,9 +366,6 @@ export default function ZoomInPage() {
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      {et.remaining > 0 && (
-                        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{et.remaining} remaining</p>
-                      )}
                     </div>
                   );
                 })}
