@@ -1191,30 +1191,33 @@ async def export_events(
     async def _batch_ga_counts(evts: list[ZoomInEvent], model):
         if not evts:
             return
-        code_to_event: dict[str, list[int]] = {}
+        code_set: set[str] = set()
         for e in evts:
-            for code in all_ga_code_event.get(e.id, set()):
-                code_to_event.setdefault(code, []).append(e.id)
-        if not code_to_event:
+            code_set.update(all_ga_code_event.get(e.id, set()))
+        if not code_set:
             return
+        dates = {e.date for e in evts}
         query = select(
             model.retailer_code,
+            model.activation_date,
             func.count().label("cnt")
         ).where(
-            model.retailer_code.in_(list(code_to_event.keys())),
+            model.retailer_code.in_(list(code_set)),
+            model.activation_date.in_(list(dates)),
         )
-        if model is LiveActivation:
-            query = query.where(model.activation_date == today)
-        else:
-            dates = {e.date for e in evts}
-            query = query.where(model.activation_date.in_(list(dates)))
         if excluded_codes:
             query = query.where(~model.product_code.in_(list(excluded_codes)))
-        query = query.group_by(model.retailer_code)
+        query = query.group_by(model.retailer_code, model.activation_date)
         count_result = await db.execute(query)
+        date_code_counts: dict[tuple[date, str], int] = {}
         for row in count_result.all():
-            for eid in code_to_event.get(row[0], []):
-                ga_counts[eid] = ga_counts.get(eid, 0) + row[1]
+            key = (row[1], row[0])
+            date_code_counts[key] = row[2]
+        for e in evts:
+            total = 0
+            for code in all_ga_code_event.get(e.id, set()):
+                total += date_code_counts.get((e.date, code), 0)
+            ga_counts[e.id] = total
 
     await _batch_ga_counts(today_events, LiveActivation)
     await _batch_ga_counts(past_events, Activation)
