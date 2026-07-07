@@ -8,7 +8,7 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { toast } from "react-hot-toast";
 import {
-  Plus, Search, ChevronLeft, ChevronRight,
+  Plus, ChevronLeft, ChevronRight,
   Eye, Pencil, Trash2, ChartNoAxesColumnIncreasing, FileDown,
   Calendar, Activity, Layers, CalendarDays,
   ChevronDown, ChevronUp, TrendingUp,
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/chart";
 import CreateEventModal from "./_components/CreateEventModal";
 import DeleteConfirmModal from "./_components/DeleteConfirmModal";
+import ZoomInMasterFilter, { defaultFilters, type ZoomInFilters } from "@/components/zoom-in/ZoomInMasterFilter";
 
 interface EventItem {
   id: number;
@@ -123,7 +124,6 @@ export default function ZoomInPage() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dashboardLoading, setDashboardLoading] = useState(true);
-  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, total_pages: 0, has_next: false, has_prev: false });
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -143,8 +143,13 @@ export default function ZoomInPage() {
     return new Date().toISOString().slice(0, 10);
   }
 
-  const [dateFrom, setDateFrom] = useState(getDefaultFrom);
-  const [dateTo, setDateTo] = useState(getDefaultTo);
+  const [filters, setFilters] = useState<ZoomInFilters>({
+    ...defaultFilters,
+    date_from: getDefaultFrom(),
+    date_to: getDefaultTo(),
+  });
+  const dateFrom = filters.date_from;
+  const dateTo = filters.date_to;
 
   const handleExport = async () => {
     setExporting(true);
@@ -190,7 +195,10 @@ export default function ZoomInPage() {
         page: String(page), per_page: String(perPage),
         date_from: dateFrom, date_to: dateTo,
       };
-      if (search) params.search = search;
+      if (filters.search) params.search = filters.search;
+      if (filters.event_type_id) params.event_type_id = String(filters.event_type_id);
+      if (filters.activity_id) params.activity_id = String(filters.activity_id);
+      if (filters.thana) params.thana = filters.thana;
       const res = await apiClient.get<PaginatedResponse>("zoom-in/events", { params });
       setEvents(res.data.data);
       setPagination(res.data.pagination);
@@ -199,12 +207,10 @@ export default function ZoomInPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, dateFrom, dateTo, t]);
+  }, [page, filters, dateFrom, dateTo, t]);
 
   useEffect(() => {
     if (authLoading || !hasPermission("zoom_in.view")) return;
-    fetchEvents();
-    // Use month from dateFrom for dashboard summary
     const month = dateFrom.substring(0, 7);
     fetchDashboard(month);
   }, [authLoading, hasPermission, dateFrom]);
@@ -212,7 +218,11 @@ export default function ZoomInPage() {
   useEffect(() => {
     if (authLoading || !hasPermission("zoom_in.view")) return;
     fetchEvents();
-  }, [page, search, dateTo]);
+  }, [page, filters, dateFrom, dateTo]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters.search, filters.event_type_id, filters.activity_id, filters.thana, dateFrom, dateTo]);
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
@@ -437,36 +447,15 @@ export default function ZoomInPage() {
       )}
 
       {/* ─── Filters ──────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex gap-3 flex-wrap">
-          <div>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-              className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
-            />
-          </div>
-          <div>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-              className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
-            />
-          </div>
-        </div>
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search..."
-            className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none dark:text-gray-100"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+      <div className="flex flex-col lg:flex-row gap-4">
+        <div className="w-full lg:w-72 shrink-0">
+          <ZoomInMasterFilter
+            filters={filters}
+            onChange={(f) => setFilters(f)}
+            onClear={() => setFilters({ ...defaultFilters, date_from: getDefaultFrom(), date_to: getDefaultTo() })}
           />
         </div>
-      </div>
+        <div className="flex-1 min-w-0">
 
       {/* ─── Events Table / Loading / Empty ───────────────────── */}
       {loading ? (
@@ -488,6 +477,15 @@ export default function ZoomInPage() {
           <ChartNoAxesColumnIncreasing className="w-12 h-12 text-gray-300 dark:text-gray-700 mx-auto mb-4" />
           <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t("zoom_in.messages.no_events")}</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("zoom_in.messages.no_events_desc")}</p>
+          {hasPermission("zoom_in.create") && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center justify-center gap-2 mt-4 px-4 py-2 bg-primary-500 text-white rounded-xl text-sm font-bold hover:bg-primary-600 transition-all shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              {t("zoom_in.create_event")}
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -651,7 +649,7 @@ export default function ZoomInPage() {
 
       {/* ─── Pagination ───────────────────────────────────────── */}
       {!loading && pagination.total_pages > 1 && (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mt-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Showing {(page - 1) * perPage + 1} to {Math.min(page * perPage, pagination.total)} of {pagination.total}
           </p>
@@ -676,6 +674,9 @@ export default function ZoomInPage() {
           </div>
         </div>
       )}
+
+        </div>
+      </div>
 
       {/* ─── Modals ───────────────────────────────────────────── */}
       <CreateEventModal

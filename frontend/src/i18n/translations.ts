@@ -31,6 +31,8 @@ export const translations = {
       prev: "Prev",
       reset: "Reset",
       all: "All",
+      filter: "Filters",
+      clear: "Clear all",
       export: "Export",
       action_failed: "Action failed",
       name_required: "Name is required",
@@ -971,6 +973,7 @@ export const translations = {
     zoom_in: {
       title: "Zoom In Management",
       description: "Manage monthly allocations and event entries",
+      search_placeholder: "Search events...",
       create_event: "Create Event",
       edit_event: "Edit Event",
       add_allocation: "Add Allocation",
@@ -1558,6 +1561,8 @@ export const translations = {
       prev: "Prev",
       reset: "Reset",
       all: "All",
+      filter: "ফিল্টার",
+      clear: "সব মুছুন",
       export: "এক্সপোর্ট",
       action_failed: "Action failed",
       name_required: "Name is required",
@@ -2530,6 +2535,7 @@ export const translations = {
     zoom_in: {
       title: "জুম ইন ম্যানেজমেন্ট",
       description: "মাসিক বরাদ্দ এবং ইভেন্ট এন্ট্রি পরিচালনা করুন",
+      search_placeholder: "ইভেন্ট অনুসন্ধান...",
       create_event: "ইভেন্ট তৈরি করুন",
       edit_event: "ইভেন্ট সম্পাদনা করুন",
       add_allocation: "বরাদ্দ যোগ করুন",

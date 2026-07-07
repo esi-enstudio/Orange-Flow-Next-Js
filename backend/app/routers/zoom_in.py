@@ -853,6 +853,29 @@ async def get_dashboard_summary(
     )
 
 
+# ─── Filter Options ────────────────────────────────────────────
+
+@router.get("/filter-options")
+async def get_zoom_in_filter_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("zoom_in.view")),
+):
+    event_types_result = await db.execute(
+        select(ZoomInEventType).where(ZoomInEventType.is_active == True).order_by(ZoomInEventType.name)
+    )
+    event_types = event_types_result.scalars().all()
+
+    activities_result = await db.execute(
+        select(ZoomInActivity).where(ZoomInActivity.is_active == True).order_by(ZoomInActivity.name)
+    )
+    activities = activities_result.scalars().all()
+
+    return {
+        "event_types": [{"id": et.id, "name": et.name, "name_bn": et.name_bn} for et in event_types],
+        "activities": [{"id": a.id, "name": a.name, "name_bn": a.name_bn} for a in activities],
+    }
+
+
 # ─── Event Endpoints ────────────────────────────────────────────
 
 @router.get("/events")
@@ -860,6 +883,9 @@ async def get_events(
     pagination: PaginationParams = Depends(),
     date_from: Optional[date] = Query(None, description="Filter start date (inclusive)"),
     date_to: Optional[date] = Query(None, description="Filter end date (inclusive)"),
+    event_type_id: Optional[int] = Query(None, description="Filter by event type"),
+    activity_id: Optional[int] = Query(None, description="Filter by activity"),
+    thana: Optional[str] = Query(None, description="Filter by thana"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("zoom_in.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -888,6 +914,13 @@ async def get_events(
         base_query = base_query.where(ZoomInEvent.date >= date_from)
     if date_to:
         base_query = base_query.where(ZoomInEvent.date <= date_to)
+
+    if event_type_id:
+        base_query = base_query.where(ZoomInEvent.event_type_id == event_type_id)
+    if activity_id:
+        base_query = base_query.where(ZoomInEvent.activity_id == activity_id)
+    if thana:
+        base_query = base_query.where(ZoomInEvent.thana.ilike(f"%{thana}%"))
 
     if pagination.search:
         search_pattern = f"%{pagination.search}%"
@@ -966,30 +999,33 @@ async def get_events(
     async def _batch_counts(evts: list[ZoomInEvent], model):
         if not evts:
             return
-        code_to_event: dict[str, list[int]] = {}
+        code_set: set[str] = set()
         for e in evts:
-            for code in all_retailer_codes_by_event.get(e.id, set()):
-                code_to_event.setdefault(code, []).append(e.id)
-        if not code_to_event:
+            code_set.update(all_retailer_codes_by_event.get(e.id, set()))
+        if not code_set:
             return
+        dates = {e.date for e in evts}
         query = select(
             model.retailer_code,
+            model.activation_date,
             func.count().label("cnt")
         ).where(
-            model.retailer_code.in_(list(code_to_event.keys())),
+            model.retailer_code.in_(list(code_set)),
+            model.activation_date.in_(list(dates)),
         )
-        if model is LiveActivation:
-            query = query.where(model.activation_date == today)
-        else:
-            dates = {e.date for e in evts}
-            query = query.where(model.activation_date.in_(list(dates)))
         if excluded_codes:
             query = query.where(~model.product_code.in_(list(excluded_codes)))
-        query = query.group_by(model.retailer_code)
+        query = query.group_by(model.retailer_code, model.activation_date)
         count_result = await db.execute(query)
+        date_code_counts: dict[tuple[date, str], int] = {}
         for row in count_result.all():
-            for eid in code_to_event.get(row[0], []):
-                all_activation_counts[eid] = all_activation_counts.get(eid, 0) + row[1]
+            key = (row[1], row[0])
+            date_code_counts[key] = row[2]
+        for e in evts:
+            total = 0
+            for code in all_retailer_codes_by_event.get(e.id, set()):
+                total += date_code_counts.get((e.date, code), 0)
+            all_activation_counts[e.id] = total
 
     await _batch_counts(today_events, LiveActivation)
     await _batch_counts(past_events, Activation)
