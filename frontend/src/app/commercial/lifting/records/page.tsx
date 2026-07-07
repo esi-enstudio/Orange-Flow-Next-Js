@@ -366,7 +366,7 @@ export default function LiftingRecordsPage() {
                 </div>
             </div>
 
-            {/* Records Table */}
+            {/* Records Table / Accordion */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
                 {loading ? (
                     <div className="flex items-center justify-center py-16">
@@ -377,107 +377,196 @@ export default function LiftingRecordsPage() {
                         <p className="text-gray-400 dark:text-gray-500 text-sm">No lifting records found</p>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
-                                    <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-8"></th>
-                                    <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Date</th>
-                                    <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">House</th>
-                                    <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Payment</th>
-                                    <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Bank Deposit</th>
-                                    <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total Lifting</th>
-                                    <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">iTopUp</th>
-                                    <th className="text-center px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
-                                    <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Items</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
-                                {records.map((r) => (
-                                    <Fragment key={r.id}>
-                                        <tr
-                                            className="hover:bg-gray-50/50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer"
-                                            onClick={() => handleViewDetail(r.id)}
-                                        >
-                                            <td className="px-4 py-3">
-                                                {expandedId === r.id ? (
-                                                    <ChevronUp className="w-4 h-4 text-gray-400" />
-                                                ) : (
-                                                    <ChevronDown className="w-4 h-4 text-gray-400" />
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                                                {formatDate(r.lifting_date)}
-                                            </td>
-                                            <td className="px-4 py-3 font-semibold text-gray-900 dark:text-gray-100">
-                                                {r.house?.display_name || r.house?.name || `House #${r.house_id}`}
-                                            </td>
-                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                {r.payment_method}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
-                                                {formatNumber(r.total_bank_deposit)}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
-                                                {formatNumber(r.total_lifting_amount)}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
-                                                {formatNumber(r.itopup_amount)}
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <span
-                                                    className={cn(
-                                                        "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold",
-                                                        statusColors[r.status] || "bg-gray-100 text-gray-500"
+                    <>
+                        {/* Desktop Table — lg+ */}
+                        <div className="hidden lg:block overflow-x-auto scrollbar-custom">
+                            <table className="w-full text-sm whitespace-nowrap">
+                                <thead>
+                                    <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
+                                        <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-8"></th>
+                                        <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Date</th>
+                                        <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">House</th>
+                                        <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Payment</th>
+                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Bank Deposit</th>
+                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total Lifting</th>
+                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">iTopUp</th>
+                                        <th className="text-center px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
+                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Items</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
+                                    {records.map((r) => (
+                                        <Fragment key={r.id}>
+                                            <tr
+                                                className="hover:bg-gray-50/50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer"
+                                                onClick={() => handleViewDetail(r.id)}
+                                            >
+                                                <td className="px-4 py-3">
+                                                    {expandedId === r.id ? (
+                                                        <ChevronUp className="w-4 h-4 text-gray-400" />
+                                                    ) : (
+                                                        <ChevronDown className="w-4 h-4 text-gray-400" />
                                                     )}
-                                                >
-                                                    {r.status}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
-                                                {r.products.length}
-                                            </td>
-                                        </tr>
-                                        {expandedId === r.id && (
-                                            <tr>
-                                                <td colSpan={9} className="px-6 py-4 bg-gray-50/50 dark:bg-slate-800/20">
-                                                    {r.notes && (
-                                                        <div className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-                                                            <span className="font-semibold text-gray-700 dark:text-gray-300">Notes:</span> {r.notes}
-                                                        </div>
-                                                    )}
-                                                    <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-slate-800">
-                                                        <table className="w-full text-sm">
-                                                            <thead>
-                                                                <tr className="bg-gray-100/70 dark:bg-slate-800/50">
-                                                                    <th className="text-left px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Code</th>
-                                                                    <th className="text-left px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</th>
-                                                                    <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Qty</th>
-                                                                    <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Unit Price</th>
-                                                                    <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total</th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
-                                                                {r.products.map((p) => (
-                                                                    <tr key={p.id} className="bg-white/50 dark:bg-transparent">
-                                                                        <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">{p.product_code}</td>
-                                                                        <td className="px-4 py-2 font-semibold text-gray-900 dark:text-gray-100">{p.product_name}</td>
-                                                                        <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.quantity}</td>
-                                                                        <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatNumber(p.unit_price)}</td>
-                                                                        <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatNumber(p.total_price)}</td>
-                                                                    </tr>
-                                                                ))}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                                                    {formatDate(r.lifting_date)}
+                                                </td>
+                                                <td className="px-4 py-3 font-semibold text-gray-900 dark:text-gray-100">
+                                                    {r.house?.display_name || r.house?.name || `House #${r.house_id}`}
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                    {r.payment_method}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
+                                                    {formatNumber(r.total_bank_deposit)}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
+                                                    {formatNumber(r.total_lifting_amount)}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
+                                                    {formatNumber(r.itopup_amount)}
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <span
+                                                        className={cn(
+                                                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold",
+                                                            statusColors[r.status] || "bg-gray-100 text-gray-500"
+                                                        )}
+                                                    >
+                                                        {r.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
+                                                    {r.products.length}
                                                 </td>
                                             </tr>
-                                        )}
-                                    </Fragment>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                                            {expandedId === r.id && (
+                                                <tr>
+                                                    <td colSpan={9} className="px-6 py-4 bg-gray-50/50 dark:bg-slate-800/20">
+                                                        {r.notes && (
+                                                            <div className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+                                                                <span className="font-semibold text-gray-700 dark:text-gray-300">Notes:</span> {r.notes}
+                                                            </div>
+                                                        )}
+                                                        <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-slate-800">
+                                                            <table className="w-full text-sm">
+                                                                <thead>
+                                                                    <tr className="bg-gray-100/70 dark:bg-slate-800/50">
+                                                                        <th className="text-left px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Code</th>
+                                                                        <th className="text-left px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</th>
+                                                                        <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Qty</th>
+                                                                        <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Unit Price</th>
+                                                                        <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
+                                                                    {r.products.map((p) => (
+                                                                        <tr key={p.id} className="bg-white/50 dark:bg-transparent">
+                                                                            <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">{p.product_code}</td>
+                                                                            <td className="px-4 py-2 font-semibold text-gray-900 dark:text-gray-100">{p.product_name}</td>
+                                                                            <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.quantity}</td>
+                                                                            <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatNumber(p.unit_price)}</td>
+                                                                            <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatNumber(p.total_price)}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </Fragment>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Mobile Accordion — below lg */}
+                        <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+                            {records.map((r) => (
+                                <div key={r.id} className="transition-colors">
+                                    {/* Always visible header */}
+                                    <button
+                                        onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left"
+                                    >
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-mono text-xs text-gray-500 dark:text-gray-400 shrink-0">{formatDate(r.lifting_date)}</span>
+                                                <span className={cn(
+                                                    "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0",
+                                                    statusColors[r.status] || "bg-gray-100 text-gray-500"
+                                                )}>
+                                                    {r.status}
+                                                </span>
+                                            </div>
+                                            <p className="font-semibold text-gray-900 dark:text-gray-100 text-sm mt-0.5 truncate">
+                                                {r.house?.display_name || r.house?.name || `House #${r.house_id}`}
+                                            </p>
+                                        </div>
+                                        <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 ml-2 transition-transform duration-300", expandedId === r.id && "rotate-180")} />
+                                    </button>
+                                    {/* Expandable content */}
+                                    {expandedId === r.id && (
+                                        <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                                            <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Payment</p>
+                                                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.payment_method}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Items</p>
+                                                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.products.length}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Bank Deposit</p>
+                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{formatNumber(r.total_bank_deposit)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Total Lifting</p>
+                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{formatNumber(r.total_lifting_amount)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">iTopUp</p>
+                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{formatNumber(r.itopup_amount)}</p>
+                                                </div>
+                                            </div>
+                                            {r.notes && (
+                                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                                    <span className="font-semibold text-gray-700 dark:text-gray-300">Notes:</span> {r.notes}
+                                                </div>
+                                            )}
+                                            {r.products.length > 0 && (
+                                                <div className="rounded-lg border border-gray-100 dark:border-slate-800 overflow-hidden">
+                                                    <table className="w-full text-xs">
+                                                        <thead>
+                                                            <tr className="bg-gray-100/70 dark:bg-slate-800/50">
+                                                                <th className="text-left px-3 py-1.5 text-[10px] font-bold uppercase text-gray-500">Code</th>
+                                                                <th className="text-left px-3 py-1.5 text-[10px] font-bold uppercase text-gray-500">Name</th>
+                                                                <th className="text-right px-3 py-1.5 text-[10px] font-bold uppercase text-gray-500">Qty</th>
+                                                                <th className="text-right px-3 py-1.5 text-[10px] font-bold uppercase text-gray-500">Total</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
+                                                            {r.products.map((p) => (
+                                                                <tr key={p.id}>
+                                                                    <td className="px-3 py-1.5 font-mono text-gray-600 dark:text-gray-400">{p.product_code}</td>
+                                                                    <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-gray-100 truncate max-w-[120px]">{p.product_name}</td>
+                                                                    <td className="px-3 py-1.5 text-right font-mono text-gray-700 dark:text-gray-300">{p.quantity}</td>
+                                                                    <td className="px-3 py-1.5 text-right font-mono text-gray-700 dark:text-gray-300">{formatNumber(p.total_price)}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </>
                 )}
             </div>
         </div>
