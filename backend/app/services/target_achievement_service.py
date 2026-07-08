@@ -16,7 +16,9 @@ from app.models.scratch_card_issue import ScratchCardIssue
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
+from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.role import Role
+from app.utils.activation_rules import get_excluded_codes
 
 logger = logging.getLogger("app.services.TargetAchievement")
 
@@ -56,40 +58,42 @@ class TargetAchievementService:
         house_id_filter: Optional[int] = None,
         retailer_codes: Optional[list[str]] = None,
     ) -> int:
-        total = 0
-        query_start = self.month_start
-        query_end = self.month_end
+        excluded_codes = await get_excluded_codes(self.db)
 
-        if query_start <= self.today:
-            end_hist = min(self.today - timedelta(days=1), query_end)
-            if query_start <= end_hist:
-                q = select(func.count()).select_from(Activation).where(
-                    Activation.activation_date >= query_start,
-                    Activation.activation_date <= end_hist,
+        excluded_retailer_ids: set[int] = set()
+        if house_id_filter:
+            result = await self.db.execute(
+                select(RetailerFilter.retailer_id)
+                .join(FilterTag, RetailerFilter.tag_id == FilterTag.id)
+                .where(
+                    FilterTag.name == "DRC",
+                    RetailerFilter.house_id == house_id_filter,
                 )
-                if house_id_filter:
-                    q = q.where(Activation.house_id == house_id_filter)
-                if retailer_ids:
-                    q = q.where(Activation.retailer_id.in_(retailer_ids))
-                if retailer_codes:
-                    q = q.where(Activation.retailer_code.in_(retailer_codes))
-                res = await self.db.execute(q)
-                total += res.scalar() or 0
+            )
+            excluded_retailer_ids = {row[0] for row in result.all()}
 
-            if self.today <= query_end:
-                q = select(func.count()).select_from(LiveActivation).where(
-                    LiveActivation.activation_date == self.today,
+        q = select(func.count()).select_from(Activation).where(
+            Activation.activation_date >= self.month_start,
+            Activation.activation_date <= self.month_end,
+        )
+        if house_id_filter:
+            q = q.where(Activation.house_id == house_id_filter)
+        if retailer_ids:
+            q = q.where(Activation.retailer_id.in_(retailer_ids))
+        if retailer_codes:
+            q = q.where(Activation.retailer_code.in_(retailer_codes))
+        if excluded_retailer_ids:
+            q = q.where(
+                and_(
+                    Activation.retailer_id != None,
+                    Activation.retailer_id.notin_(excluded_retailer_ids),
                 )
-                if house_id_filter:
-                    q = q.where(LiveActivation.house_id == house_id_filter)
-                if retailer_ids:
-                    q = q.where(LiveActivation.retailer_id.in_(retailer_ids))
-                if retailer_codes:
-                    q = q.where(LiveActivation.retailer_code.in_(retailer_codes))
-                res = await self.db.execute(q)
-                total += res.scalar() or 0
+            )
+        if excluded_codes:
+            q = q.where(Activation.product_code.notin_(excluded_codes))
 
-        return total
+        res = await self.db.execute(q)
+        return res.scalar() or 0
 
     async def _get_itopup_total(
         self,

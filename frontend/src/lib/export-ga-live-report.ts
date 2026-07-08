@@ -29,17 +29,22 @@ interface SupervisorRow {
   yesterday_total?: number;
 }
 
+interface HouseSummary {
+  monthly_target: number;
+  achievement: number;
+  achievement_percentage: number;
+  remaining: number;
+  daily_required: number;
+  days_remaining: number;
+}
+
 interface ExportPayload {
   houseName: string;
   houseCode: string;
   totalActivations: number;
   employeeActivation: number;
   marketActivation: number;
-  ddTarget: number;
-  achievement: number;
-  percentage: number;
-  remaining: number;
-  drr: number;
+  summary: HouseSummary;
   rsos: RsoRow[];
   bps: BpRow[];
   supervisors: SupervisorRow[];
@@ -133,7 +138,8 @@ function formulaRow(
 }
 
 export async function exportLiveReport(payload: ExportPayload): Promise<void> {
-  const { houseName, houseCode, totalActivations, ddTarget, achievement, percentage, remaining, drr, rsos, bps, supervisors } = payload;
+  const { houseName, houseCode, totalActivations, summary, rsos, bps, supervisors } = payload;
+  const { monthly_target, achievement, achievement_percentage, remaining, daily_required } = summary;
 
   const now = new Date();
   const monthYear = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -180,24 +186,48 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   titleCell.font = { bold: true, size: 14, name: "Calibri", color: { argb: TEXT_DARK } };
   titleCell.alignment = { vertical: "middle", horizontal: "left" };
 
+  function fmt(n: number): string {
+    return n?.toLocaleString("en-US") ?? "0";
+  }
+
   /* ── DD Target Summary Headers (E2:I2) ── */
-  const ddHeaders = ["DD Target", "Ach", "%", "Remain", "DRR"];
+  const ddHeaders = ["Target", "Ach", "%", "Remaining", "DRR"];
+  const ddHeaderRow = ws.getRow(2);
+  ddHeaderRow.height = 24;
   ddHeaders.forEach((h, i) => {
-    const cell = ws.getCell(2, 5 + i);
+    const cell = ddHeaderRow.getCell(5 + i);
     cell.value = h;
     cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
     cell.alignment = { vertical: "middle", horizontal: "center" };
-    cell.border = allBorders;
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
+    cell.border = {
+      top: { style: "thin", color: { argb: BORDER } },
+      bottom: { style: "thin", color: { argb: BORDER } },
+      left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
+      right: i === ddHeaders.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+    };
   });
 
   /* ── DD Target Summary Values (E3:I3) ── */
-  const ddValues = [ddTarget, achievement, `${percentage}%`, remaining, drr];
-  ddValues.forEach((v, i) => {
-    const cell = ws.getCell(3, 5 + i);
-    cell.value = v;
-    cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
+  const pctColor = achievement_percentage >= 100 ? MEDIUM_BG : achievement_percentage >= 70 ? "#10B981" : achievement_percentage >= 40 ? "#F59E0B" : "#EF4444";
+  const dataRow3 = ws.getRow(3);
+  dataRow3.height = 22;
+  const ddValues = [fmt(monthly_target), fmt(achievement), `${achievement_percentage}%`, fmt(remaining), fmt(daily_required)];
+  ddValues.forEach((val, i) => {
+    const cell = dataRow3.getCell(5 + i);
+    cell.value = val;
+    cell.font = {
+      color: { argb: i === 2 ? pctColor : TEXT_DARK },
+      size: 10, name: "Calibri",
+      bold: i === 2,
+    };
     cell.alignment = { vertical: "middle", horizontal: "center" };
-    cell.border = allBorders;
+    cell.border = {
+      top: { style: "thin", color: { argb: BORDER } },
+      bottom: { style: "thin", color: { argb: BORDER } },
+      left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
+      right: i === ddValues.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+    };
   });
 
   /* ── Total Activation Count (K1:M4) ── */

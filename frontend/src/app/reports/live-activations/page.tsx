@@ -542,6 +542,12 @@ export default function GaLiveReportPage() {
   const [selectedHouseId, setSelectedHouseId] = useState<number | null>(null);
   const [allHouses, setAllHouses] = useState<Array<{ id: number; name: string; code: string }> | null>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [targetData, setTargetData] = useState<{
+    total_target: number;
+    total_achieved: number;
+    overall_percentage: number;
+    days_remaining: number;
+  } | null>(null);
   const [configVersion, setConfigVersion] = useState(0);
   const [liveSyncEnabled, setLiveSyncEnabled] = useState(true);
   const [liveSyncLoading, setLiveSyncLoading] = useState(false);
@@ -601,10 +607,11 @@ export default function GaLiveReportPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get("/reports/live-activations", {
+      const liveRes = await apiClient.get("/reports/live-activations", {
         params: { house_id: effectiveHouseId, start_date: today, end_date: today },
       });
-      setData(res.data);
+      setData(liveRes.data);
+      setTargetData(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to load report";
       setError(msg);
@@ -637,17 +644,46 @@ export default function GaLiveReportPage() {
     if (!data || !houses) return;
     const selHouse = houses.find((h) => h.id === effectiveHouseId);
     try {
+      const now = new Date();
+      const excludeTags = (() => {
+        try { return JSON.parse(localStorage.getItem("activation_achievement_exclude_tags") || "[]") as string[]; }
+        catch { return []; }
+      })();
+
+      const params: Record<string, unknown> = {
+        month: now.getMonth() + 1,
+        year: now.getFullYear(),
+        house_id: effectiveHouseId,
+      };
+      if (excludeTags.length > 0) params.exclude_tags = excludeTags.join(",");
+
+      const actRes = await apiClient.get("reports/activations/dashboard", { params });
+      const s = actRes.data?.summary;
+      const summary = s
+        ? {
+            monthly_target: s.monthly_target,
+            achievement: s.achievement,
+            achievement_percentage: s.achievement_percentage,
+            remaining: s.remaining,
+            daily_required: s.daily_required,
+            days_remaining: s.days_remaining,
+          }
+        : {
+            monthly_target: 0,
+            achievement: data.summary.total_activations,
+            achievement_percentage: 0,
+            remaining: 0,
+            daily_required: 0,
+            days_remaining: 0,
+          };
+
       await exportLiveReport({
         houseName: selHouse?.name ?? "",
         houseCode: selHouse?.code ?? "",
         totalActivations: data.summary.total_activations,
         employeeActivation: data.summary.employee_activation,
         marketActivation: data.summary.market_activation,
-        ddTarget: 0,
-        achievement: data.summary.total_activations,
-        percentage: 0,
-        remaining: 0,
-        drr: 0,
+        summary,
         rsos: data.rsos,
         bps: data.bps,
         supervisors: data.supervisors,
