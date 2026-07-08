@@ -35,6 +35,11 @@ interface ExportPayload {
   totalActivations: number;
   employeeActivation: number;
   marketActivation: number;
+  ddTarget: number;
+  achievement: number;
+  percentage: number;
+  remaining: number;
+  drr: number;
   rsos: RsoRow[];
   bps: BpRow[];
   supervisors: SupervisorRow[];
@@ -128,7 +133,7 @@ function formulaRow(
 }
 
 export async function exportLiveReport(payload: ExportPayload): Promise<void> {
-  const { houseName, houseCode, rsos, bps, supervisors } = payload;
+  const { houseName, houseCode, totalActivations, ddTarget, achievement, percentage, remaining, drr, rsos, bps, supervisors } = payload;
 
   const now = new Date();
   const monthYear = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -167,46 +172,76 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   const COLS = 13;
 
   /* ════════════════════════════════════════════
-     ROW 1: Title + Summary Headers
+     ROW 1-2: Title + DD Target Headers
      ════════════════════════════════════════════ */
-  ws.mergeCells(1, 1, 2, 2);
+  ws.mergeCells(1, 1, 2, 3);
   const titleCell = ws.getCell("A1");
   titleCell.value = `GA Live Report (${monthYear})`;
   titleCell.font = { bold: true, size: 14, name: "Calibri", color: { argb: TEXT_DARK } };
   titleCell.alignment = { vertical: "middle", horizontal: "left" };
 
+  /* ── DD Target Summary Headers (E2:I2) ── */
+  const ddHeaders = ["DD Target", "Ach", "%", "Remain", "DRR"];
+  ddHeaders.forEach((h, i) => {
+    const cell = ws.getCell(2, 5 + i);
+    cell.value = h;
+    cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+    cell.border = allBorders;
+  });
+
+  /* ── DD Target Summary Values (E3:I3) ── */
+  const ddValues = [ddTarget, achievement, `${percentage}%`, remaining, drr];
+  ddValues.forEach((v, i) => {
+    const cell = ws.getCell(3, 5 + i);
+    cell.value = v;
+    cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+    cell.border = allBorders;
+  });
+
+  /* ── Total Activation Count (K1:M4) ── */
+  ws.mergeCells(1, 11, 4, 13);
+  const totalCell = ws.getCell("K1");
+  totalCell.value = totalActivations;
+  totalCell.font = { bold: true, size: 48, name: "Calibri", color: { argb: TEXT_DARK } };
+  totalCell.alignment = { vertical: "middle", horizontal: "center" };
+  totalCell.border = allBorders;
+
   /* ════════════════════════════════════════════
      ROW 3: House Info
      ════════════════════════════════════════════ */
-  ws.mergeCells(3, 1, 3, 10);
-  const infoCell = ws.getCell("A3");
-  infoCell.value = `House: ${houseName} (${houseCode})  -  Generated: ${dateStr}, ${timeStr}`;
-  infoCell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_MUTED } };
-  infoCell.alignment = { vertical: "middle", horizontal: "left" };
+  ws.mergeCells(3, 1, 3, 3);
+  const houseCell = ws.getCell("A3");
+  houseCell.value = `House: ${houseName} (${houseCode})`;
+  houseCell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_MUTED } };
+  houseCell.alignment = { vertical: "middle", horizontal: "left" };
 
   /* ════════════════════════════════════════════
-     ROW 4: Spacer
+     ROW 4: Generated Info
      ════════════════════════════════════════════ */
+  ws.mergeCells(4, 1, 4, 3);
+  const genCell = ws.getCell("A4");
+  genCell.value = `Generated: ${dateStr}, ${timeStr}`;
+  genCell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_MUTED } };
+  genCell.alignment = { vertical: "middle", horizontal: "left" };
 
   /* ════════════════════════════════════════════
      ROW 5: RSO PERFORMANCE section title
      ════════════════════════════════════════════ */
-  ws.mergeCells(5, 1, 5, 2);
-  ws.mergeCells(5, 11, 5, 13);
-  const rsoTitleCell = ws.getCell("A5");
-  rsoTitleCell.value = "RSO PERFORMANCE";
-  rsoTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-  rsoTitleCell.alignment = { vertical: "middle", horizontal: "left" };
-  rsoTitleCell.border = allBorders;
-  const rsoYestCell = ws.getCell("K5");
-  rsoYestCell.value = "Yesterday";
-  rsoYestCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-  rsoYestCell.alignment = { vertical: "middle", horizontal: "center" };
-  rsoYestCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
-  rsoYestCell.border = allBorders;
-  [ws.getCell("C5"), ws.getCell("D5")].forEach((cell) => {
-    cell.border = allBorders;
-  });
+   ws.mergeCells(5, 1, 5, 10);
+   ws.mergeCells(5, 11, 5, 13);
+   const rsoTitleCell = ws.getCell("A5");
+   rsoTitleCell.value = "RSO PERFORMANCE";
+   rsoTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+   rsoTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+   rsoTitleCell.border = allBorders;
+   const rsoYestCell = ws.getCell("K5");
+   rsoYestCell.value = "Yesterday";
+   rsoYestCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+   rsoYestCell.alignment = { vertical: "middle", horizontal: "center" };
+   rsoYestCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
+   rsoYestCell.border = allBorders;
 
   /* ════════════════════════════════════════════
      ROW 6: RSO Headers
@@ -274,12 +309,12 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   /* ════════════════════════════════════════════
      ROW 27: BP PERFORMANCE section title
      ════════════════════════════════════════════ */
-  ws.mergeCells(27, 1, 27, 2);
-  const bpTitleCell = ws.getCell("A27");
-  bpTitleCell.value = "BP PERFORMANCE";
-  bpTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-  bpTitleCell.alignment = { vertical: "middle", horizontal: "left" };
-  bpTitleCell.border = allBorders;
+   ws.mergeCells(27, 1, 27, 9);
+   const bpTitleCell = ws.getCell("A27");
+   bpTitleCell.value = "BP PERFORMANCE";
+   bpTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+   bpTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+   bpTitleCell.border = allBorders;
 
   /* ════════════════════════════════════════════
      ROW 28: BP Headers
@@ -288,7 +323,6 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     "#", "Name", "Pool Number", "Assisted Code",
     "Today Target",
     "Ach", "%", "Remain", "Yest GA",
-    "", "", "", "",
   ]);
 
   /* ════════════════════════════════════════════
@@ -308,15 +342,11 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       0,
       0,
       bp.yesterday_activation,
-      0, 0, 0, 0,
     ]);
-    [10, 11, 12, 13].forEach((ci) => {
-      ws.getCell(r, ci).value = null;
-    });
     r++;
   });
   while (r <= BP_DATA_END) {
-    for (let ci = 1; ci <= COLS; ci++) {
+    for (let ci = 1; ci <= 9; ci++) {
       const cell = ws.getCell(r, ci);
       cell.border = allBorders;
       cell.font = { size: 10, name: "Calibri" };
@@ -328,10 +358,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   /* ════════════════════════════════════════════
      ROW 33: BP Subtotal (formulas)
      ════════════════════════════════════════════ */
-  formulaRow(ws, 33, ["F", "G", "H", "I"], BP_DATA_START, BP_DATA_END, "Total", 13);
-  [10, 11, 12, 13].forEach((ci) => {
-    ws.getCell(33, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: WHITE } };
-  });
+  formulaRow(ws, 33, ["F", "G", "H", "I"], BP_DATA_START, BP_DATA_END, "Total", 9);
 
   /* ════════════════════════════════════════════
      ROW 34: Spacer
