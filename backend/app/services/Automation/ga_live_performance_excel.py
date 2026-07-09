@@ -175,7 +175,7 @@ async def export_ga_live_performance_excel(
         select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number,
                Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number,
                Employee.employee_type)
-        .where(Employee.house_id == house_id)
+        .where(Employee.house_id == house_id, Employee.status == "Active")
     )
     all_employees = emp_rows.all()
 

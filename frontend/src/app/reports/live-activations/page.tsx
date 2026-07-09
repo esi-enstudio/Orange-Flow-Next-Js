@@ -668,6 +668,7 @@ export default function GaLiveReportPage() {
             achievement_percentage: s.achievement_percentage,
             remaining: s.remaining,
             daily_required: s.daily_required,
+            daily_required_with_friday: s.daily_required_with_friday,
             days_remaining: s.days_remaining,
           }
         : {
@@ -676,6 +677,7 @@ export default function GaLiveReportPage() {
             achievement_percentage: 0,
             remaining: 0,
             daily_required: 0,
+            daily_required_with_friday: 0,
             days_remaining: 0,
           };
 
@@ -1428,35 +1430,35 @@ export default function GaLiveReportPage() {
                   <tbody>
                     {rsos.map((rso) => (
                       <tr key={rso.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
-                        <td className="px-5 py-3 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">
+                        <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">
                           <p className="font-medium text-gray-900 dark:text-gray-100">{rso.name}</p>
                           <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">{rso.dms_code ? `${rso.dms_code}${rso.itop_number ? ` • ${rso.itop_number.slice(-3)}` : ''}${rso.assisted_code ? ` • ${rso.assisted_code}` : ''}` : `#${rso.id}`}</p>
                         </td>
-                        <td className="px-2 py-3 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
                           {rso.remaining > 0 ? Math.ceil(rso.remaining / Math.max(daysRemaining, 1)).toLocaleString() : "0"}
                         </td>
-                        <td className="px-2 py-3 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">{rso.own_activation.toLocaleString()}</td>
-                        <td className="px-2 py-3 text-center text-amber-600 dark:text-amber-400 border border-gray-200 dark:border-slate-600">{rso.market_activation.toLocaleString()}</td>
-                        <td className="px-2 py-3 text-center font-bold text-primary-600 dark:text-primary-400 border border-gray-200 dark:border-slate-600">{rso.total_activation.toLocaleString()}</td>
-                        <td className="px-2 py-3 text-center font-medium border border-gray-200 dark:border-slate-600">
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">{rso.own_activation.toLocaleString()}</td>
+                        <td className="px-2 py-1 text-center text-amber-600 dark:text-amber-400 border border-gray-200 dark:border-slate-600">{rso.market_activation.toLocaleString()}</td>
+                        <td className="px-2 py-1 text-center font-bold text-primary-600 dark:text-primary-400 border border-gray-200 dark:border-slate-600">{rso.total_activation.toLocaleString()}</td>
+                        <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
                           {(rso.remaining > 0 ? Math.ceil(rso.remaining / Math.max(daysRemaining, 1)) : 0) > 0
                             ? Math.round((rso.total_activation / Math.ceil(rso.remaining / Math.max(daysRemaining, 1))) * 100) + '%'
                             : '0%'}
                         </td>
-                        <td className="px-2 py-3 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
                           {Math.max(0, Math.ceil(rso.remaining / Math.max(daysRemaining, 1)) - rso.total_activation).toLocaleString()}
                         </td>
-                        <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600">
+                        <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                           <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
                             {rso.contribution}%
                           </span>
                         </td>
-                        <td className="px-2 py-3 text-center text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 whitespace-nowrap">
+                        <td className="px-2 py-1 text-center text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 whitespace-nowrap">
                           <span className="text-amber-600 dark:text-amber-400">O:{rso.yesterday_own}</span>{' '}
                           <span className="text-emerald-600 dark:text-emerald-400">M:{rso.yesterday_market}</span>{' '}
                           <span className="font-semibold text-gray-900 dark:text-gray-100">T:{rso.yesterday_total}</span>
                         </td>
-                        <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600">
+                        <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                           <button
                             onClick={() => rso.employee_id && setDetailModal({ open: true, employeeId: rso.employee_id, roleType: "rso", employeeName: rso.name })}
                             className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
@@ -1468,48 +1470,48 @@ export default function GaLiveReportPage() {
                     ))}
                     {/* Total row */}
                     <tr className="bg-gray-50 dark:bg-slate-700/30 font-semibold">
-                      <td className="px-5 py-3 border border-gray-200 dark:border-slate-600 sticky left-0 bg-gray-50 dark:bg-slate-700/30 z-20 text-gray-900 dark:text-gray-100">
+                      <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 sticky left-0 bg-gray-50 dark:bg-slate-700/30 z-20 text-gray-900 dark:text-gray-100">
                         Total ({rsos.length} RSOs)
                       </td>
-                      <td className="px-2 py-3 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
                         {rsos.reduce((s, r) => s + (r.remaining > 0 ? Math.ceil(r.remaining / Math.max(daysRemaining, 1)) : 0), 0).toLocaleString()}
                       </td>
-                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600 text-gray-900 dark:text-gray-100">
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 text-gray-900 dark:text-gray-100">
                         {rsos.reduce((s, r) => s + r.own_activation, 0).toLocaleString()}
                       </td>
-                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600 text-amber-600 dark:text-amber-400">
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 text-amber-600 dark:text-amber-400">
                         {rsos.reduce((s, r) => s + r.market_activation, 0).toLocaleString()}
                       </td>
-                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600 font-bold text-primary-600 dark:text-primary-400">
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 font-bold text-primary-600 dark:text-primary-400">
                         {rsos.reduce((s, r) => s + r.total_activation, 0).toLocaleString()}
                       </td>
-                      <td className="px-2 py-3 text-center font-medium border border-gray-200 dark:border-slate-600">
+                      <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
                         {(() => {
                           const sumToday = rsos.reduce((s, r) => s + (r.remaining > 0 ? Math.ceil(r.remaining / Math.max(daysRemaining, 1)) : 0), 0);
                           const sumTotal = rsos.reduce((s, r) => s + r.total_activation, 0);
                           return sumToday > 0 ? Math.round((sumTotal / sumToday) * 100) + '%' : '0%';
                         })()}
                       </td>
-                      <td className="px-2 py-3 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
                         {(() => {
                           const sumToday = rsos.reduce((s, r) => s + (r.remaining > 0 ? Math.ceil(r.remaining / Math.max(daysRemaining, 1)) : 0), 0);
                           const sumTotal = rsos.reduce((s, r) => s + r.total_activation, 0);
                           return Math.max(0, sumToday - sumTotal).toLocaleString();
                         })()}
                       </td>
-                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600">
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                         <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
                           {totalActivation > 0
                             ? (rsos.reduce((s, r) => s + r.total_activation, 0) / totalActivation * 100).toFixed(1)
                             : 0}%
                         </span>
                       </td>
-                      <td className="px-2 py-3 text-center text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 whitespace-nowrap">
+                      <td className="px-2 py-1 text-center text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 whitespace-nowrap">
                         <span className="text-amber-600 dark:text-amber-400">O:{rsos.reduce((s,r) => s + r.yesterday_own, 0)}</span>{' '}
                         <span className="text-emerald-600 dark:text-emerald-400">M:{rsos.reduce((s,r) => s + r.yesterday_market, 0)}</span>{' '}
                         <span className="font-semibold text-gray-900 dark:text-gray-100">T:{rsos.reduce((s,r) => s + r.yesterday_total, 0)}</span>
                       </td>
-                      <td className="px-2 py-3 text-center border border-gray-200 dark:border-slate-600" />
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600" />
                     </tr>
                   </tbody>
                 </table>

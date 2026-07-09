@@ -142,6 +142,7 @@ class GaLiveQueryBuilder:
         emp_codes = await self.db.execute(
             select(Employee.assisted_retailer_code).where(
                 Employee.house_id == self.house_id,
+                Employee.status == "Active",
                 Employee.assisted_retailer_code != None,
             )
         )
@@ -168,6 +169,7 @@ class GaLiveQueryBuilder:
         emp_rows = await self.db.execute(
             select(Employee.assisted_retailer_code).where(
                 Employee.house_id == self.house_id,
+                Employee.status == "Active",
                 Employee.id.in_(selected_emp_ids),
                 Employee.assisted_retailer_code != None,
             )
@@ -190,6 +192,7 @@ class GaLiveQueryBuilder:
         emp_codes = await self.db.execute(
             select(Employee.assisted_retailer_code).where(
                 Employee.house_id == self.house_id,
+                Employee.status == "Active",
                 Employee.assisted_retailer_code != None,
             )
         )
@@ -232,7 +235,7 @@ class GaLiveQueryBuilder:
 
         emp_rows = await self.db.execute(
             select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number, Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number)
-            .where(Employee.house_id == self.house_id)
+            .where(Employee.house_id == self.house_id, Employee.status == "Active")
         )
         employees_raw = emp_rows.all()
         emp_id_to_user = {e.id: (e.user_id, e.dms_code, e.itop_number, e.personal_number, e.assisted_retailer_code, e.pool_number) for e in employees_raw}
@@ -240,6 +243,7 @@ class GaLiveQueryBuilder:
         emp_code_rows = await self.db.execute(
             select(Employee.id, Employee.assisted_retailer_code).where(
                 Employee.house_id == self.house_id,
+                Employee.status == "Active",
                 Employee.assisted_retailer_code != None,
             )
         )
@@ -276,6 +280,7 @@ class GaLiveQueryBuilder:
             bp_emps = await self.db.execute(
                 select(Employee.user_id).where(
                     Employee.house_id == self.house_id,
+                    Employee.status == "Active",
                     Employee.employee_type == "bp",
                     Employee.user_id != None,
                 )
@@ -547,6 +552,34 @@ class GaLiveQueryBuilder:
                 if rcode:
                     yest_code_counts[rcode] = yest_code_counts.get(rcode, 0) + 1
 
+        # ── Yesterday BP breakdown (separate query, no BP code exclusion) ──
+        bp_yest_code_counts: dict[str, int] = {}
+        if yesterday >= date(2020, 1, 1):
+            bp_exc_pcodes, bp_exc_tags = await self._get_exclusions("bps")
+            bp_exc_rids: set[int] = set()
+            for tag in bp_exc_tags:
+                excluded = await self._load_excluded_retailers_by_tag(tag)
+                bp_exc_rids.update(excluded)
+
+            bp_yest_q = select(Activation.retailer_code).where(
+                Activation.house_id == self.house_id,
+                Activation.activation_date == yesterday,
+            )
+            if bp_exc_rids:
+                bp_yest_q = bp_yest_q.where(Activation.retailer_id.notin_(bp_exc_rids))
+            if bp_exc_pcodes:
+                bp_yest_q = bp_yest_q.where(
+                    and_(
+                        Activation.product_code != None,
+                        Activation.product_code.notin_(bp_exc_pcodes),
+                    )
+                )
+            bp_yest_rows = await self.db.execute(bp_yest_q)
+            for row in bp_yest_rows.all():
+                rcode = row[0]
+                if rcode:
+                    bp_yest_code_counts[rcode] = bp_yest_code_counts.get(rcode, 0) + 1
+
         for r in rso_data:
             emp_id = r["employee_id"]
             ret_ids: set[int] = set()
@@ -600,7 +633,7 @@ class GaLiveQueryBuilder:
             b_code = b.get("assisted_code")
             if b_code and b_code not in bp_codes:
                 bp_codes.append(b_code)
-            y_total = sum(yest_code_counts.get(code, 0) for code in bp_codes)
+            y_total = sum(bp_yest_code_counts.get(code, 0) for code in bp_codes)
             b["yesterday_activation"] = y_total
 
         cc_data = []

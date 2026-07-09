@@ -211,8 +211,8 @@ class ActivationReportService:
         achievement_pct = round((achievement / monthly_target * 100), 1) if monthly_target else 0
         remaining = max(0, monthly_target - achievement)
         excl_friday_days = max(self._days_remaining - self._remaining_fridays, 1)
-        daily_required = int(remaining / excl_friday_days) if self._days_remaining else 0
-        daily_required_with_friday = int(remaining / max(self._days_remaining, 1)) if self._days_remaining else 0
+        daily_required = round(remaining / excl_friday_days) if self._days_remaining else 0
+        daily_required_with_friday = round(remaining / max(self._days_remaining, 1)) if self._days_remaining else 0
         daily_avg = round(achievement / max(self._days_elapsed, 1)) if self._days_elapsed else 0
         projection = round(daily_avg * self._days_in_month, 1)
         expected_pct = round((projection / monthly_target * 100), 1) if monthly_target else 0

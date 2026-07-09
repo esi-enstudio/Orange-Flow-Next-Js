@@ -37,6 +37,7 @@ interface HouseSummary {
   achievement_percentage: number;
   remaining: number;
   daily_required: number;
+  daily_required_with_friday: number;
   days_remaining: number;
 }
 
@@ -141,7 +142,7 @@ function formulaRow(
 
 export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   const { houseName, houseCode, totalActivations, summary, rsos, bps, supervisors } = payload;
-  const { monthly_target, achievement, achievement_percentage, remaining, daily_required } = summary;
+  const { monthly_target, achievement, achievement_percentage, remaining, daily_required, daily_required_with_friday } = summary;
 
   const now = new Date();
   const monthYear = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -185,7 +186,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   ws.mergeCells(1, 1, 2, 3);
   const titleCell = ws.getCell("A1");
   titleCell.value = `GA Live Report (${monthYear})`;
-  titleCell.font = { bold: true, size: 14, name: "Calibri", color: { argb: TEXT_DARK } };
+  titleCell.font = { bold: true, size: 18, name: "Calibri", color: { argb: TEXT_DARK } };
   titleCell.alignment = { vertical: "middle", horizontal: "left" };
 
   function fmt(n: number): string {
@@ -214,7 +215,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   const pctColor = achievement_percentage >= 100 ? MEDIUM_BG : achievement_percentage >= 70 ? "#10B981" : achievement_percentage >= 40 ? "#F59E0B" : "#EF4444";
   const dataRow3 = ws.getRow(3);
   dataRow3.height = 22;
-  const ddValues = [fmt(monthly_target), fmt(achievement), `${achievement_percentage}%`, fmt(remaining), fmt(daily_required)];
+  const ddValues = [fmt(monthly_target), fmt(achievement), `${achievement_percentage}%`, fmt(remaining), fmt(daily_required_with_friday)];
   ddValues.forEach((val, i) => {
     const cell = dataRow3.getCell(5 + i);
     cell.value = val;
@@ -332,7 +333,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   /* ════════════════════════════════════════════
      ROW 25: RSO Total (formulas)
      ════════════════════════════════════════════ */
-  formulaRow(ws, 25, ["F", "G", "H", "I", "J", "K", "L", "M"], RSO_DATA_START, RSO_DATA_END, "Total", 13);
+  formulaRow(ws, 25, ["E", "F", "G", "H", "I", "J", "K", "L", "M"], RSO_DATA_START, RSO_DATA_END, "Total", 13);
   [11, 12, 13].forEach((ci) => {
     ws.getCell(25, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
   });
