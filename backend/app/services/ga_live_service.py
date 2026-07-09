@@ -1,4 +1,5 @@
 import logging
+from calendar import monthrange
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -15,6 +16,7 @@ from app.models.role import Role
 from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.ga_section_config import GaSectionConfig
+from app.models.rso_target import RSOTarget
 from app.utils.activation_rules import get_excluded_codes, exclude_clause
 from app.services.cache_service import cache_service
 
@@ -399,6 +401,68 @@ class GaLiveQueryBuilder:
             })
         supervisor_data.sort(key=lambda x: x["total_activation"], reverse=True)
 
+        # ── Load RSO targets for current month ──
+        today_for_target = self.start_date
+        month_start = date(today_for_target.year, today_for_target.month, 1)
+        _, last_day = monthrange(today_for_target.year, today_for_target.month)
+        month_end = date(today_for_target.year, today_for_target.month, last_day)
+        rso_emp_ids_for_target = [
+            eid for uid, eid in emp_user_id_to_emp_id.items()
+            if uid in role_uids["rso"] and eid
+        ]
+        rso_target_map: dict[int, int] = {}
+        if rso_emp_ids_for_target:
+            target_rows = await self.db.execute(
+                select(RSOTarget).where(
+                    RSOTarget.employee_id.in_(rso_emp_ids_for_target),
+                    RSOTarget.target_date >= month_start,
+                    RSOTarget.target_date <= month_end,
+                )
+            )
+            for t in target_rows.scalars().all():
+                rso_target_map[t.employee_id] = t.ga or 0
+
+        # ── Load month-to-date (MTD) activation counts for RSO remaining ──
+        yesterday_for_mtd = self.start_date - timedelta(days=1)
+        mtd_retailer_counts: dict[int, int] = {}
+        all_rso_retailer_ids: set[int] = set()
+        rso_emp_retailer_map: dict[int, set[int]] = {}
+        for rso_uid in role_uids["rso"]:
+            rso_emp_id = emp_user_id_to_emp_id.get(rso_uid)
+            if rso_emp_id:
+                ret_ids = {rid for rid, eid in retailer_employee_map.items() if eid == rso_emp_id}
+                if ret_ids:
+                    rso_emp_retailer_map[rso_emp_id] = ret_ids
+                    all_rso_retailer_ids.update(ret_ids)
+        if all_rso_retailer_ids and yesterday_for_mtd >= month_start:
+            # Apply section exclusions (product codes + retailer tags)
+            mtd_exclude_product_codes, mtd_exclude_retailer_tags = await self._get_exclusions("rsos")
+            mtd_excluded_retailer_ids: set[int] = set()
+            for tag in mtd_exclude_retailer_tags:
+                excluded = await self._load_excluded_retailers_by_tag(tag)
+                mtd_excluded_retailer_ids.update(excluded)
+            mtd_filtered_retailer_ids = [rid for rid in all_rso_retailer_ids if rid not in mtd_excluded_retailer_ids]
+
+            mtd_q = select(Activation.retailer_id, func.count()).where(
+                Activation.house_id == self.house_id,
+                Activation.activation_date >= month_start,
+                Activation.activation_date <= yesterday_for_mtd,
+                Activation.retailer_id.in_(mtd_filtered_retailer_ids),
+            )
+            if mtd_exclude_product_codes:
+                mtd_q = mtd_q.where(
+                    and_(
+                        Activation.product_code != None,
+                        Activation.product_code.notin_(mtd_exclude_product_codes),
+                    )
+                )
+            if all_bp_codes_for_house:
+                mtd_q = mtd_q.where(Activation.retailer_code.notin_(all_bp_codes_for_house))
+            mtd_q = mtd_q.group_by(Activation.retailer_id)
+            mtd_rows = await self.db.execute(mtd_q)
+            for rid, cnt in mtd_rows.all():
+                mtd_retailer_counts[rid] = cnt
+
         rso_data = []
         for rso_uid in role_uids["rso"]:
             rso_user = (await self.db.execute(select(User).where(User.id == rso_uid))).scalar_one_or_none()
@@ -431,6 +495,8 @@ class GaLiveQueryBuilder:
                     res = await self.db.execute(select(func.count()).select_from(own_q.subquery()))
                     rso_own = res.scalar() or 0
             rso_info = emp_id_to_user.get(rso_emp_id) if rso_emp_id else None
+            rso_target_val = rso_target_map.get(rso_emp_id, 0) if rso_emp_id else 0
+            mtd_achievement = sum(mtd_retailer_counts.get(rid, 0) for rid in rso_emp_retailer_map.get(rso_emp_id, set())) if rso_emp_id else 0
             rso_data.append({
                 "id": rso_uid,
                 "employee_id": rso_emp_id,
@@ -441,21 +507,41 @@ class GaLiveQueryBuilder:
                 "total_activation": rso_total,
                 "own_activation": rso_own if rso_code else 0,
                 "market_activation": (rso_total - rso_own) if rso_code else 0,
+                "target": rso_target_val,
+                "remaining": max(0, rso_target_val - mtd_achievement),
                 "contribution": 0,
             })
-        # ── Yesterday RSO breakdown ──
+        # ── Yesterday RSO breakdown (with same exclusions as base_act_rso) ──
         yesterday = self.start_date - timedelta(days=1)
         yest_retailer_counts: dict[int, int] = {}
         yest_code_counts: dict[str, int] = {}
         if yesterday >= date(2020, 1, 1):
-            yest_act_rows = await self.db.execute(
-                select(Activation.retailer_id, Activation.retailer_code)
-                .where(
-                    Activation.house_id == self.house_id,
-                    Activation.activation_date == yesterday,
-                )
+            yest_exclude_product_codes, yest_exclude_retailer_tags = await self._get_exclusions("rsos")
+            yest_excluded_retailer_ids: set[int] = set()
+            for tag in yest_exclude_retailer_tags:
+                excluded = await self._load_excluded_retailers_by_tag(tag)
+                yest_excluded_retailer_ids.update(excluded)
+
+            yest_q = select(Activation.retailer_id, Activation.retailer_code).where(
+                Activation.house_id == self.house_id,
+                Activation.activation_date == yesterday,
             )
-            for rid, rcode in yest_act_rows.all():
+            if yest_excluded_retailer_ids:
+                yest_q = yest_q.where(
+                    Activation.retailer_id.notin_(yest_excluded_retailer_ids)
+                )
+            if yest_exclude_product_codes:
+                yest_q = yest_q.where(
+                    and_(
+                        Activation.product_code != None,
+                        Activation.product_code.notin_(yest_exclude_product_codes),
+                    )
+                )
+            if all_bp_codes_for_house:
+                yest_q = yest_q.where(Activation.retailer_code.notin_(all_bp_codes_for_house))
+
+            yest_rows = await self.db.execute(yest_q)
+            for rid, rcode in yest_rows.all():
                 if rid:
                     yest_retailer_counts[rid] = yest_retailer_counts.get(rid, 0) + 1
                 if rcode:

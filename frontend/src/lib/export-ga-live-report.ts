@@ -7,6 +7,8 @@ interface RsoRow {
   own_activation: number;
   market_activation: number;
   total_activation: number;
+  target: number;
+  remaining: number;
   yesterday_own: number;
   yesterday_market: number;
   yesterday_total: number;
@@ -293,18 +295,21 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   const RSO_DATA_START = 7;
   const RSO_DATA_END = 24;
   let r = RSO_DATA_START;
+  const daysRemaining = summary.days_remaining;
   rsos.forEach((rso, i) => {
+    const drr = rso.remaining > 0 ? Math.ceil(rso.remaining / Math.max(daysRemaining, 1)) : 0;
+    const pct = rso.target > 0 ? Math.round((rso.total_activation / rso.target) * 100) : 0;
     dataRow(ws, r, [
       i + 1,
       rso.name,
       rso.itop_number || "",
       rso.assisted_code || "",
-      0,
+      drr,
       rso.own_activation,
       rso.market_activation,
       rso.total_activation,
-      0,
-      0,
+      pct,
+      rso.remaining,
       rso.yesterday_own,
       rso.yesterday_market,
       rso.yesterday_total,
