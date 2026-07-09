@@ -14,6 +14,13 @@ interface RsoRow {
   yesterday_total: number;
 }
 
+interface CcRow {
+  name: string;
+  dms_code: string;
+  own_activation: number;
+  contribution: number;
+}
+
 interface BpRow {
   name: string;
   pool_number: string;
@@ -50,10 +57,11 @@ interface ExportPayload {
   summary: HouseSummary;
   rsos: RsoRow[];
   bps: BpRow[];
+  ccs: CcRow[];
   supervisors: SupervisorRow[];
 }
 
-const BORDER = "D1D5DB";
+const BORDER = "000000";
 const SECTION_BG = "F1F5F9";
 const TEXT_DARK = "1E293B";
 const TEXT_MUTED = "64748B";
@@ -89,7 +97,7 @@ function headerRow(ws: ExcelJS.Worksheet, row: number, headers: string[]) {
   headers.forEach((h, i) => {
     const cell = r.getCell(i + 1);
     cell.value = h;
-    cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
+    cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
     cell.alignment = { vertical: "middle", horizontal: "center" };
     cell.border = allBorders;
   });
@@ -105,7 +113,7 @@ function dataRow(
   values.forEach((val, i) => {
     const cell = r.getCell(i + 1);
     cell.value = val;
-    cell.font = { bold: false, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
+    cell.font = { bold: false, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
     cell.alignment = {
       vertical: "middle",
       horizontal: i === 1 ? "left" : "center",
@@ -128,7 +136,7 @@ function formulaRow(
   for (let ci = 1; ci <= totalCols; ci++) {
     const colLetter = String.fromCharCode(64 + ci);
     const cell = r.getCell(ci);
-    cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
+    cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
     cell.alignment = { vertical: "middle", horizontal: "center" };
     cell.border = allBorders;
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
@@ -141,7 +149,7 @@ function formulaRow(
 }
 
 export async function exportLiveReport(payload: ExportPayload): Promise<void> {
-  const { houseName, houseCode, totalActivations, summary, rsos, bps, supervisors } = payload;
+  const { houseName, houseCode, totalActivations, summary, rsos, bps, ccs, supervisors } = payload;
   const { monthly_target, achievement, achievement_percentage, remaining, daily_required, daily_required_with_friday } = summary;
 
   const now = new Date();
@@ -200,15 +208,10 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   ddHeaders.forEach((h, i) => {
     const cell = ddHeaderRow.getCell(5 + i);
     cell.value = h;
-    cell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_DARK } };
+    cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
     cell.alignment = { vertical: "middle", horizontal: "center" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
-    cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: i === ddHeaders.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
-    };
+    cell.border = allBorders;
   });
 
   /* ── DD Target Summary Values (E3:I3) ── */
@@ -221,16 +224,11 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     cell.value = val;
     cell.font = {
       color: { argb: i === 2 ? pctColor : TEXT_DARK },
-      size: 10, name: "Calibri",
+      size: 11, name: "Calibri",
       bold: i === 2,
     };
     cell.alignment = { vertical: "middle", horizontal: "center" };
-    cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: i === ddValues.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
-    };
+    cell.border = allBorders;
   });
   ws.getCell(3, 7).value = { formula: `IF(E3>0, ROUND(F3/E3*100, 1), 0)` };
   ws.getCell(3, 7).numFmt = '0.0"%"';
@@ -250,7 +248,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   ws.mergeCells(3, 1, 3, 3);
   const houseCell = ws.getCell("A3");
   houseCell.value = `House: ${houseName} (${houseCode})`;
-  houseCell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_MUTED } };
+  houseCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_MUTED } };
   houseCell.alignment = { vertical: "middle", horizontal: "left" };
 
   /* ════════════════════════════════════════════
@@ -259,7 +257,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   ws.mergeCells(4, 1, 4, 3);
   const genCell = ws.getCell("A4");
   genCell.value = `Generated: ${dateStr}, ${timeStr}`;
-  genCell.font = { bold: true, size: 10, name: "Calibri", color: { argb: TEXT_MUTED } };
+  genCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_MUTED } };
   genCell.alignment = { vertical: "middle", horizontal: "left" };
 
   /* ════════════════════════════════════════════
@@ -340,6 +338,11 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       });
       r++;
     }
+    for (let fr = 5; fr <= 25; fr++) {
+      for (let fc = 1; fc <= 13; fc++) {
+        ws.getCell(fr, fc).border = allBorders;
+      }
+    }
     r++; // spacer
   }
 
@@ -391,6 +394,42 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       formulaRow(ws, BP_TOTAL_ROW, ["E", "F", "H", "I"], BP_DATA_START, BP_DATA_END, "Total", 9);
       ws.getCell(BP_TOTAL_ROW, 7).value = { formula: `IF(E${BP_TOTAL_ROW}>0, ROUND(F${BP_TOTAL_ROW}/E${BP_TOTAL_ROW}*100, 0) & "%", "0%")` };
       ws.getCell(BP_TOTAL_ROW, 9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
+      r++;
+    }
+    r++; // spacer
+  }
+
+  /* ════════════════════════════════════════════
+     CC PERFORMANCE
+     ════════════════════════════════════════════ */
+  const sortedCcs = [...ccs].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  if (sortedCcs.length > 0) {
+    const CC_TITLE_ROW = r;
+    sectionTitle(ws, CC_TITLE_ROW, "CC PERFORMANCE", 4);
+    ws.getCell(CC_TITLE_ROW, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
+    r++;
+
+    const CC_HEADER_ROW = r;
+    headerRow(ws, CC_HEADER_ROW, [
+      "#", "Name", "DMS Code", "Today GA",
+    ]);
+    r++;
+
+    const CC_DATA_START = r;
+    sortedCcs.forEach((ccItem, i) => {
+      dataRow(ws, r, [
+        i + 1,
+        ccItem.name,
+        ccItem.dms_code || "",
+        ccItem.own_activation,
+      ]);
+      r++;
+    });
+    const CC_DATA_END = r - 1;
+
+    if (sortedCcs.length > 1) {
+      const CC_TOTAL_ROW = r;
+      formulaRow(ws, CC_TOTAL_ROW, ["D"], CC_DATA_START, CC_DATA_END, "Total", 4);
       r++;
     }
     r++; // spacer

@@ -690,6 +690,7 @@ export default function GaLiveReportPage() {
         summary,
         rsos: data.rsos,
         bps: data.bps,
+        ccs: data.ccs,
         supervisors: data.supervisors,
       });
     } catch (err: unknown) {
