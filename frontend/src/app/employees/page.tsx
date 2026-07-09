@@ -94,6 +94,7 @@ interface Employee {
   bicyle?: string;
   driving_license?: string;
   resigned_date?: string;
+  employee_type?: string;
 }
 
 interface House {
@@ -190,6 +191,7 @@ export default function EmployeesPage() {
     dms_code: "",
     itop_number: "",
     personal_number: "",
+    employee_type: "",
     status: "Active",
     joining_date: "",
     resigned_date: "",
@@ -361,6 +363,7 @@ export default function EmployeesPage() {
       dms_code: "",
       itop_number: "",
       personal_number: "",
+      employee_type: "",
       status: "Active",
       joining_date: new Date().toISOString().split('T')[0],
       resigned_date: "",
@@ -405,6 +408,7 @@ export default function EmployeesPage() {
       dms_code: m.dms_code,
       itop_number: m.itop_number,
       personal_number: m.personal_number,
+      employee_type: m.employee_type || "",
       status: m.status || "Active",
       joining_date: m.joining_date || "",
       resigned_date: m.resigned_date || "",
@@ -1153,7 +1157,9 @@ export default function EmployeesPage() {
                               key={u.id}
                               type="button"
                               onClick={() => {
-                                setFormData({...formData, user_id: formData.user_id === u.id ? undefined : u.id});
+                                const roleNames = (u.roles || []).map(r => r.name.toLowerCase());
+                                const primaryRole = roleNames.find(rn => ["rso","bp","cc","supervisor","manager","bsp","rbsp"].includes(rn)) || "";
+                                setFormData({...formData, user_id: formData.user_id === u.id ? undefined : u.id, employee_type: primaryRole});
                                 setShowUserDropdown(false);
                                 setUserSearchQuery('');
                               }}
@@ -1215,6 +1221,37 @@ export default function EmployeesPage() {
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                     </div>
                     {formErrors.status && <p className="text-[11px] text-red-500 mt-0.5">{formErrors.status}</p>}
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_employee_type')}</label>
+                    <div className="relative group">
+                      <div className={cn(
+                        "absolute left-3 top-1/2 -translate-y-1/2 transition-colors pointer-events-none",
+                        formErrors.employee_type ? "text-red-500" : "text-gray-400 group-focus-within:text-primary-500"
+                      )}>
+                        <Briefcase className="w-4 h-4" />
+                      </div>
+                      <select
+                        className={cn(
+                          "w-full p-2.5 pl-10 bg-gray-50 dark:bg-slate-800 border rounded-xl text-sm dark:text-gray-100 outline-none transition-all appearance-none",
+                          formErrors.employee_type ? "border-red-500/50 ring-1 ring-red-500/10" : "border-transparent focus:ring-1 focus:ring-primary-500 focus:bg-white dark:focus:bg-slate-800"
+                        )}
+                        value={formData.employee_type}
+                        onChange={e => setFormData({...formData, employee_type: e.target.value})}
+                      >
+                        <option value="">{t('employees.field_employee_type_placeholder')}</option>
+                        <option value="rso">RSO</option>
+                        <option value="bp">BP</option>
+                        <option value="cc">CC</option>
+                        <option value="supervisor">Supervisor</option>
+                        <option value="manager">Manager</option>
+                        <option value="bsp">BSP</option>
+                        <option value="rbsp">RBSP</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                    {formErrors.employee_type && <p className="text-[11px] text-red-500 mt-0.5">{formErrors.employee_type}</p>}
                   </div>
 
                   <InputField label={t('employees.field_dms_code')} icon={Smartphone} value={formData.dms_code} onChange={(v: string) => setFormData({...formData, dms_code: v})} error={formErrors.dms_code} />

@@ -338,11 +338,6 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       });
       r++;
     }
-    for (let fr = 5; fr <= 25; fr++) {
-      for (let fc = 1; fc <= 13; fc++) {
-        ws.getCell(fr, fc).border = allBorders;
-      }
-    }
     r++; // spacer
   }
 
