@@ -215,7 +215,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   const pctColor = achievement_percentage >= 100 ? MEDIUM_BG : achievement_percentage >= 70 ? "#10B981" : achievement_percentage >= 40 ? "#F59E0B" : "#EF4444";
   const dataRow3 = ws.getRow(3);
   dataRow3.height = 22;
-  const ddValues = [fmt(monthly_target), fmt(achievement), `${achievement_percentage}%`, fmt(remaining), fmt(daily_required_with_friday)];
+  const ddValues = [fmt(monthly_target), fmt(achievement), "", "", fmt(daily_required_with_friday)];
   ddValues.forEach((val, i) => {
     const cell = dataRow3.getCell(5 + i);
     cell.value = val;
@@ -232,6 +232,9 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       right: i === ddValues.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
     };
   });
+  ws.getCell(3, 7).value = { formula: `IF(E3>0, ROUND(F3/E3*100, 1), 0)` };
+  ws.getCell(3, 7).numFmt = '0.0"%"';
+  ws.getCell(3, 8).value = { formula: `E3-F3` };
 
   /* ── Total Activation Count (K1:M4) ── */
   ws.mergeCells(1, 11, 4, 13);
@@ -260,188 +263,173 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   genCell.alignment = { vertical: "middle", horizontal: "left" };
 
   /* ════════════════════════════════════════════
-     ROW 5: RSO PERFORMANCE section title
+     RSO / BP / SUPERVISOR sections (dynamic row offsets)
      ════════════════════════════════════════════ */
-   ws.mergeCells(5, 1, 5, 10);
-   ws.mergeCells(5, 11, 5, 13);
-   const rsoTitleCell = ws.getCell("A5");
-   rsoTitleCell.value = "RSO PERFORMANCE";
-   rsoTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-   rsoTitleCell.alignment = { vertical: "middle", horizontal: "left" };
-   rsoTitleCell.border = allBorders;
-   const rsoYestCell = ws.getCell("K5");
-   rsoYestCell.value = "Yesterday";
-   rsoYestCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-   rsoYestCell.alignment = { vertical: "middle", horizontal: "center" };
-   rsoYestCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
-   rsoYestCell.border = allBorders;
-
-  /* ════════════════════════════════════════════
-     ROW 6: RSO Headers
-     ════════════════════════════════════════════ */
-  headerRow(ws, 6, [
-    "#", "Name", "ITop Number", "Assisted Code",
-    "Today Target",
-    "Own Code", "Market", "Total",
-    "%", "Remain",
-    "Own Code", "Market", "Total",
-  ]);
-  [ws.getCell("K6"), ws.getCell("L6"), ws.getCell("M6")].forEach((cell) => {
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
-  });
-
-  /* ════════════════════════════════════════════
-     ROWS 7-24: RSO Data
-     ════════════════════════════════════════════ */
-  const RSO_DATA_START = 7;
-  const RSO_DATA_END = 24;
-  let r = RSO_DATA_START;
+  let r = 5;
   const daysRemaining = summary.days_remaining;
-  rsos.forEach((rso, i) => {
-    const drr = rso.remaining > 0 ? Math.ceil(rso.remaining / Math.max(daysRemaining, 1)) : 0;
-    const pct = rso.target > 0 ? Math.round((rso.total_activation / rso.target) * 100) : 0;
-    dataRow(ws, r, [
-      i + 1,
-      rso.name,
-      rso.itop_number || "",
-      rso.assisted_code || "",
-      drr,
-      rso.own_activation,
-      rso.market_activation,
-      rso.total_activation,
-      pct,
-      rso.remaining,
-      rso.yesterday_own,
-      rso.yesterday_market,
-      rso.yesterday_total,
+  const sortedRsos = [...rsos].sort((a, b) => (a.itop_number || '').localeCompare(b.itop_number || ''));
+  const sortedBps = [...bps].sort((a, b) => (a.pool_number || '').localeCompare(b.pool_number || ''));
+
+  /* ════════════════════════════════════════════
+     RSO PERFORMANCE
+     ════════════════════════════════════════════ */
+  if (sortedRsos.length > 0) {
+    const RSO_TITLE_ROW = r;
+    ws.mergeCells(RSO_TITLE_ROW, 1, RSO_TITLE_ROW, 10);
+    ws.mergeCells(RSO_TITLE_ROW, 11, RSO_TITLE_ROW, 13);
+    const rsoTitleCell = ws.getCell(RSO_TITLE_ROW, 1);
+    rsoTitleCell.value = "RSO PERFORMANCE";
+    rsoTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+    rsoTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+    rsoTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
+    rsoTitleCell.border = allBorders;
+    const rsoYestCell = ws.getCell(RSO_TITLE_ROW, 11);
+    rsoYestCell.value = "Yesterday";
+    rsoYestCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+    rsoYestCell.alignment = { vertical: "middle", horizontal: "center" };
+    rsoYestCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
+    rsoYestCell.border = allBorders;
+    r++;
+
+    const RSO_HEADER_ROW = r;
+    headerRow(ws, RSO_HEADER_ROW, [
+      "#", "Name", "ITop Number", "Assisted Code",
+      "Today Target",
+      "Own Code", "Market", "Total",
+      "%", "Remain",
+      "Own Code", "Market", "Total",
     ]);
-    [11, 12, 13].forEach((ci) => {
-      ws.getCell(r, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
+    [ws.getCell(RSO_HEADER_ROW, 11), ws.getCell(RSO_HEADER_ROW, 12), ws.getCell(RSO_HEADER_ROW, 13)].forEach((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
     });
     r++;
-  });
-  while (r <= RSO_DATA_END) {
-    for (let ci = 1; ci <= COLS; ci++) {
-      const cell = ws.getCell(r, ci);
-      cell.border = allBorders;
-      cell.font = { size: 10, name: "Calibri" };
-    }
 
-    r++;
+    const RSO_DATA_START = r;
+    sortedRsos.forEach((rsoItem, i) => {
+      const drr = rsoItem.remaining > 0 ? Math.ceil(rsoItem.remaining / Math.max(daysRemaining, 1)) : 0;
+      dataRow(ws, r, [
+        i + 1,
+        rsoItem.name,
+        rsoItem.itop_number || "",
+        rsoItem.assisted_code || "",
+        drr,
+        rsoItem.own_activation,
+        rsoItem.market_activation,
+        rsoItem.total_activation,
+        "",
+        "",
+        rsoItem.yesterday_own,
+        rsoItem.yesterday_market,
+        rsoItem.yesterday_total,
+      ]);
+      ws.getCell(r, 9).value = { formula: `IF(E${r}>0, ROUND(H${r}/E${r}*100, 0) & "%", "0%")` };
+      ws.getCell(r, 10).value = { formula: `MAX(0, E${r}-H${r})` };
+      [11, 12, 13].forEach((ci) => {
+        ws.getCell(r, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
+      });
+      r++;
+    });
+    const RSO_DATA_END = r - 1;
+
+    if (sortedRsos.length > 1) {
+      const RSO_TOTAL_ROW = r;
+      formulaRow(ws, RSO_TOTAL_ROW, ["E", "F", "G", "H", "J", "K", "L", "M"], RSO_DATA_START, RSO_DATA_END, "Total", 13);
+      ws.getCell(RSO_TOTAL_ROW, 9).value = { formula: `IF(E${RSO_TOTAL_ROW}>0, ROUND(H${RSO_TOTAL_ROW}/E${RSO_TOTAL_ROW}*100, 0) & "%", "0%")` };
+      [11, 12, 13].forEach((ci) => {
+        ws.getCell(RSO_TOTAL_ROW, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
+      });
+      r++;
+    }
+    r++; // spacer
   }
 
   /* ════════════════════════════════════════════
-     ROW 25: RSO Total (formulas)
+     BP PERFORMANCE
      ════════════════════════════════════════════ */
-  formulaRow(ws, 25, ["E", "F", "G", "H", "I", "J", "K", "L", "M"], RSO_DATA_START, RSO_DATA_END, "Total", 13);
-  [11, 12, 13].forEach((ci) => {
-    ws.getCell(25, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
-  });
+  if (sortedBps.length > 0) {
+    const BP_TITLE_ROW = r;
+    ws.mergeCells(BP_TITLE_ROW, 1, BP_TITLE_ROW, 9);
+    const bpTitleCell = ws.getCell(BP_TITLE_ROW, 1);
+    bpTitleCell.value = "BP PERFORMANCE";
+    bpTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+    bpTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+    bpTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
+    bpTitleCell.border = allBorders;
+    r++;
+
+    const BP_HEADER_ROW = r;
+    headerRow(ws, BP_HEADER_ROW, [
+      "#", "Name", "Pool Number", "Assisted Code",
+      "Today Target",
+      "Ach", "%", "Remain", "Yest GA",
+    ]);
+    ws.getCell(BP_HEADER_ROW, 9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
+    r++;
+
+    const BP_DATA_START = r;
+    sortedBps.forEach((bpItem, i) => {
+      dataRow(ws, r, [
+        i + 1,
+        bpItem.name,
+        bpItem.pool_number || "",
+        bpItem.assisted_code || "",
+        0,
+        bpItem.own_activation,
+        "",
+        "",
+        bpItem.yesterday_activation,
+      ]);
+      ws.getCell(r, 7).value = { formula: `IF(E${r}>0, ROUND(F${r}/E${r}*100, 0) & "%", "0%")` };
+      ws.getCell(r, 8).value = { formula: `MAX(0, E${r}-F${r})` };
+      ws.getCell(r, 9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
+      r++;
+    });
+    const BP_DATA_END = r - 1;
+
+    if (sortedBps.length > 1) {
+      const BP_TOTAL_ROW = r;
+      formulaRow(ws, BP_TOTAL_ROW, ["E", "F", "H", "I"], BP_DATA_START, BP_DATA_END, "Total", 9);
+      ws.getCell(BP_TOTAL_ROW, 7).value = { formula: `IF(E${BP_TOTAL_ROW}>0, ROUND(F${BP_TOTAL_ROW}/E${BP_TOTAL_ROW}*100, 0) & "%", "0%")` };
+      ws.getCell(BP_TOTAL_ROW, 9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
+      r++;
+    }
+    r++; // spacer
+  }
 
   /* ════════════════════════════════════════════
-     ROW 26: Spacer
+     SUPERVISOR PERFORMANCE
      ════════════════════════════════════════════ */
+  if (supervisors.length > 0) {
+    const SUP_TITLE_ROW = r;
+    sectionTitle(ws, SUP_TITLE_ROW, "SUPERVISOR PERFORMANCE", 5);
+    ws.getCell(SUP_TITLE_ROW, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
+    r++;
 
-  /* ════════════════════════════════════════════
-     ROW 27: BP PERFORMANCE section title
-     ════════════════════════════════════════════ */
-   ws.mergeCells(27, 1, 27, 9);
-   const bpTitleCell = ws.getCell("A27");
-   bpTitleCell.value = "BP PERFORMANCE";
-   bpTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
-   bpTitleCell.alignment = { vertical: "middle", horizontal: "left" };
-   bpTitleCell.border = allBorders;
-
-  /* ════════════════════════════════════════════
-     ROW 28: BP Headers
-     ════════════════════════════════════════════ */
-  headerRow(ws, 28, [
-    "#", "Name", "Pool Number", "Assisted Code",
-    "Today Target",
-    "Ach", "%", "Remain", "Yest GA",
-  ]);
-
-  /* ════════════════════════════════════════════
-     ROWS 29-32: BP Data
-     ════════════════════════════════════════════ */
-  const BP_DATA_START = 29;
-  const BP_DATA_END = 32;
-  r = BP_DATA_START;
-  bps.forEach((bp, i) => {
-    dataRow(ws, r, [
-      i + 1,
-      bp.name,
-      bp.pool_number || "",
-      bp.assisted_code || "",
-      0,
-      bp.own_activation,
-      0,
-      0,
-      bp.yesterday_activation,
+    const SUP_HEADER_ROW = r;
+    headerRow(ws, SUP_HEADER_ROW, [
+      "#", "Name", "Pool Number", "Today GA", "Yest GA",
     ]);
     r++;
-  });
-  while (r <= BP_DATA_END) {
-    for (let ci = 1; ci <= 9; ci++) {
-      const cell = ws.getCell(r, ci);
-      cell.border = allBorders;
-      cell.font = { size: 10, name: "Calibri" };
+
+    const SUP_DATA_START = r;
+    supervisors.forEach((sup, i) => {
+      dataRow(ws, r, [
+        i + 1,
+        sup.name,
+        sup.dms_code || "",
+        sup.total_activation,
+        sup.yesterday_total ?? 0,
+      ]);
+      r++;
+    });
+    const SUP_DATA_END = r - 1;
+
+    if (supervisors.length > 1) {
+      const SUP_TOTAL_ROW = r;
+      formulaRow(ws, SUP_TOTAL_ROW, ["D", "E"], SUP_DATA_START, SUP_DATA_END, "Total", 5);
+      r++;
     }
-
-    r++;
   }
-
-  /* ════════════════════════════════════════════
-     ROW 33: BP Subtotal (formulas)
-     ════════════════════════════════════════════ */
-  formulaRow(ws, 33, ["F", "G", "H", "I"], BP_DATA_START, BP_DATA_END, "Total", 9);
-
-  /* ════════════════════════════════════════════
-     ROW 34: Spacer
-     ════════════════════════════════════════════ */
-
-  /* ════════════════════════════════════════════
-     ROW 35: SUPERVISOR PERFORMANCE section title
-     ════════════════════════════════════════════ */
-  sectionTitle(ws, 35, "SUPERVISOR PERFORMANCE", 5);
-
-  /* ════════════════════════════════════════════
-     ROW 36: Supervisor Headers
-     ════════════════════════════════════════════ */
-  headerRow(ws, 36, [
-    "#", "Name", "Pool Number", "Today GA", "Yest GA",
-  ]);
-
-  /* ════════════════════════════════════════════
-     ROWS 37-38: Supervisor Data
-     ════════════════════════════════════════════ */
-  const SUP_DATA_START = 37;
-  const SUP_DATA_END = 38;
-  r = SUP_DATA_START;
-  supervisors.forEach((sup, i) => {
-    dataRow(ws, r, [
-      i + 1,
-      sup.name,
-      sup.dms_code || "",
-      sup.total_activation,
-      sup.yesterday_total ?? 0,
-    ]);
-    r++;
-  });
-  while (r <= SUP_DATA_END) {
-    for (let ci = 1; ci <= 5; ci++) {
-      const cell = ws.getCell(r, ci);
-      cell.border = allBorders;
-      cell.font = { size: 10, name: "Calibri" };
-    }
-
-    r++;
-  }
-
-  /* ════════════════════════════════════════════
-     ROW 39: Supervisor Subtotal (formulas)
-     ════════════════════════════════════════════ */
-  formulaRow(ws, 39, ["D", "E"], SUP_DATA_START, SUP_DATA_END, "Total", 5);
 
   /* ════════════════════════════════════════════
      Generate file
