@@ -595,78 +595,80 @@ export default function HousesPage() {
 
       {/* Create/Edit Modal */}
       {isFormModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl h-full md:h-auto md:max-h-[90vh] md:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">{editingHouse ? t('houses.modal_edit_title') : t('houses.modal_create_title')}</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{t('houses.modal_subtitle')}</p>
-              </div>
-              <button onClick={() => setIsFormModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl bg-gray-50 dark:bg-slate-800 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 scrollbar-hide">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-                <div className="space-y-4">
-                  <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest flex items-center gap-2"><Home className="w-4 h-4" /> {t('houses.section_basic')}</h4>
-                  <div className="space-y-4">
-                    <InputField label={t('houses.field_house_name')} required value={formData.name} onChange={(v: string) => setFormData({ ...formData, name: v })} placeholder={t('houses.field_house_name_placeholder')} leftIcon={Home} error={fieldErrors.name} />
-                    <InputField label={t('houses.field_house_code')} required value={formData.code} onChange={(v: string) => setFormData({ ...formData, code: v.toUpperCase() })} placeholder={t('houses.field_house_code_placeholder')} disabled={!!editingHouse} leftIcon={Briefcase} error={fieldErrors.code} />
-                    <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_cluster')} value={formData.cluster} onChange={(v: string) => setFormData({ ...formData, cluster: v })} placeholder={t('houses.field_cluster_placeholder')} leftIcon={Layers} error={fieldErrors.cluster} />
-                      <InputField label={t('houses.field_region')} value={formData.region} onChange={(v: string) => setFormData({ ...formData, region: v })} placeholder={t('houses.field_region_placeholder')} leftIcon={Globe} error={fieldErrors.region} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_wh_region')} value={formData.wh_region} onChange={(v: string) => setFormData({ ...formData, wh_region: v })} placeholder={t('houses.field_wh_region_placeholder')} leftIcon={MapPin} error={fieldErrors.wh_region} />
-                      <InputField label={t('houses.field_district')} value={formData.district} onChange={(v: string) => setFormData({ ...formData, district: v })} placeholder={t('houses.field_district_placeholder')} leftIcon={MapPin} error={fieldErrors.district} />
-                    </div>
-                    <InputField label={t('houses.field_address')} value={formData.address} onChange={(v: string) => setFormData({ ...formData, address: v })} placeholder={t('houses.field_address_placeholder')} leftIcon={MapPin} error={fieldErrors.address} />
-                    <InputField label={t('houses.field_email')} type="email" value={formData.email} onChange={(v: string) => setFormData({ ...formData, email: v })} placeholder={t('houses.field_email_placeholder')} leftIcon={Mail} error={fieldErrors.email} />
-                    <InputField label={t('houses.field_lifting_date')} type="date" value={formData.lifting_date} onChange={(v: string) => setFormData({ ...formData, lifting_date: v })} leftIcon={Calendar} error={fieldErrors.lifting_date} />
-                  </div>
+        <div className="fixed inset-0 z-50 overflow-y-auto scrollbar-custom bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="flex items-end md:items-center justify-center min-h-screen p-0 md:p-4">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-4xl md:rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">{editingHouse ? t('houses.modal_edit_title') : t('houses.modal_create_title')}</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('houses.modal_subtitle')}</p>
                 </div>
-
-                <div className="space-y-6">
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-purple-600 uppercase tracking-widest flex items-center gap-2"><User className="w-4 h-4" /> {t('houses.section_management')}</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_proprietor_name')} value={formData.proprietor_name} onChange={(v: string) => setFormData({ ...formData, proprietor_name: v })} placeholder={t('houses.field_proprietor_name_placeholder')} leftIcon={User} error={fieldErrors.proprietor_name} />
-                      <InputField label={t('houses.field_proprietor_contact')} type="number" value={formData.proprietor_contact} onChange={(v: string) => setFormData({ ...formData, proprietor_contact: v })} placeholder={t('houses.field_proprietor_contact_placeholder')} leftIcon={Phone} error={fieldErrors.proprietor_contact} onlyNumbers />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_poc_name')} value={formData.poc_name} onChange={(v: string) => setFormData({ ...formData, poc_name: v })} placeholder={t('houses.field_poc_name_placeholder')} leftIcon={User} error={fieldErrors.poc_name} />
-                      <InputField label={t('houses.field_poc_mobile')} type="number" value={formData.poc_mobile} onChange={(v: string) => setFormData({ ...formData, poc_mobile: v })} placeholder={t('houses.field_poc_mobile_placeholder')} leftIcon={Phone} error={fieldErrors.poc_mobile} onlyNumbers />
-                    </div>
-                    <div className="h-[1px] bg-gray-100 dark:bg-slate-800 my-2" />
-                    <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_latitude')} value={formData.latitude} onChange={(v: string) => setFormData({ ...formData, latitude: v })} placeholder={t('houses.field_latitude_placeholder')} leftIcon={Globe} error={fieldErrors.latitude} />
-                      <InputField label={t('houses.field_longitude')} value={formData.longitude} onChange={(v: string) => setFormData({ ...formData, longitude: v })} placeholder={t('houses.field_longitude_placeholder')} leftIcon={Globe} error={fieldErrors.longitude} />
-                    </div>
-                    <InputField label={t('houses.field_bts_id')} value={formData.bts_id} onChange={(v: string) => setFormData({ ...formData, bts_id: v })} placeholder={t('houses.field_bts_id_placeholder')} leftIcon={Smartphone} error={fieldErrors.bts_id} />
-                  </div>
-
-                  <div className="space-y-4 pt-2">
-                    <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2"><Key className="w-4 h-4" /> {t('houses.section_dms')}</h4>
-                    <InputField label={t('houses.field_dms_house_id')} value={formData.dms_house_id} onChange={(v: string) => setFormData({ ...formData, dms_house_id: v })} placeholder={t('houses.field_dms_house_id_placeholder')} leftIcon={Key} error={fieldErrors.dms_house_id} />
-                    <div className="grid grid-cols-2 gap-4">
-                      <InputField label={t('houses.field_dms_user')} value={formData.dms_user} onChange={(v: string) => setFormData({ ...formData, dms_user: v })} placeholder={t('houses.field_dms_user_placeholder')} leftIcon={User} error={fieldErrors.dms_user} />
-                      <InputField label={t('houses.field_dms_pass')} type="password" value={formData.dms_pass} onChange={(v: string) => setFormData({ ...formData, dms_pass: v })} placeholder="••••" leftIcon={Lock} error={fieldErrors.dms_pass} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-10 pt-6 border-t border-gray-50 dark:border-slate-800 flex gap-4">
-                <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-2xl transition-all">{t('houses.btn_cancel')}</button>
-                <button type="submit" disabled={formLoading} className="flex-[2] py-3 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-200 dark:shadow-none flex items-center justify-center gap-2">
-                  {formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  {editingHouse ? t('houses.btn_update') : t('houses.btn_create')}
+                <button onClick={() => setIsFormModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl bg-gray-50 dark:bg-slate-800 transition-colors">
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+
+              <form onSubmit={handleFormSubmit} className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest flex items-center gap-2"><Home className="w-4 h-4" /> {t('houses.section_basic')}</h4>
+                    <div className="space-y-4">
+                      <InputField label={t('houses.field_house_name')} required value={formData.name} onChange={(v: string) => setFormData({ ...formData, name: v })} placeholder={t('houses.field_house_name_placeholder')} leftIcon={Home} error={fieldErrors.name} />
+                      <InputField label={t('houses.field_house_code')} required value={formData.code} onChange={(v: string) => setFormData({ ...formData, code: v.toUpperCase() })} placeholder={t('houses.field_house_code_placeholder')} disabled={!!editingHouse} leftIcon={Briefcase} error={fieldErrors.code} />
+                      <div className="grid grid-cols-2 gap-4">
+                        <InputField label={t('houses.field_cluster')} value={formData.cluster} onChange={(v: string) => setFormData({ ...formData, cluster: v })} placeholder={t('houses.field_cluster_placeholder')} leftIcon={Layers} error={fieldErrors.cluster} />
+                        <InputField label={t('houses.field_region')} value={formData.region} onChange={(v: string) => setFormData({ ...formData, region: v })} placeholder={t('houses.field_region_placeholder')} leftIcon={Globe} error={fieldErrors.region} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <InputField label={t('houses.field_wh_region')} value={formData.wh_region} onChange={(v: string) => setFormData({ ...formData, wh_region: v })} placeholder={t('houses.field_wh_region_placeholder')} leftIcon={MapPin} error={fieldErrors.wh_region} />
+                        <InputField label={t('houses.field_district')} value={formData.district} onChange={(v: string) => setFormData({ ...formData, district: v })} placeholder={t('houses.field_district_placeholder')} leftIcon={MapPin} error={fieldErrors.district} />
+                      </div>
+                      <InputField label={t('houses.field_address')} value={formData.address} onChange={(v: string) => setFormData({ ...formData, address: v })} placeholder={t('houses.field_address_placeholder')} leftIcon={MapPin} error={fieldErrors.address} />
+                      <InputField label={t('houses.field_email')} type="email" value={formData.email} onChange={(v: string) => setFormData({ ...formData, email: v })} placeholder={t('houses.field_email_placeholder')} leftIcon={Mail} error={fieldErrors.email} />
+                      <InputField label={t('houses.field_lifting_date')} type="date" value={formData.lifting_date} onChange={(v: string) => setFormData({ ...formData, lifting_date: v })} leftIcon={Calendar} error={fieldErrors.lifting_date} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-purple-600 uppercase tracking-widest flex items-center gap-2"><User className="w-4 h-4" /> {t('houses.section_management')}</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <InputField label={t('houses.field_proprietor_name')} value={formData.proprietor_name} onChange={(v: string) => setFormData({ ...formData, proprietor_name: v })} placeholder={t('houses.field_proprietor_name_placeholder')} leftIcon={User} error={fieldErrors.proprietor_name} />
+                        <InputField label={t('houses.field_proprietor_contact')} type="number" value={formData.proprietor_contact} onChange={(v: string) => setFormData({ ...formData, proprietor_contact: v })} placeholder={t('houses.field_proprietor_contact_placeholder')} leftIcon={Phone} error={fieldErrors.proprietor_contact} onlyNumbers />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <InputField label={t('houses.field_poc_name')} value={formData.poc_name} onChange={(v: string) => setFormData({ ...formData, poc_name: v })} placeholder={t('houses.field_poc_name_placeholder')} leftIcon={User} error={fieldErrors.poc_name} />
+                        <InputField label={t('houses.field_poc_mobile')} type="number" value={formData.poc_mobile} onChange={(v: string) => setFormData({ ...formData, poc_mobile: v })} placeholder={t('houses.field_poc_mobile_placeholder')} leftIcon={Phone} error={fieldErrors.poc_mobile} onlyNumbers />
+                      </div>
+                      <div className="h-[1px] bg-gray-100 dark:bg-slate-800 my-2" />
+                      <div className="grid grid-cols-2 gap-4">
+                        <InputField label={t('houses.field_latitude')} value={formData.latitude} onChange={(v: string) => setFormData({ ...formData, latitude: v })} placeholder={t('houses.field_latitude_placeholder')} leftIcon={Globe} error={fieldErrors.latitude} />
+                        <InputField label={t('houses.field_longitude')} value={formData.longitude} onChange={(v: string) => setFormData({ ...formData, longitude: v })} placeholder={t('houses.field_longitude_placeholder')} leftIcon={Globe} error={fieldErrors.longitude} />
+                      </div>
+                      <InputField label={t('houses.field_bts_id')} value={formData.bts_id} onChange={(v: string) => setFormData({ ...formData, bts_id: v })} placeholder={t('houses.field_bts_id_placeholder')} leftIcon={Smartphone} error={fieldErrors.bts_id} />
+                    </div>
+
+                    <div className="space-y-4 pt-2">
+                      <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2"><Key className="w-4 h-4" /> {t('houses.section_dms')}</h4>
+                      <InputField label={t('houses.field_dms_house_id')} value={formData.dms_house_id} onChange={(v: string) => setFormData({ ...formData, dms_house_id: v })} placeholder={t('houses.field_dms_house_id_placeholder')} leftIcon={Key} error={fieldErrors.dms_house_id} />
+                      <div className="grid grid-cols-2 gap-4">
+                        <InputField label={t('houses.field_dms_user')} value={formData.dms_user} onChange={(v: string) => setFormData({ ...formData, dms_user: v })} placeholder={t('houses.field_dms_user_placeholder')} leftIcon={User} error={fieldErrors.dms_user} />
+                        <InputField label={t('houses.field_dms_pass')} type="password" value={formData.dms_pass} onChange={(v: string) => setFormData({ ...formData, dms_pass: v })} placeholder="••••" leftIcon={Lock} error={fieldErrors.dms_pass} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-6 mt-6 border-t border-gray-50 dark:border-slate-800 flex gap-4">
+                  <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-3.5 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-2xl transition-all">{t('houses.btn_cancel')}</button>
+                  <button type="submit" disabled={formLoading} className="flex-[2] py-3.5 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-200 dark:shadow-none flex items-center justify-center gap-2">
+                    {formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    {editingHouse ? t('houses.btn_update') : t('houses.btn_create')}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

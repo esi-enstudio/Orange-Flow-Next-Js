@@ -49,7 +49,7 @@ export function MobileNav() {
 
   return (
     <>
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 px-6 py-3 z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.03)] transition-colors duration-300">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 px-6 py-3 z-40 shadow-[0_-4px_10px_rgba(0,0,0,0.03)] transition-colors duration-300">
         <div className="flex justify-between items-center">
           <Link
             href="/"
