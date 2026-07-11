@@ -233,22 +233,7 @@ async def master_automation_scheduler():
 
             # 8:00 AM - 11:59 PM — Live activation sync (every 5 minutes)
             if 8 <= hour < 24:
-                from app.models.app_setting import AppSetting
-                from sqlalchemy import select
-                try:
-                    from app.services.db_service import async_session
-                    async with async_session() as session:
-                        setting_result = await session.execute(
-                            select(AppSetting).where(AppSetting.id == 1)
-                        )
-                        app_setting = setting_result.scalar_one_or_none()
-                        live_sync_enabled = app_setting.is_live_sync_enabled if app_setting else 1
-                except Exception:
-                    live_sync_enabled = 1
-                if live_sync_enabled:
-                    await run_ga_live_sync()
-                else:
-                    logger.debug("⏸️ [Scheduler] Live sync is disabled (AppSettings).")
+                await run_ga_live_sync()
                 await asyncio.sleep(300)
             else:
                 # 1:00 AM - 6:59 AM — Check every 1 minute (so as not to miss 7:00 AM)

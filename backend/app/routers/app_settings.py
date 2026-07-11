@@ -4,8 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
-from app.routers.deps import get_db, has_permission, get_current_user
+from app.routers.deps import get_db, has_permission, get_current_user, get_house_context
 from app.models.app_setting import AppSetting
+from app.models.house import House
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,14 @@ async def toggle_daily_sync(
 async def get_live_sync_status(
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user),
+    house_context: Optional[int] = Depends(get_house_context),
 ):
+    if house_context:
+        result = await db.execute(select(House.is_live_sync_enabled).where(House.id == house_context))
+        enabled = result.scalar()
+        if enabled is None:
+            return {"enabled": True}
+        return {"enabled": bool(enabled)}
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
     if not setting:
@@ -103,7 +111,19 @@ async def toggle_live_sync(
     data: DailySyncToggle,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(has_permission("app_settings.manage")),
+    house_context: Optional[int] = Depends(get_house_context),
 ):
+    if house_context:
+        result = await db.execute(select(House).where(House.id == house_context))
+        house = result.scalar_one_or_none()
+        if not house:
+            raise HTTPException(status_code=404, detail="House not found")
+        house.is_live_sync_enabled = data.enabled
+        await db.commit()
+        await db.refresh(house)
+        status = "🟢 ON" if data.enabled else "🔴 OFF"
+        logger.info(f"Live sync {status} for house {house.name} ({house_context})")
+        return {"enabled": bool(house.is_live_sync_enabled)}
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
     if not setting:
@@ -113,7 +133,7 @@ async def toggle_live_sync(
     await db.commit()
     await db.refresh(setting)
     status = "🟢 ON" if data.enabled else "🔴 OFF"
-    logger.info(f"Live sync {status}")
+    logger.info(f"Live sync {status} (global)")
     return {"enabled": bool(setting.is_live_sync_enabled)}
 
 @router.post("/brand/logo")

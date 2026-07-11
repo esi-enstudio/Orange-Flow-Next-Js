@@ -625,15 +625,19 @@ export default function GaLiveReportPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
-    apiClient.get("/settings/live-sync").then(res => {
+    const headers: Record<string, string> = {};
+    if (effectiveHouseId) headers["X-House-ID"] = String(effectiveHouseId);
+    apiClient.get("/settings/live-sync", { headers }).then(res => {
       setLiveSyncEnabled(res.data.enabled);
     }).catch(() => {});
-  }, []);
+  }, [effectiveHouseId]);
 
   const toggleLiveSync = async () => {
     setLiveSyncLoading(true);
     try {
-      const res = await apiClient.put("/settings/live-sync", { enabled: !liveSyncEnabled });
+      const headers: Record<string, string> = {};
+      if (effectiveHouseId) headers["X-House-ID"] = String(effectiveHouseId);
+      const res = await apiClient.put("/settings/live-sync", { enabled: !liveSyncEnabled }, { headers });
       setLiveSyncEnabled(res.data.enabled);
     } catch {
       // silent

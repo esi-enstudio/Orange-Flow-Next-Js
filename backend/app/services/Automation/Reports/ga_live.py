@@ -28,8 +28,10 @@ async def run_ga_live_sync():
         os.makedirs(TEMP_DIR)
 
     async with async_session() as session:
-        # Fetch only houses with DMS credentials
-        result = await session.execute(select(House).where(House.dms_user != None))
+        # Fetch only houses with DMS credentials and live sync enabled
+        result = await session.execute(
+            select(House).where(House.dms_user != None, House.is_live_sync_enabled == True)
+        )
         houses = result.scalars().all()
 
     if not houses:
