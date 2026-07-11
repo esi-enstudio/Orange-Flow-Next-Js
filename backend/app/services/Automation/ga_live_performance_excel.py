@@ -1,7 +1,8 @@
 import io
 from datetime import date, timedelta
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, false
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.formatting.rule import ColorScaleRule
@@ -15,6 +16,7 @@ from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
 from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.ga_section_config import GaSectionConfig
+from app.models.role import Role
 from app.utils.activation_rules import exclude_clause
 
 # ── Style constants (matching frontend activations export) ──
@@ -212,6 +214,18 @@ async def export_ga_live_performance_excel(
     bp_list = [e for e in all_employees if e.employee_type == "bp"]
     sup_list = [e for e in all_employees if e.employee_type == "supervisor"]
 
+    # ── Supervisor → RSO user mapping (filter by RSO role) ──
+    sup_user_ids = [e.user_id for e in sup_list if e.user_id]
+    sup_user_to_rso_user_ids: dict[int, list[int]] = {}
+    if sup_user_ids:
+        user_rows = await db.execute(
+            select(User).options(selectinload(User.roles)).where(User.parent_id.in_(sup_user_ids))
+        )
+        for u in user_rows.unique().scalars().all():
+            if "rso" in [r.name.lower() for r in u.roles]:
+                sup_user_to_rso_user_ids.setdefault(u.parent_id, []).append(u.id)
+    rso_user_id_to_emp_id = {e.user_id: e.id for e in rso_list if e.user_id}
+
     async def _today_count(retailer_ids: set[int], bp_filter: bool = True):
         if not retailer_ids:
             return 0
@@ -345,6 +359,7 @@ async def export_ga_live_performance_excel(
     rso_numeric_cols = {4, 5, 6, 7, 8, 9, 10}
     rso_rows = []
     rso_grand_total = 0
+    rso_total_map: dict[int, dict[str, int]] = {}
     for e in rso_list:
         emp_id = e.id
         ret_ids = emp_retailer_map.get(emp_id, set())
@@ -354,6 +369,7 @@ async def export_ga_live_performance_excel(
         y_own = await _yesterday_own_count(ret_ids, code)
         y_total = await _yesterday_count(ret_ids)
         user_name = user_name_map.get(e.user_id) if e.user_id else ""
+        rso_total_map[emp_id] = {"today_total": t_total, "yesterday_total": y_total}
         rso_rows.append([
             user_name or e.dms_code or f"#{emp_id}",
             e.itop_number or "",
@@ -422,21 +438,27 @@ async def export_ga_live_performance_excel(
             end_type="max", end_color="4CAF50",
         ))
 
-    # ── Sheet 3: Supervisor Report ──
+    # ── Sheet 3: Supervisor Report (aggregated from RSO data) ──
     ws_sup = wb.create_sheet("Supervisor Report")
     sup_headers = ["Name", "Pool Number", "Today Activation", "Yesterday Activation"]
     sup_numeric_cols = {3, 4}
     sup_rows = []
-    for e in sup_list:
-        ret_ids = emp_retailer_map.get(e.id, set())
-        user_name = user_name_map.get(e.user_id) if e.user_id else ""
-        today_count = await _today_count(ret_ids, bp_filter=False)
-        yest_count = await _yesterday_count(ret_ids, bp_filter=False)
+    for sup_emp in sup_list:
+        user_name = user_name_map.get(sup_emp.user_id) if sup_emp.user_id else ""
+        today_total = 0
+        yesterday_total = 0
+        sup_uid = sup_emp.user_id
+        if sup_uid:
+            for rso_uid in sup_user_to_rso_user_ids.get(sup_uid, []):
+                rso_emp_id = rso_user_id_to_emp_id.get(rso_uid)
+                if rso_emp_id and rso_emp_id in rso_total_map:
+                    today_total += rso_total_map[rso_emp_id]["today_total"]
+                    yesterday_total += rso_total_map[rso_emp_id]["yesterday_total"]
         sup_rows.append([
-            user_name or e.dms_code or f"#{e.id}",
-            e.pool_number or "",
-            today_count,
-            yest_count,
+            user_name or sup_emp.dms_code or f"#{sup_emp.id}",
+            sup_emp.pool_number or "",
+            today_total,
+            yesterday_total,
         ])
     _build_sheet(ws_sup, "Supervisor Performance Report", f"Date: {date_str}", sup_headers, sup_rows, sup_numeric_cols)
 

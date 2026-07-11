@@ -84,8 +84,12 @@ class GaLiveQueryBuilder:
 
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
 
-        if exclude_product_codes:
-            clause = exclude_clause(LiveActivation, set(exclude_product_codes))
+        await self._load_excluded_codes()
+        global_excluded = self._excluded_codes or set()
+        all_excluded = set(exclude_product_codes) | global_excluded
+
+        if all_excluded:
+            clause = exclude_clause(LiveActivation, all_excluded)
             if clause is not None:
                 query = query.where(clause)
 
@@ -119,8 +123,12 @@ class GaLiveQueryBuilder:
 
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
 
-        if exclude_product_codes:
-            clause = exclude_clause(Activation, set(exclude_product_codes))
+        await self._load_excluded_codes()
+        global_excluded = self._excluded_codes or set()
+        all_excluded = set(exclude_product_codes) | global_excluded
+
+        if all_excluded:
+            clause = exclude_clause(Activation, all_excluded)
             if clause is not None:
                 query = query.where(clause)
 
@@ -368,27 +376,17 @@ class GaLiveQueryBuilder:
 
             sup_total = 0
             if all_retailers:
-                sup_q = select(func.count()).where(
-                    LiveActivation.retailer_id.in_(all_retailers),
-                    LiveActivation.house_id == self.house_id,
-                    LiveActivation.activation_date >= self.start_date,
-                    LiveActivation.activation_date <= self.end_date,
-                )
+                sup_q = base_act.where(LiveActivation.retailer_id.in_(all_retailers))
                 sup_q = _exclude_bp_codes(sup_q)
-                sup_count = await self.db.execute(sup_q)
+                sup_count = await self.db.execute(select(func.count()).select_from(sup_q.subquery()))
                 sup_total = sup_count.scalar() or 0
 
             employee_retailers_in_team = sup_own_retailers | sub_retailer_ids
             emp_team_active = set()
             if employee_retailers_in_team:
-                team_q = select(LiveActivation.retailer_id).distinct().where(
-                    LiveActivation.retailer_id.in_(employee_retailers_in_team),
-                    LiveActivation.house_id == self.house_id,
-                    LiveActivation.activation_date >= self.start_date,
-                    LiveActivation.activation_date <= self.end_date,
-                )
+                team_q = base_act.where(LiveActivation.retailer_id.in_(employee_retailers_in_team))
                 team_q = _exclude_bp_codes(team_q)
-                team_res = await self.db.execute(team_q)
+                team_res = await self.db.execute(select(LiveActivation.retailer_id).distinct().select_from(team_q.subquery()))
                 emp_team_active = {r[0] for r in team_res.all()}
             sup_emp = len([r for r in emp_team_active if r in employee_retailers_in_team])
             sup_market = sup_total - sup_emp
@@ -396,7 +394,8 @@ class GaLiveQueryBuilder:
             supervisor_data.append({
                 "id": sup_uid,
                 "name": sup_user.name or f"Supervisor #{sup_uid}",
-                "dms_code": emp_id_to_user.get(sup_emp_id, ("", "", "", ""))[1] if sup_emp_id else "",
+                "dms_code": emp_id_to_user.get(sup_emp_id, ("", "", "", "", "", ""))[1] if sup_emp_id else "",
+                "pool_number": emp_id_to_user.get(sup_emp_id, ("", "", "", "", "", ""))[5] if sup_emp_id else "",
                 "total_activation": sup_total,
                 "employee_activation": sup_emp,
                 "market_activation": sup_market,
@@ -708,7 +707,7 @@ class GaLiveQueryBuilder:
             cc_data.append({
                 "id": cc_uid,
                 "name": cc_user.name or f"CC #{cc_uid}",
-                "dms_code": emp_id_to_user.get(cc_emp_id, ("", "", "", ""))[1] if cc_emp_id else "",
+                "dms_code": emp_id_to_user.get(cc_emp_id, ("", "", "", "", "", ""))[1] if cc_emp_id else "",
                 "own_activation": cc_total,
                 "contribution": 0,
             })
@@ -751,6 +750,11 @@ class GaLiveQueryBuilder:
         yesterday = today - timedelta(days=1)
 
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
+
+        await self._load_excluded_codes()
+        global_excluded = self._excluded_codes or set()
+        all_excluded = set(exclude_product_codes) | global_excluded
+
         trend_map: dict[str, int] = {}
 
         # 1. activations table: 1st of month → yesterday
@@ -760,8 +764,8 @@ class GaLiveQueryBuilder:
                 Activation.activation_date >= month_start,
                 Activation.activation_date <= yesterday,
             )
-            if exclude_product_codes:
-                clause = exclude_clause(Activation, set(exclude_product_codes))
+            if all_excluded:
+                clause = exclude_clause(Activation, all_excluded)
                 if clause is not None:
                     act_q = act_q.where(clause)
             for tag in exclude_retailer_tags:
@@ -783,8 +787,8 @@ class GaLiveQueryBuilder:
             LiveActivation.house_id == self.house_id,
             LiveActivation.activation_date == today,
         )
-        if exclude_product_codes:
-            clause = exclude_clause(LiveActivation, set(exclude_product_codes))
+        if all_excluded:
+            clause = exclude_clause(LiveActivation, all_excluded)
             if clause is not None:
                 live_q = live_q.where(clause)
         for tag in exclude_retailer_tags:

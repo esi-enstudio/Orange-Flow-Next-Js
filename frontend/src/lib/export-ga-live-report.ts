@@ -33,7 +33,7 @@ interface BpRow {
 
 interface SupervisorRow {
   name: string;
-  dms_code: string;
+  pool_number: string;
   total_activation: number;
   employee_activation: number;
   market_activation: number;
@@ -514,7 +514,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       dataRow(ws, r, [
         i + 1,
         sup.name,
-        sup.dms_code || "",
+        sup.pool_number || "",
         sup.total_activation,
         sup.yesterday_total ?? 0,
       ]);

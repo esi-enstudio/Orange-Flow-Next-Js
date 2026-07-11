@@ -56,6 +56,7 @@ interface GaLiveData {
     id: number;
     name: string;
     dms_code: string;
+    pool_number: string;
     total_activation: number;
     employee_activation: number;
     market_activation: number;
