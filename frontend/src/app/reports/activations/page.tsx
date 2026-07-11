@@ -176,7 +176,7 @@ function KpiCard({ icon: Icon, label, value, valueColor, valueExtra, subtitle, t
             )}
           </div>
           {subtitle && (
-            <div className="text-[10px] text-gray-400 dark:text-gray-500">{subtitle}</div>
+            <div className="text-[11px] text-gray-400 dark:text-gray-500">{subtitle}</div>
           )}
         </div>
         <div className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
