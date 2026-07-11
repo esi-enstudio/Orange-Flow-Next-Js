@@ -3,7 +3,7 @@ from datetime import datetime, date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select, func as sa_func, or_
+from sqlalchemy import select, delete, func as sa_func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -316,10 +316,40 @@ async def delete_bp_target(
     return {"success": True, "message": "BP target deleted successfully"}
 
 
+@router.get("/check-distributed")
+async def check_bp_targets_distributed(
+    target_date: str = Query(...),
+    query_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("bp_targets.view")),
+    house_context: Optional[int] = Depends(get_house_context),
+):
+    try:
+        td = datetime.strptime(target_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    if td.day != 1:
+        td = date(td.year, td.month, 1)
+
+    target_house_id = query_house_id or house_context
+    if not target_house_id:
+        return {"distributed": False, "count": 0}
+
+    result = await db.execute(
+        select(sa_func.count()).where(
+            BpTarget.house_id == target_house_id,
+            BpTarget.target_date == td,
+        )
+    )
+    count = result.scalar() or 0
+    return {"distributed": count > 0, "count": count}
+
+
 @router.post("/distribute")
 async def distribute_bp_targets(
     request: Request,
     target_date: str = Query(...),
+    overwrite: bool = Query(False),
     query_house_id: Optional[int] = Query(None, alias="house_id"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("bp_targets.edit")),
@@ -376,15 +406,25 @@ async def distribute_bp_targets(
 
     per_bp_target = house_target.bp_ga // len(bp_list)
     created = 0
-    for bp in bp_list:
-        existing = await db.execute(
-            select(BpTarget).where(
-                BpTarget.employee_id == bp.id,
+
+    if overwrite:
+        await db.execute(
+            delete(BpTarget).where(
+                BpTarget.house_id == target_house_id,
                 BpTarget.target_date == td,
             )
         )
-        if existing.scalar_one_or_none():
-            continue
+
+    for bp in bp_list:
+        if not overwrite:
+            existing = await db.execute(
+                select(BpTarget).where(
+                    BpTarget.employee_id == bp.id,
+                    BpTarget.target_date == td,
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
         bt = BpTarget(
             house_id=target_house_id,
             employee_id=bp.id,

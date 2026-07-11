@@ -69,12 +69,17 @@ export default function BPTargetsPage() {
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [distributeHouseOpen, setDistributeHouseOpen] = useState(false);
   const [selectedDistributeHouse, setSelectedDistributeHouse] = useState("");
 
   const today = new Date();
   const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
   const defaultMonthValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+
+  const [distributeMonth, setDistributeMonth] = useState(defaultMonthValue);
+  const [alreadyDistributed, setAlreadyDistributed] = useState(false);
+  const [distributeOverwrite, setDistributeOverwrite] = useState(false);
 
   const canView = hasPermission("bp_targets.view");
   const canCreate = hasPermission("bp_targets.create");
@@ -118,8 +123,24 @@ export default function BPTargetsPage() {
     }
   }, [modalOpen, modalHouseId]);
 
+  useEffect(() => {
+    if (!distributeHouseOpen || !selectedDistributeHouse || !distributeMonth) {
+      setAlreadyDistributed(false);
+      return;
+    }
+    const monthFirst = `${distributeMonth}-01`;
+    apiClient.get("bp-targets/check-distributed", {
+      params: { target_date: monthFirst, house_id: selectedDistributeHouse }
+    }).then(res => {
+      setAlreadyDistributed(res.data?.distributed ?? false);
+    }).catch(() => setAlreadyDistributed(false));
+  }, [distributeHouseOpen, selectedDistributeHouse, distributeMonth]);
+
   const handleDistribute = () => {
     setSelectedDistributeHouse("");
+    setDistributeMonth(defaultMonthValue);
+    setAlreadyDistributed(false);
+    setDistributeOverwrite(false);
     setDistributeHouseOpen(true);
   };
 
@@ -132,9 +153,10 @@ export default function BPTargetsPage() {
     setDistributing(true);
     try {
       const params: Record<string, string> = {
-        target_date: filters.target_month ? `${filters.target_month}-01` : defaultMonth,
+        target_date: `${distributeMonth}-01`,
         house_id: selectedDistributeHouse,
       };
+      if (distributeOverwrite) params.overwrite = "true";
       const res = await apiClient.post("bp-targets/distribute", null, { params });
       toast.success(res.data?.message || t("bp_targets.distribute_success"));
       fetchData();
@@ -325,28 +347,43 @@ export default function BPTargetsPage() {
       </div>
 
       {loading ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="divide-y divide-gray-50 dark:divide-slate-800">
+        <>
+          <div className="hidden lg:block bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="divide-y divide-gray-50 dark:divide-slate-800">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-2 py-1 animate-pulse">
+                  <div className="space-y-2 flex-1">
+                    <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  </div>
+                  <div className="w-20 h-8 bg-gray-200 dark:bg-slate-700 rounded-lg" />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="lg:hidden space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4 px-6 py-5 animate-pulse">
-                <div className="space-y-2 flex-1">
-                  <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                  <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+              <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-4">
+                <div className="flex items-center justify-between animate-pulse">
+                  <div className="space-y-2 flex-1">
+                    <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    <div className="h-2.5 w-28 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  </div>
+                  <div className="w-5 h-5 bg-gray-200 dark:bg-slate-700 rounded-md" />
                 </div>
-                <div className="hidden sm:block flex-1 space-y-2">
-                  <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                </div>
-                <div className="hidden md:block flex-1 space-y-2">
-                  <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                </div>
-                <div className="hidden md:block flex-1 space-y-2">
-                  <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                </div>
-                <div className="w-20 h-8 bg-gray-200 dark:bg-slate-700 rounded-lg" />
               </div>
             ))}
           </div>
-        </div>
+        </>
       ) : data.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <Crosshair className="w-16 h-16 text-gray-300 dark:text-gray-600 mb-4" />
@@ -355,34 +392,31 @@ export default function BPTargetsPage() {
         </div>
       ) : (
         <>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
+          <div className="hidden lg:block bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-50 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
-                    <th className="text-left px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                    <th className="text-left px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_date")}
                     </th>
-                    <th className="text-left px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                    <th className="text-left px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_bp")}
                     </th>
-                    <th className="text-left px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:table-cell">
-                      {t("bp_targets.table_house")}
-                    </th>
-                    <th className="text-right px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                    <th className="text-right px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_ga")}
                     </th>
-                    <th className="text-right px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:table-cell">
+                    <th className="text-right px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_ev")}
                     </th>
-                    <th className="text-right px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:table-cell">
+                    <th className="text-right px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_sc")}
                     </th>
-                    <th className="text-right px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap hidden lg:table-cell">
+                    <th className="text-right px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_recharge")}
                     </th>
                     {(canEdit || canDelete) && (
-                      <th className="text-center px-6 py-4 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      <th className="text-center px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                         {t("bp_targets.table_actions")}
                       </th>
                     )}
@@ -397,42 +431,33 @@ export default function BPTargetsPage() {
                     const empName = bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
                     const dmsCode = bt.employee?.dms_code || "";
                     const poolNo = bt.employee?.pool_number || "";
-                    const houseLabel = bt.house?.display_name || bt.house?.name || "";
                     return (
                     <tr key={bt.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/50">
-                      <td className="px-6 py-4 text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">
+                      <td className="px-2 py-1 text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">
                         {formattedDate}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-2 py-1 whitespace-nowrap">
                         <div className="font-medium text-gray-900 dark:text-gray-100">
                           {empName}
                         </div>
-                        <div className="text-xs text-gray-400 mt-0.5">
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400">
                           {dmsCode}{poolNo ? ` | ${poolNo}` : ""}
                         </div>
                       </td>
-                      <td className="px-6 py-4 hidden sm:table-cell">
-                        <div className="font-medium text-gray-700 dark:text-gray-300">
-                          {bt.house?.name || ""}
-                        </div>
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          {bt.house?.code || ""}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right font-semibold text-gray-900 dark:text-gray-100">
+                      <td className="px-2 py-1 text-right font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
                         {bt.ga_target}
                       </td>
-                      <td className="px-6 py-4 text-right text-gray-500 hidden md:table-cell">
+                      <td className="px-2 py-1 text-right text-gray-500 whitespace-nowrap">
                         {bt.ev_secondary}
                       </td>
-                      <td className="px-6 py-4 text-right text-gray-500 hidden md:table-cell">
+                      <td className="px-2 py-1 text-right text-gray-500 whitespace-nowrap">
                         {bt.sc_secondary}
                       </td>
-                      <td className="px-6 py-4 text-right text-gray-500 hidden lg:table-cell">
+                      <td className="px-2 py-1 text-right text-gray-500 whitespace-nowrap">
                         {bt.total_recharge}
                       </td>
                       {(canEdit || canDelete) && (
-                        <td className="px-6 py-4">
+                        <td className="px-2 py-1 whitespace-nowrap">
                           <div className="flex items-center justify-center gap-2">
                             {canEdit && (
                               <button
@@ -461,6 +486,84 @@ export default function BPTargetsPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <div className="lg:hidden space-y-3">
+            {data.map((bt) => {
+              const isExpanded = expandedId === bt.id;
+              const d = bt.target_date ? new Date(bt.target_date + "T00:00:00") : null;
+              const formattedDate = d
+                ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })
+                : "";
+              const empName = bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
+              const dmsCode = bt.employee?.dms_code || "";
+              const poolNo = bt.employee?.pool_number || "";
+              return (
+                <div
+                  key={bt.id}
+                  className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden"
+                >
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : bt.id)}
+                    className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors min-h-[44px]"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                          {empName}
+                        </p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          {formattedDate}{dmsCode ? ` · ${dmsCode}` : ""}{poolNo ? ` · ${poolNo}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight className={cn("w-5 h-5 text-gray-400 shrink-0 transition-transform", isExpanded && "rotate-90")} />
+                  </button>
+                  {isExpanded && (
+                    <div className="px-4 pb-4 space-y-2 border-t border-gray-100 dark:border-slate-800 pt-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">{t("bp_targets.table_ga")}</span>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">{bt.ga_target}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">{t("bp_targets.table_ev")}</span>
+                        <span className="text-gray-700 dark:text-gray-300">{bt.ev_secondary}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">{t("bp_targets.table_sc")}</span>
+                        <span className="text-gray-700 dark:text-gray-300">{bt.sc_secondary}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">{t("bp_targets.table_recharge")}</span>
+                        <span className="text-gray-700 dark:text-gray-300">{bt.total_recharge}</span>
+                      </div>
+                      {(canEdit || canDelete) && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+                          {canEdit && (
+                            <button
+                              onClick={() => openEditModal(bt)}
+                              className="flex-1 px-4 py-2.5 border border-blue-200 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 rounded-xl text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors min-h-[44px]"
+                            >
+                              <Pencil className="w-4 h-4 inline mr-1.5" />
+                              {t("common.edit")}
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              onClick={() => openDeleteModal(bt.id)}
+                              className="flex-1 px-4 py-2.5 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 rounded-xl text-sm font-medium hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors min-h-[44px]"
+                            >
+                              <Trash2 className="w-4 h-4 inline mr-1.5" />
+                              {t("common.delete")}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {pagination.total_pages > 1 && (
@@ -674,7 +777,7 @@ export default function BPTargetsPage() {
                 </label>
                 <select
                   value={selectedDistributeHouse}
-                  onChange={e => setSelectedDistributeHouse(e.target.value)}
+                  onChange={e => { setSelectedDistributeHouse(e.target.value); setDistributeOverwrite(false); }}
                   className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 min-h-[44px]"
                 >
                   <option value="">{t("bp_targets.select_house")}</option>
@@ -683,6 +786,38 @@ export default function BPTargetsPage() {
                   ))}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("bp_targets.distribute_month")}
+                </label>
+                <input
+                  type="month"
+                  value={distributeMonth}
+                  onChange={e => { setDistributeMonth(e.target.value); setDistributeOverwrite(false); }}
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 min-h-[44px]"
+                />
+              </div>
+
+              {alreadyDistributed && (
+                <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4 space-y-3">
+                  <p className="text-sm text-amber-800 dark:text-amber-300">
+                    {t("bp_targets.overwrite_warning", { month: distributeMonth })}
+                  </p>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={distributeOverwrite}
+                      onChange={e => setDistributeOverwrite(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                    />
+                    <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                      {t("bp_targets.overwrite")}
+                    </span>
+                  </label>
+                </div>
+              )}
+
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setDistributeHouseOpen(false)}
@@ -692,11 +827,11 @@ export default function BPTargetsPage() {
                 </button>
                 <button
                   onClick={confirmDistribute}
-                  disabled={!selectedDistributeHouse || distributing}
+                  disabled={!selectedDistributeHouse || !distributeMonth || distributing || (alreadyDistributed && !distributeOverwrite)}
                   className="flex-1 px-4 py-2.5 bg-primary-500 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-primary-600 transition-colors disabled:opacity-50 min-h-[44px]"
                 >
                   {distributing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  {t("bp_targets.auto_distribute")}
+                  {t("bp_targets.distribute_confirm")}
                 </button>
               </div>
             </div>
