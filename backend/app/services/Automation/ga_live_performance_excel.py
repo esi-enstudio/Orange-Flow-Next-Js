@@ -12,6 +12,7 @@ from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
 from app.models.bp_retailer_code import BpRetailerCode
+from app.models.bp_target import BpTarget
 from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.ga_section_config import GaSectionConfig
 from app.utils.activation_rules import exclude_clause
@@ -294,6 +295,40 @@ async def export_ga_live_performance_excel(
         res = await db.execute(q)
         return res.scalar() or 0
 
+    # ── Load BP targets for current month ──
+    month_start = date(today.year, today.month, 1)
+    _, last_day = __import__("calendar").monthrange(today.year, today.month)
+    month_end = date(today.year, today.month, last_day)
+    bp_emp_ids = [e.id for e in bp_list]
+    bp_target_map: dict[int, int] = {}
+    if bp_emp_ids:
+        bp_target_rows = await db.execute(
+            select(BpTarget).where(
+                BpTarget.employee_id.in_(bp_emp_ids),
+                BpTarget.target_date >= month_start,
+                BpTarget.target_date <= month_end,
+            )
+        )
+        for t in bp_target_rows.scalars().all():
+            bp_target_map[t.employee_id] = t.ga_target or 0
+
+    # ── BP MTD activation counts for remaining ──
+    yesterday_for_mtd = today - timedelta(days=1)
+    bp_mtd_code_counts: dict[str, int] = {}
+    all_bp_codes_mtd = list(all_bp_codes)
+    if all_bp_codes_mtd and yesterday_for_mtd >= month_start:
+        mtd_bp_q = select(Activation.retailer_code, func.count()).where(
+            Activation.house_id == house_id,
+            Activation.activation_date >= month_start,
+            Activation.activation_date <= yesterday_for_mtd,
+            Activation.retailer_code.in_(all_bp_codes_mtd),
+        )
+        mtd_bp_q = _apply_exclusions_to_query(mtd_bp_q, Activation, exclude_products_total, excluded_retailer_ids)
+        mtd_bp_q = mtd_bp_q.group_by(Activation.retailer_code)
+        mtd_bp_rows = await db.execute(mtd_bp_q)
+        for code, cnt in mtd_bp_rows.all():
+            bp_mtd_code_counts[code] = cnt
+
     # ── Build Excel ──
     wb = Workbook()
     date_str = str(today)
@@ -346,10 +381,12 @@ async def export_ga_live_performance_excel(
 
     # ── Sheet 2: BP Report ──
     ws_bp = wb.create_sheet("BP Report")
-    bp_headers = ["Name", "Pool Number", "Assisted Code", "Today Activation", "Yesterday Activation", "%"]
-    bp_numeric_cols = {4, 5, 6}
+    days_in_month = last_day
+    days_elapsed = today.day - 1
+    days_remaining = days_in_month - days_elapsed
+    bp_headers = ["Name", "Pool Number", "Assisted Code", "Today Target", "Ach", "%", "Remain", "Yest GA"]
+    bp_numeric_cols = {4, 5, 6, 7, 8}
     bp_rows = []
-    bp_grand_total = 0
     for e in bp_list:
         codes = bp_code_map.get(e.id, [])
         if e.assisted_retailer_code and e.assisted_retailer_code not in codes:
@@ -357,22 +394,29 @@ async def export_ga_live_performance_excel(
         today_count = await _bp_today(codes)
         yest_count = await _bp_yesterday(codes)
         user_name = user_name_map.get(e.user_id) if e.user_id else ""
+        bp_target_val = bp_target_map.get(e.id, 0)
+        bp_mtd = sum(bp_mtd_code_counts.get(code, 0) for code in codes)
+        bp_remaining = max(0, bp_target_val - bp_mtd)
+        bp_today_target = int(bp_remaining / max(days_remaining, 1)) if bp_remaining > 0 else 0
         bp_rows.append([
             user_name or e.dms_code or f"#{e.id}",
             e.pool_number or "",
             e.assisted_retailer_code or "",
+            bp_today_target,
             today_count,
+            0.0,  # % formula
+            0,    # remain formula
             yest_count,
-            0.0,
         ])
-        bp_grand_total += today_count
+        # Column indices: 4=Today Target, 5=Ach, 6=%, 7=Remain
     for row in bp_rows:
-        row[5] = round((row[3] / bp_grand_total * 100), 1) if bp_grand_total else 0
+        row[5] = round((row[4] / row[3] * 100), 1) if row[3] > 0 else 0  # % = Ach / Today Target
+        row[6] = max(0, row[3] - row[4])  # Remain = Today Target - Ach
     _build_sheet(ws_bp, "BP Performance Report", f"Date: {date_str}", bp_headers, bp_rows, bp_numeric_cols)
-    # Conditional formatting color scale on % column (F5:F...)
+    # Conditional formatting color scale on % column (G5:G...)
     if bp_rows:
         last = 4 + len(bp_rows)
-        ws_bp.conditional_formatting.add(f"F5:F{last}", ColorScaleRule(
+        ws_bp.conditional_formatting.add(f"G5:G{last}", ColorScaleRule(
             start_type="min", start_color="F44336",
             mid_type="percent", mid_value=50, mid_color="FFC107",
             end_type="max", end_color="4CAF50",

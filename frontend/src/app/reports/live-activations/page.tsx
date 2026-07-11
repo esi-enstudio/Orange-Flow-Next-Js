@@ -89,6 +89,8 @@ interface GaLiveData {
     assisted_code: string;
     pool_number: string;
     own_activation: number;
+    target: number;
+    remaining: number;
     contribution: number;
     rank: number;
     yesterday_activation: number;
@@ -541,6 +543,7 @@ export default function GaLiveReportPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedSup, setExpandedSup] = useState<number | null>(null);
   const [rsoView, setRsoView] = useState<"grid" | "table">("grid");
+  const [bpView, setBpView] = useState<"grid" | "table">("grid");
   const [selectedHouseId, setSelectedHouseId] = useState<number | null>(null);
   const [allHouses, setAllHouses] = useState<Array<{ id: number; name: string; code: string }> | null>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);
@@ -1531,66 +1534,193 @@ export default function GaLiveReportPage() {
       {bps.length > 0 && (
         <div className="group relative">
         <section>
-          <SectionHeader title="BP Performance" subtitle={`${bps.length} BPs · leaderboard ranking`} onEdit={isAdmin ? () => setEditingSection("bps") : undefined} />
-          <div className="space-y-2">
-            {bps.map((bp, idx) => (
-              <div
-                key={bp.id}
-                className={cn(
-                  "flex items-center gap-4 bg-white dark:bg-slate-800/80 rounded-2xl border p-4 transition-all hover:shadow-md",
-                  idx < 3
-                    ? "border-amber-200 dark:border-amber-500/30 bg-gradient-to-r from-amber-50/50 to-transparent dark:from-amber-500/5"
-                    : "border-gray-100 dark:border-slate-700/50"
-                )}
-              >
-                {/* Rank */}
-                <div
-                  className={cn(
-                    "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm",
-                    idx === 0
-                      ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400"
-                      : idx === 1
-                      ? "bg-gray-100 dark:bg-gray-600/30 text-gray-500 dark:text-gray-300"
-                      : idx === 2
-                      ? "bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400"
-                      : "bg-gray-50 dark:bg-slate-700/50 text-gray-400 dark:text-gray-500"
-                  )}
-                >
-                  {idx === 0 ? <Medal className="w-5 h-5" /> : idx === 1 ? <Award className="w-5 h-5" /> : idx === 2 ? <Zap className="w-5 h-5" /> : `#${bp.rank}`}
-                </div>
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{bp.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {[bp.dms_code, bp.assisted_code, bp.pool_number].filter(Boolean).join(' • ') || `ID: ${bp.id}`}
-                  </p>
-                </div>
-                {/* Stats */}
-                <div className="text-right shrink-0">
-                  <p className="font-bold text-gray-900 dark:text-gray-100">{bp.own_activation.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">own activation</p>
-                </div>
-                <div className="w-24 shrink-0">
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-gray-400">Contribution</span>
-                    <span className="font-semibold text-gray-700 dark:text-gray-300">{bp.contribution}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-teal-400 to-teal-500 rounded-full"
-                      style={{ width: `${Math.min(bp.contribution, 100)}%` }}
-                    />
-                  </div>
-                </div>
+          <SectionHeader
+            title="BP Performance"
+            subtitle={`${bps.length} BPs · leaderboard ranking`}
+            onEdit={isAdmin ? () => setEditingSection("bps") : undefined}
+            action={
+              <div className="flex items-center border border-gray-200 dark:border-slate-600 rounded-xl overflow-hidden">
                 <button
-                  onClick={() => bp.employee_id && setDetailModal({ open: true, employeeId: bp.employee_id, roleType: "bp", employeeName: bp.name })}
-                  className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                  onClick={() => setBpView("grid")}
+                  className={cn("p-2 transition-colors", bpView === "grid" ? "bg-primary-500 text-white" : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300")}
                 >
-                  Details
+                  <Grid3X3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setBpView("table")}
+                  className={cn("p-2 transition-colors", bpView === "table" ? "bg-primary-500 text-white" : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300")}
+                >
+                  <List className="w-4 h-4" />
                 </button>
               </div>
-            ))}
-          </div>
+            }
+          />
+          {bpView === "grid" ? (
+            <div className="space-y-2">
+              {bps.map((bp, idx) => {
+                const bpTodayTarget = bp.remaining > 0 ? Math.ceil(bp.remaining / Math.max(daysRemaining, 1)) : 0;
+                return (
+                <div
+                  key={bp.id}
+                  className={cn(
+                    "flex items-center gap-4 bg-white dark:bg-slate-800/80 rounded-2xl border p-4 transition-all hover:shadow-md",
+                    idx < 3
+                      ? "border-amber-200 dark:border-amber-500/30 bg-gradient-to-r from-amber-50/50 to-transparent dark:from-amber-500/5"
+                      : "border-gray-100 dark:border-slate-700/50"
+                  )}
+                >
+                  {/* Rank */}
+                  <div
+                    className={cn(
+                      "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm",
+                      idx === 0
+                        ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                        : idx === 1
+                        ? "bg-gray-100 dark:bg-gray-600/30 text-gray-500 dark:text-gray-300"
+                        : idx === 2
+                        ? "bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400"
+                        : "bg-gray-50 dark:bg-slate-700/50 text-gray-400 dark:text-gray-500"
+                    )}
+                  >
+                    {idx === 0 ? <Medal className="w-5 h-5" /> : idx === 1 ? <Award className="w-5 h-5" /> : idx === 2 ? <Zap className="w-5 h-5" /> : `#${bp.rank}`}
+                  </div>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{bp.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {[bp.dms_code, bp.assisted_code, bp.pool_number].filter(Boolean).join(' • ') || `ID: ${bp.id}`}
+                    </p>
+                  </div>
+                  {/* Stats */}
+                  <div className="text-right shrink-0">
+                    <p className="font-bold text-gray-900 dark:text-gray-100">{bp.own_activation.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">own activation</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-bold text-gray-900 dark:text-gray-100">{bpTodayTarget.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">today target</p>
+                  </div>
+                  <div className="w-24 shrink-0">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-gray-400">Contribution</span>
+                      <span className="font-semibold text-gray-700 dark:text-gray-300">{bp.contribution}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-teal-400 to-teal-500 rounded-full"
+                        style={{ width: `${Math.min(bp.contribution, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => bp.employee_id && setDetailModal({ open: true, employeeId: bp.employee_id, roleType: "bp", employeeName: bp.name })}
+                    className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Details
+                  </button>
+                </div>
+              )})}
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse whitespace-nowrap">
+                  <thead>
+                    <tr>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">Name</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Today Target</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Own Activation</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Total</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">%</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Remain</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Contribution</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Yesterday</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bps.map((bp) => {
+                      const bpTodayTarget = bp.remaining > 0 ? Math.ceil(bp.remaining / Math.max(daysRemaining, 1)) : 0;
+                      return (
+                      <tr key={bp.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
+                        <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">
+                          <p className="font-medium text-gray-900 dark:text-gray-100">{bp.name}</p>
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">{bp.dms_code ? `${bp.dms_code}${bp.assisted_code ? ` • ${bp.assisted_code}` : ''}${bp.pool_number ? ` • ${bp.pool_number}` : ''}` : `#${bp.id}`}</p>
+                        </td>
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                          {bpTodayTarget.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">{bp.own_activation.toLocaleString()}</td>
+                        <td className="px-2 py-1 text-center font-bold text-primary-600 dark:text-primary-400 border border-gray-200 dark:border-slate-600">{bp.own_activation.toLocaleString()}</td>
+                        <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
+                          {bpTodayTarget > 0 ? Math.round((bp.own_activation / bpTodayTarget) * 100) + '%' : '0%'}
+                        </td>
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                          {Math.max(0, bpTodayTarget - bp.own_activation).toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
+                          <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
+                            {bp.contribution}%
+                          </span>
+                        </td>
+                        <td className="px-2 py-1 text-center text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 whitespace-nowrap">
+                          {bp.yesterday_activation.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
+                          <button
+                            onClick={() => bp.employee_id && setDetailModal({ open: true, employeeId: bp.employee_id, roleType: "bp", employeeName: bp.name })}
+                            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                          >
+                            Details
+                          </button>
+                        </td>
+                      </tr>
+                    )})}
+                    {/* Total row */}
+                    <tr className="bg-gray-50 dark:bg-slate-700/30 font-semibold">
+                      <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 sticky left-0 bg-gray-50 dark:bg-slate-700/30 z-20 text-gray-900 dark:text-gray-100">
+                        Total ({bps.length} BPs)
+                      </td>
+                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        {bps.reduce((s, b) => s + (b.remaining > 0 ? Math.ceil(b.remaining / Math.max(daysRemaining, 1)) : 0), 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 text-gray-900 dark:text-gray-100">
+                        {bps.reduce((s, b) => s + b.own_activation, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 font-bold text-primary-600 dark:text-primary-400">
+                        {bps.reduce((s, b) => s + b.own_activation, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
+                        {(() => {
+                          const sumToday = bps.reduce((s, b) => s + (b.remaining > 0 ? Math.ceil(b.remaining / Math.max(daysRemaining, 1)) : 0), 0);
+                          const sumTotal = bps.reduce((s, b) => s + b.own_activation, 0);
+                          return sumToday > 0 ? Math.round((sumTotal / sumToday) * 100) + '%' : '0%';
+                        })()}
+                      </td>
+                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        {(() => {
+                          const sumToday = bps.reduce((s, b) => s + (b.remaining > 0 ? Math.ceil(b.remaining / Math.max(daysRemaining, 1)) : 0), 0);
+                          const sumTotal = bps.reduce((s, b) => s + b.own_activation, 0);
+                          return Math.max(0, sumToday - sumTotal).toLocaleString();
+                        })()}
+                      </td>
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
+                        <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
+                          {totalActivation > 0
+                            ? (bps.reduce((s, b) => s + b.own_activation, 0) / totalActivation * 100).toFixed(1)
+                            : 0}%
+                        </span>
+                      </td>
+                      <td className="px-2 py-1 text-center text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 whitespace-nowrap">
+                        {bps.reduce((s, b) => s + b.yesterday_activation, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600" />
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </section>
         </div>
       )}

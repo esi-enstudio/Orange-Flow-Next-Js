@@ -17,6 +17,7 @@ from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.ga_section_config import GaSectionConfig
 from app.models.rso_target import RSOTarget
+from app.models.bp_target import BpTarget
 from app.utils.activation_rules import get_excluded_codes, exclude_clause
 from app.services.cache_service import cache_service
 
@@ -427,6 +428,23 @@ class GaLiveQueryBuilder:
             for t in target_rows.scalars().all():
                 rso_target_map[t.employee_id] = t.ga or 0
 
+        # ── Load BP targets for current month ──
+        bp_emp_ids_for_target = [
+            eid for uid, eid in emp_user_id_to_emp_id.items()
+            if uid in role_uids["bp"] and eid
+        ]
+        bp_target_map: dict[int, int] = {}
+        if bp_emp_ids_for_target:
+            bp_target_rows = await self.db.execute(
+                select(BpTarget).where(
+                    BpTarget.employee_id.in_(bp_emp_ids_for_target),
+                    BpTarget.target_date >= month_start,
+                    BpTarget.target_date <= month_end,
+                )
+            )
+            for t in bp_target_rows.scalars().all():
+                bp_target_map[t.employee_id] = t.ga_target or 0
+
         # ── Load month-to-date (MTD) activation counts for RSO remaining ──
         yesterday_for_mtd = self.start_date - timedelta(days=1)
         mtd_retailer_counts: dict[int, int] = {}
@@ -596,6 +614,31 @@ class GaLiveQueryBuilder:
             r["yesterday_total"] = y_total
         rso_data.sort(key=lambda x: x["total_activation"], reverse=True)
 
+        # ── Load month-to-date activation counts for BP remaining ──
+        bp_mtd_code_counts: dict[str, int] = {}
+        all_bp_codes_mtd: list[str] = list(set(
+            code for codes in bp_retailer_code_map.values() for code in codes
+        ))
+        if all_bp_codes_mtd and yesterday_for_mtd >= month_start:
+            bp_mtd_exclude_product_codes, bp_mtd_exclude_retailer_tags = await self._get_exclusions("bps")
+            mtd_bp_q = select(Activation.retailer_code, func.count()).where(
+                Activation.house_id == self.house_id,
+                Activation.activation_date >= month_start,
+                Activation.activation_date <= yesterday_for_mtd,
+                Activation.retailer_code.in_(all_bp_codes_mtd),
+            )
+            if bp_mtd_exclude_product_codes:
+                mtd_bp_q = mtd_bp_q.where(
+                    and_(
+                        Activation.product_code != None,
+                        Activation.product_code.notin_(bp_mtd_exclude_product_codes),
+                    )
+                )
+            mtd_bp_q = mtd_bp_q.group_by(Activation.retailer_code)
+            mtd_bp_rows = await self.db.execute(mtd_bp_q)
+            for code, cnt in mtd_bp_rows.all():
+                bp_mtd_code_counts[code] = cnt
+
         bp_data = []
         for bp_uid in role_uids["bp"]:
             bp_user = (await self.db.execute(select(User).where(User.id == bp_uid))).scalar_one_or_none()
@@ -612,6 +655,8 @@ class GaLiveQueryBuilder:
                     res = await self.db.execute(select(func.count()).select_from(bp_q.subquery()))
                     bp_total = res.scalar() or 0
             bp_info = emp_id_to_user.get(bp_emp_id) if bp_emp_id else None
+            bp_target_val = bp_target_map.get(bp_emp_id, 0) if bp_emp_id else 0
+            bp_mtd_achievement = sum(bp_mtd_code_counts.get(code, 0) for code in bp_retailer_code_map.get(bp_emp_id, [])) if bp_emp_id else 0
             bp_data.append({
                 "id": bp_uid,
                 "employee_id": bp_emp_id,
@@ -620,6 +665,8 @@ class GaLiveQueryBuilder:
                 "assisted_code": bp_info[4] if bp_info else "",
                 "pool_number": bp_info[5] if bp_info else "",
                 "own_activation": bp_total,
+                "target": bp_target_val,
+                "remaining": max(0, bp_target_val - bp_mtd_achievement),
                 "contribution": 0,
                 "rank": 0,
             })

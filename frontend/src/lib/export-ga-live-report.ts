@@ -26,6 +26,8 @@ interface BpRow {
   pool_number: string;
   assisted_code: string;
   own_activation: number;
+  target: number;
+  remaining: number;
   yesterday_activation: number;
 }
 
@@ -399,12 +401,13 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
 
     const BP_DATA_START = r;
     sortedBps.forEach((bpItem, i) => {
+      const bpTodayTarget = bpItem.remaining > 0 ? Math.ceil(bpItem.remaining / Math.max(daysRemaining, 1)) : 0;
       dataRow(ws, r, [
         i + 1,
         bpItem.name,
         bpItem.pool_number || "",
         bpItem.assisted_code || "",
-        0,
+        bpTodayTarget,
         bpItem.own_activation,
         "",
         "",

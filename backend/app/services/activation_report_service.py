@@ -346,6 +346,7 @@ class ActivationReportService:
             select(Employee).where(
                 Employee.house_id == self.house_id,
                 Employee.employee_type == "rso",
+                Employee.status == "Active",
             )
         )
         employees = emps.scalars().all()
@@ -384,6 +385,7 @@ class ActivationReportService:
             select(Employee).where(
                 Employee.house_id == self.house_id,
                 Employee.employee_type == "bp",
+                Employee.status == "Active",
             )
         )
         employees = emps.scalars().all()
@@ -489,6 +491,7 @@ class ActivationReportService:
             select(Employee).where(
                 Employee.house_id == self.house_id,
                 Employee.employee_type == "supervisor",
+                Employee.status == "Active",
             )
         )
         employees = emps.scalars().all()
@@ -526,6 +529,7 @@ class ActivationReportService:
                 select(Employee).where(
                     Employee.user_id.in_(rso_user_ids),
                     Employee.house_id == self.house_id,
+                    Employee.status == "Active",
                 )
             )
             rso_emps = rso_emp_rows.scalars().all()
@@ -614,6 +618,7 @@ class ActivationReportService:
             select(Employee).where(
                 Employee.house_id == self.house_id,
                 Employee.user_id.in_(cc_user_ids),
+                Employee.status == "Active",
             )
         )
         employees = emps.scalars().all()
