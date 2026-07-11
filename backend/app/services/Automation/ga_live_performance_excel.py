@@ -4,6 +4,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.formatting.rule import ColorScaleRule
 
 from app.models.live_activation import LiveActivation
 from app.models.activation import Activation
@@ -304,9 +305,11 @@ async def export_ga_live_performance_excel(
         "Name", "ITop Number", "Assisted Code",
         "Today Own", "Today Market", "Today Total",
         "Yesterday Own", "Yesterday Market", "Yesterday Total",
+        "%",
     ]
-    rso_numeric_cols = {4, 5, 6, 7, 8, 9}
+    rso_numeric_cols = {4, 5, 6, 7, 8, 9, 10}
     rso_rows = []
+    rso_grand_total = 0
     for e in rso_list:
         emp_id = e.id
         ret_ids = emp_retailer_map.get(emp_id, set())
@@ -326,14 +329,27 @@ async def export_ga_live_performance_excel(
             y_own,
             y_total - y_own,
             y_total,
+            0.0,
         ])
+        rso_grand_total += t_total
+    for row in rso_rows:
+        row[9] = round((row[5] / rso_grand_total * 100), 1) if rso_grand_total else 0
     _build_sheet(ws_rso, "RSO Performance Report", f"Date: {date_str}", rso_headers, rso_rows, rso_numeric_cols)
+    # Conditional formatting color scale on % column (J5:J...)
+    if rso_rows:
+        last = 4 + len(rso_rows)
+        ws_rso.conditional_formatting.add(f"J5:J{last}", ColorScaleRule(
+            start_type="min", start_color="F44336",
+            mid_type="percent", mid_value=50, mid_color="FFC107",
+            end_type="max", end_color="4CAF50",
+        ))
 
     # ── Sheet 2: BP Report ──
     ws_bp = wb.create_sheet("BP Report")
-    bp_headers = ["Name", "Pool Number", "Assisted Code", "Today Activation", "Yesterday Activation"]
-    bp_numeric_cols = {4, 5}
+    bp_headers = ["Name", "Pool Number", "Assisted Code", "Today Activation", "Yesterday Activation", "%"]
+    bp_numeric_cols = {4, 5, 6}
     bp_rows = []
+    bp_grand_total = 0
     for e in bp_list:
         codes = bp_code_map.get(e.id, [])
         if e.assisted_retailer_code and e.assisted_retailer_code not in codes:
@@ -347,8 +363,20 @@ async def export_ga_live_performance_excel(
             e.assisted_retailer_code or "",
             today_count,
             yest_count,
+            0.0,
         ])
+        bp_grand_total += today_count
+    for row in bp_rows:
+        row[5] = round((row[3] / bp_grand_total * 100), 1) if bp_grand_total else 0
     _build_sheet(ws_bp, "BP Performance Report", f"Date: {date_str}", bp_headers, bp_rows, bp_numeric_cols)
+    # Conditional formatting color scale on % column (F5:F...)
+    if bp_rows:
+        last = 4 + len(bp_rows)
+        ws_bp.conditional_formatting.add(f"F5:F{last}", ColorScaleRule(
+            start_type="min", start_color="F44336",
+            mid_type="percent", mid_value=50, mid_color="FFC107",
+            end_type="max", end_color="4CAF50",
+        ))
 
     # ── Sheet 3: Supervisor Report ──
     ws_sup = wb.create_sheet("Supervisor Report")

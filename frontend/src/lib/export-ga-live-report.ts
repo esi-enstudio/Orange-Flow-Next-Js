@@ -62,7 +62,8 @@ interface ExportPayload {
 }
 
 const BORDER = "000000";
-const SECTION_BG = "F1F5F9";
+const SECTION_BG = "9FA8DA";
+const HEADER_BG = "C5CAE9";
 const TEXT_DARK = "1E293B";
 const TEXT_MUTED = "64748B";
 const WHITE = "FFFFFF";
@@ -87,19 +88,22 @@ function sectionTitle(ws: ExcelJS.Worksheet, row: number, label: string, cols: n
   ws.mergeCells(row, 1, row, cols);
   const cell = ws.getCell(row, 1);
   cell.value = label;
-  cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+  cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: "000000" } };
   cell.alignment = { vertical: "middle", horizontal: "left" };
   cell.border = allBorders;
 }
 
-function headerRow(ws: ExcelJS.Worksheet, row: number, headers: string[]) {
+function headerRow(ws: ExcelJS.Worksheet, row: number, headers: string[], fillColor?: string) {
   const r = ws.getRow(row);
   headers.forEach((h, i) => {
     const cell = r.getCell(i + 1);
     cell.value = h;
-    cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+    cell.font = { bold: true, size: 11, name: "Calibri", color: { argb: "000000" } };
     cell.alignment = { vertical: "middle", horizontal: "center" };
     cell.border = allBorders;
+    if (fillColor) {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fillColor } };
+    }
   });
 }
 
@@ -202,7 +206,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   }
 
   /* ── DD Target Summary Headers (E2:I2) ── */
-  const ddHeaders = ["Target", "Ach", "%", "Remaining", "DRR"];
+  const ddHeaders = ["Target", "Ach", "%", "Remain", "DRR"];
   const ddHeaderRow = ws.getRow(2);
   ddHeaderRow.height = 24;
   ddHeaders.forEach((h, i) => {
@@ -232,6 +236,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   });
   ws.getCell(3, 7).value = { formula: `IF(E3>0, ROUND(F3/E3*100, 1), 0)` };
   ws.getCell(3, 7).numFmt = '0.0"%"';
+  ws.getCell(3, 7).alignment = { vertical: "middle", horizontal: "right" };
   ws.getCell(3, 8).value = { formula: `E3-F3` };
 
   /* ── Total Activation Count (K1:M4) ── */
@@ -277,13 +282,13 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     ws.mergeCells(RSO_TITLE_ROW, 11, RSO_TITLE_ROW, 13);
     const rsoTitleCell = ws.getCell(RSO_TITLE_ROW, 1);
     rsoTitleCell.value = "RSO PERFORMANCE";
-    rsoTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+    rsoTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: "000000" } };
     rsoTitleCell.alignment = { vertical: "middle", horizontal: "left" };
     rsoTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
     rsoTitleCell.border = allBorders;
     const rsoYestCell = ws.getCell(RSO_TITLE_ROW, 11);
     rsoYestCell.value = "Yesterday";
-    rsoYestCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+    rsoYestCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: "000000" } };
     rsoYestCell.alignment = { vertical: "middle", horizontal: "center" };
     rsoYestCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
     rsoYestCell.border = allBorders;
@@ -296,7 +301,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       "Own Code", "Market", "Total",
       "%", "Remain",
       "Own Code", "Market", "Total",
-    ]);
+    ], HEADER_BG);
     [ws.getCell(RSO_HEADER_ROW, 11), ws.getCell(RSO_HEADER_ROW, 12), ws.getCell(RSO_HEADER_ROW, 13)].forEach((cell) => {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
     });
@@ -320,7 +325,9 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
         rsoItem.yesterday_market,
         rsoItem.yesterday_total,
       ]);
-      ws.getCell(r, 9).value = { formula: `IF(E${r}>0, ROUND(H${r}/E${r}*100, 0) & "%", "0%")` };
+      ws.getCell(r, 9).value = { formula: `IF(E${r}>0, H${r}/E${r}, 0)` };
+      ws.getCell(r, 9).numFmt = '0%';
+      ws.getCell(r, 9).alignment = { vertical: "middle", horizontal: "right" };
       ws.getCell(r, 10).value = { formula: `MAX(0, E${r}-H${r})` };
       [11, 12, 13].forEach((ci) => {
         ws.getCell(r, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
@@ -329,10 +336,36 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     });
     const RSO_DATA_END = r - 1;
 
+    // 5 Arrows (Colored) icon set on Total (col H) and % (col I)
+    if (RSO_DATA_START <= RSO_DATA_END) {
+      ws.addConditionalFormatting({
+        ref: `H${RSO_DATA_START}:H${RSO_DATA_END}`,
+        rules: [{ type: 'iconSet' as any, iconSet: '5Arrows', cfvo: [
+          { type: 'min' as any, value: 0 },
+          { type: 'percent' as any, value: 20 },
+          { type: 'percent' as any, value: 40 },
+          { type: 'percent' as any, value: 60 },
+          { type: 'percent' as any, value: 80 },
+        ]}] as any,
+      });
+      ws.addConditionalFormatting({
+        ref: `I${RSO_DATA_START}:I${RSO_DATA_END}`,
+        rules: [{ type: 'iconSet' as any, iconSet: '5Arrows', cfvo: [
+          { type: 'min' as any, value: 0 },
+          { type: 'percent' as any, value: 20 },
+          { type: 'percent' as any, value: 40 },
+          { type: 'percent' as any, value: 60 },
+          { type: 'percent' as any, value: 80 },
+        ]}] as any,
+      });
+    }
+
     if (sortedRsos.length > 1) {
       const RSO_TOTAL_ROW = r;
       formulaRow(ws, RSO_TOTAL_ROW, ["E", "F", "G", "H", "J", "K", "L", "M"], RSO_DATA_START, RSO_DATA_END, "Total", 13);
-      ws.getCell(RSO_TOTAL_ROW, 9).value = { formula: `IF(E${RSO_TOTAL_ROW}>0, ROUND(H${RSO_TOTAL_ROW}/E${RSO_TOTAL_ROW}*100, 0) & "%", "0%")` };
+      ws.getCell(RSO_TOTAL_ROW, 9).value = { formula: `IF(E${RSO_TOTAL_ROW}>0, H${RSO_TOTAL_ROW}/E${RSO_TOTAL_ROW}, 0)` };
+      ws.getCell(RSO_TOTAL_ROW, 9).numFmt = '0%';
+      ws.getCell(RSO_TOTAL_ROW, 9).alignment = { vertical: "middle", horizontal: "right" };
       [11, 12, 13].forEach((ci) => {
         ws.getCell(RSO_TOTAL_ROW, ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
       });
@@ -349,7 +382,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     ws.mergeCells(BP_TITLE_ROW, 1, BP_TITLE_ROW, 9);
     const bpTitleCell = ws.getCell(BP_TITLE_ROW, 1);
     bpTitleCell.value = "BP PERFORMANCE";
-    bpTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: TEXT_DARK } };
+    bpTitleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: "000000" } };
     bpTitleCell.alignment = { vertical: "middle", horizontal: "left" };
     bpTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
     bpTitleCell.border = allBorders;
@@ -360,7 +393,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       "#", "Name", "Pool Number", "Assisted Code",
       "Today Target",
       "Ach", "%", "Remain", "Yest GA",
-    ]);
+    ], HEADER_BG);
     ws.getCell(BP_HEADER_ROW, 9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: MEDIUM_ORANGE } };
     r++;
 
@@ -377,17 +410,45 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
         "",
         bpItem.yesterday_activation,
       ]);
-      ws.getCell(r, 7).value = { formula: `IF(E${r}>0, ROUND(F${r}/E${r}*100, 0) & "%", "0%")` };
+      ws.getCell(r, 7).value = { formula: `IF(E${r}>0, F${r}/E${r}, 0)` };
+      ws.getCell(r, 7).numFmt = '0%';
+      ws.getCell(r, 7).alignment = { vertical: "middle", horizontal: "right" };
       ws.getCell(r, 8).value = { formula: `MAX(0, E${r}-F${r})` };
       ws.getCell(r, 9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
       r++;
     });
     const BP_DATA_END = r - 1;
 
+    // 5 Arrows (Colored) icon set on Ach/Total (col F) and % (col G)
+    if (BP_DATA_START <= BP_DATA_END) {
+      ws.addConditionalFormatting({
+        ref: `F${BP_DATA_START}:F${BP_DATA_END}`,
+        rules: [{ type: 'iconSet' as any, iconSet: '5Arrows', cfvo: [
+          { type: 'min' as any, value: 0 },
+          { type: 'percent' as any, value: 20 },
+          { type: 'percent' as any, value: 40 },
+          { type: 'percent' as any, value: 60 },
+          { type: 'percent' as any, value: 80 },
+        ]}] as any,
+      });
+      ws.addConditionalFormatting({
+        ref: `G${BP_DATA_START}:G${BP_DATA_END}`,
+        rules: [{ type: 'iconSet' as any, iconSet: '5Arrows', cfvo: [
+          { type: 'min' as any, value: 0 },
+          { type: 'percent' as any, value: 20 },
+          { type: 'percent' as any, value: 40 },
+          { type: 'percent' as any, value: 60 },
+          { type: 'percent' as any, value: 80 },
+        ]}] as any,
+      });
+    }
+
     if (sortedBps.length > 1) {
       const BP_TOTAL_ROW = r;
       formulaRow(ws, BP_TOTAL_ROW, ["E", "F", "H", "I"], BP_DATA_START, BP_DATA_END, "Total", 9);
-      ws.getCell(BP_TOTAL_ROW, 7).value = { formula: `IF(E${BP_TOTAL_ROW}>0, ROUND(F${BP_TOTAL_ROW}/E${BP_TOTAL_ROW}*100, 0) & "%", "0%")` };
+      ws.getCell(BP_TOTAL_ROW, 7).value = { formula: `IF(E${BP_TOTAL_ROW}>0, F${BP_TOTAL_ROW}/E${BP_TOTAL_ROW}, 0)` };
+      ws.getCell(BP_TOTAL_ROW, 7).numFmt = '0%';
+      ws.getCell(BP_TOTAL_ROW, 7).alignment = { vertical: "middle", horizontal: "right" };
       ws.getCell(BP_TOTAL_ROW, 9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_ORANGE } };
       r++;
     }
@@ -407,7 +468,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     const CC_HEADER_ROW = r;
     headerRow(ws, CC_HEADER_ROW, [
       "#", "Name", "DMS Code", "Today GA",
-    ]);
+    ], HEADER_BG);
     r++;
 
     const CC_DATA_START = r;
@@ -442,7 +503,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
     const SUP_HEADER_ROW = r;
     headerRow(ws, SUP_HEADER_ROW, [
       "#", "Name", "Pool Number", "Today GA", "Yest GA",
-    ]);
+    ], HEADER_BG);
     r++;
 
     const SUP_DATA_START = r;
