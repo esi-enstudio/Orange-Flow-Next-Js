@@ -6,6 +6,7 @@ interface Summary {
   achievement_percentage: number;
   remaining: number;
   daily_required: number;
+  daily_required_with_friday: number;
   daily_average: number;
   projection: number;
   expected_percentage: number;
@@ -122,25 +123,32 @@ function pctColor(p: number): string {
   return RED;
 }
 
-function addSectionHeader(ws: ExcelJS.Worksheet, row: number, label: string, cols: number): number {
+function addSectionHeader(ws: ExcelJS.Worksheet, row: number, label: string, cols: number, fullBorder: boolean = false): number {
   const r = ws.getRow(row);
   for (let c = 1; c <= cols; c++) {
     const cell = r.getCell(c);
     cell.value = c === 1 ? label : "";
     cell.font = { bold: true, color: { argb: TEXT_DARK }, size: 11, name: "Calibri" };
     cell.alignment = { vertical: "middle", horizontal: c === 1 ? "left" : "center" };
-    cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: c === 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: c === cols ? { style: "thin", color: { argb: BORDER } } : undefined,
-    };
+    cell.border = fullBorder
+      ? {
+          top: { style: "thin", color: { argb: "000000" } },
+          bottom: { style: "thin", color: { argb: "000000" } },
+          left: { style: "thin", color: { argb: "000000" } },
+          right: { style: "thin", color: { argb: "000000" } },
+        }
+      : {
+          top: { style: "thin", color: { argb: BORDER } },
+          bottom: { style: "thin", color: { argb: BORDER } },
+          left: c === 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+          right: c === cols ? { style: "thin", color: { argb: BORDER } } : undefined,
+        };
   }
   ws.mergeCells(row, 1, row, cols);
   return row + 1;
 }
 
-function addColHeaders(ws: ExcelJS.Worksheet, row: number, headers: string[], colStart: number = 1): number {
+function addColHeaders(ws: ExcelJS.Worksheet, row: number, headers: string[], colStart: number = 1, fullBorder: boolean = false): number {
   const r = ws.getRow(row);
   r.height = 24;
   headers.forEach((h, i) => {
@@ -149,19 +157,25 @@ function addColHeaders(ws: ExcelJS.Worksheet, row: number, headers: string[], co
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SUBHEADER_BG } };
     cell.font = { bold: true, color: { argb: TEXT_DARK }, size: 10, name: "Calibri" };
     cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
-    cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: i === headers.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
-    };
+    cell.border = fullBorder
+      ? {
+          top: { style: "thin", color: { argb: "000000" } },
+          bottom: { style: "thin", color: { argb: "000000" } },
+          left: { style: "thin", color: { argb: "000000" } },
+          right: { style: "thin", color: { argb: "000000" } },
+        }
+      : {
+          top: { style: "thin", color: { argb: BORDER } },
+          bottom: { style: "thin", color: { argb: BORDER } },
+          left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
+          right: i === headers.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+        };
   });
   return row + 1;
 }
 
-function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)[], colStart: number, alt: boolean, statusIdx: number = -1, pctIdx: number = -1): number {
+function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)[], colStart: number, alt: boolean, statusIdx: number = -1, pctIdx: number = -1, fullBorder: boolean = false): number {
   const r = ws.getRow(row);
-  r.height = 22;
   cells.forEach((val, i) => {
     const cell = r.getCell(colStart + i);
     cell.value = val;
@@ -175,12 +189,19 @@ function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)
       ? { type: "pattern", pattern: "solid", fgColor: { argb: ROW_ALT } }
       : undefined;
     cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
-    cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: i === cells.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
-    };
+    cell.border = fullBorder
+      ? {
+          top: { style: "thin", color: { argb: "000000" } },
+          bottom: { style: "thin", color: { argb: "000000" } },
+          left: { style: "thin", color: { argb: "000000" } },
+          right: { style: "thin", color: { argb: "000000" } },
+        }
+      : {
+          top: { style: "thin", color: { argb: BORDER } },
+          bottom: { style: "thin", color: { argb: BORDER } },
+          left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
+          right: i === cells.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+        };
   });
   return row + 1;
 }
@@ -196,8 +217,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
     pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9, margins: { top: 0, bottom: 0, left: 0, right: 0, header: 0, footer: 0 } },
   });
 
-  const COLS = 13;
-  const colWidths = [5, 28, 16, 16, 16, 10, 14, 12, 12, 14, 12, 14, 18];
+  const colWidths = [5, 30, 20, 18, 18, 10, 14, 14, 14, 16, 18, 24, 20];
   ws.columns = colWidths.map((w, i) => ({ key: String(i), width: w }));
 
   let r = 1;
@@ -208,10 +228,16 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
   titleCell.value = `Activation Report (${month_name} ${year})`;
   titleCell.font = { bold: true, color: { argb: TEXT_DARK }, size: 14, name: "Calibri" };
   titleCell.alignment = { vertical: "middle", horizontal: "left" };
+  titleCell.border = {
+    top: { style: "thin", color: { argb: "000000" } },
+    bottom: { style: "thin", color: { argb: "000000" } },
+    left: { style: "thin", color: { argb: "000000" } },
+    right: { style: "thin", color: { argb: "000000" } },
+  };
 
   // ── HOUSE SUMMARY headers (row 1, cols D-M) ──
   const hsColStart = 4;
-  const hsHeaders = ["Target", "Ach", "%", "Remaining", "DRR", "D.Avg", "Projection", "Yesterday", "Expected %", "Status"];
+  const hsHeaders = ["Target", "Ach", "%", "Remain", "DRR(F)", "D.Avg", "Projection", "Yesterday", "Expected %", "Status"];
   const headerRow = ws.getRow(1);
   headerRow.height = 24;
   hsHeaders.forEach((h, i) => {
@@ -221,33 +247,22 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
     cell.alignment = { vertical: "middle", horizontal: "center" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SUBHEADER_BG } };
     cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: i === hsHeaders.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+      top: { style: "thin", color: { argb: "000000" } },
+      bottom: { style: "thin", color: { argb: "000000" } },
+      left: { style: "thin", color: { argb: "000000" } },
+      right: { style: "thin", color: { argb: "000000" } },
     };
   });
-  // fill A-C in row 1 with border to match header row
-  for (let c = 1; c <= 3; c++) {
-    const cell = headerRow.getCell(c);
-    cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: c === 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: c === 3 ? { style: "thin", color: { argb: BORDER } } : undefined,
-    };
-  }
 
   // ── HOUSE SUMMARY data (row 2, cols D-M) ──
   const dataRow = ws.getRow(2);
-  dataRow.height = 22;
   const statusStr = timeBasedStatus(summary.achievement_percentage, days_elapsed, total_days).toLowerCase().replace(/\s+/g, "_");
   const hsValues = [
     fmt(summary.monthly_target),
     fmt(summary.achievement),
     `${summary.achievement_percentage}%`,
     fmt(summary.remaining),
-    fmt1(summary.daily_required),
+    fmt1(summary.daily_required_with_friday),
     fmt1(summary.daily_average),
     fmt1(summary.projection),
     fmt(summary.yesterday_activation),
@@ -265,22 +280,12 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
     };
     cell.alignment = { vertical: "middle", horizontal: "center" };
     cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: i === hsValues.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+      top: { style: "thin", color: { argb: "000000" } },
+      bottom: { style: "thin", color: { argb: "000000" } },
+      left: { style: "thin", color: { argb: "000000" } },
+      right: { style: "thin", color: { argb: "000000" } },
     };
   });
-  // fill A-C in row 2 with border
-  for (let c = 1; c <= 3; c++) {
-    const cell = dataRow.getCell(c);
-    cell.border = {
-      top: { style: "thin", color: { argb: BORDER } },
-      bottom: { style: "thin", color: { argb: BORDER } },
-      left: c === 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
-      right: c === 3 ? { style: "thin", color: { argb: BORDER } } : undefined,
-    };
-  }
 
   r = 3;
 
@@ -313,59 +318,11 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
         : isSupervisor
           ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Status"]
           : ["#", "Name", identLabel, "Target", "Ach", "%", "Remaining", "D.Avg", "Projection", "Status"];
+    const fullBorder = isRso || isBp || isSupervisor;
     const cols = isSupervisor ? 12 : (isRso || isBp) ? 13 : 10;
-    r = addSectionHeader(ws, r, label, cols);
+    r = addSectionHeader(ws, r, label, cols, fullBorder);
 
-    if (isRso) {
-      ws.columns = [
-        { width: 5 },
-        { width: 28 },
-        { width: 16 },
-        { width: 16 },
-        { width: 16 },
-        { width: 10 },
-        { width: 14 },
-        { width: 12 },
-        { width: 12 },
-        { width: 14 },
-        { width: 14 },
-        { width: 22 },
-        { width: 18 },
-      ];
-    } else if (isBp) {
-      ws.columns = [
-        { width: 5 },
-        { width: 28 },
-        { width: 16 },
-        { width: 16 },
-        { width: 16 },
-        { width: 10 },
-        { width: 14 },
-        { width: 12 },
-        { width: 12 },
-        { width: 14 },
-        { width: 12 },
-        { width: 12 },
-        { width: 18 },
-      ];
-    } else if (isSupervisor) {
-      ws.columns = [
-        { width: 5 },
-        { width: 28 },
-        { width: 16 },
-        { width: 16 },
-        { width: 16 },
-        { width: 10 },
-        { width: 14 },
-        { width: 12 },
-        { width: 12 },
-        { width: 14 },
-        { width: 12 },
-        { width: 18 },
-      ];
-    }
-
-    r = addColHeaders(ws, r, headers, 1);
+    r = addColHeaders(ws, r, headers, 1, fullBorder);
     const pctIdx = 5;
     employees.forEach((emp, i) => {
       let ident = "—";
@@ -409,7 +366,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
               fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
               timeBasedStatus(emp.percentage, days_elapsed, total_days),
             ];
-      addDataRow(ws, r, cells, 1, i % 2 === 1, cells.length - 1, pctIdx);
+      addDataRow(ws, r, cells, 1, i % 2 === 1, cells.length - 1, pctIdx, fullBorder);
       r++;
     });
     // Subtotal row
@@ -451,7 +408,6 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
               timeBasedStatus(totalPct, days_elapsed, total_days),
             ];
       const subRow = ws.getRow(r);
-      subRow.height = 22;
       subtotalCells.forEach((val, i) => {
         const cell = subRow.getCell(1 + i);
         cell.value = val;
@@ -465,11 +421,18 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
         };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ROW_ALT } };
         cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
-        cell.border = {
+    cell.border = fullBorder
+      ? {
+          top: { style: "thin", color: { argb: "000000" } },
+          bottom: { style: "thin", color: { argb: "000000" } },
+          left: { style: "thin", color: { argb: "000000" } },
+          right: { style: "thin", color: { argb: "000000" } },
+        }
+      : {
           top: { style: "thin", color: { argb: BORDER } },
           bottom: { style: "thin", color: { argb: BORDER } },
           left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
-          right: i === subtotalCells.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+          right: i === cells.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
         };
       });
       r++;
