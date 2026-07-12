@@ -11,6 +11,7 @@ class EmployeeSchema(BaseModel):
     house_id: int
     house: Optional[HouseSchema] = None
     employee_type: Optional[str] = None
+    sr_no: Optional[str] = None
     employee_id: Optional[str] = None
     assisted_retailer_code: Optional[str] = None
     agency_id: Optional[str] = None
@@ -52,6 +53,7 @@ class EmployeeCreate(BaseModel):
     user_id: Optional[int] = None
     house_id: int
     employee_type: Optional[str] = None
+    sr_no: Optional[str] = None
     assisted_retailer_code: Optional[str] = None
     agency_id: Optional[str] = None
     dms_code: Optional[str] = None
@@ -167,6 +169,7 @@ class EmployeeSelfUpdate(BaseModel):
     resigned_date: Optional[str] = None
     market_type: Optional[str] = None
     salary: Optional[str] = None
+    sr_no: Optional[str] = None
 
     @field_validator('market_type')
     @classmethod

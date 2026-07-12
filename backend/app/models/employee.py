@@ -56,6 +56,7 @@ class Employee(Base):
     
     # Employee classification
     employee_type = Column(String(30), default='unknown')  # rso, manager, supervisor, bp, bsp, rbsp
+    sr_no = Column(String, nullable=True)  # Optional SR number
     employee_id = Column(String(50), unique=True, index=True)  # Business-facing ID like RSO-001, MGR-002
 
     # Hierarchy

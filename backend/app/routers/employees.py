@@ -117,6 +117,8 @@ async def list_employees(
     resigned_date_to: Optional[str] = Query(None, description="Resigned date range end (YYYY-MM-DD)"),
     salary_min: Optional[float] = Query(None, description="Minimum salary filter"),
     salary_max: Optional[float] = Query(None, description="Maximum salary filter"),
+    employee_type: Optional[str] = Query(None, description="Filter by employee type: rso, bp, cc, supervisor, manager, bsp, rbsp"),
+    filter_house_id: Optional[int] = Query(None, description="Filter by house ID"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("employees.view")),
     house_id: Optional[int] = Depends(get_house_context)
@@ -208,6 +210,12 @@ async def list_employees(
         conditions.append(cast(Employee.salary, Float) >= salary_min)
     if salary_max is not None:
         conditions.append(cast(Employee.salary, Float) <= salary_max)
+
+    if employee_type:
+        conditions.append(Employee.employee_type == employee_type.lower())
+
+    if filter_house_id:
+        conditions.append(Employee.house_id == filter_house_id)
 
     if conditions:
         base_query = base_query.where(and_(*conditions))

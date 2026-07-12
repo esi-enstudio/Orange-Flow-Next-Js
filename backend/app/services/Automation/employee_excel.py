@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Column list (USERNAME added)
 EMP_COLUMNS = [
     'USERNAME', 'DD_CODE', 'DMS_CODE', 'AGENCY_ID', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
-    'POOL_NUMBER', 'ASSISTED_RETAILER_CODE', 'SALARY', 'MARKET_TYPE', 
+    'POOL_NUMBER', 'ASSISTED_RETAILER_CODE', 'SR_NO', 'SALARY', 'MARKET_TYPE', 
     'JOINING_DATE', 'RESIGNED_DATE', 'RELIGION', 'DOB', 'NID',
     'BANK_NAME', 'BANK_ACCOUNT', 'BRANCH_NAME', 'ROUTING_NUMBER', 'HOME_TOWN',
     'EMERGENCY_CONTACT_PERSON_NAME', 'EMERGENCY_CONTACT_PERSON_NUMBER', 'RELATIONSHIP',
@@ -46,6 +46,7 @@ async def export_employees_excel(employees):
             'PERSONAL_NUMBER': emp.personal_number,
             'POOL_NUMBER': emp.pool_number,
             'ASSISTED_RETAILER_CODE': emp.assisted_retailer_code,
+            'SR_NO': emp.sr_no,
             'SALARY': emp.salary,
             'MARKET_TYPE': emp.market_type,
             'JOINING_DATE': emp.joining_date,
@@ -222,6 +223,7 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
                     "dms_code": dms_code_val,
                     "employee_type": employee_type,
                     "employee_id": employee_id,
+                    "sr_no": clean_val(row.get('SR_NO')),
                     "assisted_retailer_code": clean_val(row.get('ASSISTED_RETAILER_CODE')),
                     "agency_id": clean_val(row.get('AGENCY_ID')),
                     "itop_number": clean_val(row.get('ITOP_NUMBER')),

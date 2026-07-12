@@ -95,6 +95,7 @@ interface Employee {
   driving_license?: string;
   resigned_date?: string;
   employee_type?: string;
+  sr_no?: string;
 }
 
 interface House {
@@ -192,6 +193,7 @@ export default function EmployeesPage() {
     itop_number: "",
     personal_number: "",
     employee_type: "",
+    sr_no: "",
     status: "Active",
     joining_date: "",
     resigned_date: "",
@@ -258,6 +260,8 @@ export default function EmployeesPage() {
     params.set("sort_by", sortField);
     params.set("sort_order", sortDir);
     if (filters.search) params.set("search", filters.search);
+    if (filters.role) params.set("employee_type", filters.role.toLowerCase());
+    if (filters.house_id) params.set("filter_house_id", String(filters.house_id));
     if (filters.status) params.set("status", filters.status);
     if (filters.market_type) params.set("market_type", filters.market_type);
     if (filters.motor_bike) params.set("motor_bike", filters.motor_bike);
@@ -287,8 +291,10 @@ export default function EmployeesPage() {
     setLoading(true);
     try {
       const qs = buildQueryString();
+      const headers: Record<string, string> = {};
+      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
       const [empRes, housesRes, usersRes] = await Promise.all([
-        apiClient.get(`employees?${qs}`),
+        apiClient.get(`employees?${qs}`, { headers }),
         apiClient.get("houses"),
         apiClient.get("users?unassigned=true")
       ]);
@@ -1254,6 +1260,7 @@ export default function EmployeesPage() {
                     {formErrors.employee_type && <p className="text-[11px] text-red-500 mt-0.5">{formErrors.employee_type}</p>}
                   </div>
 
+                  <InputField label={t('employees.field_sr_no')} value={formData.sr_no} onChange={(v: string) => setFormData({...formData, sr_no: v})} error={formErrors.sr_no} />
                   <InputField label={t('employees.field_dms_code')} icon={Smartphone} value={formData.dms_code} onChange={(v: string) => setFormData({...formData, dms_code: v})} error={formErrors.dms_code} />
                   <InputField label={t('employees.field_itop')} type="tel" icon={SmartphoneNfc} value={formData.itop_number} onChange={(v: string) => setFormData({...formData, itop_number: v})} error={formErrors.itop_number} />
                   <InputField label={t('employees.field_personal_number')} type="tel" icon={Phone} value={formData.personal_number} onChange={(v: string) => setFormData({...formData, personal_number: v})} error={formErrors.personal_number} />

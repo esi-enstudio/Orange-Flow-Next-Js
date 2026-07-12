@@ -187,10 +187,25 @@ async def _migrate_ga_section_config_employee_ids():
     except Exception as e:
         logger.warning(f"Migration warning (ga_section_configs.selected_employee_ids): {e}")
 
+async def _migrate_employee_sr_no():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='employees' AND column_name='sr_no'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating employees: adding sr_no column...")
+            await conn.execute(text("ALTER TABLE employees ADD COLUMN sr_no VARCHAR"))
+            logger.info("Migration complete: employees.sr_no")
+    except Exception as e:
+        logger.warning(f"Migration warning (employees.sr_no): {e}")
+
 async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        await _migrate_employee_sr_no()
         await _migrate_retailer_filter_tag_id()
         await _migrate_app_settings_daily_sync()
         await _migrate_live_activation_date_type()
