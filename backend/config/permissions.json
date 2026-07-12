@@ -32,7 +32,8 @@
         "mela": { "display_name": "Mela", "permissions": ["mela.view", "mela.create", "mela.edit", "mela.delete", "mela.settings", "mela.import", "mela.export"] },
         "navigation": { "display_name": "Navigation", "permissions": ["imports.view", "settings.view", "expenses.view", "attendance.view"] },
         "zoom_in": { "display_name": "Zoom In", "permissions": ["zoom_in.view", "zoom_in.create", "zoom_in.edit", "zoom_in.delete", "zoom_in.import", "zoom_in.export"] },
-        "cv": { "display_name": "CV Management", "permissions": ["cv.view", "cv.create", "cv.edit", "cv.delete", "cv.export"] }
+        "cv": { "display_name": "CV Management", "permissions": ["cv.view", "cv.create", "cv.edit", "cv.delete", "cv.export"] },
+        "recharge_dashboard": { "display_name": "Recharge Dashboard", "permissions": ["recharge_dashboard.view", "recharge_dashboard.export"] }
     },
     "default_roles": [
         {

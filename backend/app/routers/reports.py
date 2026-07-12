@@ -1377,6 +1377,178 @@ async def export_activation_dashboard(
     )
 
 
+@router.get("/reports/recharge/dashboard")
+async def get_recharge_dashboard(
+    month: int = Query(None, ge=1, le=12),
+    year: int = Query(None, ge=2020),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("reports.view")),
+    house_id: Optional[int] = Depends(get_house_context),
+    q_house_id: Optional[int] = Query(None, alias="house_id"),
+):
+    from app.services.recharge_report_service import RechargeReportService
+
+    target_house_id = q_house_id or house_id
+    if q_house_id and not is_admin_user(current_user):
+        user_house_ids = [h.id for h in current_user.houses]
+        if q_house_id not in user_house_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this house")
+
+    if not target_house_id:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            target_house_id = user_house_ids[0]
+
+    if not target_house_id:
+        from app.models.house import House
+        house_res = await db.execute(select(House.id).limit(1))
+        first_house_id = house_res.scalar_one_or_none()
+        if first_house_id:
+            target_house_id = first_house_id
+
+    if not target_house_id:
+        raise HTTPException(status_code=400, detail="No house context available. Please select a house.")
+
+    today = date.today()
+    target_month = month or today.month
+    target_year = year or today.year
+
+    service = RechargeReportService(db, target_house_id, target_month, target_year)
+    summary = await service.get_summary()
+    daily_trend = await service.get_daily_trend()
+    rso = await service.get_rso_performance()
+    supervisor = await service.get_supervisor_performance()
+    top_performers = await service.get_top_performers(rso, supervisor)
+
+    return {
+        "success": True,
+        "summary": summary,
+        "rso_performance": rso,
+        "supervisor_performance": supervisor,
+        "daily_trend": daily_trend,
+        "top_performers": top_performers,
+    }
+
+
+@router.get("/reports/recharge/dashboard/export")
+async def export_recharge_dashboard(
+    month: int = Query(None, ge=1, le=12),
+    year: int = Query(None, ge=2020),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("reports.download")),
+    house_id: Optional[int] = Depends(get_house_context),
+    q_house_id: Optional[int] = Query(None, alias="house_id"),
+):
+    from app.services.recharge_report_service import RechargeReportService
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Border, Side
+
+    target_house_id = q_house_id or house_id
+    if q_house_id and not is_admin_user(current_user):
+        user_house_ids = [h.id for h in current_user.houses]
+        if q_house_id not in user_house_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this house")
+
+    if not target_house_id:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            target_house_id = user_house_ids[0]
+
+    if not target_house_id:
+        from app.models.house import House
+        house_res = await db.execute(select(House.id).limit(1))
+        first_house_id = house_res.scalar_one_or_none()
+        if first_house_id:
+            target_house_id = first_house_id
+
+    if not target_house_id:
+        raise HTTPException(status_code=400, detail="No house context available. Please select a house.")
+
+    today = date.today()
+    target_month = month or today.month
+    target_year = year or today.year
+
+    service = RechargeReportService(db, target_house_id, target_month, target_year)
+    summary = await service.get_summary()
+    rso = await service.get_rso_performance()
+    supervisor = await service.get_supervisor_performance()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Recharge Report"
+
+    header_font = Font(bold=True, size=12, color="FFFFFF")
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    thin_border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+
+    ws.cell(row=1, column=1, value=f"Recharge Report (C2C) - {target_year}-{target_month:02d}").font = Font(bold=True, size=14)
+    ws.merge_cells('A1:H1')
+
+    s = summary
+    ws.cell(row=3, column=1, value="Summary").font = Font(bold=True, size=12)
+    summary_headers = ["Metric", "Value"]
+    for col, h in enumerate(summary_headers, 1):
+        cell = ws.cell(row=4, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    summary_rows = [
+        ("Total Recharge Target", s["monthly_target"]),
+        ("EV C2C Target", s["ev_c2c_target"]),
+        ("SC Primary Target", s["sc_primary_target"]),
+        ("Achievement", s["achievement"]),
+        ("Achievement %", f'{s["achievement_percentage"]}%'),
+        ("Remaining", s["remaining"]),
+        ("Daily Required", s["daily_required"]),
+        ("Daily Average", s["daily_average"]),
+        ("Projection", s["projection"]),
+        ("Expected %", f'{s["expected_percentage"]}%'),
+        ("Days Elapsed", s["days_elapsed"]),
+        ("Days Remaining", s["days_remaining"]),
+    ]
+    for i, (label, val) in enumerate(summary_rows):
+        ws.cell(row=5+i, column=1, value=label).border = thin_border
+        ws.cell(row=5+i, column=2, value=val).border = thin_border
+
+    for section_name, section_key in [("RSO Performance", "rso_performance"), ("Supervisor Performance", "supervisor_performance")]:
+        items = rso if section_key == "rso_performance" else supervisor
+        row_offset = 20
+        ws.cell(row=row_offset, column=1, value=section_name).font = Font(bold=True, size=12)
+        cols = ["Name", "Target", "EV Target", "SC Target", "Achievement", "%", "Remaining", "Daily Avg", "Projection", "Status"]
+        for col, h in enumerate(cols, 1):
+            cell = ws.cell(row=row_offset+1, column=col, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+        for i, item in enumerate(items):
+            r = row_offset + 2 + i
+            ws.cell(row=r, column=1, value=item["name"]).border = thin_border
+            ws.cell(row=r, column=2, value=item["target"]).border = thin_border
+            ws.cell(row=r, column=3, value=item.get("ev_target", 0)).border = thin_border
+            ws.cell(row=r, column=4, value=item.get("sc_target", 0)).border = thin_border
+            ws.cell(row=r, column=5, value=item["achievement"]).border = thin_border
+            ws.cell(row=r, column=6, value=f'{item["percentage"]}%').border = thin_border
+            ws.cell(row=r, column=7, value=item["remaining"]).border = thin_border
+            ws.cell(row=r, column=8, value=item["daily_average"]).border = thin_border
+            ws.cell(row=r, column=9, value=item["projection"]).border = thin_border
+            ws.cell(row=r, column=10, value=item["status"].replace("_", " ").title()).border = thin_border
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return Response(
+        content=output.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=recharge_dashboard_{target_year}_{target_month:02d}.xlsx"},
+    )
+
+
 @router.get("/reports/my-target-progress")
 async def get_my_target_progress(
     target_date: Optional[str] = Query(None),
