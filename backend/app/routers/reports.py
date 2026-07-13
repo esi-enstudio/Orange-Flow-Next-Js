@@ -2,16 +2,18 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, date, timedelta
 from calendar import monthrange
 
 from app.routers.deps import get_db, has_permission, get_house_context, get_current_user
+from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.user import User
 from app.models.activation import Activation
 from app.models.live_activation import LiveActivation
+from app.models.house import House
 from app.models.itopup_detail import ITopUpDetail
 from app.models.scratch_card_issue import ScratchCardIssue
 from app.models.sim_issue import SimIssue
@@ -270,26 +272,160 @@ async def export_activations(
 
 @router.get("/itopup-details")
 async def get_itopup_details(
-    search: Optional[str] = None,
-    report_type: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
+    pagination: PaginationParams = Depends(),
+    report_type: Optional[str] = Query(None, description="Filter by report type (C2C, C2S, Balance)"),
+    start_date: Optional[str] = Query(None, description="Filter by report_date >= start_date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Filter by report_date <= end_date (YYYY-MM-DD)"),
+    retailer_search: Optional[str] = Query(None, description="Search by retailer code or name"),
+    filter_house_id: Optional[int] = Query(None, alias="house_id", description="Filter by house ID"),
+    rso_id: Optional[int] = Query(None, description="Filter by RSO employee ID"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("itopup.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    query = select(ITopUpDetail).options(joinedload(ITopUpDetail.house), joinedload(ITopUpDetail.retailer))
-    if house_id: query = query.where(ITopUpDetail.house_id == house_id)
-    if report_type: query = query.where(ITopUpDetail.report_type == report_type)
+    query = select(ITopUpDetail).options(
+        joinedload(ITopUpDetail.house),
+        joinedload(ITopUpDetail.retailer).selectinload(Retailer.employee).selectinload(Employee.user)
+    )
+
+    conditions = []
+
+    effective_house_id = filter_house_id or house_id
+    if effective_house_id:
+        conditions.append(ITopUpDetail.house_id == effective_house_id)
+
+    if rso_id:
+        conditions.append(
+            ITopUpDetail.retailer.has(Retailer.employee_id == rso_id)
+        )
+
+    if report_type:
+        conditions.append(ITopUpDetail.report_type == report_type)
+
+    if start_date:
+        try:
+            sd = datetime.strptime(start_date, "%Y-%m-%d").date()
+            conditions.append(ITopUpDetail.report_date >= sd)
+        except:
+            raise HTTPException(status_code=400, detail="Invalid start_date format (use YYYY-MM-DD)")
+
+    if end_date:
+        try:
+            ed = datetime.strptime(end_date, "%Y-%m-%d").date()
+            conditions.append(ITopUpDetail.report_date <= ed)
+        except:
+            raise HTTPException(status_code=400, detail="Invalid end_date format (use YYYY-MM-DD)")
+
+    if pagination.search:
+        p = f"%{pagination.search}%"
+        conditions.append(
+            or_(
+                ITopUpDetail.report_type.ilike(p),
+                cast(ITopUpDetail.report_date, String).ilike(p),
+                cast(ITopUpDetail.daily_value, String).ilike(p),
+                ITopUpDetail.house.has(
+                    or_(House.name.ilike(p), House.code.ilike(p))
+                ),
+                ITopUpDetail.retailer.has(
+                    or_(
+                        Retailer.name.ilike(p),
+                        Retailer.retailer_code.ilike(p),
+                        Retailer.itop_number.ilike(p),
+                        Retailer.employee.has(
+                            or_(
+                                Employee.dms_code.ilike(p),
+                                Employee.itop_number.ilike(p),
+                                Employee.user.has(User.name.ilike(p)),
+                            )
+                        ),
+                    )
+                ),
+            )
+        )
+
+    if retailer_search:
+        p = f"%{retailer_search}%"
+        conditions.append(
+            ITopUpDetail.retailer.has(
+                or_(Retailer.retailer_code.ilike(p), Retailer.name.ilike(p))
+            )
+        )
+
+    if conditions:
+        query = query.where(and_(*conditions))
+
+    base_count = select(ITopUpDetail.id)
+    if conditions:
+        base_count = base_count.where(and_(*conditions))
+    if effective_house_id:
+        base_count = base_count.where(ITopUpDetail.house_id == effective_house_id)
+    count_query = select(func.count()).select_from(base_count.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    sort_map = {
+        "id": ITopUpDetail.id,
+        "report_type": ITopUpDetail.report_type,
+        "report_date": ITopUpDetail.report_date,
+        "daily_value": ITopUpDetail.daily_value,
+    }
+    sort_col = sort_map.get(pagination.sort_by, ITopUpDetail.id)
+    order = sort_col.desc() if pagination.sort_order == "desc" else sort_col.asc()
+
+    offset = (pagination.page - 1) * pagination.per_page
+    result = await db.execute(query.order_by(order).offset(offset).limit(pagination.per_page))
+    records = result.scalars().all()
+
+    total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
+
+    return {
+        "success": True,
+        "data": records,
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": pagination.page < total_pages,
+            "has_prev": pagination.page > 1,
+        }
+    }
+
+@router.get("/itopup-details/rso-list")
+async def get_itopup_rso_list(
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("itopup.view")),
+    header_house_id: Optional[int] = Depends(get_house_context)
+):
+    effective_house_id = filter_house_id or header_house_id
+    base = select(Employee).options(joinedload(Employee.user)).where(
+        Employee.employee_type == "rso",
+        Employee.status == "Active"
+    )
+    if effective_house_id:
+        base = base.where(Employee.house_id == effective_house_id)
     if search:
         p = f"%{search}%"
-        query = query.where(ITopUpDetail.report_type.ilike(p))
-    count_query = select(func.count()).select_from(query.subquery())
-    total = await db.execute(count_query)
-    total_count = total.scalar()
-    result = await db.execute(query.offset(skip).limit(limit).order_by(ITopUpDetail.id.desc()))
-    records = result.scalars().all()
-    return {"total": total_count, "data": records}
+        base = base.where(
+            or_(
+                Employee.dms_code.ilike(p),
+                Employee.itop_number.ilike(p),
+                Employee.user.has(User.name.ilike(p)),
+            )
+        )
+    result = await db.execute(base.order_by(Employee.id))
+    employees = result.scalars().unique().all()
+    return [
+        {
+            "id": e.id,
+            "name": e.user.name if e.user else e.dms_code,
+            "dms_code": e.dms_code,
+            "itop_number": e.itop_number,
+        }
+        for e in employees
+    ]
 
 @router.get("/itopup-details/export")
 async def export_itopup_details(
