@@ -76,6 +76,12 @@ from app.routers.cv import router as cv_router
 
 app = FastAPI(title="OrangeFlow Management API")
 
+from app.core.session_manager import session_manager
+
+@app.on_event("shutdown")
+async def shutdown():
+    await session_manager.stop()
+
 if not os.path.exists('uploads/profile_pics'):
     os.makedirs('uploads/profile_pics')
 

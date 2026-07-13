@@ -11,11 +11,13 @@ logger = logging.getLogger("app.core.session_manager")
 LOGIN_URL = "https://blkdms.banglalink.net/Account/Login"
 CHECK_URL = "https://blkdms.banglalink.net/SmartSearchReport"
 SESSION_DIR = "sessions"
+KEEPALIVE_INTERVAL = 120  # seconds between keepalive pings
 
 class SessionManager:
     def __init__(self):
         self.playwright = None
         self.browser = None
+        self._keepalive_ctx: dict[str, dict] = {}  # code -> {context, page, task}
         os.makedirs(SESSION_DIR, exist_ok=True)
 
     async def start(self):
@@ -32,6 +34,7 @@ class SessionManager:
             logger.info("🚀 Browser started for automation tasks.")
 
     async def stop(self):
+        await self._stop_all_keepalive()
         if self.browser:
             await self.browser.close()
         if self.playwright:
@@ -41,6 +44,86 @@ class SessionManager:
     def _session_path(self, credentials):
         code = credentials.get('code', str(credentials['house_id']))
         return os.path.join(SESSION_DIR, f"{code}.json")
+
+    # ── Keepalive ──────────────────────────────────────────
+
+    async def _start_keepalive(self, credentials: dict):
+        """Start background keepalive for a house to prevent DMS session expiry."""
+        code = credentials.get('code')
+        if not code or code in self._keepalive_ctx:
+            return
+
+        session_path = self._session_path(credentials)
+        if not os.path.exists(session_path):
+            return
+
+        try:
+            context = await self.browser.new_context(storage_state=session_path)
+            page = await context.new_page()
+        except Exception as e:
+            logger.warning(f"⚠️ Keepalive context creation failed for {code}: {e}")
+            return
+
+        async def _ping():
+            try:
+                await page.goto(CHECK_URL, timeout=30000, wait_until="commit")
+                # Refresh storage state so anti-forgery tokens stay current
+                await context.storage_state(path=session_path)
+                logger.debug(f"🔄 Keepalive ping for {code}")
+            except Exception:
+                logger.warning(f"⚠️ Keepalive ping failed for {code}, stopping keepalive")
+                raise
+
+        async def _loop():
+            try:
+                while True:
+                    await asyncio.sleep(KEEPALIVE_INTERVAL)
+                    await _ping()
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+            finally:
+                try:
+                    await page.close()
+                    await context.close()
+                except Exception:
+                    pass
+                self._keepalive_ctx.pop(code, None)
+
+        # Send first ping immediately to establish session
+        try:
+            await _ping()
+        except Exception:
+            try:
+                await page.close()
+                await context.close()
+            except Exception:
+                pass
+            return
+
+        task = asyncio.create_task(_loop())
+        self._keepalive_ctx[code] = {"context": context, "page": page, "task": task}
+        logger.info(f"🔋 Keepalive started for {credentials['house_name']} ({code})")
+
+    async def _stop_keepalive(self, code: str):
+        """Stop keepalive for a specific house."""
+        entry = self._keepalive_ctx.pop(code, None)
+        if entry:
+            entry["task"].cancel()
+            try:
+                await entry["page"].close()
+                await entry["context"].close()
+            except Exception:
+                pass
+            logger.info(f"⏹️ Keepalive stopped for {code}")
+
+    async def _stop_all_keepalive(self):
+        """Stop all keepalive tasks."""
+        for code in list(self._keepalive_ctx.keys()):
+            await self._stop_keepalive(code)
+
+    # ── Session validation ─────────────────────────────
 
     async def _is_session_valid(self, page):
         try:
@@ -52,6 +135,8 @@ class SessionManager:
             return False
         except Exception:
             return False
+
+    # ── Login ─────────────────────────────────────────────
 
     async def _login(self, credentials):
         context = await self.browser.new_context()
@@ -126,6 +211,10 @@ class SessionManager:
             logger.info(f"✅ Login successful for {credentials['house_name']}")
             await context.storage_state(path=self._session_path(credentials))
             logger.info(f"💾 Session saved for {credentials.get('code', house_id)}")
+
+            # Start keepalive after successful login
+            await self._start_keepalive(credentials)
+
             return page, context
 
         except Exception as e:
@@ -133,6 +222,8 @@ class SessionManager:
             await page.close()
             await context.close()
             raise e
+
+    # ── Main entry point ───────────────────────────────
 
     async def get_valid_page(self, credentials):
         if not self.browser:
@@ -147,6 +238,10 @@ class SessionManager:
             try:
                 if await self._is_session_valid(test_page):
                     logger.info(f"✅ Session valid for {credentials['house_name']}")
+                    # Ensure keepalive is running for this house
+                    code = credentials.get('code')
+                    if code and code not in self._keepalive_ctx:
+                        await self._start_keepalive(credentials)
                     return test_page, test_context
             except Exception:
                 pass
