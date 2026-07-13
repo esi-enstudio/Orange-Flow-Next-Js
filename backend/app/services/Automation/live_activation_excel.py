@@ -127,7 +127,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                 if len(batch_buffer) >= batch_size:
                     unique = {item['sim_no']: item for item in batch_buffer}.values()
                     stmt = insert(LiveActivation).values(list(unique))
-                    update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no']}
+                    update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no', 'house_id']}
                     await session.execute(stmt.on_conflict_do_update(index_elements=['sim_no'], set_=update_cols))
                     inserted_count += len(unique)
                     batch_buffer = []
@@ -146,7 +146,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
             if batch_buffer:
                 unique = {item['sim_no']: item for item in batch_buffer}.values()
                 stmt = insert(LiveActivation).values(list(unique))
-                update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no']}
+                update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no', 'house_id']}
                 await session.execute(stmt.on_conflict_do_update(index_elements=['sim_no'], set_=update_cols))
                 inserted_count += len(unique)
             await session.commit()

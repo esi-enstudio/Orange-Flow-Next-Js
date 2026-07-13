@@ -195,7 +195,7 @@ async def process_and_save_data(file_path, house_id):
             if records:
                 unique = {r['sim_no']: r for r in records}.values()
                 stmt = insert(LiveActivation).values(list(unique))
-                update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no']}
+                update_cols = {c.name: c for c in stmt.excluded if c.name not in ['sim_no', 'house_id']}
                 await session.execute(stmt.on_conflict_do_update(index_elements=['sim_no'], set_=update_cols))
                 await session.commit()
                 logger.info(f"📊 [Sync] House {house_code}: {len(unique)} records upserted.")

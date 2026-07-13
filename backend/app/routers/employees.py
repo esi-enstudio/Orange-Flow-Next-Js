@@ -357,9 +357,7 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
         user = await db.get(User, emp_data.user_id)
         if not user:
             raise HTTPException(status_code=422, detail=[{"loc": ["body", "user_id"], "msg": "User not found", "type": "value_error"}])
-    for key, value in emp_data.model_dump().items():
-        if key == "employee_type":
-            continue
+    for key, value in emp_data.model_dump(exclude_unset=True).items():
         setattr(emp, key, value)
     await db.commit()
     await db.refresh(emp)

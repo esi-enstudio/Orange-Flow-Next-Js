@@ -644,6 +644,8 @@ class GaLiveQueryBuilder:
             if not bp_user:
                 continue
             bp_emp_id = emp_user_id_to_emp_id.get(bp_uid)
+            if not bp_emp_id:
+                continue
             bp_total = 0
             if bp_emp_id:
                 bp_codes = bp_retailer_code_map.get(bp_emp_id, [])
@@ -688,12 +690,16 @@ class GaLiveQueryBuilder:
             if not cc_user:
                 continue
             cc_emp_id = emp_user_id_to_emp_id.get(cc_uid)
+            if not cc_emp_id:
+                continue
             cc_ret_ids = set()
             if cc_emp_id:
                 for rid, eid in retailer_employee_map.items():
                     if eid == cc_emp_id:
                         cc_ret_ids.add(rid)
-            cc_total = 0
+            cc_info = emp_id_to_user.get(cc_emp_id)
+            # Today GA
+            cc_today = 0
             if cc_ret_ids:
                 res = await self.db.execute(
                     select(func.count()).where(
@@ -703,12 +709,44 @@ class GaLiveQueryBuilder:
                         LiveActivation.activation_date <= self.end_date,
                     )
                 )
-                cc_total = res.scalar() or 0
+                cc_today = res.scalar() or 0
+            # Total GA (MTD) and Day Count
+            cc_mtd = 0
+            cc_day_count = 0
+            if cc_ret_ids and yesterday >= month_start:
+                ret_list = list(cc_ret_ids)
+                mtd_q = select(Activation.retailer_id, Activation.activation_date).where(
+                    Activation.house_id == self.house_id,
+                    Activation.retailer_id.in_(ret_list),
+                    Activation.activation_date >= month_start,
+                    Activation.activation_date <= yesterday,
+                )
+                mtd_rows = (await self.db.execute(mtd_q)).all()
+                cc_mtd = len(mtd_rows)
+                date_counts: dict[date, int] = {}
+                for _, d in mtd_rows:
+                    date_counts[d] = date_counts.get(d, 0) + 1
+                cc_day_count = sum(1 for cnt in date_counts.values() if cnt >= 2)
+            # Yesterday GA
+            cc_yesterday = 0
+            if cc_ret_ids:
+                yest_q = select(func.count()).where(
+                    Activation.retailer_id.in_(list(cc_ret_ids)),
+                    Activation.house_id == self.house_id,
+                    Activation.activation_date == yesterday,
+                )
+                res = await self.db.execute(yest_q)
+                cc_yesterday = res.scalar() or 0
             cc_data.append({
                 "id": cc_uid,
                 "name": cc_user.name or f"CC #{cc_uid}",
-                "dms_code": emp_id_to_user.get(cc_emp_id, ("", "", "", "", "", ""))[1] if cc_emp_id else "",
-                "own_activation": cc_total,
+                "dms_code": cc_info[1] if cc_info else "",
+                "assisted_code": cc_info[4] if cc_info else "",
+                "pool_number": cc_info[5] if cc_info else "",
+                "own_activation": cc_today,
+                "total_ga": cc_mtd,
+                "yesterday_activation": cc_yesterday,
+                "day_count": cc_day_count,
                 "contribution": 0,
             })
         cc_data.sort(key=lambda x: x["own_activation"], reverse=True)

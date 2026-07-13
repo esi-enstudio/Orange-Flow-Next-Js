@@ -168,6 +168,20 @@ function profilePicUrl(pic?: string): string | null {
   return `${process.env.NEXT_PUBLIC_API_URL?.replace("/api", "")}${pic}`;
 }
 
+function typeBadgeColor(type: string): string {
+  const colors: Record<string, string> = {
+    rso: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
+    bp: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+    cc: "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300",
+    manager: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+    supervisor: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300",
+    bsp: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
+    rbsp: "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300",
+    unknown: "bg-gray-100 text-gray-600 dark:bg-gray-500/20 dark:text-gray-300",
+  };
+  return colors[type.toLowerCase()] || colors.unknown;
+}
+
 export default function EmployeesPage() {
   const { t } = useLanguage();
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
@@ -770,7 +784,15 @@ export default function EmployeesPage() {
                             )}
                           </div>
                           <div>
-                            <p className="font-bold text-gray-900 dark:text-gray-100">{m.user?.name || m.dms_code}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-gray-900 dark:text-gray-100">{m.user?.name || m.dms_code}</p>
+                              {m.employee_type && (
+                                <span className={cn(
+                                  "text-[10px] font-bold px-1.5 py-0.5 rounded-md uppercase leading-tight",
+                                  typeBadgeColor(m.employee_type)
+                                )}>{m.employee_type}</span>
+                              )}
+                            </div>
                             <p className="text-[10px] text-gray-500 font-medium flex items-center gap-1"><Phone className="w-3 h-3"/> {m.personal_number}</p>
                           </div>
                         </div>
@@ -853,7 +875,15 @@ export default function EmployeesPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{m.user?.name || m.dms_code}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{m.user?.name || m.dms_code}</p>
+                        {m.employee_type && (
+                          <span className={cn(
+                            "text-[10px] font-bold px-1.5 py-0.5 rounded-md uppercase leading-tight shrink-0",
+                            typeBadgeColor(m.employee_type)
+                          )}>{m.employee_type}</span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{m.dms_code}</p>
                     </div>
                     <ChevronDown className={cn(
@@ -1230,7 +1260,7 @@ export default function EmployeesPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_employee_type')}</label>
+                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_emp_type')}</label>
                     <div className="relative group">
                       <div className={cn(
                         "absolute left-3 top-1/2 -translate-y-1/2 transition-colors pointer-events-none",
@@ -1246,7 +1276,7 @@ export default function EmployeesPage() {
                         value={formData.employee_type}
                         onChange={e => setFormData({...formData, employee_type: e.target.value})}
                       >
-                        <option value="">{t('employees.field_employee_type_placeholder')}</option>
+                        <option value="">{t('employees.field_emp_type_placeholder')}</option>
                         <option value="rso">RSO</option>
                         <option value="bp">BP</option>
                         <option value="cc">CC</option>

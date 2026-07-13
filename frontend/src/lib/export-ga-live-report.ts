@@ -17,7 +17,12 @@ interface RsoRow {
 interface CcRow {
   name: string;
   dms_code: string;
+  assisted_code?: string;
+  pool_number?: string;
   own_activation: number;
+  total_ga?: number;
+  yesterday_activation?: number;
+  day_count?: number;
   contribution: number;
 }
 
@@ -464,13 +469,13 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   const sortedCcs = [...ccs].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   if (sortedCcs.length > 0) {
     const CC_TITLE_ROW = r;
-    sectionTitle(ws, CC_TITLE_ROW, "CC PERFORMANCE", 4);
+    sectionTitle(ws, CC_TITLE_ROW, "CC PERFORMANCE", 8);
     ws.getCell(CC_TITLE_ROW, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
     r++;
 
     const CC_HEADER_ROW = r;
     headerRow(ws, CC_HEADER_ROW, [
-      "#", "Name", "DMS Code", "Today GA",
+      "#", "Name", "Assisted Code", "Pool Number", "Today GA", "Total GA", "Yesterday GA", "Day Count",
     ], HEADER_BG);
     r++;
 
@@ -479,8 +484,12 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
       dataRow(ws, r, [
         i + 1,
         ccItem.name,
-        ccItem.dms_code || "",
+        ccItem.assisted_code || "",
+        ccItem.pool_number || "",
         ccItem.own_activation,
+        ccItem.total_ga ?? 0,
+        ccItem.yesterday_activation ?? 0,
+        ccItem.day_count ?? 0,
       ]);
       r++;
     });
@@ -488,7 +497,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
 
     if (sortedCcs.length > 1) {
       const CC_TOTAL_ROW = r;
-      formulaRow(ws, CC_TOTAL_ROW, ["D"], CC_DATA_START, CC_DATA_END, "Total", 4);
+      formulaRow(ws, CC_TOTAL_ROW, ["E", "F", "G", "H"], CC_DATA_START, CC_DATA_END, "Total", 8);
       r++;
     }
     r++; // spacer
