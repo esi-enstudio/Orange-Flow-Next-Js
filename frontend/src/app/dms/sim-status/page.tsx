@@ -379,11 +379,11 @@ export default function SIMStatusCheckPage() {
                     setInputMethod("range");
                   }}
               disabled={loading}
-              className="w-full pl-4 pr-10 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all cursor-pointer disabled:opacity-60"
+              className="w-full pl-4 pr-10 py-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all cursor-pointer disabled:opacity-60"
             >
-              <option value="">-- {t("sim_status_check.select_house")} --</option>
+              <option value="" className="dark:bg-slate-800 dark:text-gray-400">-- {t("sim_status_check.select_house")} --</option>
               {houses.map((house) => (
-                <option key={house.id} value={house.id}>
+                <option key={house.id} value={house.id} className="dark:bg-slate-800 dark:text-gray-100">
                   {house.display_name}
                 </option>
               ))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import apiClient from "@/lib/api";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -111,7 +111,19 @@ export default function SIMReturnPage() {
   const [statusFilter, setStatusFilter] = useState<"All" | ReturnResultItem["status"]>("All");
   const [currentPage, setCurrentPage] = useState(1);
   const [showConfirm, setShowConfirm] = useState(false);
+  const houseSelectRef = useRef<HTMLSelectElement>(null);
   const pageSize = 10;
+
+  useEffect(() => {
+    const el = houseSelectRef.current;
+    if (!el) return;
+    const observer = new MutationObserver(() => {
+      el.style.colorScheme = document.documentElement.classList.contains("dark") ? "dark" : "light";
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    el.style.colorScheme = document.documentElement.classList.contains("dark") ? "dark" : "light";
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const fetchHouses = async () => {
@@ -329,6 +341,7 @@ export default function SIMReturnPage() {
             </label>
             <div className="relative">
               <select
+                ref={houseSelectRef}
                 value={selectedHouseId}
                 onChange={(e) => {
                       setSelectedHouseId(e.target.value === "" ? "" : Number(e.target.value));
@@ -341,11 +354,11 @@ export default function SIMReturnPage() {
                       setInputMethod("range");
                     }}
                 disabled={loading}
-                className="w-full pl-4 pr-10 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer disabled:opacity-60 appearance-none"
+                className="w-full pl-4 pr-10 py-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer disabled:opacity-60 appearance-none"
               >
-                <option value="">-- {t("sim_return.select_house")} --</option>
+                <option value="" className="dark:bg-slate-800 dark:text-gray-400">-- {t("sim_return.select_house")} --</option>
                 {houses.map((house) => (
-                  <option key={house.id} value={house.id}>{house.display_name}</option>
+                  <option key={house.id} value={house.id} className="dark:bg-slate-800 dark:text-gray-100">{house.display_name}</option>
                 ))}
               </select>
               <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
