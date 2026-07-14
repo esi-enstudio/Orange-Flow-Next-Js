@@ -45,6 +45,8 @@ interface Retailer {
   itop_number: string | null;
   employee_id: number | null;
   employee_itop_number: string | null;
+  is_assisted: boolean;
+  assisted_by_role: string | null;
 }
 
 interface IssueResultItem {
@@ -479,11 +481,11 @@ export default function SIMIssuePage() {
                               <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400 flex items-center gap-2">
                                 <span>Code: {r.retailer_code}</span>
                                 {r.itop_number && <span>• iTop: {r.itop_number}</span>}
-                                {r.employee_id && (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded text-[10px] font-semibold">
-                                    Assisted
-                                  </span>
-                                )}
+                        {r.is_assisted && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded text-[10px] font-semibold uppercase">
+                            {r.assisted_by_role} Assisted
+                          </span>
+                        )}
                               </p>
                             </div>
                           </button>
@@ -521,9 +523,9 @@ export default function SIMIssuePage() {
                       <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-2">
                         <span>Code: <span className="text-orange-600 dark:text-orange-400 font-bold">{selectedRetailer.retailer_code}</span></span>
                         {selectedRetailer.itop_number && <span>• iTop: {selectedRetailer.itop_number}</span>}
-                        {selectedRetailer.employee_id && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded text-[10px] font-semibold">
-                            Assisted
+                        {selectedRetailer.is_assisted && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded text-[10px] font-semibold uppercase">
+                            {selectedRetailer.assisted_by_role} Assisted
                           </span>
                         )}
                       </p>

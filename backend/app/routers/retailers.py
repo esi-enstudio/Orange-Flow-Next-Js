@@ -123,6 +123,18 @@ async def get_retailers_by_house(
     query = query.order_by(Retailer.name)
     result = await db.execute(query)
     retailers = result.unique().scalars().all()
+
+    # Collect all retailer codes to look up assisted_by employees
+    codes = [r.retailer_code for r in retailers if r.retailer_code]
+    assisted_map = {}
+    if codes:
+        assisted_result = await db.execute(
+            select(Employee).where(Employee.assisted_retailer_code.in_(codes))
+        )
+        for emp in assisted_result.scalars().all():
+            if emp.assisted_retailer_code:
+                assisted_map[emp.assisted_retailer_code] = emp.employee_type
+
     return [
         {
             "id": r.id,
@@ -130,7 +142,9 @@ async def get_retailers_by_house(
             "name": r.name,
             "itop_number": r.itop_number,
             "employee_id": r.employee_id,
-            "employee_itop_number": r.employee.itop_number if r.employee else None
+            "employee_itop_number": r.employee.itop_number if r.employee else None,
+            "is_assisted": r.employee_id is not None,
+            "assisted_by_role": assisted_map.get(r.retailer_code) or (r.employee.employee_type if r.employee else None)
         }
         for r in retailers
     ]
