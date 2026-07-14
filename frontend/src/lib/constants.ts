@@ -130,6 +130,7 @@ export const navItems: NavItem[] = [
       { title: "SIM Status Check", translationKey: "nav.sim_status", href: "/dms/sim-status", permission: "dms.sim_status" },
       { title: "SIM Return", translationKey: "nav.sim_return", href: "/dms/sim-return", permission: "dms.sim_return" },
       { title: "Scratch Card Issue", translationKey: "nav.scratch_card", href: "/dms/scratch-card", permission: "scratch_card.view" },
+      { title: "DMS Sync", translationKey: "nav.dms_sync", href: "/sync", permission: "automation.dms_sync" },
     ]
   },
   {

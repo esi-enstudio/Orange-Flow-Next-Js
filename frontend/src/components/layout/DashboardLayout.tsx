@@ -2,7 +2,7 @@
 
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
-import { Bell, Search, Loader2 } from "lucide-react";
+import { Bell, Search, Loader2, CloudDownload } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/context/AuthContext";
 import { usePathname } from "next/navigation";
@@ -60,6 +60,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                  <Search className="w-5 h-5" />
                </button>
                
+               <Link href="/sync" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-500/10 rounded-xl transition-all" title="DMS Sync">
+                 <CloudDownload className="w-5 h-5" />
+               </Link>
                <LanguageSwitcher />
                <ThemeToggle />
                

@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import {
   Search, Upload, Download, ChevronLeft, ChevronRight, ChevronDown,
   Loader2, Database, X, CheckCircle2, Calendar, Filter, RotateCcw,
-  SlidersHorizontal, Store, Building2, User,
+  SlidersHorizontal, Store, Building2, User, CloudDownload,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
@@ -293,6 +293,35 @@ export default function ImportItopUpPage() {
     }
   };
 
+  const [syncingDMS, setSyncingDMS] = useState(false);
+
+  const handleSyncFromDMS = async () => {
+    setSyncingDMS(true);
+    setImportProgress({ percent: 0, message: "Starting sync..." });
+    try {
+      const token = Cookies.get("token");
+      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
+      const response = await fetch(`${baseURL}/sync/itopup`, {
+        method: "POST",
+        headers,
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.detail || errData?.message || `Request failed (${response.status})`);
+      }
+      await readSSEStream(response);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err?.message || "Sync failed");
+    } finally {
+      setSyncingDMS(false);
+      setImportProgress(null);
+    }
+  };
+
   const handleExport = async () => {
     try {
       const params: Record<string, string> = {};
@@ -435,6 +464,11 @@ export default function ImportItopUpPage() {
           <button onClick={handleExport}
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
             <Download className="w-4 h-4" /> Export
+          </button>
+          <button onClick={handleSyncFromDMS} disabled={syncingDMS || importing}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
+            {syncingDMS ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4" />}
+            {syncingDMS ? "Syncing..." : "Sync from DMS"}
           </button>
         </div>
       </div>

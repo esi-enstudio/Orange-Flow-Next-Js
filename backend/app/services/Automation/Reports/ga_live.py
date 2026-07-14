@@ -49,7 +49,39 @@ async def run_ga_live_sync():
         except Exception as e:
             logger.error(f"❌ [GA Sync Error] {house.name}: {str(e)}")
 
-async def sync_house_data(house):
+async def sync_live_activation_module(house_id=None, progress_callback=None):
+    """Manually trigger Live Activation sync for all houses or specific house.
+    
+    Args:
+        house_id: Optional house ID to sync (None = all eligible houses)
+        progress_callback: Optional async callable for progress messages
+    """
+    if not os.path.exists(TEMP_DIR):
+        os.makedirs(TEMP_DIR)
+
+    async with async_session() as session:
+        query = select(House).where(
+            House.dms_user != None,
+            House.is_live_sync_enabled == True
+        )
+        if house_id:
+            query = query.where(House.id == house_id)
+        result = await session.execute(query)
+        houses = result.scalars().all()
+
+    if not houses:
+        if progress_callback:
+            await progress_callback("No eligible houses found for live activation sync")
+        return
+
+    for house in houses:
+        try:
+            await sync_house_data(house, progress_callback=progress_callback)
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.error(f"❌ [Manual GA Sync Error] {house.name}: {str(e)}")
+
+async def sync_house_data(house, progress_callback=None):
     """Download report using session manager"""
     
     credentials = {
@@ -66,6 +98,8 @@ async def sync_house_data(house):
     file_path = os.path.join(TEMP_DIR, f"ga_{house.code}.xlsx")
     
     try:
+        if progress_callback:
+            await progress_callback(f"Starting Live Activation sync for {house.name}...")
         logger.info(f"🚀 [GA Sync] {house.name} Report download starting...")
         
         # Navigate to report page (domcontentloaded is more stable)
@@ -94,6 +128,8 @@ async def sync_house_data(house):
         # Call database update
         await process_and_save_data(file_path, house.id)
         
+        if progress_callback:
+            await progress_callback(f"✓ Live Activation sync complete for {house.name}")
         logger.info(f"✅ [GA Sync] {house.name} database update successful.")
 
     finally:

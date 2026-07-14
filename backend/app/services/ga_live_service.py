@@ -710,22 +710,28 @@ class GaLiveQueryBuilder:
                     )
                 )
                 cc_today = res.scalar() or 0
-            # Total GA (MTD) and Day Count
+            # Total GA (MTD) — Activation (past) + LiveActivation (today)
+            # Day Count — count of dates with >= 2 activations
             cc_mtd = 0
             cc_day_count = 0
-            if cc_ret_ids and yesterday >= month_start:
+            if cc_ret_ids:
                 ret_list = list(cc_ret_ids)
-                mtd_q = select(Activation.retailer_id, Activation.activation_date).where(
-                    Activation.house_id == self.house_id,
-                    Activation.retailer_id.in_(ret_list),
-                    Activation.activation_date >= month_start,
-                    Activation.activation_date <= yesterday,
-                )
-                mtd_rows = (await self.db.execute(mtd_q)).all()
-                cc_mtd = len(mtd_rows)
                 date_counts: dict[date, int] = {}
-                for _, d in mtd_rows:
-                    date_counts[d] = date_counts.get(d, 0) + 1
+                if yesterday >= month_start:
+                    mtd_rows = (await self.db.execute(
+                        select(Activation.retailer_id, Activation.activation_date).where(
+                            Activation.house_id == self.house_id,
+                            Activation.retailer_id.in_(ret_list),
+                            Activation.activation_date >= month_start,
+                            Activation.activation_date <= yesterday,
+                        )
+                    )).all()
+                    for _, d in mtd_rows:
+                        date_counts[d] = date_counts.get(d, 0) + 1
+                # Add today
+                if cc_today > 0:
+                    date_counts[self.start_date] = date_counts.get(self.start_date, 0) + cc_today
+                cc_mtd = sum(date_counts.values())
                 cc_day_count = sum(1 for cnt in date_counts.values() if cnt >= 2)
             # Yesterday GA
             cc_yesterday = 0

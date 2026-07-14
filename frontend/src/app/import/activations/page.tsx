@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2, Trash2, SlidersHorizontal } from "lucide-react";
+import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2, Trash2, SlidersHorizontal, CloudDownload } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
@@ -56,7 +56,7 @@ function formatDate(dateStr: string): string {
 
 export default function ImportActivationsPage() {
   const { t } = useLanguage();
-  const { hasPermission, loading: authLoading } = useAuth();
+  const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const [data, setData] = useState<Activation[]>([]);
   const [filters, setFilters] = useState<ActivationsFilters>({ ...defaultActivationsFilters });
   const [showFilters, setShowFilters] = useState(false);
@@ -252,6 +252,35 @@ export default function ImportActivationsPage() {
     }
   };
 
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncFromDMS = async () => {
+    setSyncing(true);
+    setImportProgress({ percent: 0, message: "Starting sync..." });
+    try {
+      const token = Cookies.get("token");
+      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
+      const response = await fetch(`${baseURL}/sync/activation`, {
+        method: "POST",
+        headers,
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.detail || errData?.message || `Request failed (${response.status})`);
+      }
+      await readSSEStream(response);
+      fetchData(false);
+    } catch (err: any) {
+      toast.error(err?.message || "Sync failed");
+    } finally {
+      setSyncing(false);
+      setImportProgress(null);
+    }
+  };
+
   const todayStr = new Date().toISOString().split("T")[0];
 
   if (!authLoading && !hasPermission("activations.import")) { return <AccessDenied />; }
@@ -359,6 +388,11 @@ export default function ImportActivationsPage() {
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             {exporting ? "Exporting..." : "Export"}
+          </button>
+          <button onClick={handleSyncFromDMS} disabled={syncing || importing}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4" />}
+            {syncing ? "Syncing..." : "Sync from DMS"}
           </button>
           {totalRecords > 0 && (
             <button onClick={() => setShowTruncateConfirm(true)}
