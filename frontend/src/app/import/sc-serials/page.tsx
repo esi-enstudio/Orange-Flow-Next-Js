@@ -82,6 +82,10 @@ export default function SCSerialsPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
+  // export house select
+  const [showExportHouse, setShowExportHouse] = useState(false);
+  const [exportHouseId, setExportHouseId] = useState<number | "">("");
+
   // allocate
   const [showAllocate, setShowAllocate] = useState(false);
   const [allocHouseId, setAllocHouseId] = useState<number | "">("");
@@ -111,10 +115,21 @@ export default function SCSerialsPage() {
     houseHeaders["X-House-ID"] = String(selectedHouse.id);
   }
 
+  const monthDateRange = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const first = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const last = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    return { dateFrom: first, dateTo: last };
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string | number> = { page, per_page: perPage, sort_order: "desc" };
+      const { dateFrom, dateTo } = monthDateRange();
+      const params: Record<string, string | number> = { page, per_page: perPage, sort_order: "desc", date_from: dateFrom, date_to: dateTo };
       if (search) params.search = search;
       if (filterProductId) params.product_id = Number(filterProductId);
       if (filterStatus) params.status = filterStatus;
@@ -150,14 +165,14 @@ export default function SCSerialsPage() {
   // reset to page 1 when filters change
   useEffect(() => { setPage(1); }, [search, filterProductId, filterStatus, filterBatch]);
 
-  const handleExport = async () => {
+  const handleExport = async (houseId: number) => {
     try {
+      const headers: Record<string, string> = { "X-House-ID": String(houseId) };
       const params: Record<string, string> = {};
       if (filterProductId) params.product_id = filterProductId;
-      if (filterStatus) params.status = filterStatus;
       if (filterBatch) params.batch_id = filterBatch;
       const res = await apiClient.get("/v1/scratch-card-serials/export/list", {
-        params, headers: houseHeaders, responseType: "blob",
+        params, headers, responseType: "blob",
       });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a"); a.href = url; a.download = "scratch_card_serials.xlsx"; a.click();
@@ -208,7 +223,8 @@ export default function SCSerialsPage() {
     const allSelected = usedIds.every(id => selectedIds.includes(id));
     if (!allSelected) {
       try {
-        const params: Record<string, string | number> = { per_page: 10000, sort_order: "desc" };
+        const { dateFrom, dateTo } = monthDateRange();
+      const params: Record<string, string | number> = { per_page: 10000, sort_order: "desc", date_from: dateFrom, date_to: dateTo };
         if (search) params.search = search;
         if (filterProductId) params.product_id = Number(filterProductId);
         if (filterBatch) params.batch_id = filterBatch;
@@ -386,7 +402,7 @@ export default function SCSerialsPage() {
             </button>
           )}
           {hasPermission("scratch_card_serials.export") && (
-            <button onClick={handleExport}
+            <button onClick={() => { setExportHouseId(""); setShowExportHouse(true); }}
               className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
               <Download className="w-4 h-4" /> Export
             </button>
@@ -931,6 +947,44 @@ export default function SCSerialsPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Export House Select */}
+      {showExportHouse && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Export Serials</h3>
+              <button onClick={() => setShowExportHouse(false)} className="p-1 text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Select House</label>
+              <select value={exportHouseId} onChange={e => setExportHouseId(e.target.value ? Number(e.target.value) : "")}
+                className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
+                <option value="">Select house</option>
+                {houses.map(h => (
+                  <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setShowExportHouse(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
+                Cancel
+              </button>
+              <button onClick={async () => {
+                if (!exportHouseId) { toast.error("Select a house"); return; }
+                setShowExportHouse(false);
+                await handleExport(Number(exportHouseId));
+              }}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
+                <Download className="w-4 h-4" /> Export
+              </button>
+            </div>
           </div>
         </div>
       )}

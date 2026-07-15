@@ -76,6 +76,8 @@ async def list_serials(
     product_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
     batch_id: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
     house_context: Optional[int] = Depends(get_house_context),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
@@ -96,6 +98,10 @@ async def list_serials(
         query = query.where(ScratchCardSerial.status == status)
     if batch_id:
         query = query.where(ScratchCardSerial.batch_id == batch_id)
+    if date_from:
+        query = query.where(ScratchCardSerial.created_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        query = query.where(ScratchCardSerial.created_at <= datetime.combine(date_to, datetime.max.time()))
 
     sort_col = getattr(ScratchCardSerial, pagination.sort_by, ScratchCardSerial.id)
     if pagination.sort_order == "desc":
@@ -690,54 +696,120 @@ async def confirm_allocation(
 @router.get("/export/list")
 async def export_serials(
     product_id: Optional[int] = Query(None),
-    status: Optional[str] = Query(None),
     batch_id: Optional[str] = Query(None),
     house_context: Optional[int] = Depends(get_house_context),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.export")),
 ):
-    query = select(ScratchCardSerial).options(
-        joinedload(ScratchCardSerial.product),
-        joinedload(ScratchCardSerial.used_by_user),
+    from collections import defaultdict
+    import asyncio
+
+    from app.models.product import Product
+
+    query = select(
+        ScratchCardSerial.product_id,
+        ScratchCardSerial.serial_number,
+        Product.product_code,
+    ).join(Product, ScratchCardSerial.product_id == Product.id).where(
+        ScratchCardSerial.status == "available"
     )
     query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
 
     if product_id:
         query = query.where(ScratchCardSerial.product_id == product_id)
-    if status:
-        query = query.where(ScratchCardSerial.status == status)
     if batch_id:
         query = query.where(ScratchCardSerial.batch_id == batch_id)
 
-    result = await db.execute(query)
-    records = result.unique().scalars().all()
+    query = query.order_by(ScratchCardSerial.product_id, ScratchCardSerial.serial_number)
 
+    result = await db.execute(query)
+    rows = result.all()
+    if not rows:
+        return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": "attachment; filename=scratch_card_serials.xlsx"})
+
+    # Group by product_id
+    groups: dict[int, list[tuple]] = defaultdict(list)
+    for r in rows:
+        groups[r[0]].append(r)
+
+    # Build product info (code + ranges) – CPU-light, fine on event loop
+    product_info: list[tuple[str, list[tuple[str, str]]]] = []
+    for pid, serials in groups.items():
+        sorted_serials = sorted(serials, key=lambda s: int(s[1]))
+        code = sorted_serials[0][2] or f"Product #{pid}"
+        ranges: list[tuple[str, str]] = []
+        start = end = sorted_serials[0][1]
+        prev = int(end)
+        for s in sorted_serials[1:]:
+            cur = int(s[1])
+            if cur == prev + 1:
+                end = s[1]
+                prev = cur
+            else:
+                ranges.append((start, end))
+                start = s[1]
+                end = s[1]
+                prev = cur
+        ranges.append((start, end))
+        product_info.append((code, ranges))
+
+    # ── Heavy Excel work → run in thread (frees the event loop) ──────
+    loop = asyncio.get_event_loop()
+    buf = await loop.run_in_executor(None, _build_excel, product_info)
+
+    return Response(
+        content=buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=scratch_card_serials.xlsx"},
+    )
+
+
+def _build_excel(product_info: list[tuple[str, list[tuple[str, str]]]]) -> bytes:
+    """CPU-bound Excel generation — runs in a thread pool."""
     import io
     from openpyxl import Workbook
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "SC Serials"
+    MAX_ROW = 1048576
 
-    headers = ["Product Name", "Product Code",
-               "Serial Number", "Status", "Batch ID", "Notes", "Used At", "Used By"]
-    ws.append(headers)
+    # Build column data arrays
+    columns: list[list[str | None]] = []
+    for code, ranges in product_info:
+        col_values: list[str | None] = [code]
+        first_in_col = True
+        for start_sn, end_sn in ranges:
+            size = int(end_sn) - int(start_sn) + 1
+            gap = 0 if first_in_col else 1
+            if len(col_values) + gap + size > MAX_ROW:
+                columns.append(col_values)
+                col_values = [code]
+                first_in_col = True
+                gap = 0
+            if gap:
+                col_values.append(None)
+            pad = len(start_sn)
+            s = int(start_sn)
+            col_values.extend(str(x).zfill(pad) for x in range(s, s + size))
+            first_in_col = False
+        columns.append(col_values)
 
-    for r in records:
-        ws.append([
-            r.product_name, r.product_code,
-            r.serial_number, r.status, r.batch_id, r.notes, r.used_at, r.used_by,
-        ])
+    # Write in write-only mode
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet(title="SC Serials")
+
+    ncols = len(columns)
+    max_rows = max(len(c) for c in columns) if columns else 0
+
+    for ri in range(max_rows):
+        row: list[str | None] = []
+        for ci in range(ncols):
+            row.append(columns[ci][ri] if ri < len(columns[ci]) else None)
+        ws.append(row)
 
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-
-    return Response(
-        content=buf.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=scratch_card_serials.xlsx"},
-    )
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
