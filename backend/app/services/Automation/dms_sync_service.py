@@ -78,6 +78,7 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
         and_(
             SyncHistory.house_id == house_id,
             SyncHistory.module_name == m_key,
+            SyncHistory.status == "success",
             SyncHistory.sync_date >= start_of_month,
             SyncHistory.sync_date <= yesterday
         )
@@ -267,9 +268,10 @@ async def sync_activation_module(house_id=None, progress_callback=None):
         query = select(House).where(
             House.dms_user != None,
             House.is_active == True,
-            House.is_sync_enabled == True
         )
-        if house_id:
+        if not house_id:
+            query = query.where(House.is_sync_enabled == True)
+        else:
             query = query.where(House.id == house_id)
         result = await session.execute(query)
         houses = result.scalars().all()
@@ -302,9 +304,10 @@ async def sync_itopup_module(house_id=None, progress_callback=None):
         query = select(House).where(
             House.dms_user != None,
             House.is_active == True,
-            House.is_sync_enabled == True
         )
-        if house_id:
+        if not house_id:
+            query = query.where(House.is_sync_enabled == True)
+        else:
             query = query.where(House.id == house_id)
         result = await session.execute(query)
         houses = result.scalars().all()

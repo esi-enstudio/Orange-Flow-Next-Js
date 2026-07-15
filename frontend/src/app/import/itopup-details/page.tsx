@@ -457,17 +457,17 @@ export default function ImportItopUpPage() {
         <div className="flex items-center gap-3">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx,.xls" />
           <button onClick={() => setShowImportModal(true)} disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-lg shadow-primary-200 dark:shadow-primary-900/30">
-            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            className="group flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-lg shadow-primary-200 dark:shadow-primary-900/30">
+            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4 group-hover:scale-110 transition-transform" />}
             {importing ? `${t('common.processing')}...` : "Import Excel"}
           </button>
           <button onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-            <Download className="w-4 h-4" /> Export
+            className="group flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+            <Download className="w-4 h-4 group-hover:text-primary-600 transition-colors" /> Export
           </button>
           <button onClick={handleSyncFromDMS} disabled={syncingDMS || importing}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
-            {syncingDMS ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4" />}
+            className="group flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
+            {syncingDMS ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4 group-hover:text-purple-900 dark:group-hover:text-purple-200 transition-colors" />}
             {syncingDMS ? "Syncing..." : "Sync from DMS"}
           </button>
         </div>
@@ -640,12 +640,12 @@ export default function ImportItopUpPage() {
             <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 flex-1">
                 <button onClick={() => setShowFilter(!showFilter)}
-                  className={cn("p-2 rounded-xl border transition-all",
+                  className={cn("group p-2 rounded-xl border transition-all",
                     showFilter
                       ? "bg-primary-50 dark:bg-primary-500/10 border-primary-200 dark:border-primary-700 text-primary-600"
                       : "border-gray-200 dark:border-slate-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                   )}>
-                  <SlidersHorizontal className="w-4 h-4" />
+                  <SlidersHorizontal className="w-4 h-4 group-hover:scale-110 transition-transform" />
                 </button>
                 {pagination && (
                   <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -658,31 +658,52 @@ export default function ImportItopUpPage() {
             {/* Loading Skeleton */}
             {loading ? (
               <div>
-                {/* Desktop skeleton */}
+                {/* Desktop skeleton — matches table columns */}
                 <div className="hidden lg:block">
-                  {Array.from({ length: perPage }).map((_, i) => (
-                    <div key={i} className="flex items-center gap-4 px-2 py-1 animate-pulse border-b border-gray-50 dark:border-slate-800/50">
-                      <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                      <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                      <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                      <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                      <div className="flex-1 space-y-1">
-                        <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                        <div className="h-2.5 w-20 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                    {Array.from({ length: perPage }).map((_, i) => (
+                      <div key={i} className="flex items-center px-2 py-1 animate-pulse">
+                        <div className="w-[130px] shrink-0 space-y-1">
+                          <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="h-2.5 w-12 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                        </div>
+                        <div className="w-[120px] shrink-0">
+                          <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                        </div>
+                        <div className="w-[180px] shrink-0 space-y-1">
+                          <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="h-2.5 w-20 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                        </div>
+                        <div className="w-[100px] shrink-0 text-right">
+                          <div className="h-3 w-14 bg-gray-200 dark:bg-slate-700 rounded-md ml-auto" />
+                        </div>
+                        <div className="w-[80px] shrink-0">
+                          <div className="h-5 w-12 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-                {/* Mobile skeleton */}
+                {/* Mobile skeleton — card accordion style */}
                 <div className="lg:hidden space-y-3 p-4">
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="bg-gray-50 dark:bg-slate-800 rounded-xl p-4 animate-pulse">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-2 flex-1">
-                          <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                          <div className="h-2.5 w-28 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                    <div key={i} className="bg-gray-50 dark:bg-slate-800 rounded-xl animate-pulse overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                          <div className="space-y-2">
+                            <div className="h-3 w-36 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                            <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                          </div>
                         </div>
-                        <div className="w-5 h-5 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                        <div className="flex items-center gap-2">
+                          <div className="h-3 w-14 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="w-4 h-4 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                        </div>
                       </div>
                     </div>
                   ))}

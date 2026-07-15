@@ -238,9 +238,12 @@ class GaLiveQueryBuilder:
         base_act_bps = await self._build_base_query("bps")
 
         ret_rows = await self.db.execute(
-            select(Retailer.id, Retailer.employee_id).where(Retailer.house_id == self.house_id)
+            select(Retailer.id, Retailer.retailer_code, Retailer.employee_id).where(Retailer.house_id == self.house_id)
         )
-        retailer_employee_map = {r.id: r.employee_id for r in ret_rows.all()}
+        ret_rows_all = ret_rows.all()
+        retailer_employee_map = {r.id: r.employee_id for r in ret_rows_all}
+        retailer_code_to_id = {r.retailer_code: r.id for r in ret_rows_all}
+        id_to_retailer_code = {r.id: r.retailer_code for r in ret_rows_all}
 
         emp_rows = await self.db.execute(
             select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number, Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number)
@@ -693,10 +696,17 @@ class GaLiveQueryBuilder:
             if not cc_emp_id:
                 continue
             cc_ret_ids = set()
+            cc_ret_codes = set()
             if cc_emp_id:
                 for rid, eid in retailer_employee_map.items():
                     if eid == cc_emp_id:
                         cc_ret_ids.add(rid)
+                        if rid in id_to_retailer_code:
+                            cc_ret_codes.add(id_to_retailer_code[rid])
+                cc_assisted_code = emp_id_to_code.get(cc_emp_id)
+                if cc_assisted_code and cc_assisted_code in retailer_code_to_id:
+                    cc_ret_ids.add(retailer_code_to_id[cc_assisted_code])
+                    cc_ret_codes.add(cc_assisted_code)
             cc_info = emp_id_to_user.get(cc_emp_id)
             # Today GA
             cc_today = 0
@@ -710,34 +720,30 @@ class GaLiveQueryBuilder:
                     )
                 )
                 cc_today = res.scalar() or 0
-            # Total GA (MTD) — Activation (past) + LiveActivation (today)
+            # Total GA (MTD) — Activation table only (month_start → yesterday)
             # Day Count — count of dates with >= 2 activations
             cc_mtd = 0
             cc_day_count = 0
-            if cc_ret_ids:
-                ret_list = list(cc_ret_ids)
+            if cc_ret_codes:
                 date_counts: dict[date, int] = {}
                 if yesterday >= month_start:
                     mtd_rows = (await self.db.execute(
-                        select(Activation.retailer_id, Activation.activation_date).where(
+                        select(Activation.retailer_code, Activation.activation_date).where(
                             Activation.house_id == self.house_id,
-                            Activation.retailer_id.in_(ret_list),
+                            Activation.retailer_code.in_(list(cc_ret_codes)),
                             Activation.activation_date >= month_start,
                             Activation.activation_date <= yesterday,
                         )
                     )).all()
                     for _, d in mtd_rows:
                         date_counts[d] = date_counts.get(d, 0) + 1
-                # Add today
-                if cc_today > 0:
-                    date_counts[self.start_date] = date_counts.get(self.start_date, 0) + cc_today
                 cc_mtd = sum(date_counts.values())
                 cc_day_count = sum(1 for cnt in date_counts.values() if cnt >= 2)
             # Yesterday GA
             cc_yesterday = 0
-            if cc_ret_ids:
+            if cc_ret_codes:
                 yest_q = select(func.count()).where(
-                    Activation.retailer_id.in_(list(cc_ret_ids)),
+                    Activation.retailer_code.in_(list(cc_ret_codes)),
                     Activation.house_id == self.house_id,
                     Activation.activation_date == yesterday,
                 )
