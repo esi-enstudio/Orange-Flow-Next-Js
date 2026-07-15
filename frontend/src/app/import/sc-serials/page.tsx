@@ -20,8 +20,7 @@ interface SerialRecord {
 
 interface StockSummary {
   house_id: number; house_name: string; house_code: string;
-  product_id: number; product_name: string; product_code: string;
-  available: number; used: number; allocated: number; total: number;
+  total_serials: number; total_value: number;
 }
 
 interface House {
@@ -56,6 +55,11 @@ export default function SCSerialsPage() {
   // stock summary
   const [stockSummary, setStockSummary] = useState<StockSummary[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
+
+  // detail modal
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailData, setDetailData] = useState<{ house_name: string; house_code: string; products: any[] } | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   // houses for modal selector
   const [houses, setHouses] = useState<House[]>([]);
@@ -149,6 +153,20 @@ export default function SCSerialsPage() {
     } catch { /* silent */ }
     finally { setSummaryLoading(false); }
   }, [selectedHouse?.id]);
+
+  const fetchHouseDetail = async (houseId: number) => {
+    setDetailLoading(true);
+    setDetailData(null);
+    setShowDetailModal(true);
+    try {
+      const res = await apiClient.get("/v1/scratch-card-serials/stock/summary", {
+        params: { house_id: houseId },
+        headers: houseHeaders,
+      });
+      setDetailData(res.data.data || null);
+    } catch { toast.error("Failed to load house details"); }
+    finally { setDetailLoading(false); }
+  };
 
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
@@ -416,29 +434,64 @@ export default function SCSerialsPage() {
         </div>
       </div>
 
-      {/* Stock Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Stock Summary — per house */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {summaryLoading ? (
-          Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-4 animate-pulse">
-              <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded mb-3" />
-              <div className="h-6 w-12 bg-gray-200 dark:bg-slate-700 rounded" />
+          <>
+            {/* md: 1 skeleton, lg: 4 skeletons */}
+            <div className="md:block lg:hidden">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 animate-pulse">
+                <div className="h-4 w-28 bg-gray-200 dark:bg-slate-700 rounded mb-3" />
+                <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded mb-4" />
+                <div className="h-7 w-24 bg-gray-200 dark:bg-slate-700 rounded mb-2" />
+                <div className="h-7 w-20 bg-gray-100 dark:bg-slate-800 rounded" />
+              </div>
             </div>
-          ))
+            <div className="hidden lg:grid lg:grid-cols-4 gap-4 col-span-full">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 animate-pulse">
+                  <div className="h-4 w-28 bg-gray-200 dark:bg-slate-700 rounded mb-3" />
+                  <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded mb-4" />
+                  <div className="h-7 w-24 bg-gray-200 dark:bg-slate-700 rounded mb-2" />
+                  <div className="h-7 w-20 bg-gray-100 dark:bg-slate-800 rounded" />
+                </div>
+              ))}
+            </div>
+          </>
         ) : stockSummary.length === 0 ? (
-          <div className="col-span-full text-center py-6 text-gray-400 text-sm">No stock data available</div>
+          <div className="col-span-full text-center py-8 text-gray-400 text-sm">No stock data available</div>
         ) : (
           stockSummary.map(s => (
-            <div key={`${s.house_id}-${s.product_id}`} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-4">
-              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 truncate">{s.product_name}</p>
-              <p className="text-[11px] text-gray-400 mb-1 truncate">{s.product_code}</p>
-              <p className="text-[11px] text-primary-600 dark:text-primary-400 mb-2 font-medium">{s.house_name} ({s.house_code})</p>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-emerald-600 font-medium">{s.available.toLocaleString('en-US')} avail</span>
-                <span className="text-gray-400">/</span>
-                <span className="text-gray-500">{s.used.toLocaleString('en-US')} used</span>
+            <div key={s.house_id} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 relative overflow-hidden group">
+              {/* Top accent bar */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary-500 to-primary-600" />
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-sm shrink-0">
+                  {s.house_name.charAt(0)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{s.house_name}</p>
+                  <p className="text-[11px] text-gray-400 truncate">{s.house_code}</p>
+                </div>
+                <button onClick={() => fetchHouseDetail(s.house_id)}
+                  className="w-8 h-8 rounded-lg bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center text-gray-400 hover:text-primary-600 hover:border-primary-300 dark:hover:text-primary-400 dark:hover:border-primary-700 transition-all opacity-0 group-hover:opacity-100">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </button>
               </div>
-              <p className="text-[11px] text-gray-400 mt-1">Total: {s.total.toLocaleString('en-US')}</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Total Serials</span>
+                  <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{s.total_serials.toLocaleString('en-US')}</span>
+                </div>
+                <div className="border-t border-gray-100 dark:border-slate-800 pt-2 flex items-center justify-between">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Total Value</span>
+                  <span className="text-lg font-bold text-emerald-600 dark:text-emerald-500">
+                    ৳ {s.total_value.toLocaleString('en-US')}
+                  </span>
+                </div>
+              </div>
             </div>
           ))
         )}
@@ -985,6 +1038,60 @@ export default function SCSerialsPage() {
                 <Download className="w-4 h-4" /> Export
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* House Detail Modal */}
+      {showDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                {detailData ? `${detailData.house_name} (${detailData.house_code})` : "House Details"}
+              </h3>
+              <button onClick={() => { setShowDetailModal(false); setDetailData(null); }} className="p-1 text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {detailLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-14 bg-gray-100 dark:bg-slate-800 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : detailData ? (
+              <div className="space-y-2">
+                {detailData.products.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">No products found</p>
+                ) : (
+                  detailData.products.map((p: any) => (
+                    <div key={p.product_id} className="p-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{p.product_name}</p>
+                          <p className="text-[11px] text-gray-400 truncate">{p.product_code} · MRP: ৳{p.mrp}</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white dark:bg-slate-900 rounded-lg p-2.5 border border-emerald-100 dark:border-emerald-900/30">
+                          <p className="text-[11px] text-gray-400 mb-0.5">Available</p>
+                          <p className="text-sm font-bold text-emerald-600">Qty: {p.available_qty.toLocaleString('en-US')}</p>
+                          <p className="text-xs font-semibold text-emerald-500">৳ {p.available_amount.toLocaleString('en-US')}</p>
+                        </div>
+                        <div className="bg-white dark:bg-slate-900 rounded-lg p-2.5 border border-gray-100 dark:border-slate-700">
+                          <p className="text-[11px] text-gray-400 mb-0.5">Used</p>
+                          <p className="text-sm font-bold text-gray-600 dark:text-gray-300">Qty: {p.used_qty.toLocaleString('en-US')}</p>
+                          <p className="text-xs font-semibold text-gray-500">৳ {p.used_amount.toLocaleString('en-US')}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-6">Failed to load data</p>
+            )}
           </div>
         </div>
       )}

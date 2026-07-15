@@ -843,31 +843,86 @@ async def generate_batch_id(
 # ---------------------------------------------------------------------------
 @router.get("/stock/summary")
 async def stock_summary(
+    house_agg: Optional[int] = Query(None, alias="house_id"),
     house_context: Optional[int] = Depends(get_house_context),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
 ):
+    from app.models.house import House
+
+    # ── Detail mode: per-product breakdown for one house ──────────────
+    if house_agg:
+        h_result = await db.execute(select(House).where(House.id == house_agg))
+        house = h_result.scalar_one_or_none()
+        if not house:
+            raise HTTPException(status_code=404, detail="House not found")
+        user_house_ids = [h.id for h in current_user.houses]
+        if not is_admin_user(current_user) and house_agg not in user_house_ids:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        q = select(
+            ScratchCardSerial.product_id,
+            ScratchCardSerial.status,
+            Product.product_code,
+            Product.product_name,
+            Product.mrp,
+            func.count(ScratchCardSerial.id).label("count"),
+        ).join(Product, ScratchCardSerial.product_id == Product.id).where(
+            ScratchCardSerial.house_id == house_agg
+        ).group_by(
+            ScratchCardSerial.product_id, ScratchCardSerial.status,
+            Product.product_code, Product.product_name, Product.mrp,
+        )
+        result = await db.execute(q)
+        rows = result.all()
+
+        products_map: dict[int, dict] = {}
+        for row in rows:
+            pid = row.product_id
+            if pid not in products_map:
+                products_map[pid] = {
+                    "product_id": pid,
+                    "product_code": row.product_code,
+                    "product_name": row.product_name,
+                    "mrp": row.mrp or 0,
+                    "available_qty": 0,
+                    "available_amount": 0,
+                    "used_qty": 0,
+                    "used_amount": 0,
+                }
+            qty = row.count
+            amt = int(qty * (row.mrp or 0))
+            if row.status == "available":
+                products_map[pid]["available_qty"] = qty
+                products_map[pid]["available_amount"] = amt
+            elif row.status == "used":
+                products_map[pid]["used_qty"] = qty
+                products_map[pid]["used_amount"] = amt
+
+        return {
+            "success": True,
+            "data": {
+                "house_id": house_agg,
+                "house_name": house.name,
+                "house_code": house.code,
+                "products": list(products_map.values()),
+            },
+        }
+
+    # ── Aggregate mode: per-house totals ──────────────────────────────
     query = select(
         ScratchCardSerial.house_id,
-        ScratchCardSerial.product_id,
         ScratchCardSerial.status,
+        Product.mrp,
         func.count(ScratchCardSerial.id).label("count"),
-    )
+    ).join(Product, ScratchCardSerial.product_id == Product.id)
     query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
-    query = query.group_by(ScratchCardSerial.house_id, ScratchCardSerial.product_id, ScratchCardSerial.status)
+    query = query.group_by(ScratchCardSerial.house_id, ScratchCardSerial.status, Product.mrp)
     result = await db.execute(query)
     rows = result.all()
 
-    product_ids = set(r.product_id for r in rows)
     house_ids = set(r.house_id for r in rows)
-    products_map = {}
     houses_map = {}
-    if product_ids:
-        prod_result = await db.execute(
-            select(Product).where(Product.id.in_(product_ids))
-        )
-        for p in prod_result.scalars().all():
-            products_map[p.id] = p
     if house_ids:
         house_result = await db.execute(
             select(House).where(House.id.in_(house_ids))
@@ -875,25 +930,20 @@ async def stock_summary(
         for h in house_result.scalars().all():
             houses_map[h.id] = h
 
-    group = {}
+    agg = {}
     for row in rows:
-        key = (row.house_id, row.product_id)
-        if key not in group:
-            p = products_map.get(row.product_id)
-            h = houses_map.get(row.house_id)
-            group[key] = {
-                "house_id": row.house_id,
-                "house_name": h.name if h else f"House #{row.house_id}",
-                "house_code": h.code if h else "",
-                "product_id": row.product_id,
-                "product_name": p.product_name if p else f"Product #{row.product_id}",
-                "product_code": p.product_code if p else "",
-                "available": 0,
-                "used": 0,
-                "allocated": 0,
-                "total": 0,
+        hid = row.house_id
+        if hid not in agg:
+            h = houses_map.get(hid)
+            agg[hid] = {
+                "house_id": hid,
+                "house_name": h.name if h else f"House #{hid}",
+                "house_code": h.code or "",
+                "total_serials": 0,
+                "total_value": 0,
             }
-        group[key][row.status] = row.count
-        group[key]["total"] += row.count
+        if row.status == "available":
+            agg[hid]["total_serials"] += row.count
+            agg[hid]["total_value"] += int(row.count * (row.mrp or 0))
 
-    return {"success": True, "data": list(group.values())}
+    return {"success": True, "data": list(agg.values())}
