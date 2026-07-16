@@ -4,32 +4,29 @@ from datetime import datetime
 
 
 class SimReplacementCreate(BaseModel):
+    house_id: int = Field(..., ge=1)
     retailer_id: Optional[int] = Field(None, ge=1)
     retailer_code: Optional[str] = Field(None, max_length=50)
     retailer_name: Optional[str] = Field(None, max_length=200)
-    customer_name: Optional[str] = Field(None, max_length=200)
-    customer_phone: Optional[str] = Field(None, max_length=20)
     customer_nid: Optional[str] = Field(None, max_length=50)
-    old_sim_number: Optional[str] = Field(None, max_length=100)
-    old_msisdn: Optional[str] = Field(None, max_length=20)
     sim_type: Optional[str] = Field(None, max_length=50)
     replacement_reason: str = Field(..., pattern=r"^(Lost|Damaged|Stolen|Network_Issue|Other)$")
     reason_details: Optional[str] = None
+    ev_swap_serial: Optional[str] = Field(None, max_length=100)
     priority: Optional[str] = Field("normal", pattern=r"^(low|normal|high|urgent)$")
     notes: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 class SimReplacementUpdate(BaseModel):
-    customer_name: Optional[str] = Field(None, max_length=200)
-    customer_phone: Optional[str] = Field(None, max_length=20)
     customer_nid: Optional[str] = Field(None, max_length=50)
-    old_sim_number: Optional[str] = Field(None, max_length=100)
-    old_msisdn: Optional[str] = Field(None, max_length=20)
     sim_type: Optional[str] = Field(None, max_length=50)
     replacement_reason: Optional[str] = Field(None, pattern=r"^(Lost|Damaged|Stolen|Network_Issue|Other)$")
     reason_details: Optional[str] = None
+    ev_swap_serial: Optional[str] = Field(None, max_length=100)
     priority: Optional[str] = Field(None, pattern=r"^(low|normal|high|urgent)$")
     notes: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 class SimReplacementApprove(BaseModel):
@@ -54,11 +51,7 @@ class SimReplacementSchema(BaseModel):
     retailer_id: Optional[int] = None
     retailer_code: Optional[str] = None
     retailer_name: Optional[str] = None
-    customer_name: Optional[str] = None
-    customer_phone: Optional[str] = None
     customer_nid: Optional[str] = None
-    old_sim_number: Optional[str] = None
-    old_msisdn: Optional[str] = None
     new_sim_number: Optional[str] = None
     new_msisdn: Optional[str] = None
     sim_type: Optional[str] = None
@@ -87,8 +80,10 @@ class SimReplacementSchema(BaseModel):
     old_sim_deactivated_at: Optional[datetime] = None
     ev_kit_returned: Optional[bool] = False
     ev_kit_returned_at: Optional[datetime] = None
+    ev_swap_serial: Optional[str] = None
     priority: Optional[str] = "normal"
     notes: Optional[str] = None
+    remarks: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

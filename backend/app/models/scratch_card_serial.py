@@ -16,6 +16,8 @@ class ScratchCardSerial(Base):
                     comment="available, used, allocated")
     batch_id = Column(String(50), nullable=True, index=True,
                       comment="Group identifier for bulk imports")
+    exit_order_no = Column(String(100), nullable=True)
+    rf_no = Column(String(100), nullable=True)
     notes = Column(String(500), nullable=True)
 
     used_at = Column(DateTime, nullable=True)

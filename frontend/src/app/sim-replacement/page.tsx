@@ -12,17 +12,18 @@ import axios from "@/lib/api";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-
 interface RequestItem {
   id: number; request_number: string; request_status: string;
-  retailer_name?: string; retailer_code?: string; customer_name?: string;
-  customer_phone?: string; old_sim_number?: string; new_sim_number?: string;
+  retailer_name?: string; retailer_code?: string;
+  new_sim_number?: string;
   replacement_reason?: string; priority: string; requester_name?: string;
   requested_at?: string; approved_at?: string; issued_at?: string;
-  activated_at?: string; house_id: number;
+  activated_at?: string; house_id: number; ev_swap_serial?: string;
   approver_name?: string; issuer_name?: string; activator_name?: string;
 }
+
+interface HouseOption { id: number; name: string; code: string; display_name: string; }
+interface RetailerOption { id: number; name: string; retailer_code: string; itop_number: string | null; }
 
 interface PaginationMeta { page: number; per_page: number; total: number; total_pages: number; has_next: boolean; has_prev: boolean; }
 
@@ -61,7 +62,7 @@ function formatDate(d?: string) {
 
 export default function SimReplacementPage() {
   const { t } = useLanguage();
-  const { hasPermission, user } = useAuth();
+  const { hasPermission } = useAuth();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<RequestItem[]>([]);
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
@@ -72,6 +73,11 @@ export default function SimReplacementPage() {
   const [selectedItem, setSelectedItem] = useState<RequestItem | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [formData, setFormData] = useState<any>({});
+  const [houses, setHouses] = useState<HouseOption[]>([]);
+  const [retailers, setRetailers] = useState<RetailerOption[]>([]);
+  const [retailerSearch, setRetailerSearch] = useState("");
+  const [retailerDropdownOpen, setRetailerDropdownOpen] = useState(false);
+  const retailerDebounce = useRef<any>(null);
   const searchTimer = useRef<any>(null);
   const perPage = 20;
 
@@ -90,7 +96,7 @@ export default function SimReplacementPage() {
       const res = await axios.get("/v1/sim-replacement", { params });
       setItems(res.data.data || []);
       setPagination(res.data.pagination || null);
-    } catch { toast.error("Failed to load data"); }
+    } catch (e: any) { toast.error(e?.response?.data?.detail || e?.message || "Failed to load data"); }
     finally { setLoading(false); }
   }, [page, search, statusFilter]);
 
@@ -116,12 +122,14 @@ export default function SimReplacementPage() {
   const openCreateModal = () => {
     setSelectedItem(null);
     setFormData({
+      house_id: houses.length === 1 ? houses[0].id : "",
       replacement_reason: "Damaged", priority: "normal",
       retailer_id: "", retailer_code: "", retailer_name: "",
-      customer_name: "", customer_phone: "", customer_nid: "",
-      old_sim_number: "", old_msisdn: "", sim_type: "Prepaid",
-      reason_details: "", notes: "",
+      customer_nid: "", sim_type: "Prepaid",
+      ev_swap_serial: "", reason_details: "", notes: "", remarks: "",
     });
+    setRetailerSearch("");
+    setRetailers([]);
     setShowModal(true);
   };
 
@@ -129,6 +137,20 @@ export default function SimReplacementPage() {
     setSelectedItem(item);
     setShowModal(true);
   };
+
+  const fetchRetailers = (houseId: number, q?: string) => {
+    axios.get(`/v1/sim-replacement/retailers`, { params: { house_id: houseId, search: q || "" } })
+      .then(res => setRetailers(res.data || []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    axios.get("houses/accessible").then(res => setHouses(res.data || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (formData.house_id) fetchRetailers(formData.house_id);
+  }, [formData.house_id]);
 
   const handleCreate = async () => {
     setActionLoading(true);
@@ -211,8 +233,8 @@ export default function SimReplacementPage() {
               <thead>
                 <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Request #</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Customer / Retailer</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">SIM (Old → New)</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Retailer</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">EV Swap Serial</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reason</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
@@ -226,12 +248,11 @@ export default function SimReplacementPage() {
                       <p className="font-medium text-sm text-indigo-600 dark:text-indigo-400">{item.request_number}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-sm">{item.customer_name || "-"}</p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400">{item.retailer_name || item.retailer_code || "-"}</p>
+                      <p className="font-medium text-sm">{item.retailer_name || "-"}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">{item.retailer_code || "-"}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm">{item.old_sim_number || "-"}</p>
-                      {item.new_sim_number && <p className="text-[11px] text-green-600">→ {item.new_sim_number}</p>}
+                      <p className="text-sm">{item.ev_swap_serial || "-"}</p>
                     </td>
                     <td className="px-4 py-3 text-sm">{item.replacement_reason?.replace(/_/g, " ") || "-"}</td>
                     <td className="px-4 py-3"><StatusBadge status={item.request_status} t={t} /></td>
@@ -279,11 +300,9 @@ export default function SimReplacementPage() {
                 </p>
 
                 <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div><label className="text-xs text-gray-500">Customer</label><p className="font-medium">{selectedItem.customer_name || "-"}</p></div>
-                  <div><label className="text-xs text-gray-500">Phone</label><p className="font-medium">{selectedItem.customer_phone || "-"}</p></div>
                   <div><label className="text-xs text-gray-500">Retailer</label><p className="font-medium">{selectedItem.retailer_name || selectedItem.retailer_code || "-"}</p></div>
                   <div><label className="text-xs text-gray-500">Reason</label><p className="font-medium">{selectedItem.replacement_reason?.replace(/_/g, " ") || "-"}</p></div>
-                  <div><label className="text-xs text-gray-500">Old SIM</label><p className="font-medium">{selectedItem.old_sim_number || "-"}</p></div>
+                  <div><label className="text-xs text-gray-500">EV Swap Serial</label><p className="font-medium">{selectedItem.ev_swap_serial || "-"}</p></div>
                   <div><label className="text-xs text-gray-500">New SIM</label><p className="font-medium">{selectedItem.new_sim_number || "Not issued"}</p></div>
                 </div>
 
@@ -299,7 +318,7 @@ export default function SimReplacementPage() {
                     </>
                   )}
                   {selectedItem.request_status === "approved" && canIssue && (
-                    <button onClick={() => doAction("/issue", selectedItem.id, { new_sim_number: selectedItem.new_sim_number || selectedItem.old_sim_number || "NEW" }, t("sim_replacement.toast_issue_success"))} disabled={actionLoading} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 cursor-pointer disabled:opacity-50">
+                    <button onClick={() => doAction("/issue", selectedItem.id, { new_sim_number: selectedItem.new_sim_number || "NEW" }, t("sim_replacement.toast_issue_success"))} disabled={actionLoading} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 cursor-pointer disabled:opacity-50">
                       {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Disc className="w-4 h-4" />} {t("sim_replacement.actions.issue_sim")}
                     </button>
                   )}
@@ -324,53 +343,101 @@ export default function SimReplacementPage() {
               <>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">{t("sim_replacement.create")}</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">Customer Name</label>
-                    <input value={formData.customer_name || ""} onChange={e => setFormData({ ...formData, customer_name: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">Phone</label>
-                    <input value={formData.customer_phone || ""} onChange={e => setFormData({ ...formData, customer_phone: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">Retailer Name</label>
-                    <input value={formData.retailer_name || ""} onChange={e => setFormData({ ...formData, retailer_name: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">Retailer Code</label>
-                    <input value={formData.retailer_code || ""} onChange={e => setFormData({ ...formData, retailer_code: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">Old SIM Number</label>
-                    <input value={formData.old_sim_number || ""} onChange={e => setFormData({ ...formData, old_sim_number: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">Old MSISDN</label>
-                    <input value={formData.old_msisdn || ""} onChange={e => setFormData({ ...formData, old_msisdn: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">SIM Type</label>
-                    <select value={formData.sim_type || "Prepaid"} onChange={e => setFormData({ ...formData, sim_type: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                      <option value="Prepaid">Prepaid</option>
-                      <option value="Postpaid">Postpaid</option>
-                      <option value="MNP">MNP</option>
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.house")}</label>
+                    <select value={formData.house_id || ""} onChange={e => { const v = e.target.value; setFormData({ ...formData, house_id: v ? Number(v) : "", retailer_id: "", retailer_code: "", retailer_name: "" }); }} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                      <option value="">{t("common.select_house")}</option>
+                      {houses.map(h => <option key={h.id} value={h.id}>{h.display_name}</option>)}
                     </select>
                   </div>
+
+                  <div className="col-span-2 relative">
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.retailer")}</label>
+                    <input
+                      value={formData.house_id ? (formData.retailer_name || retailerSearch) : ""}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setRetailerSearch(v);
+                        setFormData({ ...formData, retailer_id: "", retailer_code: "", retailer_name: "" });
+                        setRetailerDropdownOpen(true);
+                        clearTimeout(retailerDebounce.current);
+                        retailerDebounce.current = setTimeout(() => {
+                          if (formData.house_id) fetchRetailers(formData.house_id, v);
+                        }, 300);
+                      }}
+                      onFocus={() => { if (formData.house_id) { setRetailerDropdownOpen(true); if (retailers.length === 0) fetchRetailers(formData.house_id); } }}
+                      placeholder={!formData.house_id ? t("sim_replacement.select_house_first") : t("sim_replacement.search_retailer")}
+                      disabled={!formData.house_id}
+                      className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-50"
+                    />
+                    {retailerDropdownOpen && formData.house_id && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setRetailerDropdownOpen(false)} />
+                        <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                          {retailers.length === 0 ? (
+                            <p className="px-3 py-2 text-sm text-gray-400">{t("sim_replacement.no_retailers")}</p>
+                          ) : retailers.map(r => (
+                            <button
+                              key={r.id}
+                              type="button"
+                              onClick={() => {
+                                setFormData({ ...formData, retailer_id: r.id, retailer_name: r.name, retailer_code: r.retailer_code });
+                                setRetailerSearch(r.name);
+                                setRetailerDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer"
+                            >
+                              <span className="font-medium">{r.name}</span>
+                              <span className="text-gray-400 ml-2">{r.retailer_code}</span>
+                              {r.itop_number && <span className="text-gray-400 ml-1">({r.itop_number})</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">Reason</label>
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.customer_nid")}</label>
+                    <input value={formData.customer_nid || ""} onChange={e => setFormData({ ...formData, customer_nid: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                  </div>
+
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.sim_type")}</label>
+                    <select value={formData.sim_type || "Prepaid"} onChange={e => setFormData({ ...formData, sim_type: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                      <option value="Prepaid">{t("sim_replacement.sim_types.prepaid")}</option>
+                      <option value="Postpaid">{t("sim_replacement.sim_types.postpaid")}</option>
+                      <option value="MNP">{t("sim_replacement.sim_types.mnp")}</option>
+                    </select>
+                  </div>
+
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason")}</label>
                     <select value={formData.replacement_reason || "Damaged"} onChange={e => setFormData({ ...formData, replacement_reason: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
                       {["Lost", "Damaged", "Stolen", "Network_Issue", "Other"].map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
                     </select>
                   </div>
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium text-gray-500">Reason Details</label>
-                    <textarea value={formData.reason_details || ""} onChange={e => setFormData({ ...formData, reason_details: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
+
                   <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">Priority</label>
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.ev_swap_serial")}</label>
+                    <input value={formData.ev_swap_serial || ""} onChange={e => setFormData({ ...formData, ev_swap_serial: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                  </div>
+
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.priority")}</label>
                     <select value={formData.priority || "normal"} onChange={e => setFormData({ ...formData, priority: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
                       {["low", "normal", "high", "urgent"].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
                     </select>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason_details")}</label>
+                    <textarea value={formData.reason_details || ""} onChange={e => setFormData({ ...formData, reason_details: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.remarks")}</label>
+                    <textarea value={formData.remarks || ""} onChange={e => setFormData({ ...formData, remarks: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
                   </div>
                 </div>
                 <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100 dark:border-slate-800">
@@ -397,7 +464,7 @@ function DetailRow({ item, t, formatDate, StatusBadge, openDetail }: {
       <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-3 w-full text-left cursor-pointer">
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm text-indigo-600 dark:text-indigo-400">{item.request_number}</p>
-          <p className="text-[11px] text-gray-500">{item.customer_name || item.retailer_name || "-"}</p>
+          <p className="text-[11px] text-gray-500">{item.retailer_name || item.retailer_code || "-"}</p>
         </div>
         <StatusBadge status={item.request_status} t={t} />
         {expanded ? <ChevronUp className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />}
@@ -405,7 +472,7 @@ function DetailRow({ item, t, formatDate, StatusBadge, openDetail }: {
       {expanded && (
         <div className="mt-3 ml-2 space-y-2 text-sm text-gray-600 dark:text-gray-400">
           <div className="grid grid-cols-2 gap-2">
-            <div><span className="text-[11px] text-gray-500">Old SIM:</span> <span className="font-medium">{item.old_sim_number || "-"}</span></div>
+            <div><span className="text-[11px] text-gray-500">EV Swap Serial:</span> <span className="font-medium">{item.ev_swap_serial || "-"}</span></div>
             <div><span className="text-[11px] text-gray-500">New SIM:</span> <span className="font-medium">{item.new_sim_number || "-"}</span></div>
             <div><span className="text-[11px] text-gray-500">Reason:</span> <span className="font-medium">{item.replacement_reason?.replace(/_/g, " ") || "-"}</span></div>
             <div><span className="text-[11px] text-gray-500">Date:</span> <span className="font-medium">{formatDate(item.requested_at)}</span></div>

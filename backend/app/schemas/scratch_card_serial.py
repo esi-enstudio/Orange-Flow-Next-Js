@@ -8,6 +8,8 @@ class ScratchCardSerialCreate(BaseModel):
     serial_number: str = Field(..., min_length=1, max_length=100)
     status: str = Field("available", pattern=r"^(available|used|allocated)$")
     batch_id: Optional[str] = None
+    exit_order_no: Optional[str] = Field(None, max_length=100)
+    rf_no: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
 
 
@@ -15,6 +17,8 @@ class ScratchCardSerialUpdate(BaseModel):
     product_id: Optional[int] = Field(None, ge=1)
     serial_number: Optional[str] = Field(None, min_length=1, max_length=100)
     status: Optional[str] = Field(None, pattern=r"^(available|used|allocated)$")
+    exit_order_no: Optional[str] = Field(None, max_length=100)
+    rf_no: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
 
 
@@ -27,6 +31,8 @@ class ScratchCardSerialSchema(BaseModel):
     serial_number: str
     status: str
     batch_id: Optional[str] = None
+    exit_order_no: Optional[str] = None
+    rf_no: Optional[str] = None
     notes: Optional[str] = None
     used_at: Optional[datetime] = None
     used_by: Optional[int] = None
@@ -43,6 +49,8 @@ class BatchSerialsCreate(BaseModel):
     product_id: int = Field(..., ge=1)
     serials: List[str] = Field(..., min_length=1)
     batch_id: Optional[str] = None
+    exit_order_no: Optional[str] = Field(None, max_length=100)
+    rf_no: Optional[str] = Field(None, max_length=100)
 
 
 class SlotAllocateRequest(BaseModel):

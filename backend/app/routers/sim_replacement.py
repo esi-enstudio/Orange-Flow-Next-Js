@@ -96,6 +96,37 @@ async def _log_replacement_action(
 
 
 # ---------------------------------------------------------------------------
+# RETAILERS BY HOUSE
+# ---------------------------------------------------------------------------
+
+@router.get("/sim-replacement/retailers")
+async def get_retailers_for_sim_replacement(
+    house_id: int = Query(..., ge=1),
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("sim_replacement.create")),
+):
+    query = select(Retailer.id, Retailer.retailer_code, Retailer.name, Retailer.itop_number).where(
+        Retailer.house_id == house_id
+    )
+    if search:
+        q = f"%{search}%"
+        query = query.where(
+            or_(
+                Retailer.retailer_code.ilike(q),
+                Retailer.name.ilike(q),
+                Retailer.itop_number.ilike(q),
+            )
+        )
+    query = query.order_by(Retailer.name).limit(50)
+    result = await db.execute(query)
+    return [
+        {"id": r[0], "retailer_code": r[1], "name": r[2], "itop_number": r[3]}
+        for r in result.all()
+    ]
+
+
+# ---------------------------------------------------------------------------
 # PRODUCTS (SIM category)
 # ---------------------------------------------------------------------------
 
@@ -553,10 +584,7 @@ async def list_replacement_requests(
                 SimReplacementRequest.request_number.ilike(q),
                 SimReplacementRequest.retailer_name.ilike(q),
                 SimReplacementRequest.retailer_code.ilike(q),
-                SimReplacementRequest.customer_name.ilike(q),
-                SimReplacementRequest.old_sim_number.ilike(q),
                 SimReplacementRequest.new_sim_number.ilike(q),
-                SimReplacementRequest.customer_phone.ilike(q),
             )
         )
     if status:
@@ -635,9 +663,9 @@ async def create_replacement_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("sim_replacement.create")),
 ):
-    target_house_id = house_context
+    target_house_id = payload.house_id or house_context
     if not target_house_id:
-        raise HTTPException(status_code=400, detail="X-House-ID header required")
+        raise HTTPException(status_code=400, detail="house_id is required")
 
     user_house_ids = [h.id for h in current_user.houses]
     if not is_admin_user(current_user) and target_house_id not in user_house_ids:
@@ -651,16 +679,14 @@ async def create_replacement_request(
         retailer_id=payload.retailer_id,
         retailer_code=payload.retailer_code,
         retailer_name=payload.retailer_name,
-        customer_name=payload.customer_name,
-        customer_phone=payload.customer_phone,
         customer_nid=payload.customer_nid,
-        old_sim_number=payload.old_sim_number,
-        old_msisdn=payload.old_msisdn,
         sim_type=payload.sim_type,
         replacement_reason=payload.replacement_reason,
         reason_details=payload.reason_details,
+        ev_swap_serial=payload.ev_swap_serial,
         priority=payload.priority,
         notes=payload.notes,
+        remarks=payload.remarks,
         request_status="pending",
         requested_by=current_user.id,
     )
@@ -1066,13 +1092,13 @@ async def export_replacement_requests(
     wb = Workbook()
     ws = wb.active
     ws.title = "SIM Replacement"
-    ws.append(["Request #", "Status", "Retailer", "Customer", "Phone", "Old SIM", "New SIM",
-               "Reason", "Priority", "Requested By", "Requested At", "Approved At", "Issued At", "Activated At"])
+    ws.append(["Request #", "Status", "Retailer", "Retailer Code", "EV Swap Serial",
+               "New SIM", "Reason", "Priority", "Requested By", "Requested At", "Approved At", "Issued At", "Activated At"])
 
     for r in records:
         ws.append([
-            r.request_number, r.request_status, r.retailer_name, r.customer_name,
-            r.customer_phone, r.old_sim_number, r.new_sim_number,
+            r.request_number, r.request_status, r.retailer_name, r.retailer_code,
+            r.ev_swap_serial, r.new_sim_number,
             r.replacement_reason, r.priority, r.requested_by,
             r.requested_at, r.approved_at, r.issued_at, r.activated_at,
         ])
@@ -1109,13 +1135,13 @@ async def export_sim_inventory(
     wb = Workbook()
     ws = wb.active
     ws.title = "SIM Inventory"
-    ws.append(["Batch #", "SIM Type", "Starting Serial", "Ending Serial", "Serial Ranges", "Total Qty",
+    ws.append(["Batch #", "SIM Type", "Starting Serial", "Ending Serial", "Total Qty",
                "Available Qty", "Supplier", "Exit Order No", "Status", "Purchase Date"])
 
     for r in records:
         ws.append([
             r.batch_number, r.sim_type, r.starting_serial, r.ending_serial,
-            r.serial_ranges or "", r.quantity, r.available_quantity, r.supplier,
+            r.quantity, r.available_quantity, r.supplier,
             r.exit_order_no, r.status, r.purchase_date,
         ])
 

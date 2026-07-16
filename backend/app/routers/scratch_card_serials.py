@@ -244,6 +244,8 @@ async def batch_create_serials(
             serial_number=sn,
             status="available",
             batch_id=payload.batch_id,
+            exit_order_no=payload.exit_order_no,
+            rf_no=payload.rf_no,
         )
         db.add(record)
         inserted += 1
