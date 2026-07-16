@@ -3,6 +3,7 @@ import {
   FileSpreadsheet,
   Wallet,
   SmartphoneNfc,
+  Smartphone,
   ClipboardList,
   Database,
   Activity,
@@ -147,6 +148,16 @@ export const navItems: NavItem[] = [
       { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permission: "reports.view" },
       { title: "Retailer Visits", translationKey: "nav.visits", href: "/visit", permission: "visits.view" },
       { title: "Orders", translationKey: "nav.orders", href: "/orders", permission: "orders.view" },
+    ]
+  },
+  {
+    title: "SIM Management",
+    translationKey: "nav.sim_management",
+    icon: Smartphone,
+    color: "text-indigo-500",
+    children: [
+      { title: "SIM Inventory", translationKey: "nav.sim_inventory", href: "/sim-inventory", permission: "sim_inventory.view" },
+      { title: "SIM Replacement", translationKey: "nav.sim_replacement", href: "/sim-replacement", permission: "sim_replacement.view" },
     ]
   },
   {

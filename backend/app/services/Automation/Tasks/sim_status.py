@@ -58,11 +58,10 @@ async def run_sim_status_check(serials: list, credentials: dict):
         final_report = f"❌ Automation Error: {str(e).replace('_', ' ')}"
     
     finally:
-        # 6. Close tab and context after work (to save RAM) ✅
+        # Close only the page; session_manager keeps the context alive for reuse
         try:
             if page: await page.close()
-            if context: await context.close()
-            logger.info(f"🚪 [{house_name}] Task Close Tab & Session closed.")
+            logger.info(f"🚪 [{house_name}] Task page closed, keepalive context preserved.")
         except:
             pass
 

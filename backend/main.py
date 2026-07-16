@@ -70,6 +70,7 @@ from app.routers.scratch_cards import router as scratch_cards_router
 from app.routers.scratch_card_serials import router as scratch_card_serials_router
 from app.routers.cv import router as cv_router
 from app.routers.sync import router as sync_router
+from app.routers.sim_replacement import router as sim_replacement_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -120,6 +121,7 @@ app.include_router(scratch_cards_router)
 app.include_router(scratch_card_serials_router)
 app.include_router(cv_router)
 app.include_router(sync_router)
+app.include_router(sim_replacement_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)

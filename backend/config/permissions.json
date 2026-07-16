@@ -33,7 +33,10 @@
         "navigation": { "display_name": "Navigation", "permissions": ["imports.view", "settings.view", "expenses.view", "attendance.view"] },
         "zoom_in": { "display_name": "Zoom In", "permissions": ["zoom_in.view", "zoom_in.create", "zoom_in.edit", "zoom_in.delete", "zoom_in.import", "zoom_in.export"] },
         "cv": { "display_name": "CV Management", "permissions": ["cv.view", "cv.create", "cv.edit", "cv.delete", "cv.export"] },
-        "recharge_dashboard": { "display_name": "Recharge Dashboard", "permissions": ["recharge_dashboard.view", "recharge_dashboard.export"] }
+        "recharge_dashboard": { "display_name": "Recharge Dashboard", "permissions": ["recharge_dashboard.view", "recharge_dashboard.export"] },
+        "sim_replacement": { "display_name": "SIM Replacement", "permissions": ["sim_replacement.view", "sim_replacement.create", "sim_replacement.edit", "sim_replacement.delete", "sim_replacement.approve", "sim_replacement.issue", "sim_replacement.activate", "sim_replacement.export", "sim_replacement.import"] },
+        "sim_inventory": { "display_name": "SIM Inventory", "permissions": ["sim_inventory.view", "sim_inventory.create", "sim_inventory.edit", "sim_inventory.delete", "sim_inventory.export", "sim_inventory.import"] },
+        "ev_kit": { "display_name": "EV Kit Inventory", "permissions": ["ev_kit.view", "ev_kit.create", "ev_kit.edit", "ev_kit.delete", "ev_kit.allocate", "ev_kit.export"] }
     },
     "default_roles": [
         {

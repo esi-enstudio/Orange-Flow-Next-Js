@@ -92,12 +92,14 @@ async def sync_house_data(house, progress_callback=None):
         "code": house.code
     }
 
-    # Get valid page from session manager
-    page, context = await session_manager.get_valid_page(credentials)
-    
     file_path = os.path.join(TEMP_DIR, f"ga_{house.code}.xlsx")
+    page = None
+    context = None
     
     try:
+        # Get valid page from session manager
+        page, context = await session_manager.get_valid_page(credentials)
+
         if progress_callback:
             await progress_callback(f"Starting Live Activation sync for {house.name}...")
         logger.info(f"🚀 [GA Sync] {house.name} Report download starting...")
@@ -132,6 +134,11 @@ async def sync_house_data(house, progress_callback=None):
             await progress_callback(f"✓ Live Activation sync complete for {house.name}")
         logger.info(f"✅ [GA Sync] {house.name} database update successful.")
 
+    except Exception as e:
+        logger.error(f"❌ [GA Sync Error] {house.name}: {str(e)}")
+        if progress_callback:
+            await progress_callback(f"✗ Error in {house.name}: {str(e)}")
+        raise
     finally:
         # Close tab and context after work ✅
         if page:
@@ -139,10 +146,8 @@ async def sync_house_data(house, progress_callback=None):
         if context:
             await context.close()
         
-        # Using 'house.name' instead of 'house_name' ✅
         logger.info(f"🚪 [{house.name}] Task cleanup completed.")
 
-        
         # Temp file cleanup
         if os.path.exists(file_path):
             os.remove(file_path)

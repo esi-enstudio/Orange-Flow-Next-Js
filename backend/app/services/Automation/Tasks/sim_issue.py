@@ -144,10 +144,8 @@ async def run_finalize_issue(serials: list, retailer_code: str, credentials: dic
         return f"❌ Issue submission error: {str(e)}"
     
     finally:
-        # 9. Close only tab and context after work ✅
-        # Since this is a terminal action (last step), closing context is safe.
+        # Close only the page; session_manager keeps the context alive for reuse
         if page: await page.close()
-        if context: await context.close()
         logger.info(f"🚪 [{house_name}] Issue process Cleanup completed.")
 
 def process_issue_summary(all_data, house_info):

@@ -229,6 +229,14 @@ class SessionManager:
         if not self.browser:
             await self.start()
 
+        code = credentials.get('code')
+
+        # 1. Reuse keepalive context directly — just create a new page
+        if code and code in self._keepalive_ctx:
+            page = await self._keepalive_ctx[code]["context"].new_page()
+            logger.info(f"✅ Reused keepalive session for {credentials['house_name']}")
+            return page, self._keepalive_ctx[code]["context"]
+
         session_path = self._session_path(credentials)
 
         if os.path.exists(session_path):
@@ -238,10 +246,14 @@ class SessionManager:
             try:
                 if await self._is_session_valid(test_page):
                     logger.info(f"✅ Session valid for {credentials['house_name']}")
-                    # Ensure keepalive is running for this house
-                    code = credentials.get('code')
-                    if code and code not in self._keepalive_ctx:
+                    # Start keepalive so future calls reuse it
+                    if code:
                         await self._start_keepalive(credentials)
+                        # Return a page from the keepalive context, close the test context
+                        await test_page.close()
+                        await test_context.close()
+                        page = await self._keepalive_ctx[code]["context"].new_page()
+                        return page, self._keepalive_ctx[code]["context"]
                     return test_page, test_context
             except Exception:
                 pass
@@ -249,6 +261,13 @@ class SessionManager:
             await test_context.close()
             logger.info(f"⏳ Session expired for {credentials['house_name']}, re-logging in...")
 
-        return await self._login(credentials)
+        page, context = await self._login(credentials)
+        # After login, keepalive is running; use that context instead
+        if code and code in self._keepalive_ctx:
+            await page.close()
+            await context.close()
+            page = await self._keepalive_ctx[code]["context"].new_page()
+            return page, self._keepalive_ctx[code]["context"]
+        return page, context
 
 session_manager = SessionManager()

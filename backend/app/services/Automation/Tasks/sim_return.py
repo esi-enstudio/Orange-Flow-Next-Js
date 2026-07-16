@@ -141,8 +141,7 @@ async def run_sim_return_task(serials: list, credentials: dict, bot, chat_id):
     finally:
         # 13. Close page and session context (to save memory)
         if page: await page.close()
-        if context: await context.close()
-        logger.info(f"🚪 [{house_name}] Task session closed.")
+        logger.info(f"🚪 [{house_name}] Task page closed, keepalive context preserved.")
 
 
 def process_return_summary(scanned_data, credentials):

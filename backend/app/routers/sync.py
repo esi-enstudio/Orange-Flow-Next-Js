@@ -122,15 +122,31 @@ async def sync_status(job_id: str):
     if not job:
         return {"status": "not_found"}
     
+    # Check for errors in events (sync functions may catch exceptions and report via progress_callback
+    # without re-raising, so job["error"] would be None but the events contain error indicators)
+    has_events_error = any(
+        "✗" in e["msg"] or "Error" in e["msg"] or "error" in e["msg"] or "fail" in e["msg"].lower()
+        for e in (job.get("events") or [])
+    ) if job["done"] else False
+    
+    has_error = bool(job.get("error")) or has_events_error
+    
     resp = {
-        "status": "running" if not job["done"] else ("error" if job["error"] else "complete"),
+        "status": "running" if not job["done"] else ("error" if has_error else "complete"),
         "events": job["events"],
     }
     
     if job["done"]:
-        if job["error"]:
+        if job.get("error"):
             resp["message"] = job["error"]
-        elif job["has_work"]:
+        elif has_events_error:
+            # Extract the last error message from events
+            error_msgs = [
+                e["msg"] for e in job.get("events") or []
+                if "✗" in e["msg"] or "Error" in e["msg"] or "error" in e["msg"]
+            ]
+            resp["message"] = error_msgs[-1] if error_msgs else "Sync completed with errors"
+        elif job.get("has_work"):
             resp["message"] = "Sync completed successfully"
         else:
             resp["message"] = "No missing data found. Database already up to date."

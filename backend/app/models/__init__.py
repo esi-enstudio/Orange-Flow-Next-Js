@@ -42,3 +42,8 @@ from app.models.zoom_in import (
     ZoomInAllocation, ZoomInEvent,
     ZoomInEventBTS, ZoomInEventRSO, ZoomInEventBP, ZoomInEventRetailer,
 )
+from app.models.sim_inventory import SimInventory
+from app.models.ev_kit_inventory import EvKitInventory
+from app.models.sim_replacement_request import SimReplacementRequest
+from app.models.sim_replacement_log import SimReplacementLog
+from app.models.sim_stock_movement import SimStockMovement
