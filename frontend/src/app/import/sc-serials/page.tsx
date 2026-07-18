@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Search, Download, X, Loader2, Database, ChevronLeft, ChevronRight, Plus, Trash2, Upload, AlertTriangle, CheckCircle2, Copy } from "lucide-react";
+import { Search, Download, X, Loader2, Database, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Upload, AlertTriangle, CheckCircle2, Copy } from "lucide-react";
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -16,6 +16,7 @@ interface SerialRecord {
   used_at: string | null; used_by: number | null;
   used_by_name: string | null; used_by_role: string | null;
   created_at: string; updated_at: string;
+  exit_order_no: string | null; rf_no: string | null;
 }
 
 interface StockSummary {
@@ -28,7 +29,7 @@ interface House {
 }
 
 interface InvoiceRow {
-  productId: number | ""; startSerial: string; endSerial: string; exitOrderNo: string; rfNo: string;
+  productId: number | ""; startSerial: string; endSerial: string; qty: string; exitOrderNo: string; rfNo: string;
 }
 
 interface Product {
@@ -70,7 +71,7 @@ export default function SCSerialsPage() {
   const [importBatch, setImportBatch] = useState("");
   const [importing, setImporting] = useState(false);
   const [invoiceRows, setInvoiceRows] = useState<InvoiceRow[]>([
-    { productId: "", startSerial: "", endSerial: "", exitOrderNo: "", rfNo: "" },
+    { productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" },
   ]);
 
   // products for dropdown
@@ -258,10 +259,16 @@ export default function SCSerialsPage() {
   const calcInvoiceTotal = (): number => {
     let total = 0;
     for (const row of invoiceRows) {
-      if (row.productId && row.startSerial && row.endSerial) {
-        const s = BigInt(row.startSerial);
-        const e = BigInt(row.endSerial);
-        if (e >= s && e - s <= BigInt(100000)) total += Number(e - s + BigInt(1));
+      if (!row.productId || !row.startSerial) continue;
+      if (row.endSerial) {
+        try {
+          const s = BigInt(row.startSerial);
+          const e = BigInt(row.endSerial);
+          if (e >= s && e - s <= BigInt(100000)) total += Number(e - s + BigInt(1));
+        } catch {}
+      } else if (row.qty) {
+        const q = parseInt(row.qty, 10);
+        if (!isNaN(q) && q > 0 && q <= 100000) total += q;
       }
     }
     return total;
@@ -319,7 +326,7 @@ export default function SCSerialsPage() {
       setShowImport(false);
       setImportBatch("");
       setModalHouseId("");
-      setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", exitOrderNo: "", rfNo: "" }]);
+      setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }]);
       fetchData();
       fetchSummary();
     } catch (e: any) { toast.error(e?.message || "Import failed"); }
@@ -409,7 +416,7 @@ export default function SCSerialsPage() {
             <p className="text-sm text-gray-500">Manage scratch card serial numbers</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           {hasPermission("scratch_card_serials.create") && (
               <button onClick={async () => {
                 setShowImport(true);
@@ -419,49 +426,38 @@ export default function SCSerialsPage() {
                   setImportBatch(res.data.data?.batch_id || generateBatchId());
                 } catch { setImportBatch(generateBatchId()); }
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
+              className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
               <Plus className="w-4 h-4" /> Add Serials
             </button>
           )}
-          {hasPermission("scratch_card_serials.export") && (
-            <button onClick={() => { setExportHouseId(""); setShowExportHouse(true); }}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-              <Download className="w-4 h-4" /> Export
-            </button>
-          )}
-          {hasPermission("scratch_card_serials.view") && (
-            <button onClick={() => { setShowAllocate(true); setAllocAmount(""); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-              <Database className="w-4 h-4" /> Allocate
-            </button>
-          )}
+          <div className="flex flex-1 sm:flex-none gap-2">
+            {hasPermission("scratch_card_serials.export") && (
+              <button onClick={() => { setExportHouseId(""); setShowExportHouse(true); }}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+                <Download className="w-4 h-4" /> Export
+              </button>
+            )}
+            {hasPermission("scratch_card_serials.view") && (
+              <button onClick={() => { setShowAllocate(true); setAllocAmount(""); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+                <Database className="w-4 h-4" /> Allocate
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Stock Summary — per house */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-4">
         {summaryLoading ? (
-          <>
-            {/* md: 1 skeleton, lg: 4 skeletons */}
-            <div className="md:block lg:hidden">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 animate-pulse">
-                <div className="h-4 w-28 bg-gray-200 dark:bg-slate-700 rounded mb-3" />
-                <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded mb-4" />
-                <div className="h-7 w-24 bg-gray-200 dark:bg-slate-700 rounded mb-2" />
-                <div className="h-7 w-20 bg-gray-100 dark:bg-slate-800 rounded" />
-              </div>
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 animate-pulse">
+              <div className="h-4 w-28 bg-gray-200 dark:bg-slate-700 rounded mb-3" />
+              <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded mb-4" />
+              <div className="h-7 w-24 bg-gray-200 dark:bg-slate-700 rounded mb-2" />
+              <div className="h-7 w-20 bg-gray-100 dark:bg-slate-800 rounded" />
             </div>
-            <div className="hidden lg:grid lg:grid-cols-4 gap-4 col-span-full">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 animate-pulse">
-                  <div className="h-4 w-28 bg-gray-200 dark:bg-slate-700 rounded mb-3" />
-                  <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded mb-4" />
-                  <div className="h-7 w-24 bg-gray-200 dark:bg-slate-700 rounded mb-2" />
-                  <div className="h-7 w-20 bg-gray-100 dark:bg-slate-800 rounded" />
-                </div>
-              ))}
-            </div>
-          </>
+          ))
         ) : stockSummary.length === 0 ? (
           <div className="col-span-full text-center py-8 text-gray-400 text-sm">No stock data available</div>
         ) : (
@@ -551,11 +547,11 @@ export default function SCSerialsPage() {
 
       {/* Table */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="hidden lg:block overflow-x-auto scrollbar-custom">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
-                <th className="w-10 px-2 py-3">
+                <th className="w-10 px-2 py-2">
                   {hasPermission("scratch_card_serials.delete") && (
                     <Checkbox
                       checked={selectedIds.length > 0 && data.filter(r => r.status === "used").every(r => selectedIds.includes(r.id))}
@@ -564,13 +560,13 @@ export default function SCSerialsPage() {
                     />
                   )}
                 </th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Serial #</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Product</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Batch</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Notes</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used At</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used By</th>
-                <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Actions</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Serial #</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Product</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Batch</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Order / RF</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used At</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used By</th>
+                <th className="text-right px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -578,7 +574,7 @@ export default function SCSerialsPage() {
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-b border-gray-50 dark:border-slate-800/50 animate-pulse">
                     {Array.from({ length: 8 }).map((_, j) => (
-                      <td key={j} className="px-4 py-3"><div className="h-4 bg-gray-200 dark:bg-slate-700 rounded w-3/4" /></td>
+                      <td key={j} className="px-2 py-1"><div className="h-4 bg-gray-200 dark:bg-slate-700 rounded w-3/4" /></td>
                     ))}
                   </tr>
                 ))
@@ -586,7 +582,7 @@ export default function SCSerialsPage() {
                 <tr><td colSpan={8} className="text-center py-12 text-gray-400">No serials found</td></tr>
               ) : data.map(r => (
                 <tr key={r.id} className={`border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${selectedIds.includes(r.id) ? 'bg-orange-50 dark:bg-orange-500/5' : ''}`}>
-                  <td className="px-2 py-3">
+                  <td className="px-2 py-1">
                     {r.status === "used" && hasPermission("scratch_card_serials.delete") && (
                       <Checkbox
                         checked={selectedIds.includes(r.id)}
@@ -595,7 +591,7 @@ export default function SCSerialsPage() {
                       />
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-1">
                     <div className="flex items-center gap-2">
                       <span className={`font-mono text-xs font-medium ${r.status === "used" ? "line-through text-gray-400 dark:text-gray-500" : "text-gray-900 dark:text-gray-100"}`}>
                         {r.serial_number}
@@ -603,13 +599,16 @@ export default function SCSerialsPage() {
                       {r.status === "used" && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-1">
                     <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.product_name || `Product #${r.product_id}`}</p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.product_code || ""}</p>
                   </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-[11px]">{r.batch_id || "-"}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-[11px] max-w-[120px] truncate">{r.notes || "-"}</td>
-                    <td className="px-4 py-3">
+                  <td className="px-2 py-1 text-gray-500 dark:text-gray-400 text-[11px]">{r.batch_id || "-"}</td>
+                  <td className="px-2 py-1">
+  <p className="text-xs text-gray-900 dark:text-gray-100">{r.exit_order_no || "-"}</p>
+  <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.rf_no || ""}</p>
+</td>
+                    <td className="px-2 py-1">
                       {r.used_at ? (
                         <div>
                           <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.used_at))}</p>
@@ -619,7 +618,7 @@ export default function SCSerialsPage() {
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-1">
                       {r.used_by_name ? (
                         <div>
                           <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.used_by_name}</p>
@@ -629,7 +628,7 @@ export default function SCSerialsPage() {
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-2 py-1 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {hasPermission("scratch_card_serials.delete") && (
                         r.status === "used" ? (
@@ -656,6 +655,35 @@ export default function SCSerialsPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile Accordion */}
+        <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
+          {loading ? (
+            Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-4 py-4 animate-pulse">
+                <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+              </div>
+            ))
+          ) : data.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">No serials found</div>
+          ) : (
+            <MobileRow
+              data={data}
+              selectedIds={selectedIds}
+              toggleSelect={toggleSelect}
+              hasDelete={hasPermission("scratch_card_serials.delete")}
+              formatDate={formatDate}
+              timeAgo={timeAgo}
+              setPermanentDeleteId={setPermanentDeleteId}
+              setDeletingId={setDeletingId}
+            />
+          )}
+        </div>
+
         {totalRecords > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-slate-800">
             <span className="text-xs text-gray-400">
@@ -745,7 +773,7 @@ export default function SCSerialsPage() {
                 setShowImport(false);
                 setImportBatch("");
                 setModalHouseId("");
-                setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", exitOrderNo: "", rfNo: "" }]);
+                setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }]);
               }} className="p-1 text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
@@ -802,20 +830,12 @@ export default function SCSerialsPage() {
                         <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase w-28">Product</th>
                         <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Start Serial</th>
                         <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">End Serial</th>
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase w-16">Qty</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase w-28">Qty</th>
                         <th className="w-10" />
                       </tr>
                     </thead>
                     <tbody>
                       {invoiceRows.map((row, i) => {
-                        let qty = 0;
-                        if (row.startSerial && row.endSerial) {
-                          try {
-                            const s = BigInt(row.startSerial);
-                            const e = BigInt(row.endSerial);
-                            if (e >= s) qty = Number(e - s + BigInt(1));
-                          } catch {}
-                        }
                         return (
                           <tr key={i} className="border-b border-gray-50 dark:border-slate-800/50">
                             <td className="px-2 py-1.5">
@@ -835,6 +855,8 @@ export default function SCSerialsPage() {
                               <input value={row.startSerial} onChange={e => {
                                 const rows = [...invoiceRows];
                                 rows[i].startSerial = e.target.value;
+                                rows[i].endSerial = "";
+                                rows[i].qty = "";
                                 setInvoiceRows(rows);
                               }} placeholder="503880790190"
                                 className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
@@ -844,12 +866,34 @@ export default function SCSerialsPage() {
                               <input value={row.endSerial} onChange={e => {
                                 const rows = [...invoiceRows];
                                 rows[i].endSerial = e.target.value;
+                                if (rows[i].startSerial && rows[i].endSerial) {
+                                  try {
+                                    const s = BigInt(rows[i].startSerial);
+                                    const e = BigInt(rows[i].endSerial);
+                                    if (e >= s) rows[i].qty = String(e - s + BigInt(1));
+                                  } catch {}
+                                }
                                 setInvoiceRows(rows);
                               }} placeholder="503880795189"
                                 className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                               />
                             </td>
-                            <td className="px-2 py-1.5 text-sm text-gray-500">{qty || "-"}</td>
+                            <td className="px-2 py-1.5">
+                              <input value={row.qty} onChange={e => {
+                                const rows = [...invoiceRows];
+                                rows[i].qty = e.target.value;
+                                if (rows[i].startSerial && rows[i].qty) {
+                                  try {
+                                    const s = BigInt(rows[i].startSerial);
+                                    const q = BigInt(rows[i].qty);
+                                    if (q > BigInt(0)) rows[i].endSerial = String(s + q - BigInt(1));
+                                  } catch {}
+                                }
+                                setInvoiceRows(rows);
+                              }} placeholder="5000"
+                                className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                              />
+                            </td>
                             <td className="px-2 py-1.5">
                               {invoiceRows.length > 1 && (
                                 <button onClick={() => {
@@ -865,7 +909,7 @@ export default function SCSerialsPage() {
                     </tbody>
                   </table>
                 </div>
-                <button onClick={() => setInvoiceRows(rows => [...rows, { productId: "", startSerial: "", endSerial: "", exitOrderNo: "", rfNo: "" }])}
+                <button onClick={() => setInvoiceRows(rows => [...rows, { productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }])}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors">
                   <Plus className="w-4 h-4" /> Add Row
                 </button>
@@ -874,7 +918,7 @@ export default function SCSerialsPage() {
                   <div className="flex gap-2">
                     <button onClick={() => {
                       setShowImport(false);
-                      setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", exitOrderNo: "", rfNo: "" }]);
+                      setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }]);
                     }} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
                       Cancel
                     </button>
@@ -1123,5 +1167,67 @@ export default function SCSerialsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function MobileRow({ data, selectedIds, toggleSelect, hasDelete, formatDate, timeAgo, setPermanentDeleteId, setDeletingId }: {
+  data: SerialRecord[]; selectedIds: number[]; toggleSelect: (id: number) => void;
+  hasDelete: boolean; formatDate: (d: Date) => string; timeAgo: (d: Date) => string;
+  setPermanentDeleteId: (id: number) => void; setDeletingId: (id: number) => void;
+}) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  return (
+    <>
+      {data.map(r => (
+        <div key={r.id} className="px-4 py-3">
+          <button onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+            className="flex items-center gap-3 w-full text-left cursor-pointer">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                {hasDelete && r.status === "used" && (
+                  <Checkbox
+                    checked={selectedIds.includes(r.id)}
+                    onCheckedChange={() => toggleSelect(r.id)}
+                    className="border-gray-400 data-[state=checked]:bg-orange-600 data-[state=checked]:border-orange-600"
+                  />
+                )}
+                <span className={`font-mono text-xs font-medium ${r.status === "used" ? "line-through text-gray-400 dark:text-gray-500" : "text-indigo-600 dark:text-indigo-400"}`}>
+                  {r.serial_number}
+                </span>
+                {r.status === "used" && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-0.5">{r.product_name || `Product #${r.product_id}`}</p>
+            </div>
+            {expandedId === r.id ? <ChevronUp className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />}
+          </button>
+          {expandedId === r.id && (
+            <div className="mt-3 ml-2 space-y-2 text-sm text-gray-600 dark:text-gray-400">
+              <div className="grid grid-cols-2 gap-2">
+                <div><span className="text-[11px] text-gray-500">Batch:</span> <span className="font-medium">{r.batch_id || "-"}</span></div>
+                <div className="col-span-2">
+                  <span className="text-[11px] text-gray-500">Order / RF:</span>
+                  <p className="font-medium text-xs mt-0.5">{r.exit_order_no || "-"} {r.rf_no ? <span className="text-gray-400 font-normal">/ {r.rf_no}</span> : ""}</p>
+                </div>
+                <div><span className="text-[11px] text-gray-500">Used At:</span> <span className="font-medium">{r.used_at ? formatDate(new Date(r.used_at)) : "-"}</span></div>
+                <div><span className="text-[11px] text-gray-500">Used By:</span> <span className="font-medium">{r.used_by_name || "-"}</span></div>
+              </div>
+              {hasDelete && (
+                <div className="flex gap-2 pt-1">
+                  {r.status === "used" ? (
+                    <button onClick={() => setPermanentDeleteId(r.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 rounded-lg hover:bg-orange-200 cursor-pointer">
+                      <AlertTriangle className="w-3 h-3" /> Permanent Delete
+                    </button>
+                  ) : (
+                    <button onClick={() => setDeletingId(r.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 cursor-pointer">
+                      <Trash2 className="w-3 h-3" /> Delete
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </>
   );
 }
