@@ -910,7 +910,7 @@ export default function SCSerialsPage() {
                   </table>
                 </div>
                 <button onClick={() => setInvoiceRows(rows => [...rows, { productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }])}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors">
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors cursor-pointer">
                   <Plus className="w-4 h-4" /> Add Row
                 </button>
                 <div className="flex items-center justify-between text-sm">
