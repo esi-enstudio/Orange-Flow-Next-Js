@@ -225,6 +225,15 @@ async def batch_create_serials(
     if not is_admin_user(current_user) and target_house_id not in user_house_ids:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if payload.exit_order_no:
+        dup_exit = await db.execute(
+            select(ScratchCardSerial.exit_order_no).where(
+                ScratchCardSerial.exit_order_no == payload.exit_order_no
+            ).limit(1)
+        )
+        if dup_exit.first():
+            raise HTTPException(status_code=409, detail=f"exit_order_no '{payload.exit_order_no}' already exists")
+
     existing_serials = await db.execute(
         select(ScratchCardSerial.serial_number).where(
             ScratchCardSerial.serial_number.in_(payload.serials)

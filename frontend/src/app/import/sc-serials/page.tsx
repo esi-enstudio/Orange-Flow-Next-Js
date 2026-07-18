@@ -193,8 +193,10 @@ export default function SCSerialsPage() {
       const res = await apiClient.get("/v1/scratch-card-serials/export/list", {
         params, headers, responseType: "blob",
       });
+      const house = houses.find(h => h.id === houseId);
+      const houseCode = house?.code || houseId;
       const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a"); a.href = url; a.download = "scratch_card_serials.xlsx"; a.click();
+      const a = document.createElement("a"); a.href = url; a.download = `scratch_card_serials_${houseCode}.xlsx`; a.click();
       window.URL.revokeObjectURL(url);
       toast.success("Exported successfully");
     } catch { toast.error("Export failed"); }
@@ -806,7 +808,7 @@ export default function SCSerialsPage() {
                   const rows = [...invoiceRows];
                   rows.forEach(r => r.exitOrderNo = e.target.value);
                   setInvoiceRows(rows);
-                }} placeholder="Exit order number"
+                }} placeholder="EX26DHK68xxx"
                   className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                 />
               </div>
