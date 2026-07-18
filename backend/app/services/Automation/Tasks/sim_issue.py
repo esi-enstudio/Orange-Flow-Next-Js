@@ -98,7 +98,7 @@ async def run_finalize_issue(serials: list, retailer_code: str, credentials: dic
             logger.error(f"❌ Retailer `{retailer_code}` not found in dropdown!")
             return f"❌ Error: Retailer code `{retailer_code}` not found in dropdown."
 
-        await asyncio.sleep(1.5) # Pause for dropdown processing
+        await asyncio.sleep(0.5)
 
         # 5. SIM List Input and click Add button
         logger.info(f"📝 Providing SIM List Input...")

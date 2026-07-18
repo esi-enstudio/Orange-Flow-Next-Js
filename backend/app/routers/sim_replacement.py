@@ -614,6 +614,7 @@ async def list_replacement_requests(
         if r.issuer: s.issuer_name = r.issuer.name
         if r.activator: s.activator_name = r.activator.name
         if r.closer: s.closer_name = r.closer.name
+        if r.retailer: s.retailer_itop = r.retailer.itop_number
         data.append(s)
 
     total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
@@ -679,8 +680,6 @@ async def create_replacement_request(
         retailer_id=payload.retailer_id,
         retailer_code=payload.retailer_code,
         retailer_name=payload.retailer_name,
-        customer_nid=payload.customer_nid,
-        sim_type=payload.sim_type,
         replacement_reason=payload.replacement_reason,
         reason_details=payload.reason_details,
         ev_swap_serial=payload.ev_swap_serial,
@@ -747,6 +746,35 @@ async def update_replacement_request(
     s = SimReplacementSchema.model_validate(record)
     s.requester_name = current_user.name
     return {"success": True, "data": s}
+
+
+@router.delete("/sim-replacement/{request_id}")
+async def delete_replacement_request(
+    request_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("sim_replacement.delete")),
+):
+    result = await db.execute(select(SimReplacementRequest).where(SimReplacementRequest.id == request_id))
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Replacement request not found")
+    _check_house_access(record, current_user)
+
+    if record.request_status not in ("pending",):
+        raise HTTPException(status_code=400, detail="Cannot delete request in this status")
+
+    record.is_deleted = True
+    record.deleted_at = datetime.utcnow() + timedelta(hours=6)
+    record.deleted_by = current_user.id
+    await db.commit()
+
+    await log_activity(
+        db=db, user_id=current_user.id, user_name=current_user.name,
+        module="sim_replacement", action="delete",
+        record_id=request_id, record_identifier=record.request_number,
+    )
+
+    return {"success": True, "message": "Replacement request deleted successfully"}
 
 
 @router.post("/sim-replacement/{request_id}/approve")

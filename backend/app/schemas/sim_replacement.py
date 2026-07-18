@@ -8,8 +8,6 @@ class SimReplacementCreate(BaseModel):
     retailer_id: Optional[int] = Field(None, ge=1)
     retailer_code: Optional[str] = Field(None, max_length=50)
     retailer_name: Optional[str] = Field(None, max_length=200)
-    customer_nid: Optional[str] = Field(None, max_length=50)
-    sim_type: Optional[str] = Field(None, max_length=50)
     replacement_reason: str = Field(..., pattern=r"^(Lost|Damaged|Stolen|Network_Issue|Other)$")
     reason_details: Optional[str] = None
     ev_swap_serial: Optional[str] = Field(None, max_length=100)
@@ -19,8 +17,6 @@ class SimReplacementCreate(BaseModel):
 
 
 class SimReplacementUpdate(BaseModel):
-    customer_nid: Optional[str] = Field(None, max_length=50)
-    sim_type: Optional[str] = Field(None, max_length=50)
     replacement_reason: Optional[str] = Field(None, pattern=r"^(Lost|Damaged|Stolen|Network_Issue|Other)$")
     reason_details: Optional[str] = None
     ev_swap_serial: Optional[str] = Field(None, max_length=100)
@@ -51,10 +47,9 @@ class SimReplacementSchema(BaseModel):
     retailer_id: Optional[int] = None
     retailer_code: Optional[str] = None
     retailer_name: Optional[str] = None
-    customer_nid: Optional[str] = None
+    retailer_itop: Optional[str] = None
     new_sim_number: Optional[str] = None
     new_msisdn: Optional[str] = None
-    sim_type: Optional[str] = None
     replacement_reason: Optional[str] = None
     reason_details: Optional[str] = None
     sim_inventory_id: Optional[int] = None

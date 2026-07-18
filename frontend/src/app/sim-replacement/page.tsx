@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import {
   Smartphone, Plus, Search, Loader2, X, Check, Eye, ThumbsUp,
   ThumbsDown, Disc, CheckCircle2, XCircle, Clock, AlertTriangle,
-  ChevronDown, ChevronUp, Download, Ban,
+  ChevronDown, ChevronUp, Download, Ban, Pencil, Trash2,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
@@ -14,12 +14,14 @@ import { cn } from "@/lib/utils";
 
 interface RequestItem {
   id: number; request_number: string; request_status: string;
-  retailer_name?: string; retailer_code?: string;
+  retailer_name?: string; retailer_code?: string; retailer_itop?: string;
   new_sim_number?: string;
   replacement_reason?: string; priority: string; requester_name?: string;
   requested_at?: string; approved_at?: string; issued_at?: string;
   activated_at?: string; house_id: number; ev_swap_serial?: string;
   approver_name?: string; issuer_name?: string; activator_name?: string;
+  reason_details?: string; remarks?: string; notes?: string;
+  retailer_id?: number;
 }
 
 interface HouseOption { id: number; name: string; code: string; display_name: string; }
@@ -71,6 +73,8 @@ export default function SimReplacementPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<RequestItem | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<RequestItem | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [formData, setFormData] = useState<any>({});
   const [houses, setHouses] = useState<HouseOption[]>([]);
@@ -86,6 +90,7 @@ export default function SimReplacementPage() {
   const canIssue = hasPermission("sim_replacement.issue");
   const canActivate = hasPermission("sim_replacement.activate");
   const canEdit = hasPermission("sim_replacement.edit");
+  const canDelete = hasPermission("sim_replacement.delete");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -121,11 +126,11 @@ export default function SimReplacementPage() {
 
   const openCreateModal = () => {
     setSelectedItem(null);
+    setIsEditing(false);
     setFormData({
       house_id: houses.length === 1 ? houses[0].id : "",
       replacement_reason: "Damaged", priority: "normal",
       retailer_id: "", retailer_code: "", retailer_name: "",
-      customer_nid: "", sim_type: "Prepaid",
       ev_swap_serial: "", reason_details: "", notes: "", remarks: "",
     });
     setRetailerSearch("");
@@ -135,6 +140,27 @@ export default function SimReplacementPage() {
 
   const openDetailModal = (item: RequestItem) => {
     setSelectedItem(item);
+    setIsEditing(false);
+    setShowModal(true);
+  };
+
+  const openEditModal = (item: RequestItem) => {
+    setSelectedItem(item);
+    setFormData({
+      house_id: item.house_id,
+      replacement_reason: item.replacement_reason || "Damaged",
+      priority: item.priority || "normal",
+      retailer_id: item.retailer_id || "",
+      retailer_code: item.retailer_code || "",
+      retailer_name: item.retailer_name || "",
+      ev_swap_serial: item.ev_swap_serial || "",
+      reason_details: item.reason_details || "",
+      notes: item.notes || "",
+      remarks: item.remarks || "",
+    });
+    setRetailerSearch(item.retailer_name || "");
+    setRetailers([]);
+    setIsEditing(true);
     setShowModal(true);
   };
 
@@ -151,6 +177,37 @@ export default function SimReplacementPage() {
   useEffect(() => {
     if (formData.house_id) fetchRetailers(formData.house_id);
   }, [formData.house_id]);
+
+  const handleUpdate = async () => {
+    if (!selectedItem) return;
+    setActionLoading(true);
+    try {
+      const payload: any = {};
+      for (const [k, v] of Object.entries(formData)) {
+        if (v !== "" && v !== null && v !== undefined && ["replacement_reason", "reason_details", "ev_swap_serial", "priority", "notes", "remarks"].includes(k)) {
+          payload[k] = v;
+        }
+      }
+      await axios.put(`/v1/sim-replacement/${selectedItem.id}`, payload);
+      toast.success(t("sim_replacement.toast_update_success"));
+      setShowModal(false);
+      fetchData();
+    } catch (e: any) { toast.error(e?.response?.data?.detail || "Update failed"); }
+    finally { setActionLoading(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setActionLoading(true);
+    try {
+      await axios.delete(`/v1/sim-replacement/${deleteTarget.id}`);
+      toast.success(t("sim_replacement.toast_delete_success"));
+      setShowModal(false);
+      setDeleteTarget(null);
+      fetchData();
+    } catch (e: any) { toast.error(e?.response?.data?.detail || "Delete failed"); }
+    finally { setActionLoading(false); }
+  };
 
   const handleCreate = async () => {
     setActionLoading(true);
@@ -169,6 +226,24 @@ export default function SimReplacementPage() {
 
   const canView = hasPermission("sim_replacement.view");
   if (!canView) return <AccessDenied />;
+
+  const renderDetailActions = (item: RequestItem) => {
+    if (!item) return null;
+    return (
+      <div className="flex flex-wrap gap-2 mt-3">
+        {item.request_status === "pending" && canEdit && (
+          <button onClick={() => { setShowModal(false); setTimeout(() => openEditModal(item), 50); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-500/30 cursor-pointer">
+            <Pencil className="w-3 h-3" /> Edit
+          </button>
+        )}
+        {item.request_status === "pending" && canDelete && (
+          <button onClick={() => setDeleteTarget(item)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-500/30 cursor-pointer">
+            <Trash2 className="w-3 h-3" /> Delete
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -232,35 +307,50 @@ export default function SimReplacementPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Request #</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Retailer</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">EV Swap Serial</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reason</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Request #</th>
+                  <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Retailer</th>
+                  <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">EV Swap Serial</th>
+                  <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reason</th>
+                  <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
+                  <th className="text-right px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
                 {items.map(item => (
                   <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-1">
                       <p className="font-medium text-sm text-indigo-600 dark:text-indigo-400">{item.request_number}</p>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-1">
                       <p className="font-medium text-sm">{item.retailer_name || "-"}</p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400">{item.retailer_code || "-"}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {item.retailer_code || "-"}
+                        {item.retailer_itop && <span className="ml-1 text-gray-400">({item.retailer_itop})</span>}
+                      </p>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-1">
                       <p className="text-sm">{item.ev_swap_serial || "-"}</p>
                     </td>
-                    <td className="px-4 py-3 text-sm">{item.replacement_reason?.replace(/_/g, " ") || "-"}</td>
-                    <td className="px-4 py-3"><StatusBadge status={item.request_status} t={t} /></td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{formatDate(item.requested_at)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button onClick={() => openDetailModal(item)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-lg transition-colors">
-                        <Eye className="w-4 h-4" />
-                      </button>
+                    <td className="px-2 py-1 text-sm">{item.replacement_reason?.replace(/_/g, " ") || "-"}</td>
+                    <td className="px-2 py-1"><StatusBadge status={item.request_status} t={t} /></td>
+                    <td className="px-2 py-1 text-sm text-gray-500">{formatDate(item.requested_at)}</td>
+                    <td className="px-2 py-1 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {item.request_status === "pending" && canEdit && (
+                          <button onClick={() => openEditModal(item)} className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition-colors">
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        {item.request_status === "pending" && canDelete && (
+                          <button onClick={() => setDeleteTarget(item)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button onClick={() => openDetailModal(item)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-lg transition-colors">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -270,7 +360,7 @@ export default function SimReplacementPage() {
 
           <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
             {items.map(item => (
-              <DetailRow key={item.id} item={item} t={t} formatDate={formatDate} StatusBadge={StatusBadge} openDetail={openDetailModal} />
+              <DetailRow key={item.id} item={item} t={t} formatDate={formatDate} StatusBadge={StatusBadge} openDetail={openDetailModal} renderActions={renderDetailActions} />
             ))}
           </div>
 
@@ -286,13 +376,79 @@ export default function SimReplacementPage() {
         </div>
       )}
 
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setDeleteTarget(null)} />
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border dark:border-slate-700 p-6 w-full max-w-sm mx-4">
+            <div className="text-center">
+              <div className="mx-auto w-12 h-12 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center mb-4">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">{t("common.delete")}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{t("sim_replacement.delete_confirm")}</p>
+              <p className="text-xs text-gray-400 mb-6 bg-gray-50 dark:bg-slate-800/50 rounded-lg p-2">
+                {deleteTarget.request_number}
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm rounded-xl border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer">Cancel</button>
+                <button onClick={handleDelete} disabled={actionLoading} className="px-4 py-2 text-sm rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer flex items-center gap-2">
+                  {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 pb-10 overflow-y-auto">
           <div className="fixed inset-0 bg-black/40" onClick={() => setShowModal(false)} />
           <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border dark:border-slate-700 p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><X className="w-5 h-5" /></button>
 
-            {selectedItem ? (
+            {isEditing ? (
+              <>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">{t("sim_replacement.edit_title")}</h3>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl text-sm">
+                    <div><span className="text-xs text-gray-500">Request #</span><p className="font-medium">{selectedItem?.request_number}</p></div>
+                    <div><span className="text-xs text-gray-500">Retailer</span><p className="font-medium">{selectedItem?.retailer_name || selectedItem?.retailer_code || "-"} {selectedItem?.retailer_itop && <span className="text-gray-400 font-normal">({selectedItem.retailer_itop})</span>}</p></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason")}</label>
+                      <select value={formData.replacement_reason || "Damaged"} onChange={e => setFormData({ ...formData, replacement_reason: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                        {["Lost", "Damaged", "Stolen", "Network_Issue", "Other"].map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.ev_swap_serial")}</label>
+                      <input value={formData.ev_swap_serial || ""} onChange={e => setFormData({ ...formData, ev_swap_serial: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.priority")}</label>
+                      <select value={formData.priority || "normal"} onChange={e => setFormData({ ...formData, priority: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                        {["low", "normal", "high", "urgent"].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason_details")}</label>
+                      <textarea value={formData.reason_details || ""} onChange={e => setFormData({ ...formData, reason_details: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.remarks")}</label>
+                      <textarea value={formData.remarks || ""} onChange={e => setFormData({ ...formData, remarks: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100 dark:border-slate-800">
+                  <button onClick={() => setIsEditing(false)} className="px-4 py-2 text-sm rounded-xl border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer">Cancel</button>
+                  <button onClick={handleUpdate} disabled={actionLoading} className="px-4 py-2 text-sm rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 cursor-pointer flex items-center gap-2">
+                    {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />} Update
+                  </button>
+                </div>
+              </>
+            ) : selectedItem ? (
               <>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1">{selectedItem.request_number}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
@@ -300,11 +456,25 @@ export default function SimReplacementPage() {
                 </p>
 
                 <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div><label className="text-xs text-gray-500">Retailer</label><p className="font-medium">{selectedItem.retailer_name || selectedItem.retailer_code || "-"}</p></div>
+                  <div><label className="text-xs text-gray-500">Retailer</label><p className="font-medium">{selectedItem.retailer_name || selectedItem.retailer_code || "-"} {selectedItem.retailer_itop && <span className="text-gray-400 font-normal">({selectedItem.retailer_itop})</span>}</p></div>
                   <div><label className="text-xs text-gray-500">Reason</label><p className="font-medium">{selectedItem.replacement_reason?.replace(/_/g, " ") || "-"}</p></div>
                   <div><label className="text-xs text-gray-500">EV Swap Serial</label><p className="font-medium">{selectedItem.ev_swap_serial || "-"}</p></div>
                   <div><label className="text-xs text-gray-500">New SIM</label><p className="font-medium">{selectedItem.new_sim_number || "Not issued"}</p></div>
                 </div>
+
+                {selectedItem.reason_details && (
+                  <div className="mb-4">
+                    <label className="text-xs text-gray-500">Reason Details</label>
+                    <p className="text-sm mt-0.5 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{selectedItem.reason_details}</p>
+                  </div>
+                )}
+
+                {selectedItem.remarks && (
+                  <div className="mb-4">
+                    <label className="text-xs text-gray-500">Remarks</label>
+                    <p className="text-sm mt-0.5 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{selectedItem.remarks}</p>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-2 border-t border-gray-100 dark:border-slate-800 pt-4">
                   {selectedItem.request_status === "pending" && canApprove && (
@@ -335,6 +505,16 @@ export default function SimReplacementPage() {
                   {!["closed", "rejected", "cancelled"].includes(selectedItem.request_status) && canEdit && (
                     <button onClick={() => doAction("/cancel", selectedItem.id, {}, t("sim_replacement.toast_cancel_success"))} disabled={actionLoading} className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-xl text-sm font-medium hover:bg-rose-700 cursor-pointer disabled:opacity-50">
                       {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />} {t("sim_replacement.actions.cancel")}
+                    </button>
+                  )}
+                  {selectedItem.request_status === "pending" && canEdit && (
+                    <button onClick={() => openEditModal(selectedItem)} disabled={actionLoading} className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-medium hover:bg-amber-700 cursor-pointer disabled:opacity-50">
+                      {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />} {t("sim_replacement.actions.edit")}
+                    </button>
+                  )}
+                  {selectedItem.request_status === "pending" && canDelete && (
+                    <button onClick={() => setDeleteTarget(selectedItem)} className="flex items-center gap-2 px-4 py-2 bg-red-700 text-white rounded-xl text-sm font-medium hover:bg-red-800 cursor-pointer">
+                      <Trash2 className="w-4 h-4" /> Delete
                     </button>
                   )}
                 </div>
@@ -398,20 +578,6 @@ export default function SimReplacementPage() {
                   </div>
 
                   <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.customer_nid")}</label>
-                    <input value={formData.customer_nid || ""} onChange={e => setFormData({ ...formData, customer_nid: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.sim_type")}</label>
-                    <select value={formData.sim_type || "Prepaid"} onChange={e => setFormData({ ...formData, sim_type: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                      <option value="Prepaid">{t("sim_replacement.sim_types.prepaid")}</option>
-                      <option value="Postpaid">{t("sim_replacement.sim_types.postpaid")}</option>
-                      <option value="MNP">{t("sim_replacement.sim_types.mnp")}</option>
-                    </select>
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1">
                     <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason")}</label>
                     <select value={formData.replacement_reason || "Damaged"} onChange={e => setFormData({ ...formData, replacement_reason: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
                       {["Lost", "Damaged", "Stolen", "Network_Issue", "Other"].map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
@@ -455,8 +621,8 @@ export default function SimReplacementPage() {
   );
 }
 
-function DetailRow({ item, t, formatDate, StatusBadge, openDetail }: {
-  item: RequestItem; t: any; formatDate: any; StatusBadge: any; openDetail: (item: RequestItem) => void;
+function DetailRow({ item, t, formatDate, StatusBadge, openDetail, renderActions }: {
+  item: RequestItem; t: any; formatDate: any; StatusBadge: any; openDetail: (item: RequestItem) => void; renderActions: (item: RequestItem) => React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -464,7 +630,10 @@ function DetailRow({ item, t, formatDate, StatusBadge, openDetail }: {
       <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-3 w-full text-left cursor-pointer">
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm text-indigo-600 dark:text-indigo-400">{item.request_number}</p>
-          <p className="text-[11px] text-gray-500">{item.retailer_name || item.retailer_code || "-"}</p>
+          <p className="text-[11px] text-gray-500">
+            {item.retailer_name || item.retailer_code || "-"}
+            {item.retailer_itop && <span className="ml-1 text-gray-400">({item.retailer_itop})</span>}
+          </p>
         </div>
         <StatusBadge status={item.request_status} t={t} />
         {expanded ? <ChevronUp className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />}
@@ -476,10 +645,25 @@ function DetailRow({ item, t, formatDate, StatusBadge, openDetail }: {
             <div><span className="text-[11px] text-gray-500">New SIM:</span> <span className="font-medium">{item.new_sim_number || "-"}</span></div>
             <div><span className="text-[11px] text-gray-500">Reason:</span> <span className="font-medium">{item.replacement_reason?.replace(/_/g, " ") || "-"}</span></div>
             <div><span className="text-[11px] text-gray-500">Date:</span> <span className="font-medium">{formatDate(item.requested_at)}</span></div>
+          {item.reason_details && (
+            <div className="col-span-2">
+              <span className="text-[11px] text-gray-500">Reason Details:</span>
+              <p className="text-xs mt-0.5 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{item.reason_details}</p>
+            </div>
+          )}
+          {item.remarks && (
+            <div className="col-span-2">
+              <span className="text-[11px] text-gray-500">Remarks:</span>
+              <p className="text-xs mt-0.5 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{item.remarks}</p>
+            </div>
+          )}
           </div>
-          <button onClick={() => openDetail(item)} className="flex items-center gap-1.5 text-indigo-600 text-xs font-medium hover:underline cursor-pointer">
-            <Eye className="w-3.5 h-3.5" /> View Details
-          </button>
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={() => openDetail(item)} className="flex items-center gap-1.5 text-indigo-600 text-xs font-medium hover:underline cursor-pointer">
+              <Eye className="w-3.5 h-3.5" /> View Details
+            </button>
+            {renderActions(item)}
+          </div>
         </div>
       )}
     </div>

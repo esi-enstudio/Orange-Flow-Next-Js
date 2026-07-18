@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.routers.deps import get_db, has_permission
@@ -24,6 +25,8 @@ from app.services.Automation.Tasks.sim_issue import run_sim_issue_status, run_fi
 logger = logging.getLogger("app.routers.dms")
 
 router = APIRouter(prefix="/api/dms", tags=["DMS Automation"])
+
+_sim_issue_in_progress: set[str] = set()
 
 SMART_SEARCH_URL = "https://blkdms.banglalink.net/SmartSearchReport"
 
@@ -714,10 +717,6 @@ async def issue_sims(
     )
 
 
-def _emit(event: str, data: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
-
-
 async def _sim_issue_stream(payload: SIMIssueRequest, db: AsyncSession, current_user: User):
     is_admin = is_admin_user(current_user)
 
@@ -843,6 +842,13 @@ async def _sim_issue_stream(payload: SIMIssueRequest, db: AsyncSession, current_
 
     yield _emit("log", {"message": f"📊 Results: {len(ready_serials)} ready, {success_count} success, {skipped_count} skipped, {failed_count} failed"})
 
+    # Save plain values before DB operations to avoid MissingGreenlet after rollback
+    house_id = house.id
+    house_name = house.name
+    house_code = house.code
+    retailer_code = retailer.retailer_code
+    retailer_name = retailer.name
+
     # 5. Execute DMS issue
     if ready_serials:
         yield _emit("log", {"message": f"📤 Submitting {len(ready_serials)} SIMs to DMS for issuance..."})
@@ -854,16 +860,18 @@ async def _sim_issue_stream(payload: SIMIssueRequest, db: AsyncSession, current_
                 for sim in ready_serials:
                     results_list.append({"sim_no": sim, "status": "Success", "message": f"Successfully issued to {retailer.retailer_code}"})
                     success_count += 1
-                    records_to_create.append(SimIssue(
-                        issue_date=today, distributor_code=house.code, distributor_name=house.name,
-                        house_id=house.id, cluster_market=getattr(retailer, "district", None),
-                        retailer_code=retailer.retailer_code, retailer_name=retailer.name,
-                        retailer_id=retailer.id, sim_no=sim
-                    ))
+                    records_to_create.append({
+                        "issue_date": today, "distributor_code": house_code, "distributor_name": house_name,
+                        "house_id": house_id, "cluster_market": getattr(retailer, "district", None),
+                        "retailer_code": retailer_code, "retailer_name": retailer_name,
+                        "retailer_id": retailer.id, "sim_no": sim
+                    })
 
                 if records_to_create:
                     try:
-                        db.add_all(records_to_create)
+                        stmt = pg_insert(SimIssue).values(records_to_create)
+                        stmt = stmt.on_conflict_do_nothing(index_elements=['sim_no'])
+                        await db.execute(stmt)
                         await db.commit()
                     except Exception as e:
                         await db.rollback()
@@ -884,8 +892,8 @@ async def _sim_issue_stream(payload: SIMIssueRequest, db: AsyncSession, current_
     yield _emit("log", {"message": "✅ SIM Issue process completed!"})
 
     yield _emit("complete", {
-        "house_id": house.id, "house_name": house.name, "house_code": house.code,
-        "retailer_code": retailer.retailer_code, "retailer_name": retailer.name,
+        "house_id": house_id, "house_name": house_name, "house_code": house_code,
+        "retailer_code": retailer_code, "retailer_name": retailer_name,
         "total_processed": len(serials),
         "total_success": success_count,
         "total_skipped": skipped_count,
@@ -894,13 +902,30 @@ async def _sim_issue_stream(payload: SIMIssueRequest, db: AsyncSession, current_
     })
 
 
+def _emit(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+async def _sim_issue_already_running():
+    yield _emit("log", {"message": "⚠️ Another SIM issue request is already in progress for this house + retailer."})
+    yield _emit("error", {"message": "Request already in progress. Please wait for the current operation to complete."})
+
 @router.post("/sim-issue/stream")
 async def issue_sims_stream(
     payload: SIMIssueRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("dms.sim_issue"))
 ):
-    return StreamingResponse(
-        _sim_issue_stream(payload, db, current_user),
-        media_type="text/event-stream"
-    )
+    dedup_key = f"{payload.house_id}:{payload.retailer_id}"
+    if dedup_key in _sim_issue_in_progress:
+        return StreamingResponse(
+            _sim_issue_already_running(),
+            media_type="text/event-stream"
+        )
+    _sim_issue_in_progress.add(dedup_key)
+    try:
+        return StreamingResponse(
+            _sim_issue_stream(payload, db, current_user),
+            media_type="text/event-stream"
+        )
+    finally:
+        _sim_issue_in_progress.discard(dedup_key)

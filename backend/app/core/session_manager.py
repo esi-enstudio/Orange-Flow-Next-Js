@@ -64,24 +64,33 @@ class SessionManager:
             logger.warning(f"⚠️ Keepalive context creation failed for {code}: {e}")
             return
 
+        MAX_CONSECUTIVE_FAILURES = 3
+
         async def _ping():
             try:
                 await page.goto(CHECK_URL, timeout=30000, wait_until="commit")
                 # Refresh storage state so anti-forgery tokens stay current
                 await context.storage_state(path=session_path)
                 logger.debug(f"🔄 Keepalive ping for {code}")
+                return True
             except Exception:
-                logger.warning(f"⚠️ Keepalive ping failed for {code}, stopping keepalive")
-                raise
+                logger.warning(f"⚠️ Keepalive ping failed for {code}")
+                return False
 
         async def _loop():
+            consecutive_failures = 0
             try:
                 while True:
                     await asyncio.sleep(KEEPALIVE_INTERVAL)
-                    await _ping()
+                    ok = await _ping()
+                    if ok:
+                        consecutive_failures = 0
+                    else:
+                        consecutive_failures += 1
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                            logger.error(f"🛑 Keepalive failed {consecutive_failures}x consecutively for {code}, stopping")
+                            break
             except asyncio.CancelledError:
-                pass
-            except Exception:
                 pass
             finally:
                 try:
@@ -92,9 +101,8 @@ class SessionManager:
                 self._keepalive_ctx.pop(code, None)
 
         # Send first ping immediately to establish session
-        try:
-            await _ping()
-        except Exception:
+        ok = await _ping()
+        if not ok:
             try:
                 await page.close()
                 await context.close()
@@ -232,10 +240,11 @@ class SessionManager:
         code = credentials.get('code')
 
         # 1. Reuse keepalive context directly — just create a new page
+        #    Return None for context so callers don't close the shared keepalive context
         if code and code in self._keepalive_ctx:
             page = await self._keepalive_ctx[code]["context"].new_page()
             logger.info(f"✅ Reused keepalive session for {credentials['house_name']}")
-            return page, self._keepalive_ctx[code]["context"]
+            return page, None
 
         session_path = self._session_path(credentials)
 
@@ -253,7 +262,7 @@ class SessionManager:
                         await test_page.close()
                         await test_context.close()
                         page = await self._keepalive_ctx[code]["context"].new_page()
-                        return page, self._keepalive_ctx[code]["context"]
+                        return page, None
                     return test_page, test_context
             except Exception:
                 pass
@@ -267,7 +276,7 @@ class SessionManager:
             await page.close()
             await context.close()
             page = await self._keepalive_ctx[code]["context"].new_page()
-            return page, self._keepalive_ctx[code]["context"]
+            return page, None
         return page, context
 
 session_manager = SessionManager()
