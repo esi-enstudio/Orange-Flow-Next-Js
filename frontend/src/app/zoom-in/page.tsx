@@ -313,8 +313,8 @@ export default function ZoomInPage() {
           <StatCard
             icon={Activity}
             label="Activations"
-            value={dashboard.total_events > 0 ? "—" : "0"}
-            subtitle={dashboard.total_events > 0 ? "from events" : "No data"}
+            value={dashboard.total_activations.toLocaleString()}
+            subtitle={`from ${dashboard.total_events} event${dashboard.total_events !== 1 ? "s" : ""}`}
             color="emerald"
           />
           <StatCard

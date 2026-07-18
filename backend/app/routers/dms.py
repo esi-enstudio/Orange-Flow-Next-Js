@@ -905,6 +905,14 @@ async def _sim_issue_stream(payload: SIMIssueRequest, db: AsyncSession, current_
 def _emit(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
+async def _sim_issue_stream_with_guard(payload: SIMIssueRequest, db: AsyncSession, current_user: User, dedup_key: str):
+    try:
+        async for event in _sim_issue_stream(payload, db, current_user):
+            yield event
+    finally:
+        _sim_issue_in_progress.discard(dedup_key)
+
+
 async def _sim_issue_already_running():
     yield _emit("log", {"message": "⚠️ Another SIM issue request is already in progress for this house + retailer."})
     yield _emit("error", {"message": "Request already in progress. Please wait for the current operation to complete."})
@@ -922,10 +930,7 @@ async def issue_sims_stream(
             media_type="text/event-stream"
         )
     _sim_issue_in_progress.add(dedup_key)
-    try:
-        return StreamingResponse(
-            _sim_issue_stream(payload, db, current_user),
-            media_type="text/event-stream"
-        )
-    finally:
-        _sim_issue_in_progress.discard(dedup_key)
+    return StreamingResponse(
+        _sim_issue_stream_with_guard(payload, db, current_user, dedup_key),
+        media_type="text/event-stream"
+    )

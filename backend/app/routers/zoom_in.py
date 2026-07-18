@@ -738,17 +738,7 @@ async def get_dashboard_summary(
         else:
             house_filter = [ZoomInEvent.house_id == -1]
 
-    # ─── Total Events & Activations ─────────────────────────────
-    event_query = select(
-        func.count(ZoomInEvent.id).label("total_events"),
-        func.coalesce(func.sum(ZoomInEvent.id), 0).label("total_activations"),
-    ).where(
-        ZoomInEvent.date >= target_month,
-        ZoomInEvent.date <= month_end,
-        *house_filter,
-    )
-
-    # Count events only (activations are calculated per-event, so total_events is count)
+    # ─── Total Events ───────────────────────────────────────────
     count_query = select(func.count(ZoomInEvent.id)).where(
         ZoomInEvent.date >= target_month,
         ZoomInEvent.date <= month_end,
@@ -756,6 +746,49 @@ async def get_dashboard_summary(
     )
     total_result = await db.execute(count_query)
     total_events = total_result.scalar() or 0
+
+    # ─── Total Activations ──────────────────────────────────────
+    # Get all event IDs for the month → their retailer codes → count Activation/LiveActivation
+    total_activations = 0
+    if total_events > 0:
+        events_query = select(ZoomInEvent.id, ZoomInEvent.date).where(
+            ZoomInEvent.date >= target_month,
+            ZoomInEvent.date <= month_end,
+            *house_filter,
+        )
+        evt_result = await db.execute(events_query)
+        month_events = evt_result.all()
+
+        evt_ids = [row[0] for row in month_events]
+        evt_dates = {row[0]: row[1] for row in month_events}
+
+        if evt_ids:
+            retailer_result = await db.execute(
+                select(ZoomInEventRetailer.zoom_in_event_id, ZoomInEventRetailer.retailer_code).where(
+                    ZoomInEventRetailer.zoom_in_event_id.in_(evt_ids),
+                )
+            )
+            event_codes: dict[int, set[str]] = {}
+            for row in retailer_result.all():
+                event_codes.setdefault(row.zoom_in_event_id, set()).add(row.retailer_code)
+
+            excl_result = await db.execute(select(ExcludedProductCode.product_code))
+            excluded_codes = {row[0] for row in excl_result.all()}
+
+            today = date.today()
+            for eid, edate in evt_dates.items():
+                codes = event_codes.get(eid, set())
+                if not codes:
+                    continue
+                model = LiveActivation if edate == today else Activation
+                q = select(func.count()).where(
+                    model.retailer_code.in_(list(codes)),
+                    model.activation_date == edate,
+                )
+                if excluded_codes:
+                    q = q.where(~model.product_code.in_(list(excluded_codes)))
+                cnt_result = await db.execute(q)
+                total_activations += cnt_result.scalar() or 0
 
     # ─── Daily Event Counts ──────────────────────────────────────
     daily_query = select(
@@ -844,7 +877,7 @@ async def get_dashboard_summary(
 
     return DashboardSummaryResponse(
         total_events=total_events,
-        total_activations=0,
+        total_activations=total_activations,
         total_allocated=total_allocated,
         remaining_allocations=remaining_allocations,
         allocation_used_pct=allocation_used_pct,
