@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import asyncio
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -319,6 +319,7 @@ async def check_sim_status(
 
 
 SIM_RETURN_URL = "https://blkdms.banglalink.net/SmartSearchReport"
+RECEIVE_URL = "https://blkdms.banglalink.net/ReceiveSimsFromRetailersSubmit"
 
 
 def process_return_results(scanned_data: list, credentials: dict, input_serials: list) -> list:
@@ -342,32 +343,122 @@ def process_return_results(scanned_data: list, credentials: dict, input_serials:
                 results.append({
                     "sim_no": sim,
                     "status": "Failed",
-                    "remarks": f"SIM belongs to different distributor ({d.get('Distributor', 'N/A')})"
+                    "remarks": f"SIM belongs to different distributor ({d.get('Distributor', 'N/A')})",
+                    "retailer_code": None
                 })
             elif act_date:
                 results.append({
                     "sim_no": sim,
                     "status": "Failed",
-                    "remarks": "SIM is already activated, cannot be returned"
+                    "remarks": "SIM is already activated, cannot be returned",
+                    "retailer_code": None
                 })
             elif retailer and retailer != "Select" and retailer != "N/A":
+                match = re.search(r'R\d+', retailer)
+                code = match.group(0) if match else retailer
                 results.append({
                     "sim_no": sim,
                     "status": "Success",
-                    "remarks": f"Returned from retailer: {retailer}"
+                    "remarks": f"Returned from retailer: {retailer}",
+                    "retailer_code": code
                 })
             else:
                 results.append({
                     "sim_no": sim,
                     "status": "Already Returned",
-                    "remarks": "SIM is already in warehouse stock"
+                    "remarks": "SIM is already in warehouse stock",
+                    "retailer_code": None
                 })
         else:
             results.append({
                 "sim_no": sim,
                 "status": "Failed",
-                "remarks": "SIM not found in DMS system"
+                "remarks": "SIM not found in DMS system",
+                "retailer_code": None
             })
+
+    return results
+
+
+async def run_sim_return_submit(page, results: list, credentials: dict) -> list:
+    """Group Success SIMs by retailer and submit to RECEIVE_URL, updating results."""
+    retailer_groups = {}
+    for r in results:
+        if r["status"] == "Success" and r.get("retailer_code"):
+            code = r["retailer_code"]
+            if code not in retailer_groups:
+                retailer_groups[code] = []
+            retailer_groups[code].append(r["sim_no"])
+
+    if not retailer_groups:
+        return results
+
+    house_name = credentials.get('house_name', 'N/A')
+    logger.info(f"🔄 [{house_name}] Submitting returns for {len(retailer_groups)} retailer(s)...")
+
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    for retailer_code, sims in retailer_groups.items():
+        logger.info(f"  ➡️  Submitting {len(sims)} SIM(s) to retailer {retailer_code}...")
+        try:
+            await page.goto(RECEIVE_URL, wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_selector("#Retailer", state="attached", timeout=30000)
+
+            await page.evaluate(f"document.getElementById('IssueDate').value = '{today}';")
+
+            js_select = """
+                (code) => {
+                    let select = document.getElementById('Retailer');
+                    if(!select) return false;
+                    for (let i = 0; i < select.options.length; i++) {
+                        if (select.options[i].text.includes(code)) {
+                            select.selectedIndex = i;
+                            if(window.jQuery) {
+                                window.jQuery(select).trigger('chosen:updated').change();
+                            } else {
+                                select.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            """
+
+            if not await page.evaluate(js_select, retailer_code):
+                logger.warning(f"  ⚠️ Retailer {retailer_code} not found in dropdown")
+                for r in results:
+                    if r.get("sim_no") in sims and r["status"] == "Success":
+                        r["status"] = "Failed"
+                        r["remarks"] = f"Retailer {retailer_code} not found in DMS dropdown"
+                continue
+
+            await asyncio.sleep(1.5)
+            await page.fill("#SimList", "\n".join(sims), force=True)
+            await page.click("#SaveBtn")
+
+            try:
+                confirm_btn = "button.swal2-confirm"
+                await page.wait_for_selector(confirm_btn, state="visible", timeout=15000)
+                await page.click(confirm_btn)
+                logger.info(f"  ✅ Retailer {retailer_code}: {len(sims)} SIM(s) returned successfully")
+                for r in results:
+                    if r.get("sim_no") in sims and r["status"] == "Success":
+                        r["status"] = "Returned"
+                        r["remarks"] = f"Successfully returned to retailer {retailer_code}"
+            except:
+                logger.warning(f"  ⚠️ Confirmation modal not found for {retailer_code}")
+                for r in results:
+                    if r.get("sim_no") in sims and r["status"] == "Success":
+                        r["status"] = "Failed"
+                        r["remarks"] = "Return submission failed - no confirmation from DMS"
+
+        except Exception as e:
+            logger.error(f"  ❌ Error submitting for retailer {retailer_code}: {str(e)}")
+            for r in results:
+                if r.get("sim_no") in sims and r["status"] == "Success":
+                    r["status"] = "Failed"
+                    r["remarks"] = f"Return error: {str(e)}"
 
     return results
 
@@ -385,6 +476,7 @@ async def run_sim_return_check(serials: list, credentials: dict):
         logger.error(f"❌ [Task Error] {house_name} Failed to get session: {str(e)}")
         raise Exception(f"DMS session login failed: {str(e)}")
 
+    results = []
     try:
         logger.info(f"🔙 [SIM Return] {house_name} ({h_code}): Starting SIM return check for {len(serials)} SIMs...")
 
@@ -406,7 +498,12 @@ async def run_sim_return_check(serials: list, credentials: dict):
         if not scanned_data:
             scanned_data = []
 
-        return process_return_results(scanned_data, credentials, serials)
+        results = process_return_results(scanned_data, credentials, serials)
+
+        # Now perform actual submission for Success SIMs
+        results = await run_sim_return_submit(page, results, credentials)
+
+        return results
 
     except Exception as e:
         logger.error(f"❌ [Task Error] {house_name} return crashed: {str(e)}", exc_info=True)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import apiClient from "@/lib/api";
 import { useLanguage } from "@/i18n/useLanguage";
 import { toast } from "react-hot-toast";
@@ -27,6 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
 
 interface House {
   id: number;
@@ -81,6 +82,7 @@ export default function SIMStatusCheckPage() {
   const [loading, setLoading] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [tipIndex, setTipIndex] = useState(0);
+  const rangeInputRef = useRef<SerialRangeInputHandle>(null);
 
   // Query results
   const [results, setResults] = useState<SIMStatusItem[]>([]);
@@ -330,7 +332,9 @@ export default function SIMStatusCheckPage() {
 
   const loadExample = (type: "range" | "list") => {
     if (type === "range") {
-      setInputValue("898803992145808574-580");
+      const val = "898803992145808574-580";
+      setInputValue(val);
+      setTimeout(() => rangeInputRef.current?.resetFromValue(val), 0);
     } else {
       setInputValue("898803992145808574\n898803992145808575\n898803992145808580");
     }
@@ -463,42 +467,45 @@ export default function SIMStatusCheckPage() {
             </div>
           </div>
 
-          {/* Text Area Input */}
-          <div className="relative group">
-            <textarea
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+          {/* Input Area: Range component OR List textarea */}
+          {inputMethod === "range" ? (
+            <SerialRangeInput
+              ref={rangeInputRef}
+              onChange={setInputValue}
               disabled={loading}
-              rows={5}
-              placeholder={
-                inputMethod === "range"
-                  ? t("sim_status_check.placeholder_range")
-                  : t("sim_status_check.placeholder_list")
-              }
-              className={cn(
-                "w-full px-5 py-4 border border-gray-200 dark:border-slate-800 rounded-3xl bg-gray-50/50 dark:bg-slate-800/30 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-wider leading-relaxed resize-none",
-                parsedCount > 500
-                  ? "focus:ring-red-500 border-red-300 dark:border-red-500/20"
-                  : "focus:ring-primary-500"
-              )}
             />
-
-            {/* Realtime character counts & limits overlay status */}
-            <div className="absolute right-4 bottom-4 flex items-center gap-2">
-              <span
+          ) : (
+            <div className="relative group">
+              <textarea
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                disabled={loading}
+                rows={5}
+                placeholder={t("sim_status_check.placeholder_list")}
                 className={cn(
-                  "text-xs font-black px-3 py-1.5 rounded-xl border",
-                  parsedCount === 0
-                    ? "bg-gray-100 text-gray-400 dark:bg-slate-800 dark:border-slate-700"
-                    : parsedCount > 500
-                      ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20"
-                      : "bg-primary-50 text-primary-600 border-primary-100 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/20"
+                  "w-full px-5 py-4 border border-gray-200 dark:border-slate-800 rounded-3xl bg-gray-50/50 dark:bg-slate-800/30 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-wider leading-relaxed resize-none",
+                  parsedCount > 500
+                    ? "focus:ring-red-500 border-red-300 dark:border-red-500/20"
+                    : "focus:ring-primary-500"
                 )}
-              >
-                {`Parsed: ${parsedCount} / 500`}
-              </span>
+              />
+
+              <div className="absolute right-4 bottom-4 flex items-center gap-2">
+                <span
+                  className={cn(
+                    "text-xs font-black px-3 py-1.5 rounded-xl border",
+                    parsedCount === 0
+                      ? "bg-gray-100 text-gray-400 dark:bg-slate-800 dark:border-slate-700"
+                      : parsedCount > 500
+                        ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20"
+                        : "bg-primary-50 text-primary-600 border-primary-100 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/20"
+                  )}
+                >
+                  {`Parsed: ${parsedCount} / 500`}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {parsedCount > 500 && (
             <p className="text-xs font-bold text-red-500 dark:text-red-400 flex items-center gap-1.5">

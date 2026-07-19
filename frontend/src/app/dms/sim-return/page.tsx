@@ -8,6 +8,7 @@ import { toast } from "react-hot-toast";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
 import {
   Undo2,
   Search,
@@ -38,7 +39,7 @@ interface House {
 
 interface ReturnResultItem {
   sim_no: string;
-  status: "Success" | "Failed" | "Already Returned";
+  status: "Success" | "Returned" | "Failed" | "Already Returned";
   remarks: string | null;
 }
 
@@ -112,6 +113,7 @@ export default function SIMReturnPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showConfirm, setShowConfirm] = useState(false);
   const houseSelectRef = useRef<HTMLSelectElement>(null);
+  const rangeInputRef = useRef<SerialRangeInputHandle>(null);
   const pageSize = 10;
 
   useEffect(() => {
@@ -223,10 +225,11 @@ export default function SIMReturnPage() {
 
   const stats = useMemo(() => {
     const total = results.length;
+    const returned = results.filter((r) => r.status === "Returned").length;
     const success = results.filter((r) => r.status === "Success").length;
     const failed = results.filter((r) => r.status === "Failed").length;
     const alreadyReturned = results.filter((r) => r.status === "Already Returned").length;
-    return { total, success, failed, alreadyReturned };
+    return { total, returned, success, failed, alreadyReturned };
   }, [results]);
 
   const exportToCSV = () => {
@@ -268,11 +271,18 @@ export default function SIMReturnPage() {
 
   const getStatusBadge = (status: ReturnResultItem["status"]) => {
     switch (status) {
+      case "Returned":
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            {t("sim_return.returned")}
+          </span>
+        );
       case "Success":
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400 border border-green-200 dark:border-green-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            {t("sim_return.success")}
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            {t("sim_return.pending_return")}
           </span>
         );
       case "Failed":
@@ -294,7 +304,9 @@ export default function SIMReturnPage() {
 
   const loadExample = (type: "range" | "list") => {
     if (type === "range") {
-      setInputValue("898803992145808574-580");
+      const val = "898803992145808574-580";
+      setInputValue(val);
+      setTimeout(() => rangeInputRef.current?.resetFromValue(val), 0);
     } else {
       setInputValue("898803992145808574\n898803992145808575\n898803992145808580");
     }
@@ -435,41 +447,45 @@ export default function SIMReturnPage() {
               </div>
             </div>
 
-            {/* Text Area Input */}
-            <div className="relative group">
-              <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+            {/* Input Area: Range component OR List textarea */}
+            {inputMethod === "range" ? (
+              <SerialRangeInput
+                ref={rangeInputRef}
+                onChange={setInputValue}
                 disabled={loading}
-                rows={5}
-                placeholder={
-                  inputMethod === "range"
-                    ? t("sim_return.placeholder_range")
-                    : t("sim_return.placeholder_list")
-                }
-                className={cn(
-                  "w-full px-5 py-4 border border-gray-200 dark:border-slate-800 rounded-3xl bg-gray-50/50 dark:bg-slate-800/30 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-wider leading-relaxed resize-none",
-                  parsedCount > 500
-                    ? "focus:ring-red-500 border-red-300 dark:border-red-500/20"
-                    : "focus:ring-emerald-500"
-                )}
               />
-
-              <div className="absolute right-4 bottom-4 flex items-center gap-2">
-                <span
+            ) : (
+              <div className="relative group">
+                <textarea
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  disabled={loading}
+                  rows={5}
+                  placeholder={t("sim_return.placeholder_list")}
                   className={cn(
-                    "text-xs font-black px-3 py-1.5 rounded-xl border",
-                    parsedCount === 0
-                      ? "bg-gray-100 text-gray-400 dark:bg-slate-800 dark:border-slate-700"
-                      : parsedCount > 500
-                        ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20"
-                        : "bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20"
+                    "w-full px-5 py-4 border border-gray-200 dark:border-slate-800 rounded-3xl bg-gray-50/50 dark:bg-slate-800/30 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-wider leading-relaxed resize-none",
+                    parsedCount > 500
+                      ? "focus:ring-red-500 border-red-300 dark:border-red-500/20"
+                      : "focus:ring-emerald-500"
                   )}
-                >
-                  {`Parsed: ${parsedCount} / 500`}
-                </span>
+                />
+
+                <div className="absolute right-4 bottom-4 flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "text-xs font-black px-3 py-1.5 rounded-xl border",
+                      parsedCount === 0
+                        ? "bg-gray-100 text-gray-400 dark:bg-slate-800 dark:border-slate-700"
+                        : parsedCount > 500
+                          ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20"
+                          : "bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20"
+                    )}
+                  >
+                    {`Parsed: ${parsedCount} / 500`}
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
 
             {parsedCount > 500 && (
               <motion.p
@@ -594,7 +610,7 @@ export default function SIMReturnPage() {
             </motion.div>
 
             {/* Stats Counter Cards Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               {[
                 {
                   key: "All" as const,
@@ -609,16 +625,28 @@ export default function SIMReturnPage() {
                   percentColor: "text-gray-400"
                 },
                 {
-                  key: "Success" as const,
-                  label: t("sim_return.success"),
-                  value: stats.success,
-                  color: "green",
+                  key: "Returned" as const,
+                  label: t("sim_return.returned"),
+                  value: stats.returned,
+                  color: "emerald",
                   icon: ShieldCheck,
                   borderColor: "border-gray-100 dark:border-slate-800",
-                  activeColor: "border-green-500 dark:border-green-400 ring-2 ring-green-500/20",
-                  iconColor: "text-green-300 dark:text-green-950 group-hover:text-green-500",
-                  valueColor: "text-green-600 dark:text-green-400",
-                  percentColor: "text-green-500"
+                  activeColor: "border-emerald-500 dark:border-emerald-400 ring-2 ring-emerald-500/20",
+                  iconColor: "text-emerald-300 dark:text-emerald-950 group-hover:text-emerald-500",
+                  valueColor: "text-emerald-600 dark:text-emerald-400",
+                  percentColor: "text-emerald-500"
+                },
+                {
+                  key: "Success" as const,
+                  label: t("sim_return.pending_return"),
+                  value: stats.success,
+                  color: "blue",
+                  icon: ShieldCheck,
+                  borderColor: "border-gray-100 dark:border-slate-800",
+                  activeColor: "border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/20",
+                  iconColor: "text-blue-300 dark:text-blue-950 group-hover:text-blue-500",
+                  valueColor: "text-blue-600 dark:text-blue-400",
+                  percentColor: "text-blue-500"
                 },
                 {
                   key: "Failed" as const,
