@@ -438,7 +438,16 @@ export default function SIMReturnPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setInputValue("")}
+                  onClick={() => {
+                    setInputMethod("range");
+                    setInputValue("");
+                    setResults([]);
+                    setHouseInfo(null);
+                    setSearchQuery("");
+                    setStatusFilter("All");
+                    setCurrentPage(1);
+                    setTimeout(() => rangeInputRef.current?.resetFromValue(""), 0);
+                  }}
                   disabled={loading}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                 >
@@ -505,7 +514,7 @@ export default function SIMReturnPage() {
                 disabled={loading || parsedCount === 0 || parsedCount > 500 || !selectedHouseId}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="px-8 py-3.5 bg-gradient-to-tr from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:translate-y-[1px] shadow-emerald-200 dark:shadow-none flex items-center gap-2"
+                className="px-8 py-3.5 bg-gradient-to-tr from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:translate-y-[1px] flex items-center gap-2"
               >
                 {loading ? (
                   <>

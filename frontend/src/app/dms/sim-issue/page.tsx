@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
+import { fetchEventSource, EventSourceMessage } from "@microsoft/fetch-event-source";
+import Cookies from "js-cookie";
 import {
   SmartphoneNfc,
   Search,
@@ -225,7 +227,7 @@ export default function SIMIssuePage() {
         retailer_id: selectedRetailer!.id,
         input_value: inputValue
       }),
-      onmessage(ev) {
+      onmessage(ev: EventSourceMessage) {
         if (ev.event === "log") {
           const data = JSON.parse(ev.data);
           setLogs(prev => [...prev, data.message]);
@@ -247,7 +249,7 @@ export default function SIMIssuePage() {
           setLoading(false);
         }
       },
-      onerror(err) {
+      onerror(err: any) {
         toast.error("Connection lost. Please try again.");
         setLoading(false);
         throw err;
@@ -605,7 +607,20 @@ export default function SIMIssuePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setInputValue("")}
+                      onClick={() => {
+                        setInputMethod("range");
+                        setInputValue("");
+                        setSelectedRetailer(null);
+                        setRetailerSearch("");
+                        setRetailers([]);
+                        setResults([]);
+                        setIssueInfo(null);
+                        setLogs([]);
+                        setSearchQuery("");
+                        setStatusFilter("All");
+                        setCurrentPage(1);
+                        setTimeout(() => rangeInputRef.current?.resetFromValue(""), 0);
+                      }}
                       disabled={loading}
                       className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                     >

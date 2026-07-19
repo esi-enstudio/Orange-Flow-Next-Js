@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080 # 7 days
     PASSWORD_RESET_EXPIRE_MINUTES: int = 30
 
+    # Timezone
+    TIME_ZONE: str = "Asia/Dhaka"
+
     @model_validator(mode="after")
     def validate_secret_key(self) -> "Settings":
         insecure_defaults = {"your-secret-key-change-it-in-env", ""}

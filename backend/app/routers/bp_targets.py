@@ -16,6 +16,7 @@ from app.models.user import User
 from app.schemas.bp_target import BpTargetCreate, BpTargetUpdate, BpTargetResponse
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
+from app.utils.timezone import now_naive
 
 router = APIRouter(prefix="/api/bp-targets", tags=["bp_targets"])
 
@@ -235,7 +236,7 @@ async def update_bp_target(
         bt.total_recharge = payload.total_recharge
     if payload.extra_targets is not None:
         bt.extra_targets = payload.extra_targets
-    bt.updated_at = datetime.utcnow()
+    bt.updated_at = now_naive()
 
     await db.commit()
 

@@ -1,6 +1,6 @@
 import logging
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -14,6 +14,7 @@ from app.models.user import User
 from app.models.scratch_card_serial import ScratchCardSerial
 from app.models.product import Product
 from app.models.house import House
+from app.utils.timezone import now_naive
 from app.schemas.scratch_card_serial import (
     ScratchCardSerialSchema,
     ScratchCardSerialCreate,
@@ -24,6 +25,7 @@ from app.schemas.scratch_card_serial import (
     AllocationRangeSchema,
     ConfirmAllocationRequest,
     BulkStatusUpdate,
+    BatchSerialUpdate,
     SerialFilterParams,
 )
 from app.schemas.pagination import PaginatedResponse, PaginationMeta, PaginationParams
@@ -64,6 +66,9 @@ def _serial_to_schema(record):
     if record.used_by_user:
         schema.used_by_name = record.used_by_user.name
         schema.used_by_role = record.used_by_user.roles[0].name if record.used_by_user.roles else None
+    if record.house:
+        schema.house_name = record.house.name
+        schema.house_code = record.house.code
     return schema
 
 
@@ -75,7 +80,6 @@ async def list_serials(
     pagination: PaginationParams = Depends(),
     product_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
-    batch_id: Optional[str] = Query(None),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     house_context: Optional[int] = Depends(get_house_context),
@@ -83,6 +87,7 @@ async def list_serials(
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
 ):
     query = select(ScratchCardSerial).options(
+        joinedload(ScratchCardSerial.house),
         joinedload(ScratchCardSerial.product),
         joinedload(ScratchCardSerial.used_by_user),
     )
@@ -90,14 +95,19 @@ async def list_serials(
 
     if pagination.search:
         q = f"%{pagination.search}%"
-        query = query.where(ScratchCardSerial.serial_number.ilike(q))
+        query = query.where(
+            or_(
+                ScratchCardSerial.serial_number.ilike(q),
+                ScratchCardSerial.batch_id.ilike(q),
+                ScratchCardSerial.exit_order_no.ilike(q),
+                ScratchCardSerial.rf_no.ilike(q),
+            )
+        )
 
     if product_id:
         query = query.where(ScratchCardSerial.product_id == product_id)
     if status:
         query = query.where(ScratchCardSerial.status == status)
-    if batch_id:
-        query = query.where(ScratchCardSerial.batch_id == batch_id)
     if date_from:
         query = query.where(ScratchCardSerial.created_at >= datetime.combine(date_from, datetime.min.time()))
     if date_to:
@@ -130,6 +140,47 @@ async def list_serials(
             has_prev=pagination.page > 1,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# SELECT ALL MATCHING (unlimited IDs)
+# ---------------------------------------------------------------------------
+@router.post("/select-all")
+async def select_all_serials(
+    product_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    search: Optional[str] = Query(None),
+    house_context: Optional[int] = Depends(get_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("scratch_card_serials.view")),
+):
+    query = select(ScratchCardSerial.id)
+    query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
+
+    if search:
+        q = f"%{search}%"
+        query = query.where(
+            or_(
+                ScratchCardSerial.serial_number.ilike(q),
+                ScratchCardSerial.batch_id.ilike(q),
+                ScratchCardSerial.exit_order_no.ilike(q),
+                ScratchCardSerial.rf_no.ilike(q),
+            )
+        )
+    if product_id:
+        query = query.where(ScratchCardSerial.product_id == product_id)
+    if status:
+        query = query.where(ScratchCardSerial.status == status)
+    if date_from:
+        query = query.where(ScratchCardSerial.created_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        query = query.where(ScratchCardSerial.created_at <= datetime.combine(date_to, datetime.max.time()))
+
+    result = await db.execute(query)
+    ids = [row[0] for row in result.all()]
+    return {"success": True, "data": {"ids": ids, "total": len(ids)}}
 
 
 # ---------------------------------------------------------------------------
@@ -224,15 +275,6 @@ async def batch_create_serials(
     user_house_ids = [h.id for h in current_user.houses]
     if not is_admin_user(current_user) and target_house_id not in user_house_ids:
         raise HTTPException(status_code=403, detail="Access denied")
-
-    if payload.exit_order_no:
-        dup_exit = await db.execute(
-            select(ScratchCardSerial.exit_order_no).where(
-                ScratchCardSerial.exit_order_no == payload.exit_order_no
-            ).limit(1)
-        )
-        if dup_exit.first():
-            raise HTTPException(status_code=409, detail=f"exit_order_no '{payload.exit_order_no}' already exists")
 
     existing_serials = await db.execute(
         select(ScratchCardSerial.serial_number).where(
@@ -365,6 +407,55 @@ async def bulk_update_status(
     }
 
 
+@router.put("/bulk/update")
+async def batch_update_serials(
+    payload: BatchSerialUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("scratch_card_serials.edit")),
+):
+    records = await db.execute(
+        select(ScratchCardSerial).where(
+            ScratchCardSerial.id.in_(payload.serial_ids)
+        )
+    )
+    records_list = records.scalars().all()
+    if not records_list:
+        raise HTTPException(status_code=404, detail="No serials found")
+
+    for rec in records_list:
+        _check_house_access(rec, current_user)
+
+    update_values = {}
+    if payload.exit_order_no is not None:
+        update_values["exit_order_no"] = payload.exit_order_no
+    if payload.rf_no is not None:
+        update_values["rf_no"] = payload.rf_no
+    if payload.notes is not None:
+        update_values["notes"] = payload.notes
+
+    if update_values:
+        await db.execute(
+            update(ScratchCardSerial).where(
+                ScratchCardSerial.id.in_(payload.serial_ids)
+            ).values(**update_values)
+        )
+        await db.commit()
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="scratch_card_serials",
+        action="edit",
+        new_values={"bulk_update": update_values, "count": len(payload.serial_ids)},
+    )
+
+    return {
+        "success": True,
+        "message": f"{len(payload.serial_ids)} serials updated",
+    }
+
+
 # ---------------------------------------------------------------------------
 # DELETE
 # ---------------------------------------------------------------------------
@@ -482,6 +573,46 @@ async def bulk_permanent_delete(
     return {
         "success": True,
         "message": f"{count} used serials permanently deleted",
+    }
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_serials(
+    serial_ids: List[int],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("scratch_card_serials.delete")),
+):
+    if not serial_ids:
+        raise HTTPException(status_code=400, detail="Serial ID list is empty")
+
+    records = await db.execute(
+        select(ScratchCardSerial).where(
+            ScratchCardSerial.id.in_(serial_ids),
+        )
+    )
+    records_list = records.scalars().all()
+
+    for rec in records_list:
+        _check_house_access(rec, current_user)
+
+    ids = [r.id for r in records_list]
+    count = len(ids)
+    for rec in records_list:
+        await db.delete(rec)
+    await db.commit()
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="scratch_card_serials",
+        action="delete",
+        new_values={"count": count, "serial_ids": ids},
+    )
+
+    return {
+        "success": True,
+        "message": f"{count} serials deleted",
     }
 
 
@@ -682,7 +813,7 @@ async def confirm_allocation(
             continue
         rec.status = "used"
         rec.used_by = current_user.id
-        rec.used_at = datetime.utcnow() + timedelta(hours=6)
+        rec.used_at = now_naive()
         if payload.notes:
             rec.notes = payload.notes
         updated += 1

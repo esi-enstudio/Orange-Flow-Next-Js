@@ -2,12 +2,11 @@ import logging
 import sys
 import asyncio
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
-# --- Bangladesh Time (BST = UTC+6) ---
-BST = timezone(timedelta(hours=6))
+from app.utils.timezone import BST
 
 class BangladeshFormatter(logging.Formatter):
     def formatTime(self, record, datefmt=None):
@@ -205,23 +204,24 @@ async def master_automation_scheduler():
     from app.services.Automation.Reports.ga_live import run_ga_live_sync, reset_daily_activations
     from app.services.Automation.dms_report_excel import cleanup_old_dms_reports
     from app.services.Automation.dms_sync_service import run_daily_auto_sync
+    from app.utils.timezone import now
     if getattr(settings, "DISABLE_SCHEDULER", False): return
     logger.info("Master Automation Scheduler started...")
     await asyncio.sleep(20)
     last_auto_sync_date = None
-    last_heartbeat = datetime.now(BST)
+    last_heartbeat = now()
     while True:
         try:
-            now = datetime.now(BST)
-            today_date = now.date()
-            hour = now.hour
-            minute = now.minute
+            now_time = now()
+            today_date = now_time.date()
+            hour = now_time.hour
+            minute = now_time.minute
 
-            if (now - last_heartbeat).total_seconds() >= 600:
+            if (now_time - last_heartbeat).total_seconds() >= 600:
                 ga_status = 'Active' if 8 <= hour < 24 else 'Sleeping'
                 daily_status = f"Daily Sync: {'Done' if last_auto_sync_date == today_date else 'Pending'}"
                 logger.info(f"⏳ [Scheduler Heartbeat] Hour: {hour}, GA Sync {ga_status}, {daily_status}")
-                last_heartbeat = now
+                last_heartbeat = now_time
 
             # Midnight reset (00:00-00:05)
             if hour == 0 and minute < 5:

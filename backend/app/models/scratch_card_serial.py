@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, BigInteger, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 from app.models.base import Base
+from app.utils.timezone import now_naive
 
 
 class ScratchCardSerial(Base):
@@ -23,8 +23,8 @@ class ScratchCardSerial(Base):
     used_at = Column(DateTime, nullable=True)
     used_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
+    created_at = Column(DateTime, default=now_naive)
+    updated_at = Column(DateTime, default=now_naive, onupdate=now_naive)
 
     __table_args__ = (
         UniqueConstraint("house_id", "product_id", "serial_number",

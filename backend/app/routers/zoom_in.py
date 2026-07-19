@@ -8,6 +8,7 @@ import os
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Response
 from pydantic import BaseModel
+from app.utils.timezone import now_naive
 from sqlalchemy import select, func, and_, case, delete as sa_delete, literal_column, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -536,7 +537,7 @@ async def delete_allocation(
     if not allocation or allocation.is_deleted:
         raise HTTPException(status_code=404, detail="Allocation not found")
     allocation.is_deleted = True
-    allocation.deleted_at = datetime.utcnow()
+    allocation.deleted_at = now_naive()
     allocation.deleted_by = current_user.id
     await db.commit()
     return {"success": True, "message": "Allocation deleted"}

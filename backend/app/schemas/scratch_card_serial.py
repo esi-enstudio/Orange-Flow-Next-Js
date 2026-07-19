@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+BST_TZ = timezone(timedelta(hours=6))
 
 
 class ScratchCardSerialCreate(BaseModel):
@@ -25,6 +27,8 @@ class ScratchCardSerialUpdate(BaseModel):
 class ScratchCardSerialSchema(BaseModel):
     id: int
     house_id: int
+    house_name: Optional[str] = None
+    house_code: Optional[str] = None
     product_id: int
     product_name: Optional[str] = None
     product_code: Optional[str] = None
@@ -40,6 +44,14 @@ class ScratchCardSerialSchema(BaseModel):
     used_by_role: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    @field_serializer("used_at", "created_at", "updated_at")
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.isoformat() + "+06:00"
+        return dt.astimezone(BST_TZ).isoformat()
 
     class Config:
         from_attributes = True
@@ -98,3 +110,10 @@ class SerialFilterParams(BaseModel):
 class BulkStatusUpdate(BaseModel):
     serial_ids: List[int] = Field(..., min_length=1)
     status: str = Field(..., pattern=r"^(available|used|allocated)$")
+
+
+class BatchSerialUpdate(BaseModel):
+    serial_ids: List[int] = Field(..., min_length=1)
+    exit_order_no: Optional[str] = None
+    rf_no: Optional[str] = None
+    notes: Optional[str] = None

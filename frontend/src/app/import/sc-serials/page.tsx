@@ -9,7 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useLanguage } from "@/i18n/useLanguage";
 
 interface SerialRecord {
-  id: number; house_id: number; product_id: number;
+  id: number; house_id: number; house_name: string | null; house_code: string | null;
+  product_id: number;
   product_name: string | null; product_code: string | null;
   serial_number: string;
   status: string; batch_id: string | null; notes: string | null;
@@ -51,7 +52,6 @@ export default function SCSerialsPage() {
   const [search, setSearch] = useState("");
   const [filterProductId, setFilterProductId] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
-  const [filterBatch, setFilterBatch] = useState("");
 
   // stock summary
   const [stockSummary, setStockSummary] = useState<StockSummary[]>([]);
@@ -86,6 +86,11 @@ export default function SCSerialsPage() {
   // bulk permanent delete
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+
+  // bulk update
+  const [bulkExitOrderNo, setBulkExitOrderNo] = useState("");
+  const [bulkRfNo, setBulkRfNo] = useState("");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
   // export house select
   const [showExportHouse, setShowExportHouse] = useState(false);
@@ -138,13 +143,12 @@ export default function SCSerialsPage() {
       if (search) params.search = search;
       if (filterProductId) params.product_id = Number(filterProductId);
       if (filterStatus) params.status = filterStatus;
-      if (filterBatch) params.batch_id = filterBatch;
       const res = await apiClient.get("/v1/scratch-card-serials", { params, headers: houseHeaders });
       setData(res.data.data || []);
       setTotalRecords(res.data.pagination?.total || 0);
     } catch { toast.error("Failed to load serials"); }
     finally { setLoading(false); }
-  }, [page, search, filterProductId, filterStatus, filterBatch, selectedHouse?.id]);
+  }, [page, search, filterProductId, filterStatus, selectedHouse?.id]);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -182,14 +186,13 @@ export default function SCSerialsPage() {
   }, []);
 
   // reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, filterProductId, filterStatus, filterBatch]);
+  useEffect(() => { setPage(1); }, [search, filterProductId, filterStatus]);
 
   const handleExport = async (houseId: number) => {
     try {
       const headers: Record<string, string> = { "X-House-ID": String(houseId) };
       const params: Record<string, string> = {};
       if (filterProductId) params.product_id = filterProductId;
-      if (filterBatch) params.batch_id = filterBatch;
       const res = await apiClient.get("/v1/scratch-card-serials/export/list", {
         params, headers, responseType: "blob",
       });
@@ -234,28 +237,72 @@ export default function SCSerialsPage() {
     finally { setShowBulkDeleteConfirm(false); }
   };
 
+  const handleBulkUpdate = async () => {
+    if (selectedIds.length === 0) return;
+    if (!bulkExitOrderNo && !bulkRfNo) { toast.error("Enter at least one field"); return; }
+    setIsBulkUpdating(true);
+    try {
+      await apiClient.put("/v1/scratch-card-serials/bulk/update", {
+        serial_ids: selectedIds,
+        exit_order_no: bulkExitOrderNo || null,
+        rf_no: bulkRfNo || null,
+      }, { headers: houseHeaders });
+      toast.success(`${selectedIds.length} serials updated`);
+      setBulkExitOrderNo("");
+      setBulkRfNo("");
+      setSelectedIds([]);
+      fetchData();
+      fetchSummary();
+    } catch (e: any) { toast.error(e?.message || "Bulk update failed"); }
+    finally { setIsBulkUpdating(false); }
+  };
+
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      await apiClient.post("/v1/scratch-card-serials/bulk-delete", selectedIds, { headers: houseHeaders });
+      toast.success(`${selectedIds.length} serials deleted`);
+      setSelectedIds([]);
+      fetchData();
+      fetchSummary();
+    } catch (e: any) { toast.error(e?.message || "Bulk delete failed"); }
+    finally { setShowBulkDelete(false); }
+  };
+
   const toggleSelect = (id: number) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
   const toggleSelectAll = async () => {
-    const usedIds = data.filter(r => r.status === "used").map(r => r.id);
-    if (usedIds.length === 0) return;
-    const allSelected = usedIds.every(id => selectedIds.includes(id));
+    const allIds = data.map(r => r.id);
+    if (allIds.length === 0) return;
+    const allSelected = allIds.every(id => selectedIds.includes(id));
     if (!allSelected) {
-      try {
-        const { dateFrom, dateTo } = monthDateRange();
-      const params: Record<string, string | number> = { per_page: 10000, sort_order: "desc", date_from: dateFrom, date_to: dateTo };
-        if (search) params.search = search;
-        if (filterProductId) params.product_id = Number(filterProductId);
-        if (filterBatch) params.batch_id = filterBatch;
-        const res = await apiClient.get("/v1/scratch-card-serials", { params, headers: houseHeaders });
-        const allUsedIds = (res.data.data || []).filter((r: SerialRecord) => r.status === "used").map((r: SerialRecord) => r.id);
-        setSelectedIds(allUsedIds);
-      } catch { setSelectedIds([...usedIds]); }
+      setSelectedIds(allIds);
     } else {
       setSelectedIds([]);
     }
+  };
+
+  const [selectingAll, setSelectingAll] = useState(false);
+  const selectAllMatching = async () => {
+    setSelectingAll(true);
+    try {
+      const { dateFrom, dateTo } = monthDateRange();
+      const params: Record<string, string | number> = {};
+      if (search) params.search = search;
+      if (filterProductId) params.product_id = Number(filterProductId);
+      if (filterStatus) params.status = filterStatus;
+      params.date_from = dateFrom;
+      params.date_to = dateTo;
+      const res = await apiClient.post("/v1/scratch-card-serials/select-all", null, { params, headers: houseHeaders });
+      const allIds = res.data.data?.ids || [];
+      if (allIds.length === 0) { toast.error("No matching serials found"); return; }
+      setSelectedIds(allIds);
+      toast.success(`${allIds.length} matching serials selected`);
+    } catch { toast.error("Failed to fetch matching serials"); }
+    finally { setSelectingAll(false); }
   };
 
   const calcInvoiceTotal = (): number => {
@@ -500,11 +547,11 @@ export default function SCSerialsPage() {
       </div>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
-            placeholder="Search serial number..."
+            placeholder="Search serial, batch, exit order, RF no..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
@@ -524,25 +571,59 @@ export default function SCSerialsPage() {
           <option value="used">Used</option>
           <option value="allocated">Allocated</option>
         </select>
-        <input
-          placeholder="Batch ID"
-          value={filterBatch}
-          onChange={e => setFilterBatch(e.target.value)}
-          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-        />
+      </div>
+
+      {/* Select All Matching */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={selectAllMatching}
+          disabled={selectingAll}
+          className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-500/10 border border-primary-200 dark:border-primary-500/20 rounded-xl hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-colors disabled:opacity-50"
+        >
+          {selectingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+          Select All Matching
+        </button>
       </div>
 
       {/* Bulk Action Bar */}
-      {selectedIds.length > 0 && hasPermission("scratch_card_serials.delete") && (
-        <div className="flex items-center justify-between bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl px-4 py-3">
-          <span className="text-sm font-medium text-orange-700 dark:text-orange-300">
-            {selectedIds.length} used serial selected
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl px-4 py-3">
+          <span className="text-sm font-medium text-orange-700 dark:text-orange-300 whitespace-nowrap">
+            {selectedIds.length} selected
           </span>
+          <input
+            placeholder="New Exit Order No."
+            value={bulkExitOrderNo}
+            onChange={e => setBulkExitOrderNo(e.target.value)}
+            className="flex-1 min-w-[160px] px-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+          />
+          <input
+            placeholder="New RF No."
+            value={bulkRfNo}
+            onChange={e => setBulkRfNo(e.target.value)}
+            className="flex-1 min-w-[160px] px-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+          />
           <button
-            onClick={() => setShowBulkDeleteConfirm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-sm font-medium hover:bg-orange-700 transition-colors"
+            onClick={handleBulkUpdate}
+            disabled={isBulkUpdating}
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
           >
-            <AlertTriangle className="w-4 h-4" /> Delete Selected
+            {isBulkUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+            Update
+          </button>
+          {hasPermission("scratch_card_serials.delete") && (
+            <button
+              onClick={() => setShowBulkDelete(true)}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-orange-600 text-white rounded-xl text-sm font-medium hover:bg-orange-700 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          )}
+          <button
+            onClick={() => { setSelectedIds([]); setBulkExitOrderNo(""); setBulkRfNo(""); }}
+            className="ml-auto text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            Clear selection
           </button>
         </div>
       )}
@@ -556,18 +637,21 @@ export default function SCSerialsPage() {
                 <th className="w-10 px-2 py-2">
                   {hasPermission("scratch_card_serials.delete") && (
                     <Checkbox
-                      checked={selectedIds.length > 0 && data.filter(r => r.status === "used").every(r => selectedIds.includes(r.id))}
+                      checked={selectedIds.length > 0 && data.every(r => selectedIds.includes(r.id))}
                       onCheckedChange={toggleSelectAll}
                       className="border-gray-400 data-[state=checked]:bg-orange-600 data-[state=checked]:border-orange-600"
                     />
                   )}
                 </th>
                 <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Serial #</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">House</th>
                 <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Product</th>
                 <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Batch</th>
                 <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Order / RF</th>
                 <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used At</th>
                 <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used By</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Created</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Updated</th>
                 <th className="text-right px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Actions</th>
               </tr>
             </thead>
@@ -575,17 +659,17 @@ export default function SCSerialsPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-b border-gray-50 dark:border-slate-800/50 animate-pulse">
-                    {Array.from({ length: 8 }).map((_, j) => (
+                    {Array.from({ length: 11 }).map((_, j) => (
                       <td key={j} className="px-2 py-1"><div className="h-4 bg-gray-200 dark:bg-slate-700 rounded w-3/4" /></td>
                     ))}
                   </tr>
                 ))
               ) : data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No serials found</td></tr>
+                <tr><td colSpan={11} className="text-center py-12 text-gray-400">No serials found</td></tr>
               ) : data.map(r => (
                 <tr key={r.id} className={`border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${selectedIds.includes(r.id) ? 'bg-orange-50 dark:bg-orange-500/5' : ''}`}>
                   <td className="px-2 py-1">
-                    {r.status === "used" && hasPermission("scratch_card_serials.delete") && (
+                    {hasPermission("scratch_card_serials.delete") && (
                       <Checkbox
                         checked={selectedIds.includes(r.id)}
                         onCheckedChange={() => toggleSelect(r.id)}
@@ -600,6 +684,10 @@ export default function SCSerialsPage() {
                       </span>
                       {r.status === "used" && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
                     </div>
+                  </td>
+                  <td className="px-2 py-1">
+                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.house_name || `House #${r.house_id}`}</p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.house_code || ""}</p>
                   </td>
                   <td className="px-2 py-1">
                     <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.product_name || `Product #${r.product_id}`}</p>
@@ -625,6 +713,26 @@ export default function SCSerialsPage() {
                         <div>
                           <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.used_by_name}</p>
                           <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.used_by_role || ""}</p>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1">
+                      {r.created_at ? (
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.created_at))}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.created_at))}</p>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1">
+                      {r.updated_at ? (
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.updated_at))}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.updated_at))}</p>
                         </div>
                       ) : (
                         <span className="text-gray-400">-</span>
@@ -759,6 +867,26 @@ export default function SCSerialsPage() {
               <button onClick={handleBulkPermanentDelete}
                 className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-xl hover:bg-orange-700 transition-colors flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4" /> Delete All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirm Modal */}
+      {showBulkDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Delete {selectedIds.length} Serials?</h3>
+            <p className="text-sm text-gray-500 mb-6">Are you sure you want to delete these serials? This cannot be undone.</p>
+            <div className="flex items-center gap-3 justify-end">
+              <button onClick={() => setShowBulkDelete(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleBulkDelete}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors flex items-center gap-2">
+                <Trash2 className="w-4 h-4" /> Delete All
               </button>
             </div>
           </div>
@@ -1182,11 +1310,12 @@ function MobileRow({ data, selectedIds, toggleSelect, hasDelete, formatDate, tim
     <>
       {data.map(r => (
         <div key={r.id} className="px-4 py-3">
-          <button onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+          <div
+            onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
             className="flex items-center gap-3 w-full text-left cursor-pointer">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                {hasDelete && r.status === "used" && (
+                {hasDelete && (
                   <Checkbox
                     checked={selectedIds.includes(r.id)}
                     onCheckedChange={() => toggleSelect(r.id)}
@@ -1201,7 +1330,7 @@ function MobileRow({ data, selectedIds, toggleSelect, hasDelete, formatDate, tim
               <p className="text-[11px] text-gray-500 mt-0.5">{r.product_name || `Product #${r.product_id}`}</p>
             </div>
             {expandedId === r.id ? <ChevronUp className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />}
-          </button>
+          </div>
           {expandedId === r.id && (
             <div className="mt-3 ml-2 space-y-2 text-sm text-gray-600 dark:text-gray-400">
               <div className="grid grid-cols-2 gap-2">
@@ -1212,6 +1341,8 @@ function MobileRow({ data, selectedIds, toggleSelect, hasDelete, formatDate, tim
                 </div>
                 <div><span className="text-[11px] text-gray-500">Used At:</span> <span className="font-medium">{r.used_at ? formatDate(new Date(r.used_at)) : "-"}</span></div>
                 <div><span className="text-[11px] text-gray-500">Used By:</span> <span className="font-medium">{r.used_by_name || "-"}</span></div>
+                <div><span className="text-[11px] text-gray-500">Created:</span> <span className="font-medium">{r.created_at ? formatDate(new Date(r.created_at)) : "-"}</span></div>
+                <div><span className="text-[11px] text-gray-500">Updated:</span> <span className="font-medium">{r.updated_at ? formatDate(new Date(r.updated_at)) : "-"}</span></div>
               </div>
               {hasDelete && (
                 <div className="flex gap-2 pt-1">

@@ -18,11 +18,13 @@ from app.models.employee import Employee
 from app.schemas.commission import (
     CommissionFilterRequest, CampaignTypeCreate, CampaignTypeSchema, StatementBatchSchema,
     CampaignTransactionSchema, CampaignTransactionUpdate,
+
     PaginatedResponse, CommissionImportResponse,
     DashboardAnalytics, CommissionSummary,
     CampaignPerformance, HousePerformance,
 )
 from app.services.commission_service import CommissionQueryBuilder, CommissionImportService
+from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/commission", tags=["Commission"])
@@ -202,7 +204,7 @@ async def upload_commission_file(
     df.columns = df.columns.str.lower().str.strip()
     df = df.where(pd.notna(df), None)
 
-    batch_reference = f"IMP-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{current_user.id}"
+    batch_reference = f"IMP-{now_naive().strftime('%Y%m%d%H%M%S')}-{current_user.id}"
 
     rows = []
     for _, row in df.iterrows():

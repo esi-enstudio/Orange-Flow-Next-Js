@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional, List
 
 from fastapi import Depends, HTTPException, Header, status, Request
@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.role import Role
 from app.models.house import House
 from app.utils.access_control import is_admin_user, is_admin_role
+from app.utils.timezone import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ LOGIN_WINDOW_SECONDS = 300
 login_attempts: dict = {}
 
 def check_login_rate_limit(ip: str):
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     window_start = now - timedelta(seconds=LOGIN_WINDOW_SECONDS)
     if ip in login_attempts:
         login_attempts[ip] = [t for t in login_attempts[ip] if t > window_start]
@@ -45,12 +46,12 @@ def get_password_hash(password):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = utc_now() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 def create_password_reset_token(user_id: int) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES)
+    expire = utc_now() + timedelta(minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES)
     return jwt.encode(
         {"sub": str(user_id), "type": "password_reset", "exp": expire},
         settings.SECRET_KEY,

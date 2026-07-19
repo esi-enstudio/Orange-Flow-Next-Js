@@ -458,7 +458,16 @@ export default function SIMStatusCheckPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setInputValue("")}
+                onClick={() => {
+                  setInputMethod("range");
+                  setInputValue("");
+                  setResults([]);
+                  setHouseInfo(null);
+                  setSearchQuery("");
+                  setStatusFilter("All");
+                  setCurrentPage(1);
+                  setTimeout(() => rangeInputRef.current?.resetFromValue(""), 0);
+                }}
                 disabled={loading}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               >

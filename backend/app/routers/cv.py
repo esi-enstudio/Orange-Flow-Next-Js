@@ -3,11 +3,11 @@ import os
 import io
 import uuid
 import time
-from datetime import datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, BackgroundTasks, File, UploadFile
 from sqlalchemy import select, func, or_
+from app.utils.timezone import now_naive
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image
 
@@ -171,7 +171,7 @@ async def update_cv(
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(cv, field, value)
-    cv.updated_at = datetime.utcnow()
+    cv.updated_at = now_naive()
 
     if "name" in update_data and update_data["name"] != old_values.get("name"):
         cv.slug = generate_slug(cv.name, cv.id)
@@ -208,7 +208,7 @@ async def delete_cv(
 
     old_values = CVSchema.model_validate(cv).model_dump()
     cv.is_deleted = True
-    cv.deleted_at = datetime.utcnow()
+    cv.deleted_at = now_naive()
     cv.deleted_by = current_user.id
 
     await db.commit()

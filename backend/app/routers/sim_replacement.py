@@ -1,6 +1,6 @@
 import logging
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -18,6 +18,7 @@ from app.models.sim_replacement_request import SimReplacementRequest
 from app.models.sim_replacement_log import SimReplacementLog
 from app.models.sim_stock_movement import SimStockMovement
 from app.models.product import Product
+from app.utils.timezone import now_naive
 from app.schemas.sim_inventory import SimInventoryCreate, SimInventoryUpdate, SimInventorySchema, SerialRangeItem
 from app.schemas.ev_kit_inventory import EvKitCreate, EvKitUpdate, EvKitAllocate, EvKitSchema
 from app.schemas.sim_replacement import (
@@ -343,7 +344,7 @@ async def delete_sim_inventory(
     _check_house_access(record, current_user)
 
     record.is_deleted = True
-    record.deleted_at = datetime.utcnow() + timedelta(hours=6)
+    record.deleted_at = now_naive()
     record.deleted_by = current_user.id
     await db.commit()
 
@@ -492,7 +493,7 @@ async def delete_ev_kit(
     _check_house_access(record, current_user)
 
     record.is_deleted = True
-    record.deleted_at = datetime.utcnow() + timedelta(hours=6)
+    record.deleted_at = now_naive()
     record.deleted_by = current_user.id
     await db.commit()
 
@@ -530,7 +531,7 @@ async def allocate_ev_kit(
 
     kit.status = "allocated"
     kit.allocated_to = payload.request_id
-    kit.allocated_at = datetime.utcnow() + timedelta(hours=6)
+    kit.allocated_at = now_naive()
     kit.allocated_by = current_user.id
 
     request.ev_kit_id = kit_id
@@ -764,7 +765,7 @@ async def delete_replacement_request(
         raise HTTPException(status_code=400, detail="Cannot delete request in this status")
 
     record.is_deleted = True
-    record.deleted_at = datetime.utcnow() + timedelta(hours=6)
+    record.deleted_at = now_naive()
     record.deleted_by = current_user.id
     await db.commit()
 
@@ -796,7 +797,7 @@ async def approve_replacement_request(
     old = record.request_status
     record.request_status = "approved"
     record.approved_by = current_user.id
-    record.approved_at = datetime.utcnow() + timedelta(hours=6)
+    record.approved_at = now_naive()
     record.approval_notes = payload.approval_notes
     await db.commit()
 
@@ -834,7 +835,7 @@ async def reject_replacement_request(
     old = record.request_status
     record.request_status = "rejected"
     record.approved_by = current_user.id
-    record.approved_at = datetime.utcnow() + timedelta(hours=6)
+    record.approved_at = now_naive()
     record.approval_notes = payload.approval_notes
     await db.commit()
 
@@ -902,7 +903,7 @@ async def issue_sim_for_replacement(
     record.new_msisdn = payload.new_msisdn
     record.sim_inventory_id = payload.sim_inventory_id
     record.issued_by = current_user.id
-    record.issued_at = datetime.utcnow() + timedelta(hours=6)
+    record.issued_at = now_naive()
 
     if payload.ev_kit_id:
         ev_result = await db.execute(
@@ -912,7 +913,7 @@ async def issue_sim_for_replacement(
         if ev_kit and ev_kit.status == "available":
             ev_kit.status = "allocated"
             ev_kit.allocated_to = request_id
-            ev_kit.allocated_at = datetime.utcnow() + timedelta(hours=6)
+            ev_kit.allocated_at = now_naive()
             ev_kit.allocated_by = current_user.id
             record.ev_kit_id = payload.ev_kit_id
 
@@ -955,7 +956,7 @@ async def activate_replacement_sim(
     record.request_status = "activated"
     record.new_msisdn = payload.new_msisdn or record.new_msisdn
     record.activated_by = current_user.id
-    record.activated_at = datetime.utcnow() + timedelta(hours=6)
+    record.activated_at = now_naive()
     await db.commit()
 
     await _log_replacement_action(
@@ -991,9 +992,9 @@ async def close_replacement_request(
     old = record.request_status
     record.request_status = "closed"
     record.old_sim_deactivated = True
-    record.old_sim_deactivated_at = datetime.utcnow() + timedelta(hours=6)
+    record.old_sim_deactivated_at = now_naive()
     record.closed_by = current_user.id
-    record.closed_at = datetime.utcnow() + timedelta(hours=6)
+    record.closed_at = now_naive()
     await db.commit()
 
     await _log_replacement_action(
@@ -1049,7 +1050,7 @@ async def cancel_replacement_request(
 
     record.request_status = "cancelled"
     record.closed_by = current_user.id
-    record.closed_at = datetime.utcnow() + timedelta(hours=6)
+    record.closed_at = now_naive()
     await db.commit()
 
     await _log_replacement_action(

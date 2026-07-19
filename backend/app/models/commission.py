@@ -8,6 +8,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from typing import Optional
+from app.utils.timezone import now_naive
 
 from app.models.base import Base
 from app.models.house import House
@@ -27,8 +28,8 @@ class StatementBatch(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     error_log: Mapped[Optional[str]] = mapped_column(Text)
     uploaded_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_naive, onupdate=now_naive)
 
     house: Mapped["House"] = relationship("House")
     campaign_transactions: Mapped[list["CampaignTransaction"]] = relationship("CampaignTransaction", back_populates="statement_batch")
@@ -50,7 +51,7 @@ class CampaignType(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     valid_from: Mapped[Optional[date]] = mapped_column(Date)
     valid_to: Mapped[Optional[date]] = mapped_column(Date)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_naive)
 
     transactions: Mapped[list["CampaignTransaction"]] = relationship("CampaignTransaction", back_populates="campaign_type")
 
@@ -83,7 +84,7 @@ class CampaignTransaction(Base):
     purpose: Mapped[Optional[str]] = mapped_column(Text)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     extra_data: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_naive)
 
     statement_batch: Mapped["StatementBatch"] = relationship("StatementBatch", back_populates="campaign_transactions")
     house: Mapped["House"] = relationship("House")
@@ -112,7 +113,7 @@ class FinancialEntry(Base):
     entry_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     extra_data: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_naive)
 
     statement_batch: Mapped["StatementBatch"] = relationship("StatementBatch", back_populates="financial_entries")
     house: Mapped["House"] = relationship("House")
@@ -135,7 +136,7 @@ class CommissionAuditLog(Base):
     old_values: Mapped[Optional[dict]] = mapped_column(JSONB)
     new_values: Mapped[Optional[dict]] = mapped_column(JSONB)
     changed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    changed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=now_naive)
 
     __table_args__ = (
         Index("ix_audit_log_table_record", "table_name", "record_id"),
@@ -165,7 +166,7 @@ class CommissionStaging(Base):
     validation_status: Mapped[str] = mapped_column(String(20), default="pending")
     validation_errors: Mapped[Optional[list]] = mapped_column(JSONB, default=list)
     is_duplicate: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_naive)
 
     __table_args__ = (
         UniqueConstraint("batch_reference", "row_number", name="uq_staging_batch_row"),
