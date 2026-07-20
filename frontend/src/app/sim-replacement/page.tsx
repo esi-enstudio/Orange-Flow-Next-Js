@@ -26,6 +26,19 @@ interface RequestItem {
 
 interface HouseOption { id: number; name: string; code: string; display_name: string; }
 interface RetailerOption { id: number; name: string; retailer_code: string; itop_number: string | null; }
+interface RowItem {
+  tempId: number;
+  retailer_id: number | "";
+  retailer_name: string;
+  retailer_code: string;
+  retailerSearch: string;
+  dropdownOpen: boolean;
+  replacement_reason: string;
+  reason_details: string;
+  ev_swap_serial: string;
+  priority: string;
+  remarks: string;
+}
 
 interface PaginationMeta { page: number; per_page: number; total: number; total_pages: number; has_next: boolean; has_prev: boolean; }
 
@@ -79,8 +92,8 @@ export default function SimReplacementPage() {
   const [formData, setFormData] = useState<any>({});
   const [houses, setHouses] = useState<HouseOption[]>([]);
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
-  const [retailerSearch, setRetailerSearch] = useState("");
-  const [retailerDropdownOpen, setRetailerDropdownOpen] = useState(false);
+  const [rows, setRows] = useState<RowItem[]>([]);
+  const [nextRowId, setNextRowId] = useState(1);
   const retailerDebounce = useRef<any>(null);
   const searchTimer = useRef<any>(null);
   const perPage = 20;
@@ -129,12 +142,16 @@ export default function SimReplacementPage() {
     setIsEditing(false);
     setFormData({
       house_id: houses.length === 1 ? houses[0].id : "",
-      replacement_reason: "Damaged", priority: "normal",
-      retailer_id: "", retailer_code: "", retailer_name: "",
-      ev_swap_serial: "", reason_details: "", notes: "", remarks: "",
     });
-    setRetailerSearch("");
     setRetailers([]);
+    const initialRow: RowItem = {
+      tempId: 1, retailer_id: "", retailer_name: "", retailer_code: "",
+      retailerSearch: "", dropdownOpen: false,
+      replacement_reason: "Damaged", reason_details: "", ev_swap_serial: "",
+      priority: "normal", remarks: "",
+    };
+    setRows([initialRow]);
+    setNextRowId(2);
     setShowModal(true);
   };
 
@@ -158,10 +175,28 @@ export default function SimReplacementPage() {
       notes: item.notes || "",
       remarks: item.remarks || "",
     });
-    setRetailerSearch(item.retailer_name || "");
     setRetailers([]);
     setIsEditing(true);
     setShowModal(true);
+  };
+
+  const updateRow = (tempId: number, patch: Partial<RowItem>) => {
+    setRows(prev => prev.map(r => r.tempId === tempId ? { ...r, ...patch } : r));
+  };
+
+  const addRow = () => {
+    const newRow: RowItem = {
+      tempId: nextRowId, retailer_id: "", retailer_name: "", retailer_code: "",
+      retailerSearch: "", dropdownOpen: false,
+      replacement_reason: "Damaged", reason_details: "", ev_swap_serial: "",
+      priority: "normal", remarks: "",
+    };
+    setRows(prev => [...prev, newRow]);
+    setNextRowId(prev => prev + 1);
+  };
+
+  const removeRow = (tempId: number) => {
+    setRows(prev => prev.filter(r => r.tempId !== tempId));
   };
 
   const fetchRetailers = (houseId: number, q?: string) => {
@@ -210,13 +245,27 @@ export default function SimReplacementPage() {
   };
 
   const handleCreate = async () => {
+    const validRows = rows.filter(r => r.retailer_id !== "");
+    if (validRows.length === 0) {
+      toast.error(t("sim_replacement.select_at_least_one_retailer"));
+      return;
+    }
     setActionLoading(true);
     try {
-      const payload: any = {};
-      for (const [k, v] of Object.entries(formData)) {
-        if (v !== "" && v !== null && v !== undefined) payload[k] = v;
-      }
-      await axios.post("/v1/sim-replacement", payload);
+      const items = validRows.map(r => ({
+        retailer_id: r.retailer_id,
+        replacement_reason: r.replacement_reason,
+        reason_details: r.reason_details || null,
+        ev_swap_serial: r.ev_swap_serial || null,
+        priority: r.priority,
+        notes: r.remarks || null,
+        remarks: r.remarks || null,
+      }));
+      const payload = {
+        house_id: formData.house_id,
+        items,
+      };
+      await axios.post("/v1/sim-replacement/bulk", payload);
       toast.success(t("sim_replacement.toast_create_success"));
       setShowModal(false);
       fetchData();
@@ -256,7 +305,7 @@ export default function SimReplacementPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400">{t("sim_replacement.description")}</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => axios.get("/v1/sim-replacement/export/list").then(r => {
+          <button onClick={() => axios.get("/v1/sim-replacement/export/list", { responseType: "blob" }).then(r => {
             const url = URL.createObjectURL(new Blob([r.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
             const a = document.createElement("a"); a.href = url; a.download = "sim_replacement_requests.xlsx"; a.click();
           }).catch(() => toast.error("Export failed"))} className="flex cursor-pointer items-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-slate-800 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
@@ -522,93 +571,140 @@ export default function SimReplacementPage() {
             ) : (
               <>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">{t("sim_replacement.create")}</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.house")}</label>
-                    <select value={formData.house_id || ""} onChange={e => { const v = e.target.value; setFormData({ ...formData, house_id: v ? Number(v) : "", retailer_id: "", retailer_code: "", retailer_name: "" }); }} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                      <option value="">{t("common.select_house")}</option>
-                      {houses.map(h => <option key={h.id} value={h.id}>{h.display_name}</option>)}
-                    </select>
-                  </div>
 
-                  <div className="col-span-2 relative">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.retailer")}</label>
-                    <input
-                      value={formData.house_id ? (formData.retailer_name || retailerSearch) : ""}
-                      onChange={e => {
-                        const v = e.target.value;
-                        setRetailerSearch(v);
-                        setFormData({ ...formData, retailer_id: "", retailer_code: "", retailer_name: "" });
-                        setRetailerDropdownOpen(true);
-                        clearTimeout(retailerDebounce.current);
-                        retailerDebounce.current = setTimeout(() => {
-                          if (formData.house_id) fetchRetailers(formData.house_id, v);
-                        }, 300);
-                      }}
-                      onFocus={() => { if (formData.house_id) { setRetailerDropdownOpen(true); if (retailers.length === 0) fetchRetailers(formData.house_id); } }}
-                      placeholder={!formData.house_id ? t("sim_replacement.select_house_first") : t("sim_replacement.search_retailer")}
-                      disabled={!formData.house_id}
-                      className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-50"
-                    />
-                    {retailerDropdownOpen && formData.house_id && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setRetailerDropdownOpen(false)} />
-                        <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-                          {retailers.length === 0 ? (
-                            <p className="px-3 py-2 text-sm text-gray-400">{t("sim_replacement.no_retailers")}</p>
-                          ) : retailers.map(r => (
-                            <button
-                              key={r.id}
-                              type="button"
-                              onClick={() => {
-                                setFormData({ ...formData, retailer_id: r.id, retailer_name: r.name, retailer_code: r.retailer_code });
-                                setRetailerSearch(r.name);
-                                setRetailerDropdownOpen(false);
-                              }}
-                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer"
-                            >
-                              <span className="font-medium">{r.name}</span>
-                              <span className="text-gray-400 ml-2">{r.retailer_code}</span>
-                              {r.itop_number && <span className="text-gray-400 ml-1">({r.itop_number})</span>}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason")}</label>
-                    <select value={formData.replacement_reason || "Damaged"} onChange={e => setFormData({ ...formData, replacement_reason: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                      {["Lost", "Damaged", "Stolen", "Network_Issue", "Other"].map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.ev_swap_serial")}</label>
-                    <input value={formData.ev_swap_serial || ""} onChange={e => setFormData({ ...formData, ev_swap_serial: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.priority")}</label>
-                    <select value={formData.priority || "normal"} onChange={e => setFormData({ ...formData, priority: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                      {["low", "normal", "high", "urgent"].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason_details")}</label>
-                    <textarea value={formData.reason_details || ""} onChange={e => setFormData({ ...formData, reason_details: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
-
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.remarks")}</label>
-                    <textarea value={formData.remarks || ""} onChange={e => setFormData({ ...formData, remarks: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-                  </div>
+                <div className="mb-4">
+                  <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.house")}</label>
+                  <select value={formData.house_id || ""} onChange={e => {
+                    const v = e.target.value;
+                    setFormData({ ...formData, house_id: v ? Number(v) : "" });
+                    if (v) {
+                      setRows([{ tempId: 1, retailer_id: "", retailer_name: "", retailer_code: "", retailerSearch: "", dropdownOpen: false, replacement_reason: "Damaged", reason_details: "", ev_swap_serial: "", priority: "normal", remarks: "" }]);
+                      setNextRowId(2);
+                    } else {
+                      setRows([]);
+                      setNextRowId(1);
+                    }
+                  }} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                    <option value="">{t("common.select_house")}</option>
+                    {houses.map(h => <option key={h.id} value={h.id}>{h.display_name}</option>)}
+                  </select>
                 </div>
+
+                {formData.house_id && (
+                  <div className="space-y-4">
+                    {rows.map((row, idx) => (
+                      <div key={row.tempId} className="border border-gray-200 dark:border-slate-700 rounded-xl p-4 relative">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-xs font-semibold text-gray-400 uppercase">#{idx + 1}</span>
+                          {rows.length > 1 && (
+                            <button type="button" onClick={() => removeRow(row.tempId)} className="p-1 text-gray-400 hover:text-red-600 cursor-pointer">
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="col-span-2 relative">
+                            <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.retailer")} <span className="text-red-500">*</span></label>
+                            {row.retailer_id && (
+                              <div className="flex items-center gap-1.5 mt-1.5 mb-1.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-medium border border-indigo-200 dark:border-indigo-700">
+                                  {row.retailer_name} ({row.retailer_code})
+                                </span>
+                                <button type="button" onClick={() => updateRow(row.tempId, { retailer_id: "", retailer_name: "", retailer_code: "", retailerSearch: "" })} className="text-gray-400 hover:text-red-600 cursor-pointer">
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                            <div className="relative">
+                              <input
+                                value={row.retailerSearch}
+                                onChange={e => {
+                                  const v = e.target.value;
+                                  updateRow(row.tempId, { retailerSearch: v, dropdownOpen: true });
+                                  if (!row.retailer_id) {
+                                    updateRow(row.tempId, { retailer_id: "", retailer_name: "", retailer_code: "" });
+                                  }
+                                  clearTimeout(retailerDebounce.current);
+                                  retailerDebounce.current = setTimeout(() => {
+                                    if (formData.house_id) fetchRetailers(formData.house_id, v);
+                                  }, 300);
+                                }}
+                                onFocus={() => { if (formData.house_id) { updateRow(row.tempId, { dropdownOpen: true }); if (retailers.length === 0) fetchRetailers(formData.house_id); } }}
+                                placeholder={t("sim_replacement.search_retailer")}
+                                className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                              />
+                              {row.dropdownOpen && (
+                                <>
+                                  <div className="fixed inset-0 z-10" onClick={() => updateRow(row.tempId, { dropdownOpen: false })} />
+                                  <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                                    {retailers.length === 0 ? (
+                                      <p className="px-3 py-2 text-sm text-gray-400">{t("sim_replacement.no_retailers")}</p>
+                                    ) : retailers.filter(r => !rows.some(s => s.retailer_id === r.id && s.tempId !== row.tempId)).map(r => (
+                                      <button
+                                        key={r.id}
+                                        type="button"
+                                        onClick={() => {
+                                          updateRow(row.tempId, { retailer_id: r.id, retailer_name: r.name, retailer_code: r.retailer_code, retailerSearch: "", dropdownOpen: false });
+                                        }}
+                                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-700 cursor-pointer"
+                                      >
+                                        <span className="font-medium">{r.name}</span>
+                                        <span className="text-gray-400 ml-2">{r.retailer_code}</span>
+                                        {r.itop_number && <span className="text-gray-400 ml-1">({r.itop_number})</span>}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="col-span-2 sm:col-span-1">
+                            <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason")}</label>
+                            <select value={row.replacement_reason} onChange={e => updateRow(row.tempId, { replacement_reason: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                              {["Lost", "Damaged", "Stolen", "Network_Issue", "Other"].map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
+                            </select>
+                          </div>
+
+                          <div className="col-span-2 sm:col-span-1">
+                            <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.ev_swap_serial")}</label>
+                            <input value={row.ev_swap_serial} onChange={e => updateRow(row.tempId, { ev_swap_serial: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                          </div>
+
+                          <div className="col-span-2 sm:col-span-1">
+                            <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.priority")}</label>
+                            <select value={row.priority} onChange={e => updateRow(row.tempId, { priority: e.target.value })} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                              {["low", "normal", "high", "urgent"].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                            </select>
+                          </div>
+
+                          <div className="col-span-2">
+                            <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.reason_details")}</label>
+                            <textarea value={row.reason_details} onChange={e => updateRow(row.tempId, { reason_details: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                          </div>
+
+                          <div className="col-span-2">
+                            <label className="text-xs font-medium text-gray-500">{t("sim_replacement.fields.remarks")}</label>
+                            <textarea value={row.remarks} onChange={e => updateRow(row.tempId, { remarks: e.target.value })} rows={2} className="w-full mt-1 px-3 py-2 border border-gray-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    <button type="button" onClick={addRow} className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:border-indigo-500 transition-colors cursor-pointer">
+                      <Plus className="w-4 h-4" /> {t("sim_replacement.add_more")}
+                    </button>
+                  </div>
+                )}
+
+                {!formData.house_id && (
+                  <div className="text-center py-8 text-sm text-gray-400">{t("sim_replacement.select_house_first")}</div>
+                )}
+
                 <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100 dark:border-slate-800">
                   <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm rounded-xl border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer">Cancel</button>
-                  <button onClick={handleCreate} disabled={actionLoading} className="px-4 py-2 text-sm rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 cursor-pointer flex items-center gap-2">
+                  <button onClick={handleCreate} disabled={actionLoading || !formData.house_id} className="px-4 py-2 text-sm rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 cursor-pointer flex items-center gap-2">
                     {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />} {t("sim_replacement.create")}
                   </button>
                 </div>

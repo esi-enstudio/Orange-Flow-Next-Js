@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -14,6 +14,21 @@ class SimReplacementCreate(BaseModel):
     priority: Optional[str] = Field("normal", pattern=r"^(low|normal|high|urgent)$")
     notes: Optional[str] = None
     remarks: Optional[str] = None
+
+
+class SimReplacementBulkItem(BaseModel):
+    retailer_id: int = Field(..., ge=1)
+    replacement_reason: str = Field(..., pattern=r"^(Lost|Damaged|Stolen|Network_Issue|Other)$")
+    reason_details: Optional[str] = None
+    ev_swap_serial: Optional[str] = Field(None, max_length=100)
+    priority: Optional[str] = Field("normal", pattern=r"^(low|normal|high|urgent)$")
+    notes: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class SimReplacementBulkCreate(BaseModel):
+    house_id: int = Field(..., ge=1)
+    items: List[SimReplacementBulkItem] = Field(..., min_length=1)
 
 
 class SimReplacementUpdate(BaseModel):

@@ -22,7 +22,8 @@ from app.utils.timezone import now_naive
 from app.schemas.sim_inventory import SimInventoryCreate, SimInventoryUpdate, SimInventorySchema, SerialRangeItem
 from app.schemas.ev_kit_inventory import EvKitCreate, EvKitUpdate, EvKitAllocate, EvKitSchema
 from app.schemas.sim_replacement import (
-    SimReplacementCreate, SimReplacementUpdate, SimReplacementApprove,
+    SimReplacementCreate, SimReplacementBulkCreate, SimReplacementBulkItem, SimReplacementUpdate,
+    SimReplacementApprove,
     SimReplacementIssue, SimReplacementActivate, SimReplacementSchema, SimReplacementLogSchema,
 )
 from app.schemas.pagination import PaginatedResponse, PaginationMeta, PaginationParams
@@ -712,6 +713,73 @@ async def create_replacement_request(
     s.requester_name = current_user.name
 
     return {"success": True, "data": s}
+
+
+@router.post("/sim-replacement/bulk", status_code=201)
+async def bulk_create_replacement_requests(
+    payload: SimReplacementBulkCreate,
+    house_context: Optional[int] = Depends(get_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("sim_replacement.create")),
+):
+    target_house_id = payload.house_id or house_context
+    if not target_house_id:
+        raise HTTPException(status_code=400, detail="house_id is required")
+
+    user_house_ids = [h.id for h in current_user.houses]
+    if not is_admin_user(current_user) and target_house_id not in user_house_ids:
+        raise HTTPException(status_code=403, detail="Access denied to this house")
+
+    created_records = []
+    for item in payload.items:
+        retail_result = await db.execute(
+            select(Retailer.id, Retailer.retailer_code, Retailer.name).where(Retailer.id == item.retailer_id)
+        )
+        retailer = retail_result.one_or_none()
+        if not retailer:
+            continue
+
+        request_number = await _generate_request_number(db, target_house_id)
+
+        record = SimReplacementRequest(
+            house_id=target_house_id,
+            request_number=request_number,
+            retailer_id=retailer[0],
+            retailer_code=retailer[1],
+            retailer_name=retailer[2],
+            replacement_reason=item.replacement_reason,
+            reason_details=item.reason_details,
+            ev_swap_serial=item.ev_swap_serial,
+            priority=item.priority,
+            notes=item.notes,
+            remarks=item.remarks,
+            request_status="pending",
+            requested_by=current_user.id,
+        )
+        db.add(record)
+        await db.flush()
+
+        await _log_replacement_action(
+            db, record.id, "created",
+            None, "pending", current_user,
+            notes=f"Bulk request created: {item.replacement_reason}",
+            metadata={"payload": item.model_dump()},
+        )
+
+        await log_activity(
+            db=db, user_id=current_user.id, user_name=current_user.name,
+            module="sim_replacement", action="create",
+            record_id=record.id, record_identifier=record.request_number,
+            new_values=item.model_dump() | {"retailer_id": retailer[0], "retailer_code": retailer[1], "retailer_name": retailer[2]},
+        )
+
+        s = SimReplacementSchema.model_validate(record)
+        s.requester_name = current_user.name
+        created_records.append(s)
+
+    await db.commit()
+
+    return {"success": True, "data": created_records, "count": len(created_records)}
 
 
 @router.put("/sim-replacement/{request_id}")

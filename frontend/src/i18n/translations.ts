@@ -1661,6 +1661,8 @@ export const translations = {
       select_house_first: "Select a house first",
       search_retailer: "Search retailer by name or code...",
       no_retailers: "No retailers found",
+      select_at_least_one_retailer: "Select at least one retailer",
+      add_more: "Add More",
       fields: {
         house: "House",
         request_number: "Request #",
@@ -3386,6 +3388,8 @@ export const translations = {
       select_house_first: "প্রথমে একটি হাউস নির্বাচন করুন",
       search_retailer: "নাম বা কোড দ্বারা রিটেইলার অনুসন্ধান...",
       no_retailers: "কোনো রিটেইলার পাওয়া যায়নি",
+      select_at_least_one_retailer: "কমপক্ষে একজন রিটেইলার নির্বাচন করুন",
+      add_more: "আরও যোগ করুন",
       fields: {
         house: "হাউস",
         request_number: "অনুরোধ #",
