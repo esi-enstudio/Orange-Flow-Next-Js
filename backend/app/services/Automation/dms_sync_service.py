@@ -193,13 +193,14 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
 
     page = None
     context = None
+    house_label = f"{house.name} ({house.code})"
 
     try:
         async with async_session() as session:
             for mod in modules:
                 mod_name = mod.get('key') or mod['name'].lower().replace(" ", "_")
                 if progress_callback:
-                    await progress_callback(f"Checking {mod['name']} for {house.name}...")
+                    await progress_callback(f"Checking {mod['name']} for {house_label}...")
 
                 # Find missing dates per module
                 all_ranges = []
@@ -217,11 +218,11 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
 
                 if not all_ranges:
                     if progress_callback:
-                        await progress_callback(f"No missing dates for {mod['name']} in {house.name}")
+                        await progress_callback(f"No missing dates for {mod['name']} in {house_label}")
                     continue
 
                 if progress_callback:
-                    await progress_callback(f"Downloading {len(all_ranges)} range(s) for {mod['name']} in {house.name}...")
+                    await progress_callback(f"Downloading {len(all_ranges)} range(s) for {mod['name']} in {house_label}...")
 
                 # Only open browser if there's something to download (once)
                 if page is None:
@@ -229,7 +230,7 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
 
                 for task in all_ranges:
                     if progress_callback:
-                        await progress_callback(f"Downloading {task['url_key']} ({task['start_d']} to {task['end_d']})...")
+                        await progress_callback(f"Downloading {task['url_key']} ({house_label}): {task['start_d']} to {task['end_d']}...")
                     res = await download_and_process(
                         page, house, task['url_key'], 
                         task['start_d'], task['end_d'], 
@@ -243,12 +244,12 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
                     await mark_sync_complete(house.id, task['url_key'], task['start_d'], task['end_d'], status)
 
                     if progress_callback:
-                        await progress_callback(f"✓ {task['url_key']}: {'success' if res == 'success' else res}")
+                        await progress_callback(f"✓ {task['url_key']} ({house_label}): {'success' if res == 'success' else res}")
 
     except Exception as e:
-        logger.error(f"❌ [Sync Modules Error] {house.name}: {str(e)}")
+        logger.error(f"❌ [Sync Modules Error] {house_label}: {str(e)}")
         if progress_callback:
-            await progress_callback(f"✗ Error in {house.name}: {str(e)}")
+            await progress_callback(f"✗ Error in {house_label}: {str(e)}")
         raise
     finally:
         if page: await page.close()
@@ -269,9 +270,7 @@ async def sync_activation_module(house_id=None, progress_callback=None):
             House.dms_user != None,
             House.is_active == True,
         )
-        if not house_id:
-            query = query.where(House.is_sync_enabled == True)
-        else:
+        if house_id:
             query = query.where(House.id == house_id)
         result = await session.execute(query)
         houses = result.scalars().all()
@@ -282,13 +281,14 @@ async def sync_activation_module(house_id=None, progress_callback=None):
         return
 
     for house in houses:
+        house_label = f"{house.name} ({house.code})"
         try:
             if progress_callback:
-                await progress_callback(f"🏠 Starting sync for {house.name}...")
+                await progress_callback(f"🏠 Starting sync for {house_label}...")
             await sync_house_modules(house, module_filter=["activation"], progress_callback=progress_callback)
             await asyncio.sleep(5)
         except Exception as e:
-            logger.error(f"❌ [Manual Activation Sync Error] {house.name}: {str(e)}")
+            logger.error(f"❌ [Manual Activation Sync Error] {house_label}: {str(e)}")
 
 async def sync_itopup_module(house_id=None, progress_callback=None):
     """Manually trigger iTopUp sync for all houses or specific house.
@@ -305,9 +305,7 @@ async def sync_itopup_module(house_id=None, progress_callback=None):
             House.dms_user != None,
             House.is_active == True,
         )
-        if not house_id:
-            query = query.where(House.is_sync_enabled == True)
-        else:
+        if house_id:
             query = query.where(House.id == house_id)
         result = await session.execute(query)
         houses = result.scalars().all()
@@ -318,13 +316,14 @@ async def sync_itopup_module(house_id=None, progress_callback=None):
         return
 
     for house in houses:
+        house_label = f"{house.name} ({house.code})"
         try:
             if progress_callback:
-                await progress_callback(f"🏠 Starting sync for {house.name}...")
+                await progress_callback(f"🏠 Starting sync for {house_label}...")
             await sync_house_modules(house, module_filter=["itopup"], progress_callback=progress_callback)
             await asyncio.sleep(5)
         except Exception as e:
-            logger.error(f"❌ [Manual iTopUp Sync Error] {house.name}: {str(e)}")
+            logger.error(f"❌ [Manual iTopUp Sync Error] {house_label}: {str(e)}")
 
 async def handle_swal_popup(page, house_name):
     """Handle SweetAlert2 popup"""
@@ -352,10 +351,11 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
     s_date_str = start_date.strftime("%Y-%m-%d")
     e_date_str = end_date.strftime("%Y-%m-%d")
     file_path = os.path.join(TEMP_DIR, f"sync_{url_key}_{house.code}_{s_date_str}_to_{e_date_str}.xlsx")
+    house_label = f"{house.name} ({house.code})"
     
     try:
         url = URL_MAP.get(url_key)
-        logger.info(f"🚀 [{house.name}] {url_key} ({s_date_str} to {e_date_str}) download starting...")
+        logger.info(f"🚀 [{house_label}] {url_key} ({s_date_str} to {e_date_str}) download starting...")
         
         # Page navigation
         try:
@@ -388,7 +388,7 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
                 await page.wait_for_selector("#DMSdatatableTest", timeout=20000)
                 empty_msg = await page.query_selector("td.dataTables_empty")
                 if empty_msg and "No data found" in await empty_msg.inner_text():
-                    logger.info(f"ℹ️ [{house.name}] Scratch Card: No data for {s_date_str}-{e_date_str}.")
+                    logger.info(f"ℹ️ [{house_label}] Scratch Card: No data for {s_date_str}-{e_date_str}.")
                     return "no_data"
                 
                 async with page.expect_download(timeout=180000) as download_info:
@@ -396,7 +396,7 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
                 download = await download_info.value
             except Exception as e:
                 if await handle_swal_popup(page, house.name) == "no_data": return "no_data"
-                logger.error(f"❌ [{house.name}] Scratch Card check failed: {str(e)}")
+                logger.error(f"❌ [{house_label}] Scratch Card check failed: {str(e)}")
                 return "error"
         else:
             # Direct export for other reports
@@ -426,14 +426,14 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
             
         if err: 
             if "No data found" in str(err): return "no_data"
-            logger.error(f"❌ [{house.name}] Processing error: {err}")
+            logger.error(f"❌ [{house_label}] Processing error: {err}")
             return "error"
         else: 
-            logger.info(f"✅ [{house.name}] {url_key} success. Total: {count}")
+            logger.info(f"✅ [{house_label}] {url_key} success. Total: {count}")
             return "success"
 
     except Exception as e:
-        logger.error(f"💥 [{house.name}] {url_key} failed: {str(e)}")
+        logger.error(f"💥 [{house_label}] {url_key} failed: {str(e)}")
         return "error"
     finally:
         if os.path.exists(file_path): os.remove(file_path)

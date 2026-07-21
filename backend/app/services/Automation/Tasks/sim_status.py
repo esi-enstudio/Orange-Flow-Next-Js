@@ -33,7 +33,7 @@ async def run_sim_status_check(serials: list, credentials: dict):
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000) 
 
         # Wait for element to appear
-        await page.wait_for_selector("#SearchType", timeout=30000)
+        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
         
         # 3. Provide Input
         await page.select_option("#SearchType", "1") # SIM Serial

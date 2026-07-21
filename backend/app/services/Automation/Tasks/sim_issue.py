@@ -28,7 +28,7 @@ async def run_sim_issue_status(serials: list, credentials: dict):
         # 2. Go to Smart Search page
         logger.info(f"🔍 [{house_name}] Navigating to Smart Search page...")
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_selector("#SearchType", timeout=30000)
+        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
         
         # 3. Fill and submit search form
         await page.select_option("#SearchType", "1") # Select SIM Serial

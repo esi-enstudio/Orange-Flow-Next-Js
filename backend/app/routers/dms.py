@@ -205,7 +205,7 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
         logger.info(f"🔍 [Task] {house_name} ({h_code}): Starting check for {len(serials)} SIMs...")
         
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000) 
-        await page.wait_for_selector("#SearchType", timeout=30000)
+        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
         
         await page.select_option("#SearchType", "1") # SIM Serial
         await page.fill("#SearchValue", "\n".join(serials))
@@ -481,7 +481,7 @@ async def run_sim_return_check(serials: list, credentials: dict):
         logger.info(f"🔙 [SIM Return] {house_name} ({h_code}): Starting SIM return check for {len(serials)} SIMs...")
 
         await page.goto(SIM_RETURN_URL, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_selector("#SearchType", timeout=30000)
+        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
 
         await page.select_option("#SearchType", "1")
         await page.fill("#SearchValue", "\n".join(serials))

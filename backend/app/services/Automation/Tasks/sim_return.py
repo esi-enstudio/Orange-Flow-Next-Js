@@ -35,7 +35,7 @@ async def run_sim_return_task(serials: list, credentials: dict, bot, chat_id):
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000)
         
         # 3. Fill search form (select SIM Serial option)
-        await page.wait_for_selector("#SearchType", timeout=30000)
+        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
         await page.select_option("#SearchType", "1") 
         await page.fill("#SearchValue", "\n".join(serials))
         
