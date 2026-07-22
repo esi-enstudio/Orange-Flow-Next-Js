@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import {
   Search, Upload, Download, ChevronLeft, ChevronRight, ChevronDown,
   Loader2, Database, X, CheckCircle2, Calendar, Filter, RotateCcw,
-  SlidersHorizontal, Store, Building2, User, CloudDownload,
+  SlidersHorizontal, Store, Building2, User, Trash2,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
@@ -293,32 +293,28 @@ export default function ImportItopUpPage() {
     }
   };
 
-  const [syncingDMS, setSyncingDMS] = useState(false);
+  const [showTruncateConfirm, setShowTruncateConfirm] = useState(false);
+  const [truncating, setTruncating] = useState(false);
+  const [truncateHouseId, setTruncateHouseId] = useState("");
 
-  const handleSyncFromDMS = async () => {
-    setSyncingDMS(true);
-    setImportProgress({ percent: 0, message: "Starting sync..." });
+  const handleTruncate = async () => {
+    setTruncating(true);
     try {
-      const token = Cookies.get("token");
-      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
-      const response = await fetch(`${baseURL}/sync/itopup`, {
-        method: "POST",
-        headers,
-      });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData?.detail || errData?.message || `Request failed (${response.status})`);
-      }
-      await readSSEStream(response);
-      fetchData();
-    } catch (err: any) {
-      toast.error(err?.message || "Sync failed");
+      const params: Record<string, string> = {};
+      if (truncateHouseId) params.house_id = truncateHouseId;
+      await axios.delete("/itopup-details/truncate", { params });
+      const msg = truncateHouseId
+        ? `iTopUp details deleted for ${houses.find(h => String(h.id) === truncateHouseId)?.name || "selected house"}`
+        : "All iTopUp details deleted";
+      toast.success(msg);
+      setData([]);
+      setPagination(null);
+      setShowTruncateConfirm(false);
+      setTruncateHouseId("");
+    } catch {
+      toast.error("Failed to delete");
     } finally {
-      setSyncingDMS(false);
-      setImportProgress(null);
+      setTruncating(false);
     }
   };
 
@@ -465,11 +461,12 @@ export default function ImportItopUpPage() {
             className="group flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
             <Download className="w-4 h-4 group-hover:text-primary-600 transition-colors" /> Export
           </button>
-          <button onClick={handleSyncFromDMS} disabled={syncingDMS || importing}
-            className="group flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
-            {syncingDMS ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4 group-hover:text-purple-900 dark:group-hover:text-purple-200 transition-colors" />}
-            {syncingDMS ? "Syncing..." : "Sync from DMS"}
-          </button>
+          {pagination && pagination.total > 0 && (
+            <button onClick={() => setShowTruncateConfirm(true)}
+              className="group flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/50 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+              <Trash2 className="w-4 h-4" /> Clear All
+            </button>
+          )}
         </div>
       </div>
 
@@ -865,6 +862,43 @@ export default function ImportItopUpPage() {
           </div>
         </div>
       </div>
+      {showTruncateConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
+            <div className="p-8 flex flex-col items-center text-center">
+              <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-red-100 dark:bg-red-500/20">
+                <Trash2 className="w-10 h-10 text-red-600 dark:text-red-400" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Delete Data</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-5">
+                {truncateHouseId
+                  ? `Are you sure you want to delete all iTopUp data for "${houses.find(h => String(h.id) === truncateHouseId)?.name || "selected house"}"?`
+                  : "Are you sure you want to delete ALL iTopUp detail records for all houses?"}
+              </p>
+              <select
+                value={truncateHouseId}
+                onChange={e => setTruncateHouseId(e.target.value)}
+                className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm dark:text-gray-200 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all appearance-none"
+              >
+                <option value="">All Houses</option>
+                {houses.map(h => (
+                  <option key={h.id} value={h.id}>{h.display_name || h.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="p-6 pt-0 flex flex-col gap-3">
+              <button onClick={handleTruncate} disabled={truncating}
+                className="w-full py-4 rounded-2xl text-white font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-50 bg-red-600 hover:bg-red-700">
+                {truncating ? "Deleting..." : "Delete"}
+              </button>
+              <button onClick={() => { setShowTruncateConfirm(false); setTruncateHouseId(""); }} disabled={truncating}
+                className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

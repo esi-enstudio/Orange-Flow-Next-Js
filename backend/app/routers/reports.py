@@ -648,6 +648,20 @@ async def truncate_activations(
     await db.commit()
     return {"message": "All activations deleted successfully"}
 
+@router.delete("/itopup-details/truncate")
+async def truncate_itopup_details(
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("itopup.import")),
+):
+    if house_id:
+        await db.execute(ITopUpDetail.__table__.delete().where(ITopUpDetail.house_id == house_id))
+        await db.commit()
+        return {"message": f"iTopUp details deleted for house {house_id}"}
+    await db.execute(ITopUpDetail.__table__.delete())
+    await db.commit()
+    return {"message": "All iTopUp details deleted successfully"}
+
 @router.get("/scratch-card")
 async def get_scratch_card(
     search: Optional[str] = None,
