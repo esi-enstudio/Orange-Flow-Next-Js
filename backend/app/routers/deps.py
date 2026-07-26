@@ -111,6 +111,23 @@ async def get_house_context(
         raise HTTPException(status_code=403, detail="You do not have access to this house context")
     return x_house_id
 
+
+async def require_house_context(
+    x_house_id: Optional[int] = Header(None, alias="X-House-ID"),
+    current_user: User = Depends(get_current_user)
+):
+    is_admin = is_admin_user(current_user)
+    if not x_house_id:
+        if is_admin or not current_user.houses:
+            raise HTTPException(status_code=400, detail="Please select a house first (X-House-ID header required)")
+        return current_user.houses[0].id
+    if is_admin:
+        return x_house_id
+    user_house_ids = [h.id for h in current_user.houses]
+    if x_house_id not in user_house_ids:
+        raise HTTPException(status_code=403, detail="You do not have access to this house context")
+    return x_house_id
+
 def has_any_permission(permissions: List[str]):
     async def permission_dependency(current_user: User = Depends(get_current_user)):
         user_permissions = set()

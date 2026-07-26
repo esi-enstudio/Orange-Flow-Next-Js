@@ -18,7 +18,6 @@ from app.models.subscription import SubscriptionPackage, HouseSubscription
 from app.models.mela import Mela, MelaEligibleBTS
 from app.models.product import Product, ProductCodeHistory
 from app.models.lifting import LiftingRecord, LiftingProduct
-from app.models.leave_management import LeaveRequest
 from app.models.ga_filter import GAProductFilter, FilterTag, RetailerFilter
 from app.models.sync_history import SyncHistory
 from app.models.role import Permission
@@ -47,3 +46,8 @@ from app.models.ev_kit_inventory import EvKitInventory
 from app.models.sim_replacement_request import SimReplacementRequest
 from app.models.sim_replacement_log import SimReplacementLog
 from app.models.sim_stock_movement import SimStockMovement
+from app.models.sales import DailySales
+from app.models.employee_stock import EmployeeStock
+from app.models.house_stock import HouseStock
+from app.models.stock_transfer import StockTransfer
+from app.models.stock_movement import StockMovement

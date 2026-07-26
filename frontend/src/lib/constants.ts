@@ -24,6 +24,9 @@ import {
   ShieldCheck,
   Search,
   FileText,
+  Clock,
+  CalendarDays,
+  PackageOpen,
 } from "lucide-react";
 
 export interface NavItem {
@@ -89,7 +92,6 @@ export const navItems: NavItem[] = [
     children: [
       { title: "Employee Management", translationKey: "nav.employees", href: "/employees", permission: "employees.view" },
       { title: "KPI Reports (GA/C2C)", translationKey: "nav.reports", href: "/reports/kpi", permission: "reports.view" },
-      { title: "Attendance", translationKey: "nav.attendance", href: "/attendance", permission: "attendance.view" },
     ]
   },
   {
@@ -119,6 +121,16 @@ export const navItems: NavItem[] = [
         href: "/commercial/commission",
       },
       { title: "Daily Expenses", translationKey: "nav.expenses", href: "/commercial/expenses", permission: "expenses.view" },
+    ]
+  },
+  {
+    title: "Sales & Stock",
+    translationKey: "nav.sales_stock",
+    icon: PackageOpen,
+    color: "text-amber-500",
+    children: [
+      { title: "Stock", translationKey: "nav.stock", href: "/stock", permission: "stock.view" },
+      { title: "Sales", translationKey: "nav.stock_sales", href: "/sales", permission: "sales.view" },
     ]
   },
   {

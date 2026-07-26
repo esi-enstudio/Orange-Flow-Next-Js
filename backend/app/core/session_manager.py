@@ -15,31 +15,45 @@ KEEPALIVE_INTERVAL = 120  # seconds between keepalive pings
 
 class SessionManager:
     def __init__(self):
-        self.playwright = None
         self.browser = None
+        self._playwright = None
+        self._own_browser = False
         self._keepalive_ctx: dict[str, dict] = {}  # code -> {context, page, task}
         os.makedirs(SESSION_DIR, exist_ok=True)
 
+    def set_browser(self, browser):
+        """Use an externally-owned browser (from AutomationEngine) instead of launching our own."""
+        if self._own_browser and self.browser and self.browser is not browser:
+            logger.warning("🔁 Closing self-managed browser in favor of shared instance")
+            asyncio.create_task(self.browser.close())
+        self.browser = browser
+        self._own_browser = False
+        logger.info("🔗 SessionManager using shared browser instance.")
+
     async def start(self):
-        if not self.playwright:
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(
-                headless=settings.HEADLESS,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox'
-                ]
-            )
-            logger.info("🚀 Browser started for automation tasks.")
+        if self.browser:
+            return
+        self._own_browser = True
+        self._playwright = await async_playwright().start()
+        self.browser = await self._playwright.chromium.launch(
+            headless=settings.HEADLESS,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-setuid-sandbox'
+            ]
+        )
+        logger.info("🚀 Browser started for automation tasks.")
 
     async def stop(self):
         await self._stop_all_keepalive()
-        if self.browser:
+        if self._own_browser and self.browser:
             await self.browser.close()
-        if self.playwright:
-            await self.playwright.stop()
-        logger.info("🛑 Browser stopped.")
+        if self._own_browser and self._playwright:
+            await self._playwright.stop()
+        self.browser = None
+        self._playwright = None
+        logger.info("🛑 SessionManager browser released.")
 
     def _session_path(self, credentials):
         code = credentials.get('code', str(credentials['house_id']))

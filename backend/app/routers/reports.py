@@ -1099,7 +1099,7 @@ async def get_employee_activation_details(
     retailer_codes = list(set(c for c in retailer_codes if c))
 
     if not retailer_codes and not retailer_ids:
-        return {"employee": {"id": emp.id, "name": emp.dms_code or f"#{emp.id}"}, "groups": []}
+        return {"employee": {"id": emp.id, "name": emp.dms_code or f"#{emp.id}", "assisted_code": emp.assisted_retailer_code}, "groups": []}
 
     filters = []
     if retailer_codes:
@@ -1156,6 +1156,7 @@ async def get_employee_activation_details(
         result_groups.append({
             "retailer_code": g["retailer_code"],
             "retailer_name": g["retailer_name"],
+            "is_assisted": emp.assisted_retailer_code is not None and g["retailer_code"] == emp.assisted_retailer_code,
             "count": sum(pr["count"] for pr in product_list),
             "products": product_list,
         })

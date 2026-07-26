@@ -70,6 +70,9 @@ from app.routers.scratch_card_serials import router as scratch_card_serials_rout
 from app.routers.cv import router as cv_router
 from app.routers.sync import router as sync_router
 from app.routers.sim_replacement import router as sim_replacement_router
+from app.routers.shifts import router as shifts_router
+from app.routers.sales import router as sales_router
+from app.routers.stock import router as stock_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -78,10 +81,7 @@ from app.routers.sim_replacement import router as sim_replacement_router
 app = FastAPI(title="OrangeFlow Management API")
 
 from app.core.session_manager import session_manager
-
-@app.on_event("shutdown")
-async def shutdown():
-    await session_manager.stop()
+import gc
 
 if not os.path.exists('uploads/profile_pics'):
     os.makedirs('uploads/profile_pics')
@@ -121,6 +121,9 @@ app.include_router(scratch_card_serials_router)
 app.include_router(cv_router)
 app.include_router(sync_router)
 app.include_router(sim_replacement_router)
+app.include_router(shifts_router)
+app.include_router(sales_router)
+app.include_router(stock_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -200,6 +203,8 @@ async def receive_otp(request: Request):
 # 2. SCHEDULER
 # ==========================================
 
+_ga_sync_lock = asyncio.Lock()
+
 async def master_automation_scheduler():
     from app.services.Automation.Reports.ga_live import run_ga_live_sync, reset_daily_activations
     from app.services.Automation.dms_report_excel import cleanup_old_dms_reports
@@ -220,7 +225,8 @@ async def master_automation_scheduler():
             if (now_time - last_heartbeat).total_seconds() >= 600:
                 ga_status = 'Active' if 8 <= hour < 24 else 'Sleeping'
                 daily_status = f"Daily Sync: {'Done' if last_auto_sync_date == today_date else 'Pending'}"
-                logger.info(f"⏳ [Scheduler Heartbeat] Hour: {hour}, GA Sync {ga_status}, {daily_status}")
+                mem = _get_memory_mb()
+                logger.info(f"⏳ [Scheduler Heartbeat] Hour: {hour}, GA Sync {ga_status}, {daily_status}, Mem: {mem}MB")
                 last_heartbeat = now_time
 
             # Midnight reset (00:00-00:05)
@@ -243,15 +249,23 @@ async def master_automation_scheduler():
 
             # 8:00 AM - 11:59 PM — Live activation sync (every 5 minutes)
             if 8 <= hour < 24:
-                await run_ga_live_sync()
+                async with _ga_sync_lock:
+                    await run_ga_live_sync()
                 await asyncio.sleep(300)
             else:
                 # 1:00 AM - 6:59 AM — Check every 1 minute (so as not to miss 7:00 AM)
                 await asyncio.sleep(60)
 
         except Exception as e:
-            logger.error(f"Scheduler Error: {str(e)}")
+            logger.error(f"Scheduler Error: {str(e)}", exc_info=True)
             await asyncio.sleep(60)
+
+def _get_memory_mb() -> int:
+    try:
+        import psutil
+        return int(psutil.Process().memory_info().rss / 1024 / 1024)
+    except ImportError:
+        return 0
 
 # ==========================================
 # 3. MAIN ENTRY POINT
@@ -274,23 +288,42 @@ async def main():
                 logger.error("Max DB retries reached. Exiting process.")
                 sys.exit(1)
 
+    try:
+        from app.services.db_service import async_session
+        from seed_db import seed_system_data
+        async with async_session() as session:
+            from app.models.user import User
+            from sqlalchemy import select, func
+            result = await session.execute(select(func.count()).select_from(User))
+            if result.scalar() > 0:
+                await seed_system_data(session)
+                logger.info("Permissions synced from config.")
+    except Exception as e:
+        logger.warning(f"Permission sync skipped: {e}")
+
     from app.services.cache_service import cache_service
     await cache_service.connect()
 
     background_tasks = []
     ngrok_tunnel = None
+    server_task = None
+    engine_ok = False
     try:
-        config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info", reload=True)
-        server = uvicorn.Server(config)
-        background_tasks.append(asyncio.create_task(server.serve()))
-
-        engine_ok = True
+        # Start engine FIRST and share browser with session_manager
+        # (before server starts accepting requests, eliminating any race)
         try:
             await engine.start()
+            session_manager.set_browser(engine.browser)
+            engine_ok = True
+            logger.info("🤖 Automation engine ready, browser shared with SessionManager")
         except Exception as e:
-            engine_ok = False
             logger.error(f"Failed to start automation engine: {e}")
             logger.info("API server continues running without automation engine")
+
+        config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+        server = uvicorn.Server(config)
+        server_task = asyncio.create_task(server.serve())
+        background_tasks.append(server_task)
 
         if settings.START_NGROK:
             try:
@@ -315,13 +348,32 @@ async def main():
 
         logger.info("OrangeFlow API is Live on port 8000")
 
-        while True:
-            await asyncio.sleep(3600)
+        # Wait for server task to finish (signals = clean shutdown)
+        if server_task:
+            try:
+                await server_task
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                pass
 
-    except (KeyboardInterrupt, asyncio.CancelledError): pass
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        logger.info("Server shutdown requested")
+    except Exception:
+        logger.critical("🔥 Fatal error in main loop", exc_info=True)
     finally:
-        from app.services.cache_service import cache_service
-        await cache_service.close()
+        # Cancel all background tasks
+        for task in background_tasks:
+            if task is not server_task and not task.done():
+                task.cancel()
+        if background_tasks:
+            await asyncio.gather(*[t for t in background_tasks if not t.done()], return_exceptions=True)
+
+        # Cleanup cache
+        try:
+            await cache_service.close()
+        except Exception as e:
+            logger.warning(f"Cache close error: {e}")
+
+        # Cleanup ngrok
         if ngrok_tunnel:
             try:
                 from pyngrok import ngrok
@@ -329,9 +381,20 @@ async def main():
                 logger.info("Ngrok tunnel closed.")
             except Exception:
                 pass
-        for task in background_tasks:
-            if not task.done(): task.cancel()
-        await engine.stop()
+
+        # Stop session manager keepalive (before engine so pages close first)
+        try:
+            await session_manager.stop()
+        except Exception as e:
+            logger.warning(f"Session manager stop error: {e}")
+
+        # Stop engine
+        try:
+            await engine.stop()
+        except Exception as e:
+            logger.warning(f"Engine stop error: {e}")
+
+        gc.collect()
         logger.info("System closed successfully.")
 
 if __name__ == "__main__":

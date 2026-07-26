@@ -32,7 +32,6 @@ from app.models.sim_issue import SimIssue
 from app.models.subscription import HouseSubscription
 from app.models.sync_history import SyncHistory
 from app.models.mela import Mela, MelaActivity, MelaType, MelaEligibleBTS, MelaAssignment
-from app.models.leave_management import LeaveRequest
 from app.models.product import Product
 from app.models.ga_section_config import GaSectionConfig
 from app.models.app_setting import AppSetting
@@ -49,6 +48,7 @@ from app.models.zoom_in import (
     ZoomInAllocation, ZoomInEvent,
     ZoomInEventBTS, ZoomInEventRSO, ZoomInEventBP, ZoomInEventRetailer,
 )
+from app.models.employee_stock import EmployeeStock
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

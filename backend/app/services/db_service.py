@@ -31,12 +31,12 @@ import app.models.order_collection
 import app.models.bp_retailer_code
 import app.models.retailer_visit
 import app.models.zoom_in
-import app.models.leave_management
 import app.models.commission
 import app.models.ga_section_config
 import app.models.product
 import app.models.todo
 import app.models.cv
+import app.models.sales
 
 logger = logging.getLogger(__name__)
 

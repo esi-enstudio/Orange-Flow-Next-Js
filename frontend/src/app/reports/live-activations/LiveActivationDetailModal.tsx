@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, Store, Package, Hash, Smartphone, CalendarDays, DollarSign } from "lucide-react";
+import { X, Loader2, Store, Package, Hash, Smartphone, CalendarDays, DollarSign, UserCheck, Users } from "lucide-react";
 import apiClient from "@/lib/api";
 
 interface DetailRecord {
@@ -30,6 +30,7 @@ interface ProductGroup {
 interface RetailerGroup {
   retailer_code: string;
   retailer_name: string;
+  is_assisted: boolean;
   count: number;
   products: ProductGroup[];
 }
@@ -102,7 +103,12 @@ export default function RsoDetailModal({ open, onClose, employeeId, roleType, em
                 {data && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     {data.total_count} activations
-                    {data.employee.assisted_code && ` · Assisted Code: ${data.employee.assisted_code}`}
+                    {data.employee.assisted_code && ` · Code: ${data.employee.assisted_code}`}
+                    {(() => {
+                      const own = data.groups.filter((g) => g.is_assisted).reduce((s, g) => s + g.count, 0);
+                      const mkt = data.total_count - own;
+                      return own > 0 ? ` · Own: ${own} · Market: ${mkt}` : "";
+                    })()}
                   </p>
                 )}
               </div>
@@ -126,65 +132,102 @@ export default function RsoDetailModal({ open, onClose, employeeId, roleType, em
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {data.groups.map((group) => (
-                    <div
-                      key={group.retailer_code}
-                      className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden"
-                    >
-                      <div className="flex items-center gap-3 px-5 py-3 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-700">
-                        <Store className="w-4 h-4 text-primary-500 shrink-0" />
-                        <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
-                          {group.retailer_code}
-                        </span>
-                        {group.retailer_name && (
-                          <span className="text-xs text-gray-500 dark:text-gray-400">— {group.retailer_name}</span>
-                        )}
-                        <span className="ml-auto text-xs font-medium text-gray-500 dark:text-gray-400">
-                          {group.count} record{group.count !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-                      <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
-                        {group.products.map((product) => (
-                          <div key={product.product_code}>
-                            <div className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-slate-800/50">
-                              <Package className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                                {product.product_code}
-                              </span>
-                              {product.product_name && (
-                                <span className="text-xs text-gray-400">— {product.product_name}</span>
-                              )}
-                              <span className="ml-auto text-xs text-gray-400">{product.count} record{product.count !== 1 ? "s" : ""}</span>
-                            </div>
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs border-collapse">
-                                <thead>
-                                  <tr className="bg-gray-50 dark:bg-slate-800/30">
-                                    {RECORD_FIELDS.map((f) => (
-                                      <th key={f.key} className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-slate-700 whitespace-nowrap">
-                                        {f.label}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {product.records.map((rec, i) => (
-                                    <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-700/20">
-                                      {RECORD_FIELDS.map((f) => (
-                                        <td key={f.key} className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-50 dark:border-slate-700/30 whitespace-nowrap">
-                                          {(rec as unknown as Record<string, string>)[f.key] || "—"}
-                                        </td>
-                                      ))}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                  {(() => {
+                    const assisted = data.groups.filter((g) => g.is_assisted);
+                    const market = data.groups.filter((g) => !g.is_assisted);
+                    return [...assisted, ...market];
+                  })().map((group, idx, arr) => {
+                    const isAssisted = group.is_assisted;
+                    const isFirstMarket = !isAssisted && idx > 0 && arr[idx - 1]?.is_assisted;
+                    return (
+                      <div key={group.retailer_code}>
+                        {isFirstMarket && (
+                          <div className="flex items-center gap-2 mb-4 mt-2">
+                            <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
+                            <span className="text-xs font-medium text-gray-400 dark:text-gray-500 flex items-center gap-1.5 shrink-0">
+                              <Users className="w-3.5 h-3.5" />
+                              Market Activations
+                            </span>
+                            <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
                           </div>
-                        ))}
+                        )}
+                        <div
+                          className={`rounded-xl border overflow-hidden ${
+                            isAssisted
+                              ? "border-emerald-300 dark:border-emerald-600 ring-1 ring-emerald-200/50 dark:ring-emerald-700/30"
+                              : "border-gray-200 dark:border-slate-700"
+                          }`}
+                        >
+                          <div className={`flex items-center gap-3 px-5 py-3 border-b ${
+                            isAssisted
+                              ? "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800"
+                              : "bg-gray-50 dark:bg-slate-700/50 border-gray-200 dark:border-slate-700"
+                          }`}>
+                            {isAssisted ? (
+                              <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            ) : (
+                              <Store className="w-4 h-4 text-primary-500 shrink-0" />
+                            )}
+                            <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+                              {group.retailer_code}
+                            </span>
+                            {group.retailer_name && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">— {group.retailer_name}</span>
+                            )}
+                            {isAssisted && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-800/40 text-emerald-700 dark:text-emerald-300">
+                                <UserCheck className="w-3 h-3" />
+                                Own Activation
+                              </span>
+                            )}
+                            <span className="ml-auto text-xs font-medium text-gray-500 dark:text-gray-400">
+                              {group.count} record{group.count !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
+                            {group.products.map((product) => (
+                              <div key={product.product_code}>
+                                <div className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-slate-800/50">
+                                  <Package className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                                    {product.product_code}
+                                  </span>
+                                  {product.product_name && (
+                                    <span className="text-xs text-gray-400">— {product.product_name}</span>
+                                  )}
+                                  <span className="ml-auto text-xs text-gray-400">{product.count} record{product.count !== 1 ? "s" : ""}</span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs border-collapse">
+                                    <thead>
+                                      <tr className="bg-gray-50 dark:bg-slate-800/30">
+                                        {RECORD_FIELDS.map((f) => (
+                                          <th key={f.key} className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-slate-700 whitespace-nowrap">
+                                            {f.label}
+                                          </th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {product.records.map((rec, i) => (
+                                        <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-700/20">
+                                          {RECORD_FIELDS.map((f) => (
+                                            <td key={f.key} className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-50 dark:border-slate-700/30 whitespace-nowrap">
+                                              {(rec as unknown as Record<string, string>)[f.key] || "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
