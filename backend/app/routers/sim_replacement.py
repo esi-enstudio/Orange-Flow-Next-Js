@@ -109,7 +109,8 @@ async def get_retailers_for_sim_replacement(
     current_user: User = Depends(has_permission("sim_replacement.create")),
 ):
     query = select(Retailer.id, Retailer.retailer_code, Retailer.name, Retailer.itop_number).where(
-        Retailer.house_id == house_id
+        Retailer.house_id == house_id,
+        Retailer.enabled == "Yes"
     )
     if search:
         q = f"%{search}%"
