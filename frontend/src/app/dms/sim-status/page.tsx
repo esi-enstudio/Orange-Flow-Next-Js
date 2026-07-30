@@ -112,6 +112,7 @@ export default function SIMStatusCheckPage() {
 
   // 2. Parsed counts calculator for dynamic UI counter
   const parsedCount = useMemo(() => {
+    function b(v: string) { try { return BigInt(v); } catch { return BigInt(0); } }
     if (!inputValue.trim()) return 0;
     const rawLines = inputValue.split(/[\n,\;]+/);
     let total = 0;
@@ -125,16 +126,17 @@ export default function SIMStatusCheckPage() {
         const start = parts[0].trim();
         const end = parts[1].trim();
         if (/^\d+$/.test(start) && /^\d+$/.test(end)) {
-          const startNum = parseInt(start, 10);
-          let endNum = 0;
+          let endStr = end;
           if (end.length < start.length) {
             const prefix = start.slice(0, start.length - end.length);
-            endNum = parseInt(prefix + end, 10);
-          } else {
-            endNum = parseInt(end, 10);
+            endStr = prefix + end;
           }
-          const size = Math.abs(endNum - startNum) + 1;
-          total += isNaN(size) ? 0 : size;
+          const s = b(start);
+          const e = b(endStr);
+          if (s === BigInt(0) || e === BigInt(0) || e < s) continue;
+          const diff = e - s + BigInt(1);
+          if (diff > BigInt(500)) continue;
+          total += Number(diff);
           continue;
         }
       }
