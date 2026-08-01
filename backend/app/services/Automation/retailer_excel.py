@@ -97,8 +97,10 @@ async def process_retailer_excel(file_path, progress_callback=None):
             house_map = {h.code.upper(): h.id for h in house_res.all() if h.code}
             logger.info(f"🏠 Loaded {len(house_map)} houses by code")
             
-            emp_res = await session.execute(select(Employee.itop_number, Employee.id))
-            rso_map = {f.itop_number: f.id for f in emp_res.all() if f.itop_number}
+            emp_res = await session.execute(select(Employee.itop_number, Employee.assisted_retailer_code, Employee.id))
+            emp_rows = emp_res.all()
+            rso_map = {f.itop_number: f.id for f in emp_rows if f.itop_number}
+            assisted_map = {f.assisted_retailer_code: f.id for f in emp_rows if f.assisted_retailer_code}
 
             count = 0
             skipped_count = 0
@@ -114,9 +116,14 @@ async def process_retailer_excel(file_path, progress_callback=None):
                     pbar.update(1)
                     continue
 
-                # 3. Lookup RSO ID from memory map
-                itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
-                linked_emp_id = rso_map.get(itop_sr_no) if itop_sr_no else None
+                # 3. Lookup employee ID from memory maps.
+                # Priority: assisted_retailer_code ownership first (BP/CC assisted codes
+                # carry the RSO's iTopUp SR number, so itop_number matching would
+                # wrongly attribute BP/CC codes to the RSO). Fall back to itop_number.
+                linked_emp_id = assisted_map.get(r_code)
+                if linked_emp_id is None:
+                    itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
+                    linked_emp_id = rso_map.get(itop_sr_no) if itop_sr_no else None
                 
                 # 4. Get house ID via DISTRIBUTOR_CODE (DD Code)
                 distributor_code_val = clean(row.get('DISTRIBUTOR_CODE'))

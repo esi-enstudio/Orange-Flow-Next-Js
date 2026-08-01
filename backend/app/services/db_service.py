@@ -201,11 +201,36 @@ async def _migrate_employee_sr_no():
     except Exception as e:
         logger.warning(f"Migration warning (employees.sr_no): {e}")
 
+async def _migrate_retailer_employee_link():
+    """Fix retailers whose employee_id was auto-linked via itop_number but whose
+    retailer_code is actually an employee's assisted_retailer_code.
+
+    BP/CC assisted codes carry the RSO's iTopUp SR number, so the legacy import
+    logic wrongly assigned them to the RSO. The correct owner is the employee
+    whose assisted_retailer_code equals the retailer code.
+    """
+    try:
+        async with engine.begin() as conn:
+            fixed = await conn.execute(text(
+                """
+                UPDATE retailers r
+                SET employee_id = e.id
+                FROM employees e
+                WHERE e.assisted_retailer_code = r.retailer_code
+                  AND r.employee_id IS DISTINCT FROM e.id
+                """
+            ))
+            if fixed.rowcount:
+                logger.info(f"Migration complete: re-linked {fixed.rowcount} retailer(s) to their assisted-code owner")
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer employee link): {e}")
+
 async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await _migrate_employee_sr_no()
+        await _migrate_retailer_employee_link()
         await _migrate_retailer_filter_tag_id()
         await _migrate_app_settings_daily_sync()
         await _migrate_live_activation_date_type()

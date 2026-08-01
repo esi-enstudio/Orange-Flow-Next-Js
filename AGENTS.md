@@ -847,6 +847,38 @@ Only authorized users can access these features.
 
 ---
 
+# Retailer↔Employee Attribution Rules
+
+## Problem Background
+
+BP/CC assisted retailer codes (e.g., `R344412 "BP Assisted Code - Jasim Uddin Suman"`) carry the **RSO's iTopUp SR number** in their `I_TOP_UP_SR_NUMBER` column. If retailer auto-linking matches `itop_number` first, these codes get wrongly assigned to the RSO, inflating the RSO's activation achievement. (Real incident: RSO 1915270101 showed 173 instead of 52.)
+
+## Mandatory Rules
+
+1. **Assisted-code ownership takes priority** — When linking a retailer to an employee, first match `retailer_code` against `Employee.assisted_retailer_code`. Only fall back to `itop_number` matching when no assisted-code owner exists.
+
+2. **Never auto-assign BP/CC assisted codes to RSO employees** — A retailer whose `retailer_code` equals some employee's `assisted_retailer_code` must be linked to **that employee**, regardless of the `I_TOP_UP_SR_NUMBER` value in the file.
+
+3. **Reference implementation** — `backend/app/services/Automation/retailer_excel.py`:
+   ```python
+   assisted_map = {f.assisted_retailer_code: f.id for f in emp_rows if f.assisted_retailer_code}
+   rso_map = {f.itop_number: f.id for f in emp_rows if f.itop_number}
+   linked_emp_id = assisted_map.get(r_code) or rso_map.get(itop_sr_no)
+   ```
+
+4. **Startup self-healing** — `backend/app/services/db_service.py` `_migrate_retailer_employee_link()` re-links any retailer whose `employee_id` does not match its assisted-code owner. Keep this idempotent migration registered in `init_db()`.
+
+5. **Sanity check during development/QA** — Run this query to detect mis-assignments after any retailer import or employee update:
+   ```sql
+   SELECT r.retailer_code, r.name, r.employee_id, e.id AS owner_id, e.employee_type
+   FROM retailers r
+   JOIN employees e ON e.assisted_retailer_code = r.retailer_code
+   WHERE r.employee_id IS DISTINCT FROM e.id;
+   ```
+   Expected result: **0 rows**. Any row means attribution is broken and must be fixed before shipping.
+
+---
+
 # Security Rules
 
 Always protect against:
