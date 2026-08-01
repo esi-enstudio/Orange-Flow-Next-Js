@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { toast } from "react-hot-toast";
 import SectionConfigModal from "./SectionConfigModal";
 import LiveActivationDetailModal from "./LiveActivationDetailModal";
 import { exportLiveReport } from "@/lib/export-ga-live-report";
@@ -731,24 +732,25 @@ export default function GaLiveReportPage() {
   const shareImageFile = useCallback(async (file: File | null) => {
     if (!file) return;
     setCapturing(true);
-    try {
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: "GA Live Report" });
-      } else {
-        const url = URL.createObjectURL(file);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = file.name;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch {
+    const downloadFile = () => {
       const url = URL.createObjectURL(file);
       const a = document.createElement("a");
       a.href = url;
       a.download = file.name;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    };
+    try {
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: "GA Live Report" });
+      } else {
+        downloadFile();
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      downloadFile();
     } finally {
       setCapturing(false);
     }
@@ -760,27 +762,61 @@ export default function GaLiveReportPage() {
   }, [captureImage, shareImageFile]);
 
   const shareVia = async (platform: "whatsapp" | "telegram") => {
-    const file = await captureImage();
-    if (!file) return;
+    const webUrl = platform === "whatsapp" ? "https://web.whatsapp.com/" : "https://web.telegram.org/";
+    const isMobileDevice =
+      typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent || "");
+    const supportsFileShare =
+      isMobileDevice &&
+      !!navigator.share &&
+      !!navigator.canShare &&
+      navigator.canShare({ files: [new File([new Blob()], "ga_live_report.png", { type: "image/png" })] });
+
+    // Open target web app synchronously inside the click gesture so popup blockers don't block it.
+    const webWin = supportsFileShare ? null : window.open("", "_blank");
+
     setCapturing(true);
-    try {
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: "GA Live Report" });
-      } else {
-        const url = URL.createObjectURL(file);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = file.name;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch {
+    let file: File | null = null;
+    const downloadFile = () => {
+      if (!file) return;
       const url = URL.createObjectURL(file);
       const a = document.createElement("a");
       a.href = url;
       a.download = file.name;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    };
+    try {
+      file = await captureImage();
+      if (!file) {
+        webWin?.close();
+        return;
+      }
+      if (supportsFileShare) {
+        await navigator.share({ files: [file], title: "GA Live Report" });
+        webWin?.close();
+        return;
+      }
+      if (webWin) {
+        webWin.location.href = webUrl;
+      } else {
+        window.open(webUrl, "_blank", "noopener,noreferrer");
+      }
+      downloadFile();
+      toast.success(
+        platform === "whatsapp"
+          ? "Image downloaded — open WhatsApp Web and attach the file to send it."
+          : "Image downloaded — open Telegram Web and attach the file to send it.",
+        { duration: 6000 }
+      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        webWin?.close();
+        return;
+      }
+      downloadFile();
+      toast.error("Sharing failed — image downloaded instead.", { duration: 5000 });
     } finally {
       setCapturing(false);
     }
