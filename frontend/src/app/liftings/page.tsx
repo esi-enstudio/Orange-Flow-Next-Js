@@ -7,7 +7,8 @@ import { toast } from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
-import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter } from "lucide-react";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type House = {
@@ -65,6 +66,7 @@ export default function LiftingRecordsPage() {
 
     const [records, setRecords] = useState<LiftingRecord[]>([]);
     const [loading, setLoading] = useState(true);
+    const [exporting, setExporting] = useState(false);
 
     const [houses, setHouses] = useState<House[]>([]);
     const [houseId, setHouseId] = useState<number | "">("");
@@ -74,6 +76,8 @@ export default function LiftingRecordsPage() {
     const [search, setSearch] = useState("");
 
     const [expandedId, setExpandedId] = useState<number | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<LiftingRecord | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const searchRef = useRef("");
@@ -113,6 +117,50 @@ export default function LiftingRecordsPage() {
             fetchingRef.current = false;
         }
     }, [houseId, dateFrom, dateTo, statusFilter, search, t]);
+
+    const handleExport = async () => {
+        setExporting(true);
+        try {
+            const params: Record<string, any> = {};
+            if (houseId) params.house_id = houseId;
+            if (dateFrom) params.date_from = dateFrom;
+            if (dateTo) params.date_to = dateTo;
+            if (statusFilter) params.status = statusFilter;
+            if (search.trim()) params.search = search.trim();
+
+            const res = await apiClient.get("lifting/export", {
+                params,
+                responseType: "blob",
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "lifting_records_export.xlsx";
+            a.click();
+            window.URL.revokeObjectURL(url);
+            toast.success("Lifting records exported");
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail || t("common.error"));
+        } finally {
+            setExporting(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!deleteTarget) return;
+        setDeleting(true);
+        try {
+            await apiClient.delete(`lifting/${deleteTarget.id}`);
+            toast.success("Lifting record deleted");
+            setDeleteTarget(null);
+            setExpandedId(null);
+            fetchRecords({ silent: true });
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail || t("common.error"));
+        } finally {
+            setDeleting(false);
+        }
+    };
 
     useEffect(() => {
         if (!authLoading && hasPermission("lifting.view")) {
@@ -196,13 +244,25 @@ export default function LiftingRecordsPage() {
                         View and filter historical lifting records.
                     </p>
                 </div>
-                <button
-                    onClick={() => router.push("/commercial/lifting")}
-                    className="shrink-0 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-2 shadow-sm"
-                >
-                    <Plus className="w-4 h-4" />
-                    Create Lifting
-                </button>
+                <div className="flex items-center gap-2.5 shrink-0">
+                    {hasPermission("lifting.export") && (
+                        <button
+                            onClick={handleExport}
+                            disabled={exporting || loading}
+                            className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                            Export
+                        </button>
+                    )}
+                    <button
+                        onClick={() => router.push("/liftings/create")}
+                        className="shrink-0 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-2 shadow-sm"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Create Lifting
+                    </button>
+                </div>
             </div>
 
             {/* Filters */}
@@ -392,6 +452,7 @@ export default function LiftingRecordsPage() {
                                         <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">iTopUp</th>
                                         <th className="text-center px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
                                         <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Items</th>
+                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-14">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
@@ -439,10 +500,21 @@ export default function LiftingRecordsPage() {
                                                 <td className="px-4 py-3 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
                                                     {r.products.length}
                                                 </td>
+                                                <td className="px-4 py-3 text-right">
+                                                    {hasPermission("lifting.delete") && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(r); }}
+                                                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
+                                                            title="Delete lifting record"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </td>
                                             </tr>
                                             {expandedId === r.id && (
                                                 <tr>
-                                                    <td colSpan={9} className="px-6 py-4 bg-gray-50/50 dark:bg-slate-800/20">
+                                                    <td colSpan={10} className="px-6 py-4 bg-gray-50/50 dark:bg-slate-800/20">
                                                         {r.notes && (
                                                             <div className="mb-3 text-sm text-gray-500 dark:text-gray-400">
                                                                 <span className="font-semibold text-gray-700 dark:text-gray-300">Notes:</span> {r.notes}
@@ -561,6 +633,15 @@ export default function LiftingRecordsPage() {
                                                     </table>
                                                 </div>
                                             )}
+                                            {hasPermission("lifting.delete") && (
+                                                <button
+                                                    onClick={() => setDeleteTarget(r)}
+                                                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-red-200 dark:border-red-500/20 text-red-500 text-xs font-bold hover:bg-red-50 dark:hover:bg-red-500/10 transition-all active:scale-[0.98]"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                    Delete Record
+                                                </button>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -569,6 +650,21 @@ export default function LiftingRecordsPage() {
                     </>
                 )}
             </div>
+
+            <ConfirmationModal
+                isOpen={!!deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                onConfirm={handleDelete}
+                title="Delete Lifting Record"
+                message={
+                    deleteTarget
+                        ? `Are you sure you want to delete the lifting record for ${deleteTarget.house?.display_name || deleteTarget.house?.name || `House #${deleteTarget.house_id}`} on ${formatDate(deleteTarget.lifting_date)}? This action cannot be undone.`
+                        : ""
+                }
+                confirmText="Delete"
+                type="danger"
+                loading={deleting}
+            />
         </div>
     );
 }

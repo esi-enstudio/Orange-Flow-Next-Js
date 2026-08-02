@@ -101,18 +101,6 @@ export const navItems: NavItem[] = [
     color: "text-green-500",
     children: [
       {
-        title: "Lifting",
-        translationKey: "nav.lifting",
-        icon: Banknote,
-        color: "text-green-500",
-        permission: "lifting.view",
-        href: "/commercial/lifting",
-        children: [
-          { title: "Lifting Records", translationKey: "nav.lifting_records", href: "/commercial/lifting/records", permission: "lifting.view" },
-          { title: "Products", translationKey: "nav.products", href: "/commercial/lifting/products", permission: "products.view" },
-        ]
-      },
-      {
         title: "Commission",
         translationKey: "nav.commission",
         icon: Calculator,
@@ -121,6 +109,16 @@ export const navItems: NavItem[] = [
         href: "/commercial/commission",
       },
       { title: "Daily Expenses", translationKey: "nav.expenses", href: "/commercial/expenses", permission: "expenses.view" },
+    ]
+  },
+  {
+    title: "Lifting",
+    translationKey: "nav.lifting",
+    icon: Banknote,
+    color: "text-green-500",
+    children: [
+      { title: "Lifting Records", translationKey: "nav.lifting_records", href: "/liftings", permission: "lifting.view" },
+      { title: "Products", translationKey: "nav.products", href: "/liftings/products", permission: "products.view" },
     ]
   },
   {

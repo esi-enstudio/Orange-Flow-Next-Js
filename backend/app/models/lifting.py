@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Enum as SAEnum, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Date, ForeignKey, Enum as SAEnum, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.models.base import Base
@@ -30,6 +30,10 @@ class LiftingRecord(Base):
     itopup_amount = Column(Float, default=0.0)
     status = Column(SAEnum(LiftingStatus), default=LiftingStatus.DRAFT, nullable=False)
     notes = Column(Text, nullable=True)
+
+    is_deleted = Column(Boolean, default=False, index=True)
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

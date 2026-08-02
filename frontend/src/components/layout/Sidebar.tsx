@@ -16,6 +16,10 @@ interface SidebarProps {
   onClose?: () => void;
 }
 
+function isPathMatch(href: string, pathname: string): boolean {
+  return href === pathname || pathname.startsWith(href.endsWith("/") ? href : `${href}/`);
+}
+
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
@@ -61,7 +65,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   // Auto-open parent menu if a child is active
   React.useEffect(() => {
     const activeParent = filteredNavItems.find(item => 
-      item.children?.some(child => child.href === pathname || child.children?.some(sub => sub.href === pathname))
+      item.children?.some(child => isPathMatch(child.href, pathname) || child.children?.some(sub => isPathMatch(sub.href, pathname)))
     );
     if (activeParent) {
       setOpenMenu(activeParent.title);
@@ -69,7 +73,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     // Auto-open nested menu if a sub-child is active
     for (const item of filteredNavItems) {
       for (const child of (item.children || [])) {
-        if (child.children?.some(sub => sub.href === pathname)) {
+        if (child.children?.some(sub => isPathMatch(sub.href, pathname))) {
           setOpenNested(child.title);
           return;
         }
@@ -112,7 +116,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           {filteredNavItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
             const isOpenMenu = openMenu === item.title;
-            const isParentActive = item.children?.some(c => c.href === pathname || c.children?.some(sub => sub.href === pathname));
+            const isParentActive = item.children?.some(c => isPathMatch(c.href, pathname) || c.children?.some(sub => isPathMatch(sub.href, pathname)));
             const isDirectActive = item.href === pathname;
 
             return (

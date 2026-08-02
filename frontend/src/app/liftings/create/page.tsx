@@ -197,7 +197,7 @@ export default function CreateLiftingPage() {
                 })),
             });
             toast.success("Lifting record created successfully");
-            router.push("/commercial/lifting/records");
+            router.push("/liftings");
         } catch (err: any) {
             toast.error(err?.response?.data?.detail || "Failed to create lifting record");
         } finally {
