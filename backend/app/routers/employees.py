@@ -257,6 +257,136 @@ async def list_employees(
     )
 
 
+@router.get("/status-counts")
+async def get_employee_status_counts(
+    search: Optional[str] = Query(None, description="Global search across name, dms_code, itop_number"),
+    status: Optional[str] = Query(None, description="Filter by status: Active, Resigned, Suspended, Inactive"),
+    market_type: Optional[str] = Query(None, description="Filter by market type: Urban, Rural"),
+    motor_bike: Optional[str] = Query(None, description="Filter by motor_bike: Yes, No"),
+    bicyle: Optional[str] = Query(None, description="Filter by bicycle: Yes, No"),
+    driving_license: Optional[str] = Query(None, description="Filter by driving_license: Yes, No"),
+    blood_group: Optional[str] = Query(None, description="Filter by blood group"),
+    religion: Optional[str] = Query(None, description="Filter by religion"),
+    has_assisted_code: Optional[bool] = Query(None, description="Filter by presence of assisted_retailer_code"),
+    has_user: Optional[bool] = Query(None, description="Filter by presence of linked user"),
+    has_bank_info: Optional[bool] = Query(None, description="Filter by presence of bank_name and bank_account"),
+    joining_date_from: Optional[str] = Query(None, description="Joining date range start (YYYY-MM-DD)"),
+    joining_date_to: Optional[str] = Query(None, description="Joining date range end (YYYY-MM-DD)"),
+    resigned_date_from: Optional[str] = Query(None, description="Resigned date range start (YYYY-MM-DD)"),
+    resigned_date_to: Optional[str] = Query(None, description="Resigned date range end (YYYY-MM-DD)"),
+    salary_min: Optional[float] = Query(None, description="Minimum salary filter"),
+    salary_max: Optional[float] = Query(None, description="Maximum salary filter"),
+    employee_type: Optional[str] = Query(None, description="Filter by employee type: rso, bp, cc, supervisor, manager, bsp, rbsp"),
+    filter_house_id: Optional[int] = Query(None, description="Filter by house ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.view")),
+    house_id: Optional[int] = Depends(get_house_context)
+):
+    """Get employee counts grouped by status."""
+    base_query = select(Employee)
+    
+    is_admin = is_admin_user(current_user)
+    if house_id:
+        base_query = base_query.where(Employee.house_id == house_id)
+    elif is_admin:
+        pass
+    else:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            base_query = base_query.where(Employee.house_id.in_(user_house_ids))
+        else:
+            base_query = base_query.where(Employee.house_id == -1)
+    
+    conditions = []
+    
+    if search:
+        search_pattern = f"%{search}%"
+        conditions.append(
+            or_(
+                Employee.dms_code.ilike(search_pattern),
+                Employee.itop_number.ilike(search_pattern),
+                Employee.personal_number.ilike(search_pattern),
+                Employee.pool_number.ilike(search_pattern),
+                Employee.assisted_retailer_code.ilike(search_pattern),
+                Employee.agency_id.ilike(search_pattern),
+                Employee.nid.ilike(search_pattern),
+                Employee.user.has(User.name.ilike(search_pattern)),
+            )
+        )
+    
+    if market_type:
+        conditions.append(Employee.market_type == market_type)
+    if motor_bike:
+        conditions.append(Employee.motor_bike == motor_bike)
+    if bicyle:
+        conditions.append(Employee.bicyle == bicyle)
+    if driving_license:
+        conditions.append(Employee.driving_license == driving_license)
+    if blood_group:
+        conditions.append(Employee.blood_group == blood_group)
+    if religion:
+        conditions.append(Employee.religion == religion)
+    
+    if has_assisted_code is True:
+        conditions.append(Employee.assisted_retailer_code != None)
+        conditions.append(Employee.assisted_retailer_code != "")
+    elif has_assisted_code is False:
+        conditions.append(
+            or_(Employee.assisted_retailer_code == None, Employee.assisted_retailer_code == "")
+        )
+    
+    if has_user is True:
+        conditions.append(Employee.user_id != None)
+    elif has_user is False:
+        conditions.append(Employee.user_id == None)
+    
+    if has_bank_info is True:
+        conditions.append(Employee.bank_name != None)
+        conditions.append(Employee.bank_name != "")
+        conditions.append(Employee.bank_account != None)
+        conditions.append(Employee.bank_account != "")
+    elif has_bank_info is False:
+        conditions.append(
+            or_(
+                Employee.bank_name == None,
+                Employee.bank_name == "",
+                Employee.bank_account == None,
+                Employee.bank_account == "",
+            )
+        )
+    
+    if joining_date_from:
+        conditions.append(Employee.joining_date >= joining_date_from)
+    if joining_date_to:
+        conditions.append(Employee.joining_date <= joining_date_to)
+    if resigned_date_from:
+        conditions.append(Employee.resigned_date >= resigned_date_from)
+    if resigned_date_to:
+        conditions.append(Employee.resigned_date <= resigned_date_to)
+    
+    if salary_min is not None:
+        conditions.append(cast(Employee.salary, Float) >= salary_min)
+    if salary_max is not None:
+        conditions.append(cast(Employee.salary, Float) <= salary_max)
+    
+    if employee_type:
+        conditions.append(Employee.employee_type == employee_type.lower())
+    
+    if filter_house_id:
+        conditions.append(Employee.house_id == filter_house_id)
+    
+    if conditions:
+        base_query = base_query.where(and_(*conditions))
+    
+    from sqlalchemy import func as sa_func
+    subq = base_query.subquery()
+    count_query = select(subq.c.status, sa_func.count(subq.c.id)).select_from(subq).group_by(subq.c.status)
+    result = await db.execute(count_query)
+    counts = {row[0]: row[1] for row in result.all()}
+    
+    return counts
+
+
 @router.get("/filter-options")
 async def get_employee_filter_options(
     db: AsyncSession = Depends(get_db),

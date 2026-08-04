@@ -197,6 +197,7 @@ export default function EmployeesPage() {
   const [filters, setFilters] = useState<EmployeeFilters>({ ...defaultFilters });
   const [sortField, setSortField] = useState<string>("id");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
 
   // Form State
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -246,6 +247,30 @@ export default function EmployeesPage() {
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
+  const [activeStatusTab, setActiveStatusTab] = useState<string>("all");
+
+  const statusTabs = [
+    { key: "all", label: "All" },
+    { key: "Active", label: "Active" },
+    { key: "Resigned", label: "Resigned" },
+    { key: "Suspended", label: "Suspended" },
+    { key: "Inactive", label: "Inactive" },
+  ];
+
+  const computedStatusCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: totalCount };
+    statusTabs.slice(1).forEach(tab => {
+      counts[tab.key] = statusCounts[tab.key] ?? 0;
+    });
+    return counts;
+  }, [totalCount, statusCounts]);
+
+  const filteredMembers = useMemo(() => {
+    if (activeStatusTab === "all") return members;
+    return members.filter(m => m.status === activeStatusTab);
+  }, [members, activeStatusTab]);
+
+  const tabTotalCount = computedStatusCounts[activeStatusTab] ?? 0;
 
   // View Modal
   const [viewingMember, setViewingMember] = useState<Employee | null>(null);
@@ -275,8 +300,11 @@ export default function EmployeesPage() {
     params.set("sort_order", sortDir);
     if (filters.search) params.set("search", filters.search);
     if (filters.role) params.set("employee_type", filters.role.toLowerCase());
-    if (filters.house_id) params.set("filter_house_id", String(filters.house_id));
-    if (filters.status) params.set("status", filters.status);
+    // Use selectedHouse from header for house filtering (multi-tenant isolation)
+    const houseId = filters.house_id ?? selectedHouse?.id;
+    if (houseId) params.set("filter_house_id", String(houseId));
+    const statusFilter = activeStatusTab === "all" ? filters.status : activeStatusTab;
+    if (statusFilter) params.set("status", statusFilter);
     if (filters.market_type) params.set("market_type", filters.market_type);
     if (filters.motor_bike) params.set("motor_bike", filters.motor_bike);
     if (filters.bicyle) params.set("bicyle", filters.bicyle);
@@ -307,14 +335,19 @@ export default function EmployeesPage() {
       const qs = buildQueryString();
       const headers: Record<string, string> = {};
       if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
-      const [empRes, housesRes, usersRes] = await Promise.all([
+      
+      // Fetch employees and status counts in parallel
+      const [empRes, countsRes, housesRes, usersRes] = await Promise.all([
         apiClient.get(`employees?${qs}`, { headers }),
+        apiClient.get(`employees/status-counts?${qs}`, { headers }),
         apiClient.get("houses"),
         apiClient.get("users?unassigned=true")
       ]);
+      
       setMembers(empRes.data.data || []);
       setTotalCount(empRes.data.pagination?.total || 0);
       setTotalPages(empRes.data.pagination?.total_pages || 1);
+      setStatusCounts(countsRes.data || {});
       setHouses(housesRes.data.data || housesRes.data);
       setUsers(usersRes.data);
     } catch (err) {
@@ -357,7 +390,7 @@ export default function EmployeesPage() {
     if (!authLoading && hasPermission("employees.view")) {
       fetchData();
     }
-  }, [page, sortField, sortDir, selectedHouse, authLoading, hasPermission, filters]);
+  }, [page, sortField, sortDir, selectedHouse, authLoading, hasPermission, filters, activeStatusTab]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -722,12 +755,36 @@ export default function EmployeesPage() {
           )}
         </AnimatePresence>
 
+        {/* Status Tabs */}
+        <div className="border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 px-4 py-2 overflow-x-auto">
+          <div className="flex gap-1 min-w-max">
+            {statusTabs.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => { setActiveStatusTab(tab.key); setPage(1); }}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-semibold uppercase transition-all whitespace-nowrap shrink-0",
+                  activeStatusTab === tab.key
+                    ? "bg-primary-600 text-white shadow-sm"
+                    : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800"
+                )}
+              >
+                {tab.label}
+                <span className="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold rounded-full leading-none"
+                      style={{ backgroundColor: activeStatusTab === tab.key ? 'rgba(255,255,255,0.2)' : 'transparent' }}>
+                  {computedStatusCounts[tab.key]}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {loading ? (
           <div className="p-12 flex flex-col items-center justify-center gap-4">
             <div className="w-12 h-12 border-4 border-primary-100 border-t-primary-500 rounded-full animate-spin"></div>
             <p className="text-sm font-bold text-gray-500 animate-pulse">{t('employees.loading_text')}</p>
           </div>
-        ) : totalCount === 0 ? (
+        ) : filteredMembers.length === 0 ? (
           <div className="p-12 text-center">
             <div className="w-16 h-16 bg-gray-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Users2 className="w-8 h-8 text-gray-300" />
@@ -775,7 +832,7 @@ export default function EmployeesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y dark:divide-slate-800 text-sm">
-                  {members.map((m) => (
+                  {filteredMembers.map((m) => (
                     <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -864,7 +921,7 @@ export default function EmployeesPage() {
 
             {/* Mobile Accordion */}
             <div className="lg:hidden divide-y dark:divide-slate-800">
-              {members.map((m) => (
+              {filteredMembers.map((m) => (
                 <div key={m.id} className="transition-colors">
                   <button
                     onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
@@ -948,7 +1005,7 @@ export default function EmployeesPage() {
             </div>
             <div className="p-4 border-t dark:border-slate-800 flex items-center justify-between bg-gray-50/30 dark:bg-slate-900/30">
               <p className="text-xs text-gray-500 font-medium">
-                {t('employees.showing_results', { start: totalCount === 0 ? 0 : (page - 1) * 5 + 1, end: Math.min(page * 5, totalCount), total: totalCount })}
+                {t('employees.showing_results', { start: tabTotalCount === 0 ? 0 : (page - 1) * 5 + 1, end: Math.min(page * 5, tabTotalCount), total: tabTotalCount })}
               </p>
               <div className="flex gap-2">
                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="p-1.5 border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95"><ChevronLeft className="w-4 h-4"/></button>
