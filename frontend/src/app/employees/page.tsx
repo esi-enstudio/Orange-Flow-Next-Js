@@ -247,10 +247,9 @@ export default function EmployeesPage() {
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
-  const [activeStatusTab, setActiveStatusTab] = useState<string>("all");
+  const [activeStatusTab, setActiveStatusTab] = useState<string>("Active");
 
   const statusTabs = [
-    { key: "all", label: "All" },
     { key: "Active", label: "Active" },
     { key: "Resigned", label: "Resigned" },
     { key: "Suspended", label: "Suspended" },
@@ -258,15 +257,14 @@ export default function EmployeesPage() {
   ];
 
   const computedStatusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: totalCount };
-    statusTabs.slice(1).forEach(tab => {
+    const counts: Record<string, number> = {};
+    statusTabs.forEach(tab => {
       counts[tab.key] = statusCounts[tab.key] ?? 0;
     });
     return counts;
-  }, [totalCount, statusCounts]);
+  }, [statusCounts]);
 
   const filteredMembers = useMemo(() => {
-    if (activeStatusTab === "all") return members;
     return members.filter(m => m.status === activeStatusTab);
   }, [members, activeStatusTab]);
 
@@ -301,10 +299,9 @@ export default function EmployeesPage() {
     if (filters.search) params.set("search", filters.search);
     if (filters.role) params.set("employee_type", filters.role.toLowerCase());
     // Use selectedHouse from header for house filtering (multi-tenant isolation)
-    const houseId = filters.house_id ?? selectedHouse?.id;
-    if (houseId) params.set("filter_house_id", String(houseId));
-    const statusFilter = activeStatusTab === "all" ? filters.status : activeStatusTab;
-    if (statusFilter) params.set("status", statusFilter);
+    const effectiveHouseId = filters.house_id ?? selectedHouse?.id;
+    if (effectiveHouseId) params.set("filter_house_id", String(effectiveHouseId));
+    if (activeStatusTab) params.set("status", activeStatusTab);
     if (filters.market_type) params.set("market_type", filters.market_type);
     if (filters.motor_bike) params.set("motor_bike", filters.motor_bike);
     if (filters.bicyle) params.set("bicyle", filters.bicyle);
@@ -334,7 +331,8 @@ export default function EmployeesPage() {
     try {
       const qs = buildQueryString();
       const headers: Record<string, string> = {};
-      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
+      const effectiveHouseId = filters.house_id ?? selectedHouse?.id;
+      if (effectiveHouseId) headers["X-House-ID"] = String(effectiveHouseId);
       
       // Fetch employees and status counts in parallel
       const [empRes, countsRes, housesRes, usersRes] = await Promise.all([
@@ -728,9 +726,6 @@ export default function EmployeesPage() {
               />
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[10px] md:text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2 md:px-3 py-1 rounded-full whitespace-nowrap">{t('employees.count_label', { count: totalCount })}</span>
-          </div>
         </div>
 
         {/* Filter dropdown */}
@@ -1069,6 +1064,12 @@ export default function EmployeesPage() {
                   <Calendar className="w-3.5 h-3.5 text-purple-500" />
                   <span className="font-bold text-gray-800 dark:text-gray-200">{viewingMember.joining_date || "—"}</span>
                 </div>
+                {viewingMember.resigned_date && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-xl text-sm border border-red-200 dark:border-red-500/20">
+                    <Calendar className="w-3.5 h-3.5 text-red-500" />
+                    <span className="font-bold text-gray-800 dark:text-gray-200">{viewingMember.resigned_date}</span>
+                  </div>
+                )}
               </div>
 
               {/* Professional Details */}

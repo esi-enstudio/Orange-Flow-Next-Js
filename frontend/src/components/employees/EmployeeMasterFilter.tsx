@@ -30,7 +30,6 @@ export interface EmployeeFilters {
   search: string;
   house_id: number | null;
   role: string;
-  status: string;
   market_type: string;
   motor_bike: string;
   bicyle: string;
@@ -51,7 +50,6 @@ export interface EmployeeFilters {
 export const defaultFilters: EmployeeFilters = {
   search: "",
   role: "",
-  status: "",
   market_type: "",
   motor_bike: "",
   bicyle: "",
@@ -237,7 +235,6 @@ export default function EmployeeMasterFilter({ filters, onChange, onClear, house
     if (h) chipList.push({ label: `House: ${h.name}`, onRemove: () => update("house_id", null) });
   }
   if (filters.role) chipList.push({ label: `Role: ${filters.role}`, onRemove: () => update("role", "") });
-  if (filters.status) chipList.push({ label: `Status: ${filters.status}`, onRemove: () => update("status", "") });
   if (filters.market_type) chipList.push({ label: `Market: ${filters.market_type}`, onRemove: () => update("market_type", "") });
   if (filters.blood_group) chipList.push({ label: `Blood: ${filters.blood_group}`, onRemove: () => update("blood_group", "") });
   if (filters.religion) chipList.push({ label: `Religion: ${filters.religion}`, onRemove: () => update("religion", "") });
@@ -325,20 +322,14 @@ export default function EmployeeMasterFilter({ filters, onChange, onClear, house
             <SelectFilter
               value={filters.role}
               onChange={(v) => update("role", v)}
-              options={["RSO", "BP", "CC", "Supervisor", "Manager", "Distributor", "Admin"].map((r) => ({ value: r, label: r }))}
+              options={["RSO", "BP", "CC", "Supervisor", "Manager", "BSP", "RBSP"].map((r) => ({ value: r, label: r }))}
               placeholder="All roles"
             />
           </div>
         </div>
 
-        {/* Status & Market Type */}
-        <FilterSection title="Status & Type" icon={Activity}>
-          <SelectFilter
-            value={filters.status}
-            onChange={(v) => update("status", v)}
-            options={options.statuses.map((s) => ({ value: s, label: s }))}
-            placeholder="All statuses"
-          />
+        {/* Market Type */}
+        <FilterSection title="Market Type" icon={Activity}>
           <SelectFilter
             value={filters.market_type}
             onChange={(v) => update("market_type", v)}

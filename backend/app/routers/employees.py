@@ -17,6 +17,7 @@ from app.models.retailer import Retailer
 from app.models.bp_retailer_code import BpRetailerCode
 from pydantic import BaseModel
 from app.utils.access_control import is_admin_user
+from app.utils.timezone import now_naive
 from app.utils.validation import safe_filename, validate_excel
 from app.services.Automation.employee_excel import process_employee_excel, export_employees_excel
 from app.models.role import Role
@@ -221,10 +222,14 @@ async def list_employees(
         base_query = base_query.where(and_(*conditions))
 
     from sqlalchemy import func as sa_func
+    house_name_expr = select(House.name).where(House.id == Employee.house_id).scalar_subquery()
+    user_name_expr = select(User.name).where(User.id == Employee.user_id).scalar_subquery()
     sort_map = {
         "dms_code": Employee.dms_code,
         "assisted_code": Employee.assisted_retailer_code,
         "status": Employee.status,
+        "house": sa_func.lower(house_name_expr),
+        "name": sa_func.lower(user_name_expr),
         "id": Employee.id,
     }
     sort_column = sort_map.get(pagination.sort_by, Employee.id)
@@ -489,6 +494,8 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
             raise HTTPException(status_code=422, detail=[{"loc": ["body", "user_id"], "msg": "User not found", "type": "value_error"}])
     for key, value in emp_data.model_dump(exclude_unset=True).items():
         setattr(emp, key, value)
+    if emp.status == "Resigned" and not emp.resigned_date:
+        emp.resigned_date = now_naive().strftime("%Y-%m-%d")
     await db.commit()
     await db.refresh(emp)
     await sync_assisted_code_to_bp_retailer_codes(db, emp)
@@ -544,6 +551,8 @@ async def reassign_employee_retailers(
     )
     # Update employee status
     emp.status = req.status
+    if emp.status == "Resigned" and not emp.resigned_date:
+        emp.resigned_date = now_naive().strftime("%Y-%m-%d")
     await db.commit()
     await db.refresh(emp)
     return {"message": f"Transferred retailers to {new_emp.dms_code or new_emp.id} and status set to {req.status}"}
