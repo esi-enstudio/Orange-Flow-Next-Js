@@ -472,12 +472,15 @@ export default function EmployeesPage() {
       if (editingMember) {
         const newStatus = formData.status;
         if (newStatus === "Resigned" || newStatus === "Inactive") {
-          const res = await apiClient.get(`employees/${editingMember.id}/retailer-count`);
-          const count = res.data.count;
-          if (count > 0) {
-            setReassignData({ emp: editingMember as any, newStatus, retailerCount: count });
-            setFormLoading(false);
-            return;
+          const isRso = editingMember.employee_type?.toLowerCase() === "rso";
+          if (isRso) {
+            const res = await apiClient.get(`employees/${editingMember.id}/retailer-count`);
+            const count = res.data.count;
+            if (count > 0) {
+              setReassignData({ emp: editingMember as any, newStatus, retailerCount: count });
+              setFormLoading(false);
+              return;
+            }
           }
         }
         await apiClient.put(`employees/${editingMember.id}`, formData);
@@ -568,7 +571,7 @@ export default function EmployeesPage() {
     const emp = members.find(m => m.id === empId);
     if (!emp) return;
 
-    if (newStatus === "Resigned" || newStatus === "Inactive") {
+    if ((newStatus === "Resigned" || newStatus === "Inactive") && emp.employee_type?.toLowerCase() === "rso") {
       try {
         const res = await apiClient.get(`employees/${empId}/retailer-count`);
         const count = res.data.count;

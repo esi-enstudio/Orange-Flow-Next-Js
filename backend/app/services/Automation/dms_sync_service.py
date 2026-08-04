@@ -239,8 +239,9 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
                     )
                     
                     # Save sync record
-                    status = "success"
-                    if res == "no_data": status = "no_data"
+                    status = "error"
+                    if res == "success": status = "success"
+                    elif res == "no_data": status = "no_data"
                     await mark_sync_complete(house.id, task['url_key'], task['start_d'], task['end_d'], status)
 
                     if progress_callback:

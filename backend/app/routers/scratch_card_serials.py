@@ -276,16 +276,22 @@ async def batch_create_serials(
     if not is_admin_user(current_user) and target_house_id not in user_house_ids:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    existing_serials = await db.execute(
-        select(ScratchCardSerial.serial_number).where(
-            ScratchCardSerial.serial_number.in_(payload.serials)
+    serials = list(dict.fromkeys(payload.serials))
+
+    existing_set = set()
+    CHUNK_SIZE = 500
+    for i in range(0, len(serials), CHUNK_SIZE):
+        chunk = serials[i:i + CHUNK_SIZE]
+        existing_serials = await db.execute(
+            select(ScratchCardSerial.serial_number).where(
+                ScratchCardSerial.serial_number.in_(chunk)
+            )
         )
-    )
-    existing_set = set(row[0] for row in existing_serials.all())
+        existing_set.update(row[0] for row in existing_serials.all())
 
     inserted = 0
     skipped = 0
-    for sn in payload.serials:
+    for sn in serials:
         if sn in existing_set:
             skipped += 1
             continue
