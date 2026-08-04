@@ -841,7 +841,7 @@ export default function EmployeesPage() {
                           <select 
                             value={m.status}
                             onChange={(e) => handleStatusChange(m.id, e.target.value)}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer dark:bg-slate-800 dark:text-white"
                           >
                             <option value="Active">Active</option>
                             <option value="Resigned">Resigned</option>
@@ -928,7 +928,7 @@ export default function EmployeesPage() {
                           <select 
                             value={m.status}
                             onChange={(e) => { e.stopPropagation(); handleStatusChange(m.id, e.target.value); }}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer dark:bg-slate-800 dark:text-white"
                           >
                             <option value="Active">Active</option>
                             <option value="Resigned">Resigned</option>
