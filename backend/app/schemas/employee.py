@@ -47,6 +47,9 @@ class EmployeeSchema(BaseModel):
     resigned_date: Optional[str] = None
     market_type: Optional[str] = None
     salary: Optional[str] = None
+    retailer_count: int = 0
+    retailer_enabled_count: int = 0
+    retailer_disabled_count: int = 0
     class Config: from_attributes = True
 
 class EmployeeCreate(BaseModel):

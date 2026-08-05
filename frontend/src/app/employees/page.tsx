@@ -70,6 +70,9 @@ interface Employee {
   pool_number?: string;
   agency_id?: string;
   assisted_retailer_code?: string;
+  retailer_count?: number;
+  retailer_enabled_count?: number;
+  retailer_disabled_count?: number;
   bank_name?: string;
   bank_account?: string;
   branch_name?: string;
@@ -853,6 +856,7 @@ export default function EmployeesPage() {
                         {sortField === "status" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
                       </button>
                     </th>
+                    <th className="px-6 py-4">Retailers</th>
                     <th className="px-6 py-4 text-right">{t('employees.table_actions')}</th>
                   </tr>
                 </thead>
@@ -932,6 +936,28 @@ export default function EmployeesPage() {
                           </select>
                         </div>
                       </td>
+                      <td className="px-6 py-4">
+                        {m.employee_type?.toLowerCase() === "rso" ? (
+                          <div className="flex flex-col gap-1">
+                            <span className={cn(
+                              "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold w-fit",
+                              (m.retailer_count ?? 0) > 0
+                                ? "text-primary-600 bg-primary-50 dark:bg-primary-500/10 dark:text-primary-300"
+                                : "text-gray-400 bg-gray-50 dark:bg-slate-800"
+                            )}>
+                              <Store className="w-3.5 h-3.5" />
+                              {m.retailer_count ?? 0}
+                            </span>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{m.retailer_enabled_count ?? 0} on</span>
+                              {" · "}
+                              <span className="text-red-500 dark:text-red-400 font-semibold">{m.retailer_disabled_count ?? 0} off</span>
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-gray-400 italic">—</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-1">
                           <button onClick={() => openViewModal(m)} className="p-2 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg text-gray-400 hover:text-blue-600 transition-all"><Eye className="w-4 h-4"/></button>
@@ -994,6 +1020,31 @@ export default function EmployeesPage() {
                       <div>
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Assisted Code</p>
                         <p className="text-[11px] text-gray-700 dark:text-gray-300">{m.assisted_retailer_code || "—"}</p>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Retailers</p>
+                          {m.employee_type?.toLowerCase() === "rso" ? (
+                            <div className="flex flex-col gap-0.5">
+                              <p className={cn(
+                                "inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold w-fit",
+                                (m.retailer_count ?? 0) > 0
+                                  ? "text-primary-600 bg-primary-50 dark:bg-primary-500/10 dark:text-primary-300"
+                                  : "text-gray-400 bg-gray-50 dark:bg-slate-800"
+                              )}>
+                                <Store className="w-3 h-3" />
+                                {m.retailer_count ?? 0}
+                              </p>
+                              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{m.retailer_enabled_count ?? 0} on</span>
+                                {" · "}
+                                <span className="text-red-500 dark:text-red-400 font-semibold">{m.retailer_disabled_count ?? 0} off</span>
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-gray-400 italic">—</p>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center justify-between pt-1">
                         <div className="relative inline-block">

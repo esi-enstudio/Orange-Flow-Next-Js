@@ -244,7 +244,31 @@ async def list_employees(
     query = base_query.order_by(order).offset(offset).limit(pagination.per_page)
     result = await db.execute(query)
     items = result.unique().scalars().all()
-    data = [EmployeeSchema.model_validate(e) for e in items]
+
+    retailer_counts: dict[int, int] = {}
+    retailer_enabled_counts: dict[int, int] = {}
+    retailer_disabled_counts: dict[int, int] = {}
+    emp_ids = [e.id for e in items]
+    if emp_ids:
+        counts_result = await db.execute(
+            select(Retailer.employee_id, Retailer.enabled, sa_func.count(Retailer.id))
+            .where(Retailer.employee_id.in_(emp_ids))
+            .group_by(Retailer.employee_id, Retailer.enabled)
+        )
+        for emp_id, enabled_val, cnt in counts_result.all():
+            retailer_counts[emp_id] = retailer_counts.get(emp_id, 0) + cnt
+            if enabled_val == "Yes":
+                retailer_enabled_counts[emp_id] = cnt
+            else:
+                retailer_disabled_counts[emp_id] = retailer_disabled_counts.get(emp_id, 0) + cnt
+
+    data = []
+    for e in items:
+        schema = EmployeeSchema.model_validate(e)
+        schema.retailer_count = retailer_counts.get(e.id, 0)
+        schema.retailer_enabled_count = retailer_enabled_counts.get(e.id, 0)
+        schema.retailer_disabled_count = retailer_disabled_counts.get(e.id, 0)
+        data.append(schema)
 
     total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
 
