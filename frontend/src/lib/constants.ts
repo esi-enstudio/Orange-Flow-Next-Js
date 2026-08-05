@@ -26,7 +26,6 @@ import {
   FileText,
   Clock,
   CalendarDays,
-  PackageOpen,
 } from "lucide-react";
 
 export interface NavItem {
@@ -119,16 +118,6 @@ export const navItems: NavItem[] = [
     children: [
       { title: "Lifting Records", translationKey: "nav.lifting_records", href: "/liftings", permission: "lifting.view" },
       { title: "Products", translationKey: "nav.products", href: "/liftings/products", permission: "products.view" },
-    ]
-  },
-  {
-    title: "Sales & Stock",
-    translationKey: "nav.sales_stock",
-    icon: PackageOpen,
-    color: "text-amber-500",
-    children: [
-      { title: "Stock", translationKey: "nav.stock", href: "/stock", permission: "stock.view" },
-      { title: "Sales", translationKey: "nav.stock_sales", href: "/sales", permission: "sales.view" },
     ]
   },
   {

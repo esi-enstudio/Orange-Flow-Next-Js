@@ -46,8 +46,3 @@ from app.models.ev_kit_inventory import EvKitInventory
 from app.models.sim_replacement_request import SimReplacementRequest
 from app.models.sim_replacement_log import SimReplacementLog
 from app.models.sim_stock_movement import SimStockMovement
-from app.models.sales import DailySales
-from app.models.employee_stock import EmployeeStock
-from app.models.house_stock import HouseStock
-from app.models.stock_transfer import StockTransfer
-from app.models.stock_movement import StockMovement

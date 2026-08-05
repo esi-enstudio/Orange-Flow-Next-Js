@@ -36,7 +36,6 @@ import app.models.ga_section_config
 import app.models.product
 import app.models.todo
 import app.models.cv
-import app.models.sales
 
 logger = logging.getLogger(__name__)
 

@@ -48,7 +48,6 @@ from app.models.zoom_in import (
     ZoomInAllocation, ZoomInEvent,
     ZoomInEventBTS, ZoomInEventRSO, ZoomInEventBP, ZoomInEventRetailer,
 )
-from app.models.employee_stock import EmployeeStock
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

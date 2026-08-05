@@ -36,9 +36,7 @@
         "recharge_dashboard": { "display_name": "Recharge Dashboard", "permissions": ["recharge_dashboard.view", "recharge_dashboard.export"] },
         "sim_replacement": { "display_name": "SIM Replacement", "permissions": ["sim_replacement.view", "sim_replacement.create", "sim_replacement.edit", "sim_replacement.delete", "sim_replacement.approve", "sim_replacement.issue", "sim_replacement.activate", "sim_replacement.export", "sim_replacement.import"] },
         "sim_inventory": { "display_name": "SIM Inventory", "permissions": ["sim_inventory.view", "sim_inventory.create", "sim_inventory.edit", "sim_inventory.delete", "sim_inventory.export", "sim_inventory.import"] },
-        "ev_kit": { "display_name": "EV Kit Inventory", "permissions": ["ev_kit.view", "ev_kit.create", "ev_kit.edit", "ev_kit.delete", "ev_kit.allocate", "ev_kit.export"] },
-        "sales": { "display_name": "Daily Sales", "permissions": ["sales.view", "sales.create", "sales.edit", "sales.delete", "sales.import", "sales.export"] },
-        "stock": { "display_name": "Stock", "permissions": ["stock.view", "stock.create", "stock.edit", "stock.delete", "stock.transfer", "stock.import", "stock.export"] }
+        "ev_kit": { "display_name": "EV Kit Inventory", "permissions": ["ev_kit.view", "ev_kit.create", "ev_kit.edit", "ev_kit.delete", "ev_kit.allocate", "ev_kit.export"] }
     },
     "default_roles": [
         {
@@ -51,19 +49,19 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view", "stock.view", "sales.view", "sales.create"]
+            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view"]
         },
         {
             "name": "Manager",
-            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view", "stock.view", "sales.view", "sales.create"]
+            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view"]
         },
         {
             "name": "Supervisor",
-            "permissions": ["reports.view", "retailers.view", "sim_status.view", "activations.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "stock.view", "sales.view", "sales.create"]
+            "permissions": ["reports.view", "retailers.view", "sim_status.view", "activations.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement"]
         },
         {
             "name": "RSO",
-            "permissions": ["reports.view", "retailers.view", "sim_status.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "stock.view", "sales.view", "sales.create"]
+            "permissions": ["reports.view", "retailers.view", "sim_status.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement"]
         },
         {
             "name": "BP",
