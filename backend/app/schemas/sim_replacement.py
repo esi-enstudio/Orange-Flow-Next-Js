@@ -55,6 +55,12 @@ class SimReplacementActivate(BaseModel):
     new_msisdn: Optional[str] = Field(None, max_length=20)
 
 
+class SimReplacementBulkAction(BaseModel):
+    request_ids: List[int] = Field(..., min_length=1, max_length=500)
+    action: str = Field(..., pattern=r"^(approve|reject|activate|close|cancel)$")
+    notes: Optional[str] = None
+
+
 class SimReplacementSchema(BaseModel):
     id: int
     house_id: int
@@ -63,6 +69,7 @@ class SimReplacementSchema(BaseModel):
     retailer_code: Optional[str] = None
     retailer_name: Optional[str] = None
     retailer_itop: Optional[str] = None
+    retailer_rso_itop: Optional[str] = None
     new_sim_number: Optional[str] = None
     new_msisdn: Optional[str] = None
     replacement_reason: Optional[str] = None

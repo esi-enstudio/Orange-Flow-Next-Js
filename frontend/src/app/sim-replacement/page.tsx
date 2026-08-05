@@ -11,10 +11,12 @@ import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface RequestItem {
   id: number; request_number: string; request_status: string;
   retailer_name?: string; retailer_code?: string; retailer_itop?: string;
+  retailer_rso_itop?: string;
   new_sim_number?: string;
   replacement_reason?: string; priority: string; requester_name?: string;
   requested_at?: string; approved_at?: string; issued_at?: string;
@@ -75,6 +77,11 @@ function formatDate(d?: string) {
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function last3(itop?: string) {
+  if (!itop) return "";
+  return itop.slice(-3);
+}
+
 export default function SimReplacementPage() {
   const { t } = useLanguage();
   const { hasPermission } = useAuth();
@@ -97,6 +104,11 @@ export default function SimReplacementPage() {
   const retailerDebounce = useRef<any>(null);
   const searchTimer = useRef<any>(null);
   const perPage = 20;
+
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkAction, setBulkAction] = useState<string>("");
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
 
   const canCreate = hasPermission("sim_replacement.create");
   const canApprove = hasPermission("sim_replacement.approve");
@@ -244,6 +256,59 @@ export default function SimReplacementPage() {
     finally { setActionLoading(false); }
   };
 
+  const canBulkStatus = canApprove || canActivate || canEdit;
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAll = () => {
+    const allIds = items.map(i => i.id);
+    const allSelected = allIds.length > 0 && allIds.every(id => selectedIds.includes(id));
+    setSelectedIds(allSelected ? [] : allIds);
+  };
+
+  const bulkActionsAvailable = (): string[] => {
+    const actions: string[] = [];
+    if (canApprove) actions.push("approve", "reject");
+    if (canActivate) actions.push("activate");
+    if (canEdit) actions.push("close", "cancel");
+    return actions;
+  };
+
+  const handleBulkStatusChange = async () => {
+    if (selectedIds.length === 0) return;
+    if (!bulkAction) { toast.error("Select a status action first"); return; }
+    setBulkProcessing(true);
+    try {
+      const res = await axios.post("/v1/sim-replacement/bulk-status", {
+        request_ids: selectedIds,
+        action: bulkAction,
+      });
+      const d = res.data.data || {};
+      const skippedCount = d.skipped_count || 0;
+      if (d.updated_count > 0) {
+        toast.success(`${d.updated_count} request(s) ${bulkAction.replace(/_/g, " ")}`);
+      }
+      if (skippedCount > 0) {
+        toast.error(`${skippedCount} request(s) skipped (not in valid status)`);
+      }
+      if (d.updated_count === 0 && skippedCount === 0) {
+        toast.error("No matching requests to update");
+      }
+      setSelectedIds([]);
+      setBulkAction("");
+      setShowBulkConfirm(false);
+      fetchData();
+    } catch (e: any) { toast.error(e?.response?.data?.detail || "Bulk status change failed"); }
+    finally { setBulkProcessing(false); }
+  };
+
+  const clearBulkSelection = () => {
+    setSelectedIds([]);
+    setBulkAction("");
+  };
+
   const handleCreate = async () => {
     const validRows = rows.filter(r => r.retailer_id !== "");
     if (validRows.length === 0) {
@@ -332,6 +397,31 @@ export default function SimReplacementPage() {
         </select>
       </div>
 
+      {canBulkStatus && selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 rounded-2xl px-4 py-3">
+          <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+            {selectedIds.length} selected
+          </span>
+          <select value={bulkAction} onChange={e => setBulkAction(e.target.value)}
+            className="flex-1 min-w-[180px] px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+            <option value="">Change status...</option>
+            {bulkActionsAvailable().includes("approve") && <option value="approve">Approve</option>}
+            {bulkActionsAvailable().includes("reject") && <option value="reject">Reject</option>}
+            {bulkActionsAvailable().includes("activate") && <option value="activate">Activate</option>}
+            {bulkActionsAvailable().includes("close") && <option value="close">Close</option>}
+            {bulkActionsAvailable().includes("cancel") && <option value="cancel">Cancel</option>}
+          </select>
+          <button onClick={() => setShowBulkConfirm(true)} disabled={!bulkAction || bulkProcessing}
+            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50">
+            {bulkProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            Apply
+          </button>
+          <button onClick={clearBulkSelection} className="ml-auto text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="divide-y divide-gray-50 dark:divide-slate-800 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -356,6 +446,15 @@ export default function SimReplacementPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
+                  {canBulkStatus && (
+                    <th className="w-10 px-2 py-2">
+                      <Checkbox
+                        checked={selectedIds.length > 0 && items.every(i => selectedIds.includes(i.id))}
+                        onCheckedChange={toggleSelectAll}
+                        className="border-gray-400 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
+                      />
+                    </th>
+                  )}
                   <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Request #</th>
                   <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Retailer</th>
                   <th className="text-left px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">EV Swap Serial</th>
@@ -367,12 +466,24 @@ export default function SimReplacementPage() {
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
                 {items.map(item => (
-                  <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">
+                  <tr key={item.id} className={`hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors ${selectedIds.includes(item.id) ? 'bg-indigo-50 dark:bg-indigo-500/5' : ''}`}>
+                    {canBulkStatus && (
+                      <td className="px-2 py-1">
+                        <Checkbox
+                          checked={selectedIds.includes(item.id)}
+                          onCheckedChange={() => toggleSelect(item.id)}
+                          className="border-gray-400 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
+                        />
+                      </td>
+                    )}
                     <td className="px-2 py-1">
                       <p className="font-medium text-sm text-indigo-600 dark:text-indigo-400">{item.request_number}</p>
                     </td>
                     <td className="px-2 py-1">
-                      <p className="font-medium text-sm">{item.retailer_name || "-"}</p>
+                      <p className="font-medium text-sm">
+                        {item.retailer_name || "-"}
+                        {item.retailer_rso_itop && <span className="ml-1 text-gray-500 dark:text-gray-400 font-normal">({last3(item.retailer_rso_itop)})</span>}
+                      </p>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400">
                         {item.retailer_code || "-"}
                         {item.retailer_itop && <span className="ml-1 text-gray-400">({item.retailer_itop})</span>}
@@ -409,7 +520,8 @@ export default function SimReplacementPage() {
 
           <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
             {items.map(item => (
-              <DetailRow key={item.id} item={item} t={t} formatDate={formatDate} StatusBadge={StatusBadge} openDetail={openDetailModal} renderActions={renderDetailActions} />
+              <DetailRow key={item.id} item={item} t={t} formatDate={formatDate} StatusBadge={StatusBadge} openDetail={openDetailModal} renderActions={renderDetailActions}
+                canSelect={canBulkStatus} selected={selectedIds.includes(item.id)} onToggle={() => toggleSelect(item.id)} />
             ))}
           </div>
 
@@ -442,6 +554,30 @@ export default function SimReplacementPage() {
                 <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm rounded-xl border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer">Cancel</button>
                 <button onClick={handleDelete} disabled={actionLoading} className="px-4 py-2 text-sm rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer flex items-center gap-2">
                   {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setShowBulkConfirm(false)} />
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border dark:border-slate-700 p-6 w-full max-w-sm mx-4">
+            <div className="text-center">
+              <div className="mx-auto w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center mb-4">
+                <CheckCircle2 className="w-6 h-6 text-indigo-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Bulk Status Change</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                Change status of {selectedIds.length} request(s) to <span className="font-semibold text-indigo-600 dark:text-indigo-400">{bulkAction?.replace(/_/g, " ")}</span>?<br />
+                <span className="text-xs text-gray-400">Requests not in a valid state will be skipped.</span>
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button onClick={() => setShowBulkConfirm(false)} className="px-4 py-2 text-sm rounded-xl border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer">Cancel</button>
+                <button onClick={handleBulkStatusChange} disabled={bulkProcessing} className="px-4 py-2 text-sm rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 cursor-pointer flex items-center gap-2">
+                  {bulkProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Apply
                 </button>
               </div>
             </div>
@@ -717,18 +853,28 @@ export default function SimReplacementPage() {
   );
 }
 
-function DetailRow({ item, t, formatDate, StatusBadge, openDetail, renderActions }: {
+function DetailRow({ item, t, formatDate, StatusBadge, openDetail, renderActions, canSelect, selected, onToggle }: {
   item: RequestItem; t: any; formatDate: any; StatusBadge: any; openDetail: (item: RequestItem) => void; renderActions: (item: RequestItem) => React.ReactNode;
+  canSelect: boolean; selected: boolean; onToggle: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="px-4 py-3">
+    <div className={`px-4 py-3 ${selected ? 'bg-indigo-50 dark:bg-indigo-500/5' : ''}`}>
       <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-3 w-full text-left cursor-pointer">
+        {canSelect && (
+          <span onClick={e => { e.stopPropagation(); onToggle(); }} className="shrink-0">
+            <Checkbox
+              checked={selected}
+              onCheckedChange={onToggle}
+              className="border-gray-400 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
+            />
+          </span>
+        )}
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm text-indigo-600 dark:text-indigo-400">{item.request_number}</p>
           <p className="text-[11px] text-gray-500">
             {item.retailer_name || item.retailer_code || "-"}
-            {item.retailer_itop && <span className="ml-1 text-gray-400">({item.retailer_itop})</span>}
+            {item.retailer_rso_itop && <span className="ml-1 text-gray-400">({last3(item.retailer_rso_itop)})</span>}
           </p>
         </div>
         <StatusBadge status={item.request_status} t={t} />

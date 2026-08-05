@@ -8,7 +8,7 @@ from sqlalchemy import select, or_, func, desc, and_, update
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, get_current_user, has_permission, get_house_context
+from app.routers.deps import get_db, get_current_user, has_permission, has_any_permission, get_house_context
 from app.models.user import User
 from app.models.house import House
 from app.models.retailer import Retailer
@@ -25,6 +25,7 @@ from app.schemas.sim_replacement import (
     SimReplacementCreate, SimReplacementBulkCreate, SimReplacementBulkItem, SimReplacementUpdate,
     SimReplacementApprove,
     SimReplacementIssue, SimReplacementActivate, SimReplacementSchema, SimReplacementLogSchema,
+    SimReplacementBulkAction,
 )
 from app.schemas.pagination import PaginatedResponse, PaginationMeta, PaginationParams
 from app.utils.activity_logger import log_activity
@@ -95,6 +96,16 @@ async def _log_replacement_action(
     )
     db.add(log)
     await db.commit()
+
+
+def _user_has_permission(user: User, permission: str) -> bool:
+    for role in user.roles:
+        if role.name.lower() in ("admin", "super admin", "super_admin", "manager", "house manager", "house_manager"):
+            return True
+        for perm in role.permissions:
+            if perm.name == permission:
+                return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +587,7 @@ async def list_replacement_requests(
         joinedload(SimReplacementRequest.approver),
         joinedload(SimReplacementRequest.issuer),
         joinedload(SimReplacementRequest.activator),
-        joinedload(SimReplacementRequest.retailer),
+        joinedload(SimReplacementRequest.retailer).joinedload(Retailer.employee),
     )
     query = _apply_house_filter(query, SimReplacementRequest, current_user, house_context)
 
@@ -617,7 +628,10 @@ async def list_replacement_requests(
         if r.issuer: s.issuer_name = r.issuer.name
         if r.activator: s.activator_name = r.activator.name
         if r.closer: s.closer_name = r.closer.name
-        if r.retailer: s.retailer_itop = r.retailer.itop_number
+        if r.retailer:
+            s.retailer_itop = r.retailer.itop_number
+            if r.retailer.employee:
+                s.retailer_rso_itop = r.retailer.employee.itop_number
         data.append(s)
 
     total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
@@ -1128,6 +1142,135 @@ async def cancel_replacement_request(
     )
 
     return {"success": True, "message": "Request cancelled"}
+
+
+# ---------------------------------------------------------------------------
+# BULK STATUS CHANGE
+# ---------------------------------------------------------------------------
+
+_ACTION_PERMISSION = {
+    "approve": "sim_replacement.approve",
+    "reject": "sim_replacement.approve",
+    "activate": "sim_replacement.activate",
+    "close": "sim_replacement.edit",
+    "cancel": "sim_replacement.edit",
+}
+
+_ALLOWED_TRANSITIONS = {
+    "approve": ("pending", "approved"),
+    "reject": ("pending", "rejected"),
+    "activate": ("sim_issued", "activated"),
+    "close": ("activated", "closed"),
+    "cancel": (None, "cancelled"),  # any status except closed/rejected
+}
+
+_CANCEL_BLOCKED = {"closed", "rejected", "cancelled"}
+
+
+@router.post("/sim-replacement/bulk-status")
+async def bulk_change_status(
+    payload: SimReplacementBulkAction,
+    house_context: Optional[int] = Depends(get_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["sim_replacement.approve", "sim_replacement.activate", "sim_replacement.edit"])),
+):
+    required_perm = _ACTION_PERMISSION[payload.action]
+    if not _user_has_permission(current_user, required_perm):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+
+    user_house_ids = [h.id for h in current_user.houses]
+    result = await db.execute(
+        select(SimReplacementRequest).where(
+            SimReplacementRequest.id.in_(payload.request_ids),
+            SimReplacementRequest.is_deleted.is_(False),
+        )
+    )
+    records = result.scalars().all()
+
+    updated_ids = []
+    skipped = []
+    for record in records:
+        if not is_admin_user(current_user) and record.house_id not in user_house_ids:
+            skipped.append({"id": record.id, "reason": "No access to this house"})
+            continue
+        if house_context and record.house_id != house_context:
+            skipped.append({"id": record.id, "reason": "No access to this house"})
+            continue
+
+        allowed_from, new_status = _ALLOWED_TRANSITIONS[payload.action]
+        if allowed_from is None:
+            if record.request_status in _CANCEL_BLOCKED:
+                skipped.append({"id": record.id, "reason": f"Cannot cancel request in '{record.request_status}' status"})
+                continue
+        elif record.request_status != allowed_from:
+            skipped.append({"id": record.id, "reason": f"Cannot {payload.action} request in '{record.request_status}' status"})
+            continue
+
+        old = record.request_status
+        record.request_status = new_status
+
+        if payload.action == "approve":
+            record.approved_by = current_user.id
+            record.approved_at = now_naive()
+            record.approval_notes = payload.notes or record.approval_notes
+        elif payload.action == "reject":
+            record.approved_by = current_user.id
+            record.approved_at = now_naive()
+            record.approval_notes = payload.notes or record.approval_notes
+        elif payload.action == "activate":
+            record.activated_by = current_user.id
+            record.activated_at = now_naive()
+        elif payload.action == "close":
+            record.old_sim_deactivated = True
+            record.old_sim_deactivated_at = now_naive()
+            record.closed_by = current_user.id
+            record.closed_at = now_naive()
+        elif payload.action == "cancel":
+            if record.sim_inventory_id:
+                inv_result = await db.execute(
+                    select(SimInventory).where(SimInventory.id == record.sim_inventory_id)
+                )
+                inventory = inv_result.scalar_one_or_none()
+                if inventory:
+                    inventory.available_quantity += 1
+            if record.ev_kit_id:
+                ev_result = await db.execute(
+                    select(EvKitInventory).where(EvKitInventory.id == record.ev_kit_id)
+                )
+                ev_kit = ev_result.scalar_one_or_none()
+                if ev_kit:
+                    ev_kit.status = "available"
+                    ev_kit.allocated_to = None
+                    ev_kit.allocated_at = None
+                    ev_kit.allocated_by = None
+            record.closed_by = current_user.id
+            record.closed_at = now_naive()
+
+        await db.flush()
+        await _log_replacement_action(
+            db, record.id, payload.action,
+            old, new_status, current_user,
+            notes=payload.notes,
+        )
+        await log_activity(
+            db=db, user_id=current_user.id, user_name=current_user.name,
+            module="sim_replacement", action=payload.action,
+            record_id=record.id, record_identifier=record.request_number,
+        )
+        updated_ids.append(record.id)
+
+    await db.commit()
+
+    return {
+        "success": True,
+        "data": {
+            "action": payload.action,
+            "updated_count": len(updated_ids),
+            "updated_ids": updated_ids,
+            "skipped_count": len(skipped),
+            "skipped": skipped,
+        },
+    }
 
 
 @router.get("/sim-replacement/{request_id}/logs")
