@@ -125,20 +125,19 @@ export default function SCSerialsPage() {
     houseHeaders["X-House-ID"] = String(selectedHouse.id);
   }
 
-  const monthDateRange = () => {
+  const todayDateRange = () => {
     const now = new Date();
     const y = now.getFullYear();
-    const m = now.getMonth();
-    const first = `${y}-${String(m + 1).padStart(2, '0')}-01`;
-    const lastDay = new Date(y, m + 1, 0).getDate();
-    const last = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    return { dateFrom: first, dateTo: last };
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const today = `${y}-${m}-${d}`;
+    return { dateFrom: today, dateTo: today };
   };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { dateFrom, dateTo } = monthDateRange();
+      const { dateFrom, dateTo } = todayDateRange();
       const params: Record<string, string | number> = { page, per_page: perPage, sort_order: "desc", date_from: dateFrom, date_to: dateTo };
       if (search) params.search = search;
       if (filterProductId) params.product_id = Number(filterProductId);
@@ -289,7 +288,7 @@ export default function SCSerialsPage() {
   const selectAllMatching = async () => {
     setSelectingAll(true);
     try {
-      const { dateFrom, dateTo } = monthDateRange();
+      const { dateFrom, dateTo } = todayDateRange();
       const params: Record<string, string | number> = {};
       if (search) params.search = search;
       if (filterProductId) params.product_id = Number(filterProductId);
