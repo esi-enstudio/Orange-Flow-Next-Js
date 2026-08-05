@@ -167,7 +167,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout, 
       refreshStatus,
       hasPermission,
-      selectedHouse: user?.selected_house_id ? { id: user.selected_house_id } : null,
+      selectedHouse: user?.selected_house_id
+        ? { id: user.selected_house_id }
+        : user?.houses && user.houses.length > 0
+          ? { id: user.houses[0].id }
+          : null,
     }}>
       {children}
     </AuthContext.Provider>
