@@ -3,7 +3,7 @@ import shutil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response
-from sqlalchemy import select, or_, and_, cast, Float
+from sqlalchemy import select, or_, and_, cast, Float, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -444,6 +444,12 @@ async def sync_assisted_code_to_bp_retailer_codes(db: AsyncSession, employee: Em
     except Exception:
         await db.rollback()
 
+async def _count_retailers(db: AsyncSession, emp_id: int) -> int:
+    result = await db.execute(
+        select(func.count()).select_from(Retailer).where(Retailer.employee_id == emp_id)
+    )
+    return result.scalar() or 0
+
 @router.post("", response_model=EmployeeSchema)
 async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.create"))):
     house = await db.get(House, emp_data.house_id)
@@ -492,7 +498,17 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
         user = await db.get(User, emp_data.user_id)
         if not user:
             raise HTTPException(status_code=422, detail=[{"loc": ["body", "user_id"], "msg": "User not found", "type": "value_error"}])
-    for key, value in emp_data.model_dump(exclude_unset=True).items():
+    updates = emp_data.model_dump(exclude_unset=True)
+    new_status = updates.get("status", emp.status)
+    new_emp_type = updates.get("employee_type", emp.employee_type)
+    if new_status in ("Resigned", "Inactive") and (new_emp_type or "").lower() == "rso":
+        count = await _count_retailers(db, emp.id)
+        if count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot set status to {new_status} while the RSO still has {count} retailer(s). Reassign retailers first."
+            )
+    for key, value in updates.items():
         setattr(emp, key, value)
     if emp.status == "Resigned" and not emp.resigned_date:
         emp.resigned_date = now_naive().strftime("%Y-%m-%d")

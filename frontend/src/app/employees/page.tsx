@@ -282,6 +282,8 @@ export default function EmployeesPage() {
   const [reassignData, setReassignData] = useState<{ emp: Employee; newStatus: string; retailerCount: number } | null>(null);
   const [reassignTargetId, setReassignTargetId] = useState<number>(0);
   const [reassignLoading, setReassignLoading] = useState(false);
+  const [reassignTargets, setReassignTargets] = useState<Employee[]>([]);
+  const [reassignTargetsLoading, setReassignTargetsLoading] = useState(false);
 
   // Import/Export Progress
   const [isImporting, setIsImporting] = useState(false);
@@ -622,8 +624,8 @@ export default function EmployeesPage() {
       await apiClient.put(`employees/${empId}`, updatedData);
       toast.success(`Status updated to ${newStatus}`);
       fetchData();
-    } catch {
-      toast.error(t('common.action_failed'));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || t('common.action_failed'));
     }
   };
 
@@ -646,6 +648,34 @@ export default function EmployeesPage() {
       setReassignLoading(false);
     }
   };
+
+  const fetchReassignTargets = async (emp: Employee) => {
+    setReassignTargetsLoading(true);
+    setReassignTargets([]);
+    try {
+      const params = new URLSearchParams();
+      params.set("status", "Active");
+      params.set("employee_type", "rso");
+      params.set("per_page", "100");
+      if (emp.house_id) params.set("filter_house_id", String(emp.house_id));
+      const headers: Record<string, string> = {};
+      if (emp.house_id) headers["X-House-ID"] = String(emp.house_id);
+      const res = await apiClient.get(`employees?${params.toString()}`, { headers });
+      const list = (res.data.data || []).filter((m: Employee) => m.id !== emp.id);
+      setReassignTargets(list);
+    } catch {
+      toast.error(t('common.action_failed'));
+    } finally {
+      setReassignTargetsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (reassignData?.emp) {
+      setReassignTargetId(0);
+      fetchReassignTargets(reassignData.emp);
+    }
+  }, [reassignData?.emp?.id]);
 
   const handleSort = (field: string) => {
     setPage(1);
@@ -1589,16 +1619,19 @@ export default function EmployeesPage() {
                     className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 appearance-none"
                   >
                     <option value={0} disabled>Select an employee...</option>
-                    {members
-                      .filter(m => m.id !== reassignData.emp.id && m.house_id === reassignData.emp.house_id && m.status === "Active")
-                      .map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.user?.name || `#${m.id}`} — {m.dms_code || "N/A"} {m.itop_number ? `(${m.itop_number})` : ""}
-                        </option>
-                      ))}
+                    {reassignTargets.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.user?.name || `#${m.id}`} — {m.dms_code || "N/A"} {m.itop_number ? `(${m.itop_number})` : ""}
+                      </option>
+                    ))}
                   </select>
-                  {members.filter(m => m.id !== reassignData.emp.id && m.house_id === reassignData.emp.house_id && m.status === "Active").length === 0 && (
-                    <p className="text-xs text-red-500 mt-1">No active employees available in this house to transfer to.</p>
+                  {reassignTargetsLoading ? (
+                    <div className="flex items-center gap-2 mt-1 animate-pulse">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary-500" />
+                      <p className="text-xs text-gray-400">Loading active RSO employees...</p>
+                    </div>
+                  ) : reassignTargets.length === 0 && (
+                    <p className="text-xs text-red-500 mt-1">No active RSO employees available in this house to transfer to.</p>
                   )}
                 </div>
               </div>
