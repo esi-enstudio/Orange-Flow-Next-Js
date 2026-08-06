@@ -41,6 +41,24 @@ class StockItemCreate(BaseModel):
         return v
 
 
+class StockBulkItem(BaseModel):
+    product_id: int
+    location_type: str
+    employee_id: Optional[int] = None
+    quantity: int = Field(..., gt=0)
+
+    @field_validator("location_type")
+    @classmethod
+    def validate_location_type(cls, v):
+        if v not in ("warehouse", "rso"):
+            raise ValueError("location_type must be one of: warehouse, rso")
+        return v
+
+
+class StockBulkCreate(BaseModel):
+    items: list[StockBulkItem] = Field(..., min_length=1)
+
+
 class StockTransferCreate(BaseModel):
     product_id: int
     from_type: str

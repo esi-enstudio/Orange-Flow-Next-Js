@@ -33,6 +33,7 @@ import {
   CalendarCheck,
   Users,
   Building2,
+  Calendar,
 } from "lucide-react";
 
 interface Product {
@@ -278,35 +279,52 @@ function ProductSelect({
             {filtered.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-gray-400 dark:text-gray-500">{t("stock.no_products")}</p>
             ) : (
-              filtered.map((p) => {
-                const count = sourceCount(p);
-                const isSelected = String(p.id) === value;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      onChange(String(p.id));
-                      setOpen(false);
-                      setQuery("");
-                    }}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
-                      "hover:bg-gray-50 dark:hover:bg-slate-800",
-                      isSelected && "bg-emerald-50 dark:bg-emerald-500/10"
-                    )}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">{p.product_name}</span>
-                      <span className="block text-[11px] text-gray-500 dark:text-gray-400">{p.product_code}</span>
-                    </span>
-                    <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", badgeCls(count))}>
-                      <Package className="h-3 w-3" />
-                      {count.toLocaleString("en-US")}
-                    </span>
-                  </button>
-                );
-              })
+              Array.from(
+                filtered.reduce((acc, p) => {
+                  const cat = p.category || t("stock.uncategorized");
+                  const arr = acc.get(cat) ?? [];
+                  arr.push(p);
+                  acc.set(cat, arr);
+                  return acc;
+                }, new Map<string, Product[]>())
+              )
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([cat, items]) => (
+                  <div key={cat}>
+                    <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                      {cat} <span className="text-gray-300 dark:text-gray-600">({items.length})</span>
+                    </p>
+                    {items.map((p) => {
+                      const count = sourceCount(p);
+                      const isSelected = String(p.id) === value;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            onChange(String(p.id));
+                            setOpen(false);
+                            setQuery("");
+                          }}
+                          className={cn(
+                            "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
+                            "hover:bg-gray-50 dark:hover:bg-slate-800",
+                            isSelected && "bg-emerald-50 dark:bg-emerald-500/10"
+                          )}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">{p.product_name}</span>
+                            <span className="block text-[11px] text-gray-500 dark:text-gray-400">{p.product_code}</span>
+                          </span>
+                          <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", badgeCls(count))}>
+                            <Package className="h-3 w-3" />
+                            {count.toLocaleString("en-US")}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))
             )}
           </div>
         </div>
@@ -562,6 +580,8 @@ export default function StockPage() {
   const [ledgerPage, setLedgerPage] = useState(1);
   const [ledgerTotal, setLedgerTotal] = useState(0);
   const [ledgerMovement, setLedgerMovement] = useState<string>("");
+  const [ledgerFromDate, setLedgerFromDate] = useState("");
+  const [ledgerToDate, setLedgerToDate] = useState("");
 
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
   const [snapshotsPage, setSnapshotsPage] = useState(1);
@@ -583,7 +603,8 @@ export default function StockPage() {
 
   const [modal, setModal] = useState<"stock" | "transfer" | "adjustment" | null>(null);
 
-  const [stockForm, setStockForm] = useState({ product_id: "", location_type: "warehouse", employee_id: "", quantity: "" });
+  const [stockForm, setStockForm] = useState({ location_type: "warehouse", employee_id: "" });
+  const [stockLines, setStockLines] = useState<{ product_id: string; quantity: string }[]>([{ product_id: "", quantity: "" }]);
   const [transferForm, setTransferForm] = useState({ product_id: "", from_type: "warehouse", from_employee_id: "", to_type: "rso", to_employee_id: "", quantity: "", notes: "" });
   const [adjustForm, setAdjustForm] = useState({ product_id: "", location_type: "warehouse", employee_id: "", adjustment_type: "loss", direction: "decrease", quantity: "", reason: "", notes: "" });
 
@@ -707,6 +728,8 @@ export default function StockPage() {
     try {
       const params: Record<string, string> = { page: String(ledgerPage), per_page: "20" };
       if (ledgerMovement) params.movement_type = ledgerMovement;
+      if (ledgerFromDate) params.from_date = ledgerFromDate;
+      if (ledgerToDate) params.to_date = ledgerToDate;
       const res = await apiClient.get("stock/ledger", { params, headers });
       setLedger(res.data.data || []);
       setLedgerTotal(res.data.pagination?.total || 0);
@@ -761,7 +784,7 @@ export default function StockPage() {
 
   useEffect(() => {
     if (!authLoading && hasPermission("stock.view") && activeTab === "ledger") fetchLedger();
-  }, [activeTab, ledgerPage, ledgerMovement, authLoading, hasPermission, houseId]);
+  }, [activeTab, ledgerPage, ledgerMovement, ledgerFromDate, ledgerToDate, authLoading, hasPermission, houseId]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("stock.view") && activeTab === "snapshots") fetchSnapshots();
@@ -822,35 +845,46 @@ export default function StockPage() {
     setModal(m);
   };
 
+  const addStockLine = () => setStockLines((prev) => [...prev, { product_id: "", quantity: "" }]);
+
+  const updateStockLine = (idx: number, field: "product_id" | "quantity", value: string) =>
+    setStockLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
+
+  const removeStockLine = (idx: number) =>
+    setStockLines((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== idx)));
+
   const submitStock = async () => {
     if (!mutationHouseId) {
       toast.error(t("stock.select_house_first"));
-      return;
-    }
-    if (!stockForm.product_id) {
-      toast.error(t("stock.select_product"));
-      return;
-    }
-    const quantity = Number(stockForm.quantity);
-    if (!quantity || quantity <= 0) {
-      toast.error(t("stock.quantity_required"));
       return;
     }
     if (stockForm.location_type === "rso" && !stockForm.employee_id) {
       toast.error(t("stock.select_employee"));
       return;
     }
-    setActionLoading(true);
-    try {
-      await apiClient.post("stock/items", {
-        product_id: Number(stockForm.product_id),
+    const items = stockLines
+      .map((l) => ({
+        product_id: Number(l.product_id),
         location_type: stockForm.location_type,
         employee_id: stockForm.location_type === "rso" ? Number(stockForm.employee_id) : undefined,
-        quantity,
-      }, { headers: mutationHeaders });
+        quantity: Number(l.quantity),
+      }))
+      .filter((i) => i.product_id);
+    if (items.length === 0) {
+      toast.error(t("stock.select_product"));
+      return;
+    }
+    if (items.some((i) => !i.quantity || i.quantity <= 0)) {
+      toast.error(t("stock.quantity_required"));
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await apiClient.post("stock/items/bulk", { items }, { headers: mutationHeaders });
       toast.success(t("stock.stock_added"));
       setModal(null);
-      setStockForm({ product_id: "", location_type: "warehouse", employee_id: "", quantity: "" });
+      setStockLines([{ product_id: "", quantity: "" }]);
+      setStockForm({ location_type: "warehouse", employee_id: "" });
       fetchSummary();
       if (activeTab === "items") fetchItems();
     } catch (err: any) {
@@ -1654,20 +1688,56 @@ export default function StockPage() {
             {/* ---------- LEDGER ---------- */}
             {activeTab === "ledger" && (
               <Card className="overflow-hidden">
-                <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center gap-3">
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                     <FileClock className="h-4 w-4 text-emerald-500" /> {t("stock.ledger_tab")}
                   </h3>
-                  <select
-                    value={ledgerMovement}
-                    onChange={(e) => { setLedgerMovement(e.target.value); setLedgerPage(1); }}
-                    className={cn(inputCls, "sm:ml-auto sm:w-48")}
-                  >
-                    <option value="">{t("stock.movement_all")}</option>
-                    {["transfer_in", "transfer_out", "sale", "purchase", "adjustment", "return"].map((m) => (
-                      <option key={m} value={m}>{movementLabel(m)}</option>
-                    ))}
-                  </select>
+                  <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <Calendar className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <input
+                          type="date"
+                          value={ledgerFromDate}
+                          max={ledgerToDate || undefined}
+                          onChange={(e) => { setLedgerFromDate(e.target.value); setLedgerPage(1); }}
+                          className={cn(inputCls, "pl-8")}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-400">–</span>
+                      <div className="relative">
+                        <Calendar className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <input
+                          type="date"
+                          value={ledgerToDate}
+                          min={ledgerFromDate || undefined}
+                          onChange={(e) => { setLedgerToDate(e.target.value); setLedgerPage(1); }}
+                          className={cn(inputCls, "pl-8")}
+                        />
+                      </div>
+                      {(ledgerFromDate || ledgerToDate) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 shrink-0"
+                          onClick={() => { setLedgerFromDate(""); setLedgerToDate(""); setLedgerPage(1); }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                    <select
+                      value={ledgerMovement}
+                      onChange={(e) => { setLedgerMovement(e.target.value); setLedgerPage(1); }}
+                      className={cn(inputCls, "w-40")}
+                    >
+                      <option value="">{t("stock.movement_all")}</option>
+                      {["transfer_in", "transfer_out", "sale", "purchase", "adjustment", "return"].map((m) => (
+                        <option key={m} value={m}>{movementLabel(m)}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 {loading ? skeleton(5) : (
                   <>
@@ -1900,15 +1970,6 @@ export default function StockPage() {
                 <ScopeBadge house={effectiveHouse} t={t} />
               </div>
               <div>
-                <label className={labelCls}>{t("stock.product")}</label>
-                <select value={stockForm.product_id} onChange={(e) => setStockForm({ ...stockForm, product_id: e.target.value })} className={inputCls}>
-                  <option value="">{t("stock.select_product")}</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.product_name} ({p.product_code})</option>
-                  ))}
-                </select>
-              </div>
-              <div>
                 <label className={labelCls}>{t("stock.location")}</label>
                 <select value={stockForm.location_type} onChange={(e) => setStockForm({ ...stockForm, location_type: e.target.value, employee_id: "" })} className={inputCls}>
                   <option value="warehouse">{t("stock.warehouse")}</option>
@@ -1927,8 +1988,51 @@ export default function StockPage() {
                 </div>
               )}
               <div>
-                <label className={labelCls}>{t("stock.quantity")}</label>
-                <input type="number" min={1} value={stockForm.quantity} onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })} className={inputCls} />
+                <label className={labelCls}>{t("stock.products")}</label>
+                <div className="space-y-3">
+                  {stockLines.map((line, idx) => (
+                    <div key={idx} className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <ProductSelect
+                          products={products}
+                          value={line.product_id}
+                          sourceType={stockForm.location_type === "rso" ? "rso" : "warehouse"}
+                          onChange={(v) => updateStockLine(idx, "product_id", v)}
+                        />
+                      </div>
+                      <div className="w-24 shrink-0">
+                        <input
+                          type="number"
+                          min={1}
+                          value={line.quantity}
+                          onChange={(e) => updateStockLine(idx, "quantity", e.target.value)}
+                          placeholder={t("stock.quantity")}
+                          className={inputCls}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="mt-0.5 h-9 w-9 shrink-0"
+                        onClick={() => removeStockLine(idx)}
+                        disabled={stockLines.length === 1}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={addStockLine}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 px-2 py-1.5 transition-colors"
+                >
+                  <Plus className="h-4 w-4" /> {t("stock.add_row")}
+                </button>
+                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                  {stockLines.filter((l) => l.product_id && Number(l.quantity) > 0).length} {t("stock.items_selected")}
+                </p>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setModal(null)}>{t("stock.cancel")}</Button>

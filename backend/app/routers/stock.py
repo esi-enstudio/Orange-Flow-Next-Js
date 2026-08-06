@@ -13,7 +13,7 @@ from app.models.employee import Employee
 from app.models.house import House
 from app.models.user import User
 from app.schemas.stock import (
-    StockItemSchema, StockItemCreate,
+    StockItemSchema, StockItemCreate, StockBulkCreate,
     StockTransferCreate, StockTransferSchema,
     StockAdjustmentCreate, StockAdjustmentSchema,
     StockLedgerSchema, DailyStockSnapshotSchema, StockSummaryItem,
@@ -280,6 +280,47 @@ async def stock_employees(
             for e in employees
         ],
     }
+
+
+@router.post("/items/bulk", status_code=201)
+async def add_stock_items_bulk(
+    data: StockBulkCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("stock.create")),
+    house_id: int = Depends(require_house_context),
+):
+    await ensure_house_access(current_user, house_id)
+    created = []
+    identifiers = []
+    for it in data.items:
+        product = (await db.execute(select(Product).where(Product.id == it.product_id))).scalar_one_or_none()
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product not found: {it.product_id}")
+        if it.location_type == LOCATION_RSO and not it.employee_id:
+            raise HTTPException(status_code=422, detail="employee_id is required for RSO stock")
+        if it.location_type == LOCATION_RSO and it.employee_id:
+            emp = (await db.execute(select(Employee).where(Employee.id == it.employee_id))).scalar_one_or_none()
+            if not emp or emp.house_id != house_id:
+                raise HTTPException(status_code=404, detail=f"Employee not found in this house: {it.employee_id}")
+
+        item = await apply_stock_change(
+            db, house_id=house_id, product_id=it.product_id,
+            location_type=it.location_type, employee_id=it.employee_id,
+            delta=it.quantity, movement_type="purchase",
+            reference_type="stock_item", reason="Bulk stock entry", user_id=current_user.id,
+        )
+        created.append({"id": item.id, "product_id": it.product_id, "location_type": it.location_type, "quantity": item.quantity})
+        identifiers.append(f"{product.product_code}x{it.quantity}")
+    await db.commit()
+
+    await log_activity(
+        db=db, user_id=current_user.id, user_name=current_user.name,
+        module="stock", action="create", record_id=created[0]["id"] if created else None,
+        record_identifier=", ".join(identifiers),
+        new_values=data.model_dump(), request=request,
+    )
+    return {"success": True, "data": created}
 
 
 @router.post("/items", status_code=201)
