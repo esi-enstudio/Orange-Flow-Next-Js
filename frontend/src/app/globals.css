@@ -205,6 +205,40 @@
     color: var(--foreground);
     @apply antialiased;
   }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .dark * {
+    scrollbar-color: #475569 transparent;
+  }
+  .dark *::-webkit-scrollbar-thumb {
+    background-color: #475569;
+  }
+  .dark *::-webkit-scrollbar-thumb:hover {
+    background-color: #64748b;
+  }
 }
 
 ::view-transition-old(root),

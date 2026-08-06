@@ -186,6 +186,7 @@ async def active_products(
     search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("stock.view")),
+    house_id: Optional[int] = Depends(get_house_context),
 ):
     query = select(Product).where(Product.status == "Active").order_by(Product.product_name)
     if search:
@@ -194,6 +195,22 @@ async def active_products(
             (Product.product_name.ilike(like)) | (Product.product_code.ilike(like))
         )
     products = (await db.execute(query.limit(500))).scalars().all()
+
+    stock_cond = _house_filter_condition(StockItem, current_user, house_id)
+    stock_stmt = select(
+        StockItem.product_id,
+        StockItem.location_type,
+        func.sum(StockItem.quantity),
+    ).where(StockItem.is_deleted == False)
+    if stock_cond is not None:
+        stock_stmt = stock_stmt.where(stock_cond)
+    stock_stmt = stock_stmt.group_by(StockItem.product_id, StockItem.location_type)
+    stock_rows = (await db.execute(stock_stmt)).all()
+    stock_map = {}
+    for product_id, loc, qty in stock_rows:
+        bucket = stock_map.setdefault(product_id, {"warehouse": 0, "rso": 0})
+        bucket[loc] += int(qty or 0)
+
     return {
         "success": True,
         "data": [
@@ -205,6 +222,12 @@ async def active_products(
                 "mrp": p.mrp,
                 "dd_lifting_price": p.dd_lifting_price,
                 "ret_lifting_price": p.ret_lifting_price,
+                "warehouse_quantity": stock_map.get(p.id, {}).get("warehouse", 0),
+                "rso_quantity": stock_map.get(p.id, {}).get("rso", 0),
+                "total_quantity": (
+                    stock_map.get(p.id, {}).get("warehouse", 0)
+                    + stock_map.get(p.id, {}).get("rso", 0)
+                ),
             }
             for p in products
         ],
@@ -213,6 +236,7 @@ async def active_products(
 
 @router.get("/employees")
 async def stock_employees(
+    product_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("stock.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -224,6 +248,22 @@ async def stock_employees(
     employees = (await db.execute(
         query.options(joinedload(Employee.user)).order_by(Employee.employee_id)
     )).unique().scalars().all()
+
+    stock_map = {}
+    if product_id is not None:
+        stock_stmt = select(
+            StockItem.employee_id, func.sum(StockItem.quantity)
+        ).where(
+            StockItem.product_id == product_id,
+            StockItem.location_type == LOCATION_RSO,
+            StockItem.is_deleted == False,
+        )
+        if cond is not None:
+            stock_stmt = stock_stmt.where(cond)
+        stock_stmt = stock_stmt.group_by(StockItem.employee_id)
+        for emp_id, qty in (await db.execute(stock_stmt)).all():
+            stock_map[emp_id] = int(qty or 0)
+
     return {
         "success": True,
         "data": [
@@ -234,6 +274,7 @@ async def stock_employees(
                 "dms_code": e.dms_code,
                 "employee_type": e.employee_type,
                 "house_id": e.house_id,
+                "stock_quantity": stock_map.get(e.id, 0),
             }
             for e in employees
         ],

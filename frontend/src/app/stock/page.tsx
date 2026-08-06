@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -26,6 +26,7 @@ import {
   ArrowUp,
   ArrowDown,
   Boxes,
+  AlertCircle,
   FileClock,
   Layers,
   TrendingUp,
@@ -40,6 +41,9 @@ interface Product {
   mrp: number;
   dd_lifting_price: number;
   ret_lifting_price: number;
+  warehouse_quantity?: number;
+  rso_quantity?: number;
+  total_quantity?: number;
 }
 
 interface EmployeeOpt {
@@ -49,6 +53,7 @@ interface EmployeeOpt {
   dms_code?: string;
   employee_type?: string;
   house_id: number;
+  stock_quantity?: number;
 }
 
 interface SummaryRow {
@@ -173,6 +178,320 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
+function ProductSelect({
+  products,
+  value,
+  sourceType,
+  onChange,
+}: {
+  products: Product[];
+  value: string;
+  sourceType: "warehouse" | "rso";
+  onChange: (v: string) => void;
+}) {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selected = products.find((p) => String(p.id) === value);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter(
+      (p) =>
+        p.product_name.toLowerCase().includes(q) ||
+        p.product_code.toLowerCase().includes(q)
+    );
+  }, [products, query]);
+
+  const sourceCount = (p: Product) =>
+    sourceType === "rso" ? (p.rso_quantity ?? 0) : (p.warehouse_quantity ?? 0);
+
+  const badgeCls = (count: number) =>
+    count > 0
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+      : "bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-gray-500";
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "w-full flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-left",
+          !selected && "text-gray-400 dark:text-gray-500"
+        )}
+      >
+        {selected ? (
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate font-medium text-gray-900 dark:text-gray-100">{selected.product_name}</span>
+            <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{selected.product_code}</span>
+          </span>
+        ) : (
+          <span className="truncate">{t("stock.select_product")}</span>
+        )}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {selected && (
+            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums", badgeCls(sourceCount(selected)))}>
+              <Package className="h-3 w-3" />
+              {sourceCount(selected).toLocaleString("en-US")}
+            </span>
+          )}
+          <ChevronDown className={cn("h-4 w-4 text-gray-400 transition-transform", open && "rotate-180")} />
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl">
+          <div className="border-b border-gray-100 dark:border-slate-800 p-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("stock.search_placeholder")}
+                className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 pl-8 pr-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-gray-400 dark:text-gray-500">{t("stock.no_products")}</p>
+            ) : (
+              filtered.map((p) => {
+                const count = sourceCount(p);
+                const isSelected = String(p.id) === value;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(String(p.id));
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
+                      "hover:bg-gray-50 dark:hover:bg-slate-800",
+                      isSelected && "bg-emerald-50 dark:bg-emerald-500/10"
+                    )}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">{p.product_name}</span>
+                      <span className="block text-[11px] text-gray-500 dark:text-gray-400">{p.product_code}</span>
+                    </span>
+                    <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", badgeCls(count))}>
+                      <Package className="h-3 w-3" />
+                      {count.toLocaleString("en-US")}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmployeeSelect({
+  employees,
+  value,
+  showStock,
+  onChange,
+}: {
+  employees: EmployeeOpt[];
+  value: string;
+  showStock: boolean;
+  onChange: (v: string) => void;
+}) {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selected = employees.find((e) => String(e.id) === value);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter(
+      (e) =>
+        e.name.toLowerCase().includes(q) ||
+        e.employee_id.toLowerCase().includes(q) ||
+        (e.dms_code || "").toLowerCase().includes(q)
+    );
+  }, [employees, query]);
+
+  const stockBadgeCls = (stock: number) =>
+    stock > 0
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+      : "bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-gray-500";
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "w-full flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-left",
+          !selected && "text-gray-400 dark:text-gray-500"
+        )}
+      >
+        {selected ? (
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate font-medium text-gray-900 dark:text-gray-100">{selected.name}</span>
+            <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{selected.employee_id}</span>
+          </span>
+        ) : (
+          <span className="truncate">{t("stock.select_employee")}</span>
+        )}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {selected && (
+            <span className="inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-gray-500 dark:bg-slate-800 dark:text-gray-400">
+              {selected.employee_type || "-"}
+            </span>
+          )}
+          {selected && showStock && (
+            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums", stockBadgeCls(selected.stock_quantity ?? 0))}>
+              <Package className="h-3 w-3" />
+              {(selected.stock_quantity ?? 0).toLocaleString("en-US")}
+            </span>
+          )}
+          <ChevronDown className={cn("h-4 w-4 text-gray-400 transition-transform", open && "rotate-180")} />
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl">
+          <div className="border-b border-gray-100 dark:border-slate-800 p-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("stock.search_employee")}
+                className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 pl-8 pr-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-gray-400 dark:text-gray-500">{t("stock.no_employees")}</p>
+            ) : (
+              filtered.map((e) => {
+                const stock = e.stock_quantity ?? 0;
+                const isSelected = String(e.id) === value;
+                return (
+                  <button
+                    key={e.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(String(e.id));
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
+                      "hover:bg-gray-50 dark:hover:bg-slate-800",
+                      isSelected && "bg-emerald-50 dark:bg-emerald-500/10"
+                    )}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{e.name}</span>
+                        <span className="inline-flex shrink-0 items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-gray-500 dark:bg-slate-800 dark:text-gray-400">
+                          {e.employee_type || "-"}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">
+                        {e.employee_id}
+                        {e.dms_code ? ` · ${e.dms_code}` : ""}
+                      </span>
+                    </span>
+                    {showStock && (
+                      <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", stockBadgeCls(stock))}>
+                        <Package className="h-3 w-3" />
+                        {stock.toLocaleString("en-US")}
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StockStat({ label, value, active }: { label: string; value: number; active?: boolean }) {
+  return (
+    <div className={cn(
+      "rounded-lg border px-2.5 py-2 text-center",
+      active
+        ? "border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10"
+        : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+    )}>
+      <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{label}</p>
+      <p className={cn("mt-0.5 text-base font-bold tabular-nums", active ? "text-emerald-600 dark:text-emerald-400" : "text-gray-900 dark:text-gray-100")}>
+        {value.toLocaleString("en-US")}
+      </p>
+    </div>
+  );
+}
+
+function ScopeBadge({ house, t }: { house: { id: number; name: string; code: string } | null; t: (path: string, params?: Record<string, string | number | undefined>) => string }) {
+  if (!house) {
+    return (
+      <span className="inline-flex items-center rounded-md bg-gray-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+        {t("stock.no_house_scope")}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+      {t("stock.scope_house")}: {house.name} ({house.code})
+    </span>
+  );
+}
+
 export default function StockPage() {
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const { t } = useLanguage();
@@ -213,6 +532,8 @@ export default function StockPage() {
 
   const [accessibleHouses, setAccessibleHouses] = useState<{ id: number; name: string; code: string }[]>([]);
   const [modalHouse, setModalHouse] = useState<string>("");
+  const productReqRef = useRef(0);
+  const employeeReqRef = useRef(0);
 
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [housePrompt, setHousePrompt] = useState(false);
@@ -239,18 +560,46 @@ export default function StockPage() {
     return h;
   }, [mutationHouseId]);
 
+  const effectiveHouse = useMemo(() => {
+    if (!mutationHouseId) return null;
+    return accessibleHouses.find((h) => h.id === mutationHouseId) ?? null;
+  }, [mutationHouseId, accessibleHouses]);
+
   const totalPages = (total: number, perPage: number) => Math.max(1, Math.ceil(total / perPage));
 
-  const fetchMeta = async () => {
+  const fetchHouses = async () => {
     try {
-      const [pRes, eRes, hRes] = await Promise.all([
-        apiClient.get("stock/products"),
-        apiClient.get("stock/employees", { headers }),
-        apiClient.get("houses/accessible"),
+      const res = await apiClient.get("houses/accessible");
+      setAccessibleHouses(res.data || []);
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const fetchMeta = async (houseIdParam: number) => {
+    const pReqId = ++productReqRef.current;
+    const eReqId = ++employeeReqRef.current;
+    try {
+      const h: Record<string, string> = { "X-House-ID": String(houseIdParam) };
+      const [pRes, eRes] = await Promise.all([
+        apiClient.get("stock/products", { headers: h }),
+        apiClient.get("stock/employees", { headers: h }),
       ]);
-      setProducts(pRes.data.data || []);
-      setEmployees(eRes.data.data || []);
-      setAccessibleHouses(hRes.data || []);
+      if (pReqId === productReqRef.current) setProducts(pRes.data.data || []);
+      if (eReqId === employeeReqRef.current) setEmployees(eRes.data.data || []);
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const fetchEmployees = async () => {
+    const eReqId = ++employeeReqRef.current;
+    try {
+      const params: Record<string, string> = {};
+      if (transferForm.product_id) params.product_id = transferForm.product_id;
+      const res = await apiClient.get("stock/employees", { params, headers: mutationHeaders });
+      if (eReqId !== employeeReqRef.current) return;
+      setEmployees(res.data.data || []);
     } catch {
       // non-blocking
     }
@@ -339,8 +688,17 @@ export default function StockPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && hasPermission("stock.view")) fetchMeta();
-  }, [authLoading, hasPermission, houseId]);
+    if (!authLoading && hasPermission("stock.view")) fetchHouses();
+  }, [authLoading, hasPermission]);
+
+  useEffect(() => {
+    if (!modal) return;
+    const targetHouseId = selectedHouse?.id ?? (modalHouse ? Number(modalHouse) : undefined);
+    setProducts([]);
+    setEmployees([]);
+    if (!targetHouseId) return;
+    fetchMeta(targetHouseId);
+  }, [modal, modalHouse, selectedHouse?.id]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("stock.view")) fetchSummary();
@@ -365,6 +723,13 @@ export default function StockPage() {
   useEffect(() => {
     if (!authLoading && hasPermission("stock.view") && activeTab === "snapshots") fetchSnapshots();
   }, [activeTab, snapshotsPage, authLoading, hasPermission, houseId]);
+
+  useEffect(() => {
+    if (modal !== "transfer") return;
+    if (!mutationHouseId) return;
+    if (transferForm.from_type !== "rso" && transferForm.to_type !== "rso") return;
+    fetchEmployees();
+  }, [modal, transferForm.product_id, transferForm.from_type, transferForm.to_type, mutationHouseId]);
 
   const filteredSummary = useMemo(() => {
     if (!search) return summary;
@@ -435,6 +800,10 @@ export default function StockPage() {
     const quantity = Number(transferForm.quantity);
     if (!quantity || quantity <= 0) {
       toast.error(t("stock.quantity_required"));
+      return;
+    }
+    if (selectedTransferProduct && quantity > transferSourceStock) {
+      toast.error(t("stock.quantity_exceeds"));
       return;
     }
     if (transferForm.from_type === "rso" && !transferForm.from_employee_id) {
@@ -573,6 +942,14 @@ export default function StockPage() {
 
   const inputCls = "w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary/50";
   const labelCls = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5";
+
+  const selectedTransferProduct = transferForm.product_id
+    ? products.find((p) => String(p.id) === transferForm.product_id)
+    : undefined;
+  const transferSourceStock =
+    transferForm.from_type === "rso"
+      ? (selectedTransferProduct?.rso_quantity ?? 0)
+      : (selectedTransferProduct?.warehouse_quantity ?? 0);
 
   const movementLabel = (m: string) => {
     const map: Record<string, string> = {
@@ -1379,6 +1756,9 @@ export default function StockPage() {
                   </select>
                 </div>
               )}
+              <div className="flex items-center gap-1.5">
+                <ScopeBadge house={effectiveHouse} t={t} />
+              </div>
               <div>
                 <label className={labelCls}>{t("stock.product")}</label>
                 <select value={stockForm.product_id} onChange={(e) => setStockForm({ ...stockForm, product_id: e.target.value })} className={inputCls}>
@@ -1434,14 +1814,54 @@ export default function StockPage() {
                   </select>
                 </div>
               )}
+              <div className="flex items-center gap-1.5">
+                <ScopeBadge house={effectiveHouse} t={t} />
+              </div>
               <div>
                 <label className={labelCls}>{t("stock.product")}</label>
-                <select value={transferForm.product_id} onChange={(e) => setTransferForm({ ...transferForm, product_id: e.target.value })} className={inputCls}>
-                  <option value="">{t("stock.select_product")}</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.product_name} ({p.product_code})</option>
-                  ))}
-                </select>
+                <ProductSelect
+                  products={products}
+                  value={transferForm.product_id}
+                  sourceType={transferForm.from_type as "warehouse" | "rso"}
+                  onChange={(v) => setTransferForm({ ...transferForm, product_id: v })}
+                />
+                {selectedTransferProduct && (
+                  <div className="mt-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 p-3">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-500/10 shrink-0">
+                          <Boxes className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{selectedTransferProduct.product_name}</p>
+                      </div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">{selectedTransferProduct.product_code}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <StockStat label={t("stock.warehouse")} value={selectedTransferProduct.warehouse_quantity ?? 0} active={transferForm.from_type !== "rso"} />
+                      <StockStat label={t("stock.rso")} value={selectedTransferProduct.rso_quantity ?? 0} active={transferForm.from_type === "rso"} />
+                      <StockStat label={t("stock.total_qty")} value={selectedTransferProduct.total_quantity ?? 0} />
+                    </div>
+                    <div className="mt-2.5 flex items-center justify-between pt-2.5 border-t border-gray-200 dark:border-slate-700">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {t("stock.available")} ({t(transferForm.from_type === "rso" ? "stock.rso" : "stock.warehouse")})
+                      </p>
+                      <span className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums",
+                        transferSourceStock > 0
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+                          : "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400"
+                      )}>
+                        {transferSourceStock > 0 ? (
+                          <>
+                            <Package className="h-3.5 w-3.5" /> {transferSourceStock.toLocaleString("en-US")}
+                          </>
+                        ) : (
+                          t("stock.out_of_stock")
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1462,28 +1882,50 @@ export default function StockPage() {
               {transferForm.from_type === "rso" && (
                 <div>
                   <label className={labelCls}>{t("stock.source")} ({t("stock.employee")})</label>
-                  <select value={transferForm.from_employee_id} onChange={(e) => setTransferForm({ ...transferForm, from_employee_id: e.target.value })} className={inputCls}>
-                    <option value="">{t("stock.select_employee")}</option>
-                    {employees.map((e) => (
-                      <option key={e.id} value={e.id}>{e.name} {e.employee_id ? `(${e.employee_id})` : ""}</option>
-                    ))}
-                  </select>
+                  <EmployeeSelect
+                    employees={employees}
+                    value={transferForm.from_employee_id}
+                    showStock={!!transferForm.product_id}
+                    onChange={(v) => setTransferForm({ ...transferForm, from_employee_id: v })}
+                  />
                 </div>
               )}
               {transferForm.to_type === "rso" && (
                 <div>
                   <label className={labelCls}>{t("stock.destination")} ({t("stock.employee")})</label>
-                  <select value={transferForm.to_employee_id} onChange={(e) => setTransferForm({ ...transferForm, to_employee_id: e.target.value })} className={inputCls}>
-                    <option value="">{t("stock.select_employee")}</option>
-                    {employees.map((e) => (
-                      <option key={e.id} value={e.id}>{e.name} {e.employee_id ? `(${e.employee_id})` : ""}</option>
-                    ))}
-                  </select>
+                  <EmployeeSelect
+                    employees={employees}
+                    value={transferForm.to_employee_id}
+                    showStock={!!transferForm.product_id}
+                    onChange={(v) => setTransferForm({ ...transferForm, to_employee_id: v })}
+                  />
                 </div>
               )}
               <div>
                 <label className={labelCls}>{t("stock.quantity")}</label>
-                <input type="number" min={1} value={transferForm.quantity} onChange={(e) => setTransferForm({ ...transferForm, quantity: e.target.value })} className={inputCls} />
+                <input
+                  type="number"
+                  min={1}
+                  max={transferSourceStock || undefined}
+                  value={transferForm.quantity}
+                  onChange={(e) => setTransferForm({ ...transferForm, quantity: e.target.value })}
+                  className={inputCls}
+                />
+                {selectedTransferProduct && (() => {
+                  const qty = Number(transferForm.quantity);
+                  const over = transferForm.quantity !== "" && qty > transferSourceStock;
+                  return (
+                    <p className={cn(
+                      "mt-1.5 flex items-center gap-1.5 text-xs font-medium",
+                      over ? "text-red-500" : "text-gray-500 dark:text-gray-400"
+                    )}>
+                      {over && <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
+                      {over
+                        ? t("stock.quantity_exceeds")
+                        : `${t("stock.max_available")}: ${transferSourceStock.toLocaleString("en-US")}`}
+                    </p>
+                  );
+                })()}
               </div>
               <div>
                 <label className={labelCls}>{t("stock.notes")}</label>
@@ -1513,6 +1955,9 @@ export default function StockPage() {
                   </select>
                 </div>
               )}
+              <div className="flex items-center gap-1.5">
+                <ScopeBadge house={effectiveHouse} t={t} />
+              </div>
               <div>
                 <label className={labelCls}>{t("stock.product")}</label>
                 <select value={adjustForm.product_id} onChange={(e) => setAdjustForm({ ...adjustForm, product_id: e.target.value })} className={inputCls}>
