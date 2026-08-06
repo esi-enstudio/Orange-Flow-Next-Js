@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -28,6 +28,9 @@ import {
   CalendarDays,
   Edit2,
   Trash2,
+  Users,
+  Warehouse,
+  AlertCircle,
 } from "lucide-react";
 
 interface Product {
@@ -38,6 +41,9 @@ interface Product {
   mrp: number;
   dd_lifting_price: number;
   ret_lifting_price: number;
+  warehouse_quantity?: number;
+  rso_quantity?: number;
+  total_quantity?: number;
 }
 
 interface EmployeeOpt {
@@ -47,6 +53,7 @@ interface EmployeeOpt {
   dms_code?: string;
   employee_type?: string;
   house_id: number;
+  stock_quantity?: number;
 }
 
 interface Sale {
@@ -75,14 +82,367 @@ function fmtDate(d?: string) {
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function FieldError({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return <p className="mt-1 text-xs text-red-500 dark:text-red-400">{msg}</p>;
+}
+
+function ProductSelect({
+  products,
+  value,
+  sourceType,
+  onChange,
+}: {
+  products: Product[];
+  value: string;
+  sourceType: "warehouse" | "rso";
+  onChange: (v: string) => void;
+}) {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selected = products.find((p) => String(p.id) === value);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter(
+      (p) =>
+        p.product_name.toLowerCase().includes(q) ||
+        p.product_code.toLowerCase().includes(q)
+    );
+  }, [products, query]);
+
+  const sourceCount = (p: Product) =>
+    sourceType === "rso" ? (p.rso_quantity ?? 0) : (p.warehouse_quantity ?? 0);
+
+  const badgeCls = (count: number) =>
+    count > 0
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+      : "bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-gray-500";
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "w-full flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-left",
+          !selected && "text-gray-400 dark:text-gray-500"
+        )}
+      >
+        {selected ? (
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate font-medium text-gray-900 dark:text-gray-100">{selected.product_name}</span>
+            <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{selected.product_code}</span>
+          </span>
+        ) : (
+          <span className="truncate">{t("stock.select_product")}</span>
+        )}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {selected && (
+            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums", badgeCls(sourceCount(selected)))}>
+              <Package className="h-3 w-3" />
+              {sourceCount(selected).toLocaleString("en-US")}
+            </span>
+          )}
+          <ChevronDown className={cn("h-4 w-4 text-gray-400 transition-transform", open && "rotate-180")} />
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl">
+          <div className="border-b border-gray-100 dark:border-slate-800 p-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("stock.search_placeholder")}
+                className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 pl-8 pr-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-gray-400 dark:text-gray-500">{t("stock.no_products")}</p>
+            ) : (
+              Array.from(
+                filtered.reduce((acc, p) => {
+                  const cat = p.category || t("stock.uncategorized");
+                  const arr = acc.get(cat) ?? [];
+                  arr.push(p);
+                  acc.set(cat, arr);
+                  return acc;
+                }, new Map<string, Product[]>())
+              )
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([cat, items]) => (
+                  <div key={cat}>
+                    <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                      {cat} <span className="text-gray-300 dark:text-gray-600">({items.length})</span>
+                    </p>
+                    {items.map((p) => {
+                      const count = sourceCount(p);
+                      const isSelected = String(p.id) === value;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            onChange(String(p.id));
+                            setOpen(false);
+                            setQuery("");
+                          }}
+                          className={cn(
+                            "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
+                            "hover:bg-gray-50 dark:hover:bg-slate-800",
+                            isSelected && "bg-emerald-50 dark:bg-emerald-500/10"
+                          )}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">{p.product_name}</span>
+                            <span className="block text-[11px] text-gray-500 dark:text-gray-400">{p.product_code}</span>
+                          </span>
+                          <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", badgeCls(count))}>
+                            <Package className="h-3 w-3" />
+                            {count.toLocaleString("en-US")}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmployeeSelect({
+  employees,
+  value,
+  showStock,
+  onChange,
+}: {
+  employees: EmployeeOpt[];
+  value: string;
+  showStock: boolean;
+  onChange: (v: string) => void;
+}) {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selected = employees.find((e) => String(e.id) === value);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter(
+      (e) =>
+        e.name.toLowerCase().includes(q) ||
+        e.employee_id.toLowerCase().includes(q) ||
+        (e.dms_code || "").toLowerCase().includes(q)
+    );
+  }, [employees, query]);
+
+  const stockBadgeCls = (stock: number) =>
+    stock > 0
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+      : "bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-gray-500";
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "w-full flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-left",
+          !selected && "text-gray-400 dark:text-gray-500"
+        )}
+      >
+        {selected ? (
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate font-medium text-gray-900 dark:text-gray-100">{selected.name}</span>
+            <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{selected.employee_id}</span>
+          </span>
+        ) : (
+          <span className="truncate">{t("stock.select_employee")}</span>
+        )}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {selected && (
+            <span className="inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-gray-500 dark:bg-slate-800 dark:text-gray-400">
+              {selected.employee_type || "-"}
+            </span>
+          )}
+          {selected && showStock && (
+            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums", stockBadgeCls(selected.stock_quantity ?? 0))}>
+              <Package className="h-3 w-3" />
+              {(selected.stock_quantity ?? 0).toLocaleString("en-US")}
+            </span>
+          )}
+          <ChevronDown className={cn("h-4 w-4 text-gray-400 transition-transform", open && "rotate-180")} />
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl">
+          <div className="border-b border-gray-100 dark:border-slate-800 p-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("stock.search_employee")}
+                className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 pl-8 pr-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-gray-400 dark:text-gray-500">{t("stock.no_employees")}</p>
+            ) : (
+              filtered.map((e) => {
+                const stock = e.stock_quantity ?? 0;
+                const isSelected = String(e.id) === value;
+                return (
+                  <button
+                    key={e.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(String(e.id));
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
+                      "hover:bg-gray-50 dark:hover:bg-slate-800",
+                      isSelected && "bg-emerald-50 dark:bg-emerald-500/10"
+                    )}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{e.name}</span>
+                        <span className="inline-flex shrink-0 items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-gray-500 dark:bg-slate-800 dark:text-gray-400">
+                          {e.employee_type || "-"}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">
+                        {e.employee_id}
+                        {e.dms_code ? ` · ${e.dms_code}` : ""}
+                      </span>
+                    </span>
+                    {showStock && (
+                      <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", stockBadgeCls(stock))}>
+                        <Package className="h-3 w-3" />
+                        {stock.toLocaleString("en-US")}
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LocationToggle({
+  value,
+  onChange,
+  t,
+}: {
+  value: "warehouse" | "rso";
+  onChange: (v: "warehouse" | "rso") => void;
+  t: (path: string, params?: Record<string, string | number | undefined>) => string;
+}) {
+  const options = [
+    { value: "warehouse" as const, label: t("sales.warehouse"), icon: Warehouse },
+    { value: "rso" as const, label: t("sales.rso"), icon: Users },
+  ];
+  return (
+    <div className="flex rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-0.5">
+      {options.map((opt) => {
+        const Icon = opt.icon;
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-all",
+              active
+                ? "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function todayISO() {
+  const d = new Date();
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
 const EMPTY_FORM = {
-  product_id: "",
   source_type: "warehouse",
   employee_id: "",
+  sale_date: todayISO(),
+  notes: "",
+};
+
+const SALE_LINE = {
+  product_id: "",
   quantity: "",
   unit_price: "",
-  sale_date: "",
-  notes: "",
 };
 
 export default function SalesPage() {
@@ -105,6 +465,8 @@ export default function SalesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Sale | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [lines, setLines] = useState<{ product_id: string; quantity: string; unit_price: string }[]>([{ ...SALE_LINE }]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState<Sale | null>(null);
@@ -120,6 +482,13 @@ export default function SalesPage() {
     if (houseId) h["X-House-ID"] = String(houseId);
     return h;
   }, [houseId]);
+
+  const metaHouseId = modalHouse ? Number(modalHouse) : houseId;
+  const metaHeaders = useMemo(() => {
+    const h: Record<string, string> = {};
+    if (metaHouseId) h["X-House-ID"] = String(metaHouseId);
+    return h;
+  }, [metaHouseId]);
 
   const mutationHouseId = selectedHouse?.id ?? (modalHouse ? Number(modalHouse) : undefined);
   const mutationHeaders = useMemo(() => {
@@ -148,14 +517,25 @@ export default function SalesPage() {
 
   const fetchMeta = async () => {
     try {
-      const [pRes, eRes, hRes] = await Promise.all([
-        apiClient.get("stock/products"),
-        apiClient.get("stock/employees", { headers }),
+      const [eRes, hRes] = await Promise.all([
+        apiClient.get("stock/employees", { params: { include_stock: "true" }, headers: metaHeaders }),
         apiClient.get("houses/accessible"),
       ]);
-      setProducts(pRes.data.data || []);
       setEmployees(eRes.data.data || []);
       setAccessibleHouses(hRes.data || []);
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const selectedEmpId = form.source_type === "rso" && form.employee_id ? Number(form.employee_id) : undefined;
+
+  const fetchProducts = async (empId?: number) => {
+    try {
+      const params: Record<string, string> = {};
+      if (empId) params.employee_id = String(empId);
+      const res = await apiClient.get("stock/products", { params, headers: metaHeaders });
+      setProducts(res.data.data || []);
     } catch {
       // non-blocking
     }
@@ -166,11 +546,38 @@ export default function SalesPage() {
       fetchMeta();
       fetchSales();
     }
-  }, [authLoading, hasPermission, houseId]);
+  }, [authLoading, hasPermission, metaHouseId]);
+
+  useEffect(() => {
+    if (!authLoading && hasPermission("sales.view")) fetchProducts(selectedEmpId);
+  }, [authLoading, hasPermission, metaHouseId, selectedEmpId]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("sales.view")) fetchSales();
   }, [page, authLoading, hasPermission, houseId]);
+
+  const houseProducts = useMemo(() => {
+    if (!metaHouseId) return [];
+    if (form.source_type === "rso") {
+      return products.filter((p) => (p.rso_quantity ?? 0) > 0);
+    }
+    return products.filter((p) => ((p.warehouse_quantity ?? 0) + (p.rso_quantity ?? 0)) > 0);
+  }, [products, metaHouseId, form.source_type]);
+
+  const houseEmployees = useMemo(() => {
+    if (!metaHouseId) return [];
+    return employees;
+  }, [employees, metaHouseId]);
+
+  const lineAvailable = (i: number) => {
+    const line = lines[i];
+    if (!line || !line.product_id) return 0;
+    const p = products.find((x) => String(x.id) === line.product_id);
+    if (!p) return 0;
+    return form.source_type === "rso"
+      ? (p.rso_quantity ?? 0)
+      : (p.warehouse_quantity ?? 0);
+  };
 
   const openCreate = () => {
     if (!selectedHouse && accessibleHouses.length === 0) {
@@ -182,74 +589,151 @@ export default function SalesPage() {
     }
     setEditing(null);
     setForm({ ...EMPTY_FORM });
+    setLines([{ ...SALE_LINE }]);
+    setErrors({});
     setModalOpen(true);
   };
 
   const openEdit = (sale: Sale) => {
     setEditing(sale);
     setForm({
-      product_id: String(sale.product_id || 0),
       source_type: sale.source_type,
       employee_id: sale.employee_id ? String(sale.employee_id) : "",
-      quantity: String(sale.quantity),
-      unit_price: String(sale.unit_price),
-      sale_date: sale.sale_date ? String(sale.sale_date).slice(0, 10) : "",
+      sale_date: sale.sale_date ? String(sale.sale_date).slice(0, 10) : todayISO(),
       notes: sale.notes || "",
     });
+    setLines([{ product_id: String(sale.product_id || 0), quantity: String(sale.quantity), unit_price: String(sale.unit_price) }]);
+    setErrors({});
     setModalOpen(true);
   };
 
+  const addLine = () => {
+    setLines((prev) => [...prev, { ...SALE_LINE }]);
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.general;
+      return next;
+    });
+  };
+
+  const updateLine = (index: number, patch: Partial<{ product_id: string; quantity: string; unit_price: string }>) => {
+    if (patch.product_id) {
+      const p = products.find((x) => String(x.id) === patch.product_id);
+      if (p) patch.unit_price = String(p.ret_lifting_price ?? 0);
+    }
+    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+    setErrors((prev) => {
+      const next = { ...prev };
+      const fields = Object.keys(patch);
+      if (fields.includes("product_id")) delete next[`product_${index}`];
+      if (fields.includes("quantity")) delete next[`quantity_${index}`];
+      if (fields.includes("unit_price")) delete next[`unit_price_${index}`];
+      delete next.general;
+      return next;
+    });
+  };
+
+  const removeLine = (index: number) => {
+    setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[`product_${index}`];
+      delete next[`quantity_${index}`];
+      delete next[`unit_price_${index}`];
+      delete next.general;
+      return next;
+    });
+  };
+
   const submit = async () => {
+    const nextErrors: Record<string, string> = {};
     if (!mutationHouseId) {
-      toast.error(t("sales.select_house_first"));
-      return;
-    }
-    if (!form.product_id) {
-      toast.error(t("sales.select_product"));
-      return;
-    }
-    if (!form.source_type) {
-      toast.error(t("sales.select_source"));
-      return;
-    }
-    const quantity = Number(form.quantity);
-    if (!quantity || quantity <= 0) {
-      toast.error(t("sales.quantity_required"));
-      return;
-    }
-    const unitPrice = Number(form.unit_price);
-    if (isNaN(unitPrice) || unitPrice < 0) {
-      toast.error(t("sales.price_required"));
-      return;
+      nextErrors.house = t("sales.select_house_first");
     }
     if (form.source_type === "rso" && !form.employee_id) {
-      toast.error(t("sales.select_employee"));
-      return;
+      nextErrors.employee = t("sales.select_employee");
     }
-    const payload = {
-      product_id: Number(form.product_id),
-      source_type: form.source_type,
-      employee_id: form.source_type === "rso" ? Number(form.employee_id) : undefined,
-      quantity,
-      unit_price: unitPrice,
-      sale_date: form.sale_date || undefined,
-      notes: form.notes || undefined,
-    };
+    let hasProduct = false;
+    lines.forEach((l, i) => {
+      const productId = Number(l.product_id);
+      const qty = Number(l.quantity);
+      const price = Number(l.unit_price);
+      if (productId <= 0) {
+        nextErrors[`product_${i}`] = t("sales.select_product");
+      } else {
+        hasProduct = true;
+        if (!qty || qty <= 0) {
+          nextErrors[`quantity_${i}`] = t("sales.quantity_required");
+        } else if (qty > lineAvailable(i)) {
+          nextErrors[`quantity_${i}`] = t("sales.insufficient_stock", { available: lineAvailable(i) });
+        }
+        if (isNaN(price) || price < 0) {
+          nextErrors[`unit_price_${i}`] = t("sales.price_required");
+        }
+      }
+    });
+    if (!hasProduct) {
+      nextErrors.product_0 = t("sales.select_product");
+    }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    const validLines = lines
+      .map((l) => ({ product_id: Number(l.product_id), quantity: Number(l.quantity), unit_price: Number(l.unit_price) }))
+      .filter((l) => l.product_id > 0);
     setActionLoading(true);
     try {
       if (editing) {
-        await apiClient.put(`sales/${editing.id}`, payload, { headers: mutationHeaders });
+        const first = validLines[0];
+        await apiClient.put(`sales/${editing.id}`, {
+          product_id: first.product_id,
+          source_type: form.source_type,
+          employee_id: form.source_type === "rso" ? Number(form.employee_id) : undefined,
+          quantity: first.quantity,
+          unit_price: first.unit_price,
+          sale_date: form.sale_date || undefined,
+          notes: form.notes || undefined,
+        }, { headers: mutationHeaders });
         toast.success(t("sales.toast_update_success"));
       } else {
-        await apiClient.post("sales", payload, { headers: mutationHeaders });
+        await apiClient.post("sales/bulk", {
+          source_type: form.source_type,
+          employee_id: form.source_type === "rso" ? Number(form.employee_id) : undefined,
+          sale_date: form.sale_date || undefined,
+          notes: form.notes || undefined,
+          items: validLines,
+        }, { headers: mutationHeaders });
         toast.success(t("sales.toast_create_success"));
       }
       setModalOpen(false);
       setEditing(null);
       setForm({ ...EMPTY_FORM });
+      setLines([{ ...SALE_LINE }]);
+      setErrors({});
       fetchSales();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || t("common.error"));
+      const detail = err.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        const mapped: Record<string, string> = {};
+        detail.forEach((d: any) => {
+          const loc = d.loc || [];
+          const field = loc[2];
+          if (field === "source_type") mapped.source = d.msg;
+          else if (field === "employee_id") mapped.employee = d.msg;
+          else if (field === "items") mapped.general = d.msg;
+          else if (typeof field === "number") {
+            const sub = loc[3];
+            if (sub === "quantity") mapped[`quantity_${field}`] = d.msg;
+            else if (sub === "unit_price") mapped[`unit_price_${field}`] = d.msg;
+            else mapped.general = d.msg;
+          } else mapped.general = d.msg;
+        });
+        setErrors(mapped);
+      } else if (typeof detail === "string") {
+        setErrors({ general: detail });
+      } else {
+        setErrors({ general: t("common.error") });
+      }
     } finally {
       setActionLoading(false);
     }
@@ -532,7 +1016,7 @@ export default function SalesPage() {
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
-              className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-900 p-5 sm:p-6"
+              className="w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-900 p-5 sm:p-6"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
@@ -547,59 +1031,194 @@ export default function SalesPage() {
                 {!selectedHouse && accessibleHouses.length > 0 && (
                   <div>
                     <label className={labelCls}>{t("common.select_house")}</label>
-                    <select value={modalHouse} onChange={(e) => setModalHouse(e.target.value)} className={inputCls}>
+                    <select value={modalHouse} onChange={(e) => { setModalHouse(e.target.value); setForm({ ...form, employee_id: "" }); setLines((prev) => prev.map(() => ({ ...SALE_LINE }))); setErrors((prev) => { const n = { ...prev }; delete n.house; delete n.employee; delete n.general; return n; }); }} className={inputCls}>
                       <option value="">{t("common.select_house")}</option>
                       {accessibleHouses.map((h) => (
                         <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
                       ))}
                     </select>
+                    <FieldError msg={errors.house} />
                   </div>
                 )}
                 <div>
-                  <label className={labelCls}>{t("sales.product")}</label>
-                  <select value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })} className={inputCls}>
-                    <option value="">{t("sales.select_product")}</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>{p.product_name} ({p.product_code})</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
                   <label className={labelCls}>{t("sales.source")}</label>
-                  <select value={form.source_type} onChange={(e) => setForm({ ...form, source_type: e.target.value, employee_id: "" })} className={inputCls}>
-                    <option value="warehouse">{t("sales.warehouse")}</option>
-                    <option value="rso">{t("sales.rso")}</option>
-                  </select>
+                  <LocationToggle
+                    value={form.source_type === "rso" ? "rso" : "warehouse"}
+                    onChange={(v) => { setForm({ ...form, source_type: v, employee_id: "" }); setErrors((prev) => { const n = { ...prev }; delete n.source; delete n.employee; delete n.general; return n; }); }}
+                    t={t}
+                  />
+                  <FieldError msg={errors.source} />
                 </div>
                 {form.source_type === "rso" && (
                   <div>
                     <label className={labelCls}>{t("sales.employee")}</label>
-                    <select value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })} className={inputCls}>
-                      <option value="">{t("sales.select_employee")}</option>
-                      {employees.map((e) => (
-                        <option key={e.id} value={e.id}>{e.name} {e.employee_id ? `(${e.employee_id})` : ""}</option>
-                      ))}
-                    </select>
+                    {metaHouseId ? (
+                      <EmployeeSelect
+                        employees={houseEmployees}
+                        value={form.employee_id}
+                        showStock
+                        onChange={(v) => { setForm({ ...form, employee_id: v }); setErrors((prev) => { const n = { ...prev }; delete n.employee; delete n.general; return n; }); }}
+                      />
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
+                        {t("sales.select_house_first")}
+                      </div>
+                    )}
+                    <FieldError msg={errors.employee} />
+                    {form.source_type === "rso" && form.employee_id && (
+                      <div className="mt-3 rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-500/5 p-3">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                            <Boxes className="h-3.5 w-3.5" />
+                            {t("sales.employee_stock")}
+                          </p>
+                          {houseProducts.length > 0 && (
+                            <span className="text-[11px] font-medium text-emerald-700/70 dark:text-emerald-400/70 tabular-nums">
+                              {houseProducts.length} {t("sales.products_label")} · {houseProducts.reduce((s, p) => s + (p.rso_quantity ?? 0), 0).toLocaleString("en-US")} {t("sales.units_label")}
+                            </span>
+                          )}
+                        </div>
+                        {houseProducts.length === 0 ? (
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{t("sales.no_employee_stock")}</p>
+                        ) : (
+                          <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
+                            {houseProducts.map((p) => (
+                              <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-white dark:bg-slate-900 px-2.5 py-1.5">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{p.product_name}</p>
+                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{p.product_code}</p>
+                                </div>
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                                  <Package className="h-3 w-3" />
+                                  {(p.rso_quantity ?? 0).toLocaleString("en-US")}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-3">
+
+                <div>
+                  <label className={labelCls}>{t("sales.product")}</label>
+                  <div className="space-y-3">
+                    {lines.map((line, i) => (
+                      <div key={i} className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                            {t("sales.sale_record")} #{i + 1}
+                          </p>
+                          <button
+                            type="button"
+                            disabled={lines.length === 1}
+                            onClick={() => removeLine(i)}
+                            className={cn(
+                              "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+                              lines.length === 1
+                                ? "cursor-not-allowed text-gray-300 dark:text-slate-600"
+                                : "text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
+                            )}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        {!metaHouseId ? (
+                          <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
+                            {t("sales.select_house_first")}
+                          </div>
+                        ) : form.source_type === "rso" && !form.employee_id ? (
+                          <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
+                            {t("sales.select_employee")}
+                          </div>
+                        ) : (
+                          <ProductSelect
+                            products={houseProducts}
+                            value={line.product_id}
+                            sourceType={form.source_type === "rso" ? "rso" : "warehouse"}
+                            onChange={(v) => updateLine(i, { product_id: v })}
+                          />
+                        )}
+                        <FieldError msg={errors[`product_${i}`]} />
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("sales.quantity")}</label>
+                              {line.product_id && (
+                                <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+                                  {t("sales.available_qty", { count: lineAvailable(i) })}
+                                </span>
+                              )}
+                            </div>
+                            <input
+                              type="number"
+                              min={1}
+                              max={line.product_id ? lineAvailable(i) || undefined : undefined}
+                              value={line.quantity}
+                              onChange={(e) => updateLine(i, { quantity: e.target.value })}
+                              className={cn(inputCls, line.product_id && Number(line.quantity) > lineAvailable(i) && "border-red-400 dark:border-red-500/60 focus:ring-red-400/50")}
+                            />
+                            <FieldError msg={errors[`quantity_${i}`]} />
+                            {!errors[`quantity_${i}`] && line.product_id && line.quantity !== "" && Number(line.quantity) > lineAvailable(i) && (
+                              <p className="mt-1 flex items-center gap-1 text-xs font-medium text-red-500 dark:text-red-400">
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                {t("sales.insufficient_stock", { available: lineAvailable(i) })}
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <label className={labelCls}>{t("sales.unit_price")}</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={line.unit_price}
+                              placeholder={(() => {
+                                const p = line.product_id ? products.find((x) => String(x.id) === line.product_id) : undefined;
+                                return p ? String(p.ret_lifting_price ?? 0) : "";
+                              })()}
+                              onChange={(e) => updateLine(i, { unit_price: e.target.value })}
+                              className={inputCls}
+                            />
+                            <FieldError msg={errors[`unit_price_${i}`]} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="mt-2 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+                  >
+                    <Plus className="h-4 w-4" />
+                    {t("sales.add_row")}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className={labelCls}>{t("sales.quantity")}</label>
-                    <input type="number" min={1} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} className={inputCls} />
+                    <label className={labelCls}>{t("sales.sale_date")}</label>
+                    <input type="date" value={form.sale_date} onChange={(e) => setForm({ ...form, sale_date: e.target.value })} className={inputCls} />
                   </div>
                   <div>
-                    <label className={labelCls}>{t("sales.unit_price")}</label>
-                    <input type="number" min={0} step="0.01" value={form.unit_price} onChange={(e) => setForm({ ...form, unit_price: e.target.value })} className={inputCls} />
+                    <label className={labelCls}>{t("sales.notes")}</label>
+                    <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={inputCls} />
                   </div>
                 </div>
-                <div>
-                  <label className={labelCls}>{t("sales.sale_date")}</label>
-                  <input type="date" value={form.sale_date} onChange={(e) => setForm({ ...form, sale_date: e.target.value })} className={inputCls} />
+
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 dark:bg-slate-800 px-3 py-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {t("sales.items_selected", { count: lines.filter((l) => l.product_id).length })}
+                  </p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {t("sales.total")}: {fmtMoney(lines.reduce((sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0))}
+                  </p>
                 </div>
-                <div>
-                  <label className={labelCls}>{t("sales.notes")}</label>
-                  <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={inputCls} />
-                </div>
+
+                <FieldError msg={errors.general} />
+
                 <div className="flex justify-end gap-2 pt-2">
                   <Button variant="outline" onClick={() => setModalOpen(false)}>{t("sales.cancel")}</Button>
                   <Button onClick={submit} disabled={actionLoading}>

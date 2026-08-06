@@ -34,6 +34,37 @@ class SalesUpdate(SalesCreate):
     pass
 
 
+class SalesBulkItem(BaseModel):
+    product_id: int
+    quantity: int = Field(..., gt=0)
+    unit_price: float = Field(..., ge=0)
+
+
+class SalesBulkCreate(BaseModel):
+    source_type: str
+    employee_id: Optional[int] = None
+    sale_date: Optional[str] = None
+    notes: Optional[str] = None
+    items: list[SalesBulkItem] = Field(..., min_length=1)
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, v):
+        if v not in ("warehouse", "rso"):
+            raise ValueError("source_type must be one of: warehouse, rso")
+        return v
+
+    @field_validator("sale_date")
+    @classmethod
+    def validate_sale_date(cls, v):
+        if v:
+            try:
+                datetime.strptime(v, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("Invalid sale_date format, expected YYYY-MM-DD")
+        return v
+
+
 class SalesSchema(BaseModel):
     id: int
     house_id: int

@@ -11,7 +11,7 @@ from app.models.sales import SalesRecord
 from app.models.product import Product
 from app.models.employee import Employee
 from app.models.user import User
-from app.schemas.sales import SalesCreate, SalesSchema, SalesSummary
+from app.schemas.sales import SalesCreate, SalesBulkCreate, SalesSchema, SalesSummary
 from app.services.stock_service import apply_stock_change, ensure_house_access, LOCATION_RSO
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
@@ -79,12 +79,17 @@ async def create_sale(
             raise HTTPException(status_code=404, detail="Employee not found in this house")
 
     try:
-        item = await apply_stock_change(
-            db, house_id=house_id, product_id=data.product_id,
-            location_type=data.source_type, employee_id=data.employee_id,
-            delta=-data.quantity, movement_type="sale",
-            reference_type="sale", reason="Sale", user_id=current_user.id,
-        )
+        try:
+            item = await apply_stock_change(
+                db, house_id=house_id, product_id=data.product_id,
+                location_type=data.source_type, employee_id=data.employee_id,
+                delta=-data.quantity, movement_type="sale",
+                reference_type="sale", reason="Sale", user_id=current_user.id,
+            )
+        except HTTPException as e:
+            if "Insufficient" in str(e.detail):
+                raise HTTPException(status_code=400, detail=f"Insufficient stock for {product.product_code} ({product.product_name})")
+            raise
     except HTTPException:
         await db.rollback()
         raise
@@ -114,6 +119,76 @@ async def create_sale(
     return {
         "success": True,
         "data": {"id": sale.id, "total_amount": sale.total_amount, "remaining_stock": item.quantity},
+    }
+
+
+@router.post("/bulk", status_code=201)
+async def bulk_create_sales(
+    data: SalesBulkCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("sales.create")),
+    house_id: int = Depends(require_house_context),
+):
+    await ensure_house_access(current_user, house_id)
+    if data.source_type == LOCATION_RSO and not data.employee_id:
+        raise HTTPException(status_code=422, detail="employee_id is required for RSO sales")
+    if data.source_type == LOCATION_RSO and data.employee_id:
+        emp = (await db.execute(select(Employee).where(Employee.id == data.employee_id))).scalar_one_or_none()
+        if not emp or emp.house_id != house_id:
+            raise HTTPException(status_code=404, detail="Employee not found in this house")
+
+    sale_date = _parse_sale_date(data.sale_date)
+    created_ids = []
+    total_amount = 0.0
+    product_codes = []
+    try:
+        for item in data.items:
+            product = (await db.execute(select(Product).where(Product.id == item.product_id))).scalar_one_or_none()
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
+            try:
+                await apply_stock_change(
+                    db, house_id=house_id, product_id=item.product_id,
+                    location_type=data.source_type, employee_id=data.employee_id,
+                    delta=-item.quantity, movement_type="sale",
+                    reference_type="sale", reason="Sale", user_id=current_user.id,
+                )
+            except HTTPException as e:
+                if "Insufficient" in str(e.detail):
+                    raise HTTPException(status_code=400, detail=f"Insufficient stock for {product.product_code} ({product.product_name})")
+                raise
+            sale = SalesRecord(
+                house_id=house_id,
+                product_id=item.product_id,
+                source_type=data.source_type,
+                employee_id=data.employee_id,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                total_amount=round(item.quantity * item.unit_price, 2),
+                sale_date=sale_date,
+                notes=data.notes,
+                created_by=current_user.id,
+            )
+            db.add(sale)
+            await db.flush()
+            created_ids.append(sale.id)
+            total_amount += sale.total_amount
+            product_codes.append(product.product_code)
+    except HTTPException:
+        await db.rollback()
+        raise
+    await db.commit()
+
+    await log_activity(
+        db=db, user_id=current_user.id, user_name=current_user.name,
+        module="sales", action="create", record_id=created_ids[0] if created_ids else None,
+        record_identifier=", ".join(product_codes),
+        new_values=data.model_dump(), request=request,
+    )
+    return {
+        "success": True,
+        "data": {"ids": created_ids, "count": len(created_ids), "total_amount": round(total_amount, 2)},
     }
 
 

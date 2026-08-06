@@ -76,6 +76,27 @@ class StockTransferCreate(BaseModel):
         return v
 
 
+class StockTransferItem(BaseModel):
+    product_id: int
+    quantity: int = Field(..., gt=0)
+
+
+class StockTransferBulkCreate(BaseModel):
+    from_type: str
+    from_employee_id: Optional[int] = None
+    to_type: str
+    to_employee_id: Optional[int] = None
+    notes: Optional[str] = None
+    items: list[StockTransferItem] = Field(..., min_length=1)
+
+    @field_validator("from_type", "to_type")
+    @classmethod
+    def validate_type(cls, v):
+        if v not in ("warehouse", "rso"):
+            raise ValueError("type must be one of: warehouse, rso")
+        return v
+
+
 class StockTransferSchema(BaseModel):
     id: int
     house_id: int

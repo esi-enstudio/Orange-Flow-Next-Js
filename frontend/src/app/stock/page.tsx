@@ -160,13 +160,16 @@ function fmtDate(d?: string) {
     " " + new Date(d).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
-function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function ModalShell({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-900 p-5 sm:p-6"
+        className={cn(
+          "w-full max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-900 p-5 sm:p-6",
+          wide ? "sm:max-w-xl" : "sm:max-w-lg"
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -501,14 +504,16 @@ function LocationToggle({
   value,
   onChange,
   t,
+  rsoLabel,
 }: {
   value: "warehouse" | "rso";
   onChange: (v: "warehouse" | "rso") => void;
   t: (path: string, params?: Record<string, string | number | undefined>) => string;
+  rsoLabel?: string;
 }) {
   const options = [
     { value: "warehouse" as const, label: t("stock.warehouse"), icon: Warehouse },
-    { value: "rso" as const, label: t("stock.rso"), icon: Users },
+    { value: "rso" as const, label: rsoLabel || t("stock.rso"), icon: Users },
   ];
   return (
     <div className="flex rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-0.5">
@@ -605,7 +610,10 @@ export default function StockPage() {
 
   const [stockForm, setStockForm] = useState({ location_type: "warehouse", employee_id: "" });
   const [stockLines, setStockLines] = useState<{ product_id: string; quantity: string }[]>([{ product_id: "", quantity: "" }]);
-  const [transferForm, setTransferForm] = useState({ product_id: "", from_type: "warehouse", from_employee_id: "", to_type: "rso", to_employee_id: "", quantity: "", notes: "" });
+  const [transferForm, setTransferForm] = useState({ from_type: "warehouse", from_employee_id: "", to_type: "rso", to_employee_id: "", notes: "" });
+  const [transferLines, setTransferLines] = useState<{ product_id: string; quantity: string }[]>([{ product_id: "", quantity: "" }]);
+  const [transferProducts, setTransferProducts] = useState<Product[]>([]);
+  const transferProductReqRef = useRef(0);
   const [adjustForm, setAdjustForm] = useState({ product_id: "", location_type: "warehouse", employee_id: "", adjustment_type: "loss", direction: "decrease", quantity: "", reason: "", notes: "" });
 
   const houseId = pageHouseId ?? selectedHouse?.id;
@@ -659,9 +667,7 @@ export default function StockPage() {
   const fetchEmployees = async () => {
     const eReqId = ++employeeReqRef.current;
     try {
-      const params: Record<string, string> = {};
-      if (transferForm.product_id) params.product_id = transferForm.product_id;
-      const res = await apiClient.get("stock/employees", { params, headers: mutationHeaders });
+      const res = await apiClient.get("stock/employees", { headers: mutationHeaders });
       if (eReqId !== employeeReqRef.current) return;
       setEmployees(res.data.data || []);
     } catch {
@@ -795,7 +801,20 @@ export default function StockPage() {
     if (!mutationHouseId) return;
     if (transferForm.from_type !== "rso" && transferForm.to_type !== "rso") return;
     fetchEmployees();
-  }, [modal, transferForm.product_id, transferForm.from_type, transferForm.to_type, mutationHouseId]);
+  }, [modal, transferForm.from_type, transferForm.to_type, mutationHouseId]);
+
+  useEffect(() => {
+    if (modal !== "transfer") return;
+    if (!mutationHouseId) return;
+    if (!(transferForm.from_type === "rso" && transferForm.from_employee_id)) return;
+    const reqId = ++transferProductReqRef.current;
+    const h: Record<string, string> = { "X-House-ID": String(mutationHouseId) };
+    apiClient.get("stock/products", { params: { employee_id: transferForm.from_employee_id }, headers: h })
+      .then((res) => {
+        if (reqId === transferProductReqRef.current) setTransferProducts(res.data.data || []);
+      })
+      .catch(() => {});
+  }, [modal, mutationHouseId, transferForm.from_type, transferForm.from_employee_id]);
 
   const filteredSummary = useMemo(() => {
     if (!search) return summary;
@@ -829,6 +848,26 @@ export default function StockPage() {
       from_employee_id: prev.to_employee_id,
       to_employee_id: prev.from_employee_id,
     }));
+  };
+
+  const addTransferLine = () => setTransferLines((prev) => [...prev, { product_id: "", quantity: "" }]);
+
+  const updateTransferLine = (idx: number, field: "product_id" | "quantity", value: string) =>
+    setTransferLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
+
+  const removeTransferLine = (idx: number) =>
+    setTransferLines((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== idx)));
+
+  const transferLineAvailable = (i: number) => {
+    const line = transferLines[i];
+    if (!line || !line.product_id) return 0;
+    const source =
+      transferForm.from_type === "rso" && transferForm.from_employee_id ? transferProducts : products;
+    const p = source.find((x) => String(x.id) === line.product_id);
+    if (!p) return 0;
+    return transferForm.from_type === "rso"
+      ? (p.rso_quantity ?? 0)
+      : (p.warehouse_quantity ?? 0);
   };
 
   const openModal = (m: "stock" | "transfer" | "adjustment") => {
@@ -899,19 +938,6 @@ export default function StockPage() {
       toast.error(t("stock.select_house_first"));
       return;
     }
-    if (!transferForm.product_id) {
-      toast.error(t("stock.select_product"));
-      return;
-    }
-    const quantity = Number(transferForm.quantity);
-    if (!quantity || quantity <= 0) {
-      toast.error(t("stock.quantity_required"));
-      return;
-    }
-    if (selectedTransferProduct && quantity > transferSourceStock) {
-      toast.error(t("stock.quantity_exceeds"));
-      return;
-    }
     if (transferForm.from_type === "rso" && !transferForm.from_employee_id) {
       toast.error(t("stock.select_employee"));
       return;
@@ -920,20 +946,43 @@ export default function StockPage() {
       toast.error(t("stock.select_employee"));
       return;
     }
+    const items = transferLines
+      .map((l) => ({ product_id: Number(l.product_id), quantity: Number(l.quantity) }))
+      .filter((i) => i.product_id);
+    if (items.length === 0) {
+      toast.error(t("stock.select_product"));
+      return;
+    }
+    const invalidLine = transferLines.findIndex((l, i) => {
+      const pid = Number(l.product_id);
+      if (!pid) return false;
+      const qty = Number(l.quantity);
+      if (!qty || qty <= 0) return true;
+      return qty > transferLineAvailable(i);
+    });
+    if (invalidLine !== -1) {
+      const qty = Number(transferLines[invalidLine].quantity);
+      if (!qty || qty <= 0) {
+        toast.error(t("stock.quantity_required"));
+      } else {
+        toast.error(t("stock.quantity_exceeds"));
+      }
+      return;
+    }
     setActionLoading(true);
     try {
-      await apiClient.post("stock/transfers", {
-        product_id: Number(transferForm.product_id),
+      await apiClient.post("stock/transfers/bulk", {
         from_type: transferForm.from_type,
         from_employee_id: transferForm.from_type === "rso" ? Number(transferForm.from_employee_id) : undefined,
         to_type: transferForm.to_type,
         to_employee_id: transferForm.to_type === "rso" ? Number(transferForm.to_employee_id) : undefined,
-        quantity,
         notes: transferForm.notes || undefined,
+        items,
       }, { headers: mutationHeaders });
       toast.success(t("stock.transfer_success"));
       setModal(null);
-      setTransferForm({ product_id: "", from_type: "warehouse", from_employee_id: "", to_type: "rso", to_employee_id: "", quantity: "", notes: "" });
+      setTransferForm({ from_type: "warehouse", from_employee_id: "", to_type: "rso", to_employee_id: "", notes: "" });
+      setTransferLines([{ product_id: "", quantity: "" }]);
       fetchSummary();
       if (activeTab === "transfers") fetchTransfers();
     } catch (err: any) {
@@ -1052,14 +1101,6 @@ export default function StockPage() {
 
   const inputCls = "w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary/50";
   const labelCls = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5";
-
-  const selectedTransferProduct = transferForm.product_id
-    ? products.find((p) => String(p.id) === transferForm.product_id)
-    : undefined;
-  const transferSourceStock =
-    transferForm.from_type === "rso"
-      ? (selectedTransferProduct?.rso_quantity ?? 0)
-      : (selectedTransferProduct?.warehouse_quantity ?? 0);
 
   const selectedAdjustProduct = adjustForm.product_id
     ? products.find((p) => String(p.id) === adjustForm.product_id)
@@ -2045,7 +2086,7 @@ export default function StockPage() {
         )}
 
         {modal === "transfer" && (
-          <ModalShell title={t("stock.new_transfer")} onClose={() => setModal(null)}>
+          <ModalShell title={t("stock.new_transfer")} onClose={() => setModal(null)} wide>
             <div className="space-y-4">
               {!selectedHouse && accessibleHouses.length > 0 && (
                 <div>
@@ -2061,52 +2102,6 @@ export default function StockPage() {
               <div className="flex items-center gap-1.5">
                 <ScopeBadge house={effectiveHouse} t={t} />
               </div>
-              <div>
-                <label className={labelCls}>{t("stock.product")}</label>
-                <ProductSelect
-                  products={products}
-                  value={transferForm.product_id}
-                  sourceType={transferForm.from_type as "warehouse" | "rso"}
-                  onChange={(v) => setTransferForm({ ...transferForm, product_id: v })}
-                />
-                {selectedTransferProduct && (
-                  <div className="mt-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 p-3">
-                    <div className="flex items-center justify-between mb-2.5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-500/10 shrink-0">
-                          <Boxes className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                        </div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{selectedTransferProduct.product_name}</p>
-                      </div>
-                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">{selectedTransferProduct.product_code}</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <StockStat label={t("stock.warehouse")} value={selectedTransferProduct.warehouse_quantity ?? 0} active={transferForm.from_type !== "rso"} />
-                      <StockStat label={t("stock.rso")} value={selectedTransferProduct.rso_quantity ?? 0} active={transferForm.from_type === "rso"} />
-                      <StockStat label={t("stock.total_qty")} value={selectedTransferProduct.total_quantity ?? 0} />
-                    </div>
-                    <div className="mt-2.5 flex items-center justify-between pt-2.5 border-t border-gray-200 dark:border-slate-700">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {t("stock.available")} ({t(transferForm.from_type === "rso" ? "stock.rso" : "stock.warehouse")})
-                      </p>
-                      <span className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums",
-                        transferSourceStock > 0
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
-                          : "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400"
-                      )}>
-                        {transferSourceStock > 0 ? (
-                          <>
-                            <Package className="h-3.5 w-3.5" /> {transferSourceStock.toLocaleString("en-US")}
-                          </>
-                        ) : (
-                          t("stock.out_of_stock")
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
               <div className="flex flex-col gap-2 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-3">
                 <div>
                   <label className={labelCls}>{t("stock.from")}</label>
@@ -2114,6 +2109,7 @@ export default function StockPage() {
                     value={transferForm.from_type as "warehouse" | "rso"}
                     onChange={(v) => setTransferForm({ ...transferForm, from_type: v, from_employee_id: "" })}
                     t={t}
+                    rsoLabel={t("stock.employee")}
                   />
                 </div>
                 <button
@@ -2130,6 +2126,7 @@ export default function StockPage() {
                     value={transferForm.to_type as "warehouse" | "rso"}
                     onChange={(v) => setTransferForm({ ...transferForm, to_type: v, to_employee_id: "" })}
                     t={t}
+                    rsoLabel={t("stock.employee")}
                   />
                 </div>
               </div>
@@ -2139,7 +2136,7 @@ export default function StockPage() {
                   <EmployeeSelect
                     employees={employees}
                     value={transferForm.from_employee_id}
-                    showStock={!!transferForm.product_id}
+                    showStock={false}
                     onChange={(v) => setTransferForm({ ...transferForm, from_employee_id: v })}
                   />
                 </div>
@@ -2150,36 +2147,81 @@ export default function StockPage() {
                   <EmployeeSelect
                     employees={employees}
                     value={transferForm.to_employee_id}
-                    showStock={!!transferForm.product_id}
+                    showStock={false}
                     onChange={(v) => setTransferForm({ ...transferForm, to_employee_id: v })}
                   />
                 </div>
               )}
               <div>
-                <label className={labelCls}>{t("stock.quantity")}</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={transferSourceStock || undefined}
-                  value={transferForm.quantity}
-                  onChange={(e) => setTransferForm({ ...transferForm, quantity: e.target.value })}
-                  className={inputCls}
-                />
-                {selectedTransferProduct && (() => {
-                  const qty = Number(transferForm.quantity);
-                  const over = transferForm.quantity !== "" && qty > transferSourceStock;
-                  return (
-                    <p className={cn(
-                      "mt-1.5 flex items-center gap-1.5 text-xs font-medium",
-                      over ? "text-red-500" : "text-gray-500 dark:text-gray-400"
-                    )}>
-                      {over && <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
-                      {over
-                        ? t("stock.quantity_exceeds")
-                        : `${t("stock.max_available")}: ${transferSourceStock.toLocaleString("en-US")}`}
-                    </p>
-                  );
-                })()}
+                <label className={labelCls}>{t("stock.products")}</label>
+                <div className="space-y-3">
+                  {transferLines.map((line, idx) => {
+                    const avail = transferLineAvailable(idx);
+                    const over = line.product_id && line.quantity !== "" && Number(line.quantity) > avail;
+                    return (
+                      <div key={idx} className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                            {t("stock.transfer_record")} #{idx + 1}
+                          </p>
+                          <button
+                            type="button"
+                            disabled={transferLines.length === 1}
+                            onClick={() => removeTransferLine(idx)}
+                            className={cn(
+                              "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+                              transferLines.length === 1
+                                ? "cursor-not-allowed text-gray-300 dark:text-slate-600"
+                                : "text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
+                            )}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <ProductSelect
+                          products={transferForm.from_type === "rso" && transferForm.from_employee_id ? transferProducts : products}
+                          value={line.product_id}
+                          sourceType={transferForm.from_type as "warehouse" | "rso"}
+                          onChange={(v) => updateTransferLine(idx, "product_id", v)}
+                        />
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("stock.quantity")}</label>
+                            {line.product_id && (
+                              <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+                                {t("stock.max_available")}: {avail.toLocaleString("en-US")}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            min={1}
+                            max={line.product_id ? avail || undefined : undefined}
+                            value={line.quantity}
+                            onChange={(e) => updateTransferLine(idx, "quantity", e.target.value)}
+                            className={cn(inputCls, over && "border-red-400 dark:border-red-500/60 focus:ring-red-400/50")}
+                          />
+                          {over && (
+                            <p className="mt-1 flex items-center gap-1 text-xs font-medium text-red-500 dark:text-red-400">
+                              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                              {t("stock.quantity_exceeds")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={addTransferLine}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 px-2 py-1.5 transition-colors"
+                >
+                  <Plus className="h-4 w-4" /> {t("stock.add_row")}
+                </button>
+                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                  {transferLines.filter((l) => l.product_id && Number(l.quantity) > 0).length} {t("stock.items_selected")}
+                </p>
               </div>
               <div>
                 <label className={labelCls}>{t("stock.notes")}</label>

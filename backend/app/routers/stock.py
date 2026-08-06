@@ -14,7 +14,7 @@ from app.models.house import House
 from app.models.user import User
 from app.schemas.stock import (
     StockItemSchema, StockItemCreate, StockBulkCreate,
-    StockTransferCreate, StockTransferSchema,
+    StockTransferCreate, StockTransferBulkCreate, StockTransferSchema,
     StockAdjustmentCreate, StockAdjustmentSchema,
     StockLedgerSchema, DailyStockSnapshotSchema, StockSummaryItem,
 )
@@ -184,6 +184,7 @@ async def list_stock_items(
 @router.get("/products")
 async def active_products(
     search: Optional[str] = Query(None),
+    employee_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("stock.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -204,6 +205,8 @@ async def active_products(
     ).where(StockItem.is_deleted == False)
     if stock_cond is not None:
         stock_stmt = stock_stmt.where(stock_cond)
+    if employee_id is not None:
+        stock_stmt = stock_stmt.where(StockItem.employee_id == employee_id)
     stock_stmt = stock_stmt.group_by(StockItem.product_id, StockItem.location_type)
     stock_rows = (await db.execute(stock_stmt)).all()
     stock_map = {}
@@ -237,6 +240,7 @@ async def active_products(
 @router.get("/employees")
 async def stock_employees(
     product_id: Optional[int] = Query(None),
+    include_stock: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("stock.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -250,6 +254,7 @@ async def stock_employees(
     )).unique().scalars().all()
 
     stock_map = {}
+    stock_cond = _house_filter_condition(StockItem, current_user, house_id)
     if product_id is not None:
         stock_stmt = select(
             StockItem.employee_id, func.sum(StockItem.quantity)
@@ -258,7 +263,18 @@ async def stock_employees(
             StockItem.location_type == LOCATION_RSO,
             StockItem.is_deleted == False,
         )
-        stock_cond = _house_filter_condition(StockItem, current_user, house_id)
+        if stock_cond is not None:
+            stock_stmt = stock_stmt.where(stock_cond)
+        stock_stmt = stock_stmt.group_by(StockItem.employee_id)
+        for emp_id, qty in (await db.execute(stock_stmt)).all():
+            stock_map[emp_id] = int(qty or 0)
+    elif include_stock:
+        stock_stmt = select(
+            StockItem.employee_id, func.sum(StockItem.quantity)
+        ).where(
+            StockItem.location_type == LOCATION_RSO,
+            StockItem.is_deleted == False,
+        )
         if stock_cond is not None:
             stock_stmt = stock_stmt.where(stock_cond)
         stock_stmt = stock_stmt.group_by(StockItem.employee_id)
@@ -357,6 +373,71 @@ async def add_stock_item(
         new_values=data.model_dump(), request=request,
     )
     return {"success": True, "data": {"id": item.id, "quantity": item.quantity}}
+
+
+@router.post("/transfers/bulk", status_code=201)
+async def bulk_create_transfers(
+    data: StockTransferBulkCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("stock.transfer")),
+    house_id: int = Depends(require_house_context),
+):
+    await ensure_house_access(current_user, house_id)
+    if data.from_type == data.to_type and data.from_employee_id == data.to_employee_id:
+        raise HTTPException(status_code=422, detail="Source and destination cannot be the same")
+
+    created_ids = []
+    product_codes = []
+    try:
+        for item in data.items:
+            product = (await db.execute(select(Product).where(Product.id == item.product_id))).scalar_one_or_none()
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
+            try:
+                await apply_stock_change(
+                    db, house_id=house_id, product_id=item.product_id,
+                    location_type=data.from_type, employee_id=data.from_employee_id,
+                    delta=-item.quantity, movement_type="transfer_out",
+                    reference_type="transfer", reason="Transfer out", user_id=current_user.id,
+                )
+                await apply_stock_change(
+                    db, house_id=house_id, product_id=item.product_id,
+                    location_type=data.to_type, employee_id=data.to_employee_id,
+                    delta=item.quantity, movement_type="transfer_in",
+                    reference_type="transfer", reason="Transfer in", user_id=current_user.id,
+                )
+            except HTTPException as e:
+                if "Insufficient" in str(e.detail):
+                    raise HTTPException(status_code=400, detail=f"Insufficient stock for {product.product_code} ({product.product_name})")
+                raise
+            transfer = StockTransfer(
+                house_id=house_id,
+                product_id=item.product_id,
+                from_type=data.from_type,
+                from_employee_id=data.from_employee_id,
+                to_type=data.to_type,
+                to_employee_id=data.to_employee_id,
+                quantity=item.quantity,
+                notes=data.notes,
+                created_by=current_user.id,
+            )
+            db.add(transfer)
+            await db.flush()
+            created_ids.append(transfer.id)
+            product_codes.append(product.product_code)
+    except HTTPException:
+        await db.rollback()
+        raise
+    await db.commit()
+
+    await log_activity(
+        db=db, user_id=current_user.id, user_name=current_user.name,
+        module="stock", action="transfer", record_id=created_ids[0] if created_ids else None,
+        record_identifier=", ".join(product_codes),
+        new_values=data.model_dump(), request=request,
+    )
+    return {"success": True, "data": {"ids": created_ids, "count": len(created_ids)}}
 
 
 @router.post("/transfers", status_code=201)
