@@ -1781,6 +1781,7 @@ export const translations = {
       balance: "Balance",
       scope_house: "Scope",
       no_house_scope: "Select a house first",
+      swap: "Swap direction",
     },
     sales: {
       title: "Sales Management",
@@ -3636,6 +3637,7 @@ export const translations = {
       balance: "ব্যালেন্স",
       scope_house: "স্কোপ",
       no_house_scope: "আগে হাউস নির্বাচন করুন",
+      swap: "দিক অদলবদল করুন",
     },
     sales: {
       title: "সেলস ম্যানেজমেন্ট",

@@ -31,6 +31,7 @@ import {
   Layers,
   TrendingUp,
   CalendarCheck,
+  Users,
 } from "lucide-react";
 
 interface Product {
@@ -477,6 +478,45 @@ function StockStat({ label, value, active }: { label: string; value: number; act
   );
 }
 
+function LocationToggle({
+  value,
+  onChange,
+  t,
+}: {
+  value: "warehouse" | "rso";
+  onChange: (v: "warehouse" | "rso") => void;
+  t: (path: string, params?: Record<string, string | number | undefined>) => string;
+}) {
+  const options = [
+    { value: "warehouse" as const, label: t("stock.warehouse"), icon: Warehouse },
+    { value: "rso" as const, label: t("stock.rso"), icon: Users },
+  ];
+  return (
+    <div className="flex rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-0.5">
+      {options.map((opt) => {
+        const Icon = opt.icon;
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-all",
+              active
+                ? "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ScopeBadge({ house, t }: { house: { id: number; name: string; code: string } | null; t: (path: string, params?: Record<string, string | number | undefined>) => string }) {
   if (!house) {
     return (
@@ -738,6 +778,16 @@ export default function StockPage() {
       r.product_name.toLowerCase().includes(q) || r.product_code.toLowerCase().includes(q)
     );
   }, [summary, search]);
+
+  const swapTransfer = () => {
+    setTransferForm((prev) => ({
+      ...prev,
+      from_type: prev.to_type,
+      to_type: prev.from_type,
+      from_employee_id: prev.to_employee_id,
+      to_employee_id: prev.from_employee_id,
+    }));
+  };
 
   const openModal = (m: "stock" | "transfer" | "adjustment") => {
     if (!selectedHouse && accessibleHouses.length === 0) {
@@ -1863,20 +1913,30 @@ export default function StockPage() {
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-2 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-3">
                 <div>
                   <label className={labelCls}>{t("stock.from")}</label>
-                  <select value={transferForm.from_type} onChange={(e) => setTransferForm({ ...transferForm, from_type: e.target.value, from_employee_id: "" })} className={inputCls}>
-                    <option value="warehouse">{t("stock.warehouse")}</option>
-                    <option value="rso">{t("stock.rso")}</option>
-                  </select>
+                  <LocationToggle
+                    value={transferForm.from_type as "warehouse" | "rso"}
+                    onChange={(v) => setTransferForm({ ...transferForm, from_type: v, from_employee_id: "" })}
+                    t={t}
+                  />
                 </div>
+                <button
+                  type="button"
+                  onClick={swapTransfer}
+                  title={t("stock.swap")}
+                  className="mx-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-400 shadow-sm transition-colors hover:border-emerald-300 dark:hover:border-emerald-500/50 hover:text-emerald-600 dark:hover:text-emerald-400 sm:mx-0"
+                >
+                  <ArrowLeftRight className="h-4 w-4 rotate-90 sm:rotate-0" />
+                </button>
                 <div>
                   <label className={labelCls}>{t("stock.to")}</label>
-                  <select value={transferForm.to_type} onChange={(e) => setTransferForm({ ...transferForm, to_type: e.target.value, to_employee_id: "" })} className={inputCls}>
-                    <option value="rso">{t("stock.rso")}</option>
-                    <option value="warehouse">{t("stock.warehouse")}</option>
-                  </select>
+                  <LocationToggle
+                    value={transferForm.to_type as "warehouse" | "rso"}
+                    onChange={(v) => setTransferForm({ ...transferForm, to_type: v, to_employee_id: "" })}
+                    t={t}
+                  />
                 </div>
               </div>
               {transferForm.from_type === "rso" && (
