@@ -154,8 +154,8 @@ export default function CreateLiftingPage() {
             toast.error("Please select a house");
             return;
         }
-        if (selectedProducts.length === 0) {
-            toast.error("Please select at least one product");
+        if (selectedProducts.length === 0 && Number(bankDeposit || 0) <= 0) {
+            toast.error("Select at least one product or enter a positive bank deposit for iTopUp lifting");
             return;
         }
 
@@ -491,7 +491,7 @@ export default function CreateLiftingPage() {
                 <button
                     type="button"
                     onClick={handlePreview}
-                    disabled={previewLoading || selectedProducts.length === 0 || !houseId}
+                    disabled={previewLoading || !houseId}
                     className="px-6 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                     {previewLoading ? (
@@ -590,6 +590,11 @@ export default function CreateLiftingPage() {
                                             </span>
                                         </div>
                                     ))}
+                                    {previewData.products.length === 0 && (
+                                        <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/30 rounded-lg text-sm text-gray-500 dark:text-gray-400">
+                                            No products — iTopUp only lifting.
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

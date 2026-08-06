@@ -74,6 +74,7 @@ from app.routers.sim_replacement import router as sim_replacement_router
 from app.routers.shifts import router as shifts_router
 from app.routers.stock import router as stock_router
 from app.routers.sales import router as sales_router
+from app.routers.itopup_balance import router as itopup_balance_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -125,6 +126,7 @@ app.include_router(sim_replacement_router)
 app.include_router(shifts_router)
 app.include_router(stock_router)
 app.include_router(sales_router)
+app.include_router(itopup_balance_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)

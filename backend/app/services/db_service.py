@@ -38,6 +38,7 @@ import app.models.todo
 import app.models.cv
 import app.models.stock
 import app.models.sales
+import app.models.itopup_balance
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,27 @@ async def _migrate_lifting_soft_delete():
     except Exception as e:
         logger.warning(f"Migration warning (lifting_records soft delete): {e}")
 
+async def _migrate_lifting_stock_added():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='lifting_records' AND column_name='stock_added'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating lifting_records: adding stock_added columns...")
+            await conn.execute(text(
+                "ALTER TABLE lifting_records "
+                "ADD COLUMN stock_added BOOLEAN DEFAULT FALSE, "
+                "ADD COLUMN stock_added_at TIMESTAMP WITHOUT TIME ZONE, "
+                "ADD COLUMN stock_added_by INTEGER"
+            ))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lifting_records_stock_added ON lifting_records (stock_added)"))
+            logger.info("Migration complete: lifting_records.stock_added")
+    except Exception as e:
+        logger.warning(f"Migration warning (lifting_records stock_added): {e}")
+
 async def _migrate_retailer_employee_link():
     """Fix retailers whose employee_id was auto-linked via itop_number but whose
     retailer_code is actually an employee's assisted_retailer_code.
@@ -259,6 +281,7 @@ async def init_db():
         await _migrate_ga_section_config_employee_ids()
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_lifting_soft_delete()
+        await _migrate_lifting_stock_added()
         await _migrate_indexes()
         from app.models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func

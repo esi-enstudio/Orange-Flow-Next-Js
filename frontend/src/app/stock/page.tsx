@@ -34,6 +34,10 @@ import {
   Users,
   Building2,
   Calendar,
+  PackagePlus,
+  Wallet,
+  Send,
+  CheckSquare,
 } from "lucide-react";
 
 interface Product {
@@ -139,6 +143,56 @@ interface SnapshotRow {
   total_value: number;
 }
 
+interface AvailableLifting {
+  id: number;
+  lifting_date: string;
+  itopup_amount: number;
+  total_lifting_amount: number;
+  product_count: number;
+  total_quantity: number;
+  products: { product_id: number; product_code: string; product_name: string; quantity: number; total_price: number }[];
+}
+
+interface ITopUpBalanceRow {
+  id?: number;
+  house_id: number;
+  house_name?: string;
+  employee_id?: number;
+  employee_code?: string;
+  name?: string;
+  dms_code?: string;
+  balance: number;
+}
+
+interface ITopUpLedgerEntry {
+  id: number;
+  house_id: number;
+  employee_id?: number;
+  employee_name?: string;
+  movement_type: string;
+  amount: number;
+  balance_after: number;
+  reference_type?: string;
+  reference_id?: number;
+  reason?: string;
+  created_at?: string;
+  created_by_name?: string;
+}
+
+interface ITopUpTransferRow {
+  id: number;
+  house_id: number;
+  from_employee_id?: number;
+  from_employee_name?: string;
+  to_employee_id?: number;
+  to_employee_name?: string;
+  amount: number;
+  movement: string;
+  notes?: string;
+  created_at?: string;
+  created_by_name?: string;
+}
+
 const TABS = [
   { key: "summary", labelKey: "stock.summary_tab" },
   { key: "items", labelKey: "stock.items_tab" },
@@ -146,6 +200,7 @@ const TABS = [
   { key: "adjustments", labelKey: "stock.adjustments_tab" },
   { key: "ledger", labelKey: "stock.ledger_tab" },
   { key: "snapshots", labelKey: "stock.snapshots_tab" },
+  { key: "itopup", labelKey: "stock.itopup_tab" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -606,7 +661,18 @@ export default function StockPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [housePrompt, setHousePrompt] = useState(false);
 
-  const [modal, setModal] = useState<"stock" | "transfer" | "adjustment" | null>(null);
+  const [modal, setModal] = useState<"stock" | "transfer" | "adjustment" | "fromlifting" | "itopup" | null>(null);
+
+  const [liftings, setLiftings] = useState<AvailableLifting[]>([]);
+  const [liftingsLoading, setLiftingsLoading] = useState(false);
+  const [selectedLiftingIds, setSelectedLiftingIds] = useState<number[]>([]);
+
+  const [itopupMother, setItopupMother] = useState<ITopUpBalanceRow[]>([]);
+  const [itopupRso, setItopupRso] = useState<ITopUpBalanceRow[]>([]);
+  const [itopupLedger, setItopupLedger] = useState<ITopUpLedgerEntry[]>([]);
+  const [itopupTransfers, setItopupTransfers] = useState<ITopUpTransferRow[]>([]);
+  const [itopupLoading, setItopupLoading] = useState(false);
+  const [itopupForm, setItopupForm] = useState({ from_employee_id: "", to_employee_id: "", amount: "", movement: "morning", notes: "" });
 
   const [stockForm, setStockForm] = useState({ location_type: "warehouse", employee_id: "" });
   const [stockLines, setStockLines] = useState<{ product_id: string; quantity: string }[]>([{ product_id: "", quantity: "" }]);
@@ -759,6 +825,115 @@ export default function StockPage() {
     }
   };
 
+  const fetchLiftings = async () => {
+    setLiftingsLoading(true);
+    try {
+      const res = await apiClient.get("stock/available-liftings", { headers: mutationHeaders });
+      setLiftings(res.data.data || []);
+    } catch {
+      toast.error(t("common.error"));
+    } finally {
+      setLiftingsLoading(false);
+    }
+  };
+
+  const fetchITopUp = async () => {
+    setItopupLoading(true);
+    try {
+      const res = await apiClient.get("itopup-balance", { headers });
+      setItopupMother(res.data.data?.mother || []);
+      setItopupRso(res.data.data?.rso || []);
+    } catch {
+      toast.error(t("common.error"));
+    } finally {
+      setItopupLoading(false);
+    }
+  };
+
+  const fetchITopUpLedger = async () => {
+    try {
+      const res = await apiClient.get("itopup-balance/ledger", { params: { page: "1", per_page: "15" }, headers });
+      setItopupLedger(res.data.data || []);
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const fetchITopUpTransfers = async () => {
+    try {
+      const res = await apiClient.get("itopup-balance/transfers", { params: { page: "1", per_page: "15" }, headers });
+      setItopupTransfers(res.data.data || []);
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const toggleLifting = (id: number) =>
+    setSelectedLiftingIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const submitFromLifting = async () => {
+    if (!mutationHouseId) {
+      toast.error(t("stock.select_house_first"));
+      return;
+    }
+    if (selectedLiftingIds.length === 0) {
+      toast.error(t("stock.no_lifting_selected"));
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await apiClient.post("stock/from-lifting", { lifting_ids: selectedLiftingIds }, { headers: mutationHeaders });
+      toast.success(t("stock.from_lifting_success"));
+      setModal(null);
+      setSelectedLiftingIds([]);
+      fetchSummary();
+      if (activeTab === "items") fetchItems();
+      fetchITopUp();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || t("common.error"));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const submitITopUpTransfer = async () => {
+    if (!mutationHouseId) {
+      toast.error(t("stock.select_house_first"));
+      return;
+    }
+    const from = itopupForm.from_employee_id ? Number(itopupForm.from_employee_id) : null;
+    const to = itopupForm.to_employee_id ? Number(itopupForm.to_employee_id) : null;
+    if (from === null && to === null) {
+      toast.error(t("stock.select_employee"));
+      return;
+    }
+    const amount = Number(itopupForm.amount);
+    if (!amount || amount <= 0) {
+      toast.error(t("stock.quantity_required"));
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await apiClient.post(
+        "itopup-balance/transfers",
+        { from_employee_id: from, to_employee_id: to, amount, movement: itopupForm.movement, notes: itopupForm.notes || undefined },
+        { headers: mutationHeaders }
+      );
+      toast.success(t("stock.itopup_transfer_success"));
+      setModal(null);
+      setItopupForm({ from_employee_id: "", to_employee_id: "", amount: "", movement: "morning", notes: "" });
+      fetchITopUp();
+      fetchITopUpLedger();
+      fetchITopUpTransfers();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || t("common.error"));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!authLoading && hasPermission("stock.view")) fetchHouses();
   }, [authLoading, hasPermission]);
@@ -795,6 +970,21 @@ export default function StockPage() {
   useEffect(() => {
     if (!authLoading && hasPermission("stock.view") && activeTab === "snapshots") fetchSnapshots();
   }, [activeTab, snapshotsPage, authLoading, hasPermission, houseId]);
+
+  useEffect(() => {
+    if (modal !== "fromlifting") return;
+    if (!mutationHouseId) return;
+    setSelectedLiftingIds([]);
+    fetchLiftings();
+  }, [modal, mutationHouseId, modalHouse]);
+
+  useEffect(() => {
+    if (!authLoading && hasPermission("itopup_balance.view") && activeTab === "itopup") {
+      fetchITopUp();
+      fetchITopUpLedger();
+      fetchITopUpTransfers();
+    }
+  }, [activeTab, authLoading, hasPermission, houseId]);
 
   useEffect(() => {
     if (modal !== "transfer") return;
@@ -870,7 +1060,7 @@ export default function StockPage() {
       : (p.warehouse_quantity ?? 0);
   };
 
-  const openModal = (m: "stock" | "transfer" | "adjustment") => {
+  const openModal = (m: "stock" | "transfer" | "adjustment" | "fromlifting" | "itopup") => {
     if (!selectedHouse && accessibleHouses.length === 0) {
       setHousePrompt(true);
       return;
@@ -882,6 +1072,12 @@ export default function StockPage() {
       setModalHouse(String(pageHouseId));
     }
     setModal(m);
+    if (m === "fromlifting") {
+      setSelectedLiftingIds([]);
+    }
+    if (m === "itopup") {
+      fetchITopUp();
+    }
   };
 
   const addStockLine = () => setStockLines((prev) => [...prev, { product_id: "", quantity: "" }]);
@@ -1125,22 +1321,26 @@ export default function StockPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <Warehouse className="h-6 w-6 text-emerald-500" />
-              {t("stock.title")}
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("stock.description")}</p>
+        <div className="flex flex-col gap-3 mb-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 shrink-0">
+              <Warehouse className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight truncate">
+                {t("stock.title")}
+              </h1>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">{t("stock.description")}</p>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-end lg:gap-3">
             {accessibleHouses.length > 1 && (
-              <div className="relative">
+              <div className="relative w-full lg:w-auto">
                 <Building2 className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <select
                   value={pageHouseId ? String(pageHouseId) : ""}
                   onChange={(e) => setPageHouseId(e.target.value ? Number(e.target.value) : undefined)}
-                  className="appearance-none pl-9 pr-8 py-2 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  className="appearance-none pl-9 pr-8 h-9 w-full lg:w-auto lg:min-w-[200px] rounded-lg text-sm font-medium bg-white dark:bg-slate-900 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   <option value="">{t("stock.all_houses")}</option>
                   {accessibleHouses.map((h) => (
@@ -1150,26 +1350,36 @@ export default function StockPage() {
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               </div>
             )}
-            {hasPermission("stock.create") && (
-              <Button size="sm" onClick={() => openModal("stock")}>
-                <Plus className="h-4 w-4" /> {t("stock.add_stock")}
-              </Button>
+            {accessibleHouses.length > 1 && (
+              <div className="hidden lg:block h-6 w-px bg-gray-200 dark:bg-slate-700 shrink-0" aria-hidden="true" />
             )}
-            {hasPermission("stock.transfer") && (
-              <Button size="sm" variant="outline" onClick={() => openModal("transfer")}>
-                <ArrowLeftRight className="h-4 w-4" /> {t("stock.new_transfer")}
-              </Button>
-            )}
-            {hasPermission("stock.adjust") && (
-              <Button size="sm" variant="outline" onClick={() => openModal("adjustment")}>
-                <Wrench className="h-4 w-4" /> {t("stock.new_adjustment")}
-              </Button>
-            )}
+            <div className="grid grid-cols-2 gap-2 lg:flex lg:flex-wrap lg:items-center lg:gap-2">
+              {hasPermission("stock.create") && (
+                <Button size="sm" onClick={() => openModal("stock")} className="w-full lg:w-auto">
+                  <Plus className="h-4 w-4" /> {t("stock.add_stock")}
+                </Button>
+              )}
+              {hasPermission("stock.create") && (
+                <Button size="sm" variant="outline" onClick={() => openModal("fromlifting")} className="w-full lg:w-auto">
+                  <PackagePlus className="h-4 w-4" /> {t("stock.from_lifting")}
+                </Button>
+              )}
+              {hasPermission("stock.transfer") && (
+                <Button size="sm" variant="outline" onClick={() => openModal("transfer")} className="w-full lg:w-auto">
+                  <ArrowLeftRight className="h-4 w-4" /> {t("stock.new_transfer")}
+                </Button>
+              )}
+              {hasPermission("stock.adjust") && (
+                <Button size="sm" variant="outline" onClick={() => openModal("adjustment")} className="w-full lg:w-auto">
+                  <Wrench className="h-4 w-4" /> {t("stock.new_adjustment")}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-          {TABS.map((tab) => (
+          {TABS.filter((tab) => tab.key !== "itopup" || hasPermission("itopup_balance.view")).map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
@@ -1987,6 +2197,168 @@ export default function StockPage() {
                 )}
               </Card>
             )}
+
+            {activeTab === "itopup" && (
+              <div className="space-y-6">
+                <Card className="overflow-hidden">
+                  <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                      <Wallet className="h-4 w-4 text-emerald-500" /> {t("stock.itopup_tab")}
+                    </h3>
+                    {hasPermission("itopup_balance.create") && (
+                      <Button size="sm" variant="outline" className="sm:ml-auto" onClick={() => openModal("itopup")}>
+                        <Send className="h-4 w-4" /> {t("stock.itopup_transfer")}
+                      </Button>
+                    )}
+                  </div>
+                  {itopupLoading ? (
+                    <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="flex items-center gap-4 px-6 py-5 animate-pulse">
+                          <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                          <div className="space-y-2 flex-1">
+                            <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                            <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                          </div>
+                          <div className="h-5 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                        {itopupMother.map((m) => (
+                          <div key={m.house_id} className="rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-500/5 p-4">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Wallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">{m.house_name} · {t("stock.mother_sim")}</p>
+                            </div>
+                            <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{fmtMoney(m.balance)}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="hidden lg:block overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-100 dark:border-slate-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                              <th className="px-4 py-3">{t("stock.holder")}</th>
+                              <th className="px-2 py-1">{t("stock.employee")}</th>
+                              <th className="px-2 py-1 text-right">{t("stock.balance")}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50 dark:divide-slate-800/60">
+                            {itopupRso.map((r) => (
+                              <tr key={r.id ?? r.employee_id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50">
+                                <td className="px-4 py-2">
+                                  <p className="font-medium text-gray-900 dark:text-gray-100">{r.name || "-"}</p>
+                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.dms_code || ""}</p>
+                                </td>
+                                <td className="px-2 py-1 text-gray-600 dark:text-gray-300">{r.employee_code || "-"}</td>
+                                <td className="px-2 py-1 text-right font-semibold text-emerald-600 dark:text-emerald-400">{fmtMoney(r.balance)}</td>
+                              </tr>
+                            ))}
+                            {itopupRso.length === 0 && (
+                              <tr>
+                                <td colSpan={3} className="px-4 py-10 text-center text-gray-400">{t("stock.no_itopup")}</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
+                        {itopupRso.map((r) => (
+                          <div key={r.id ?? r.employee_id} className="flex items-center gap-3 px-4 py-3">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
+                              <Wallet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{r.name || "-"}</p>
+                              <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.employee_code || ""}</p>
+                            </div>
+                            <p className="font-semibold text-emerald-600 dark:text-emerald-400">{fmtMoney(r.balance)}</p>
+                          </div>
+                        ))}
+                        {itopupRso.length === 0 && (
+                          <div className="px-4 py-10 text-center text-gray-400">{t("stock.no_itopup")}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </Card>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <Card className="overflow-hidden">
+                    <div className="p-4 border-b border-gray-100 dark:border-slate-800">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t("stock.transfers_tab")}</h3>
+                    </div>
+                    <div className="divide-y divide-gray-50 dark:divide-slate-800/60">
+                      {itopupTransfers.slice(0, 8).map((tr) => (
+                        <div key={tr.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40 shrink-0">
+                            <ArrowLeftRight className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {tr.from_employee_name || t("stock.mother_sim")} → {tr.to_employee_name || t("stock.mother_sim")}
+                            </p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                              {tr.movement ? t(`stock.${tr.movement}`) : ""} · {fmtDate(tr.created_at)}
+                            </p>
+                          </div>
+                          <p className="font-semibold text-gray-900 dark:text-gray-100">{fmtMoney(tr.amount)}</p>
+                        </div>
+                      ))}
+                      {itopupTransfers.length === 0 && (
+                        <div className="px-4 py-8 text-center text-gray-400 text-sm">{t("stock.no_data")}</div>
+                      )}
+                    </div>
+                  </Card>
+                  <Card className="overflow-hidden">
+                    <div className="p-4 border-b border-gray-100 dark:border-slate-800">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t("stock.ledger_tab")}</h3>
+                    </div>
+                    <div className="divide-y divide-gray-50 dark:divide-slate-800/60">
+                      {itopupLedger.slice(0, 8).map((e) => (
+                        <div key={e.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className={cn(
+                            "p-2 rounded-lg shrink-0",
+                            e.amount >= 0
+                              ? "bg-emerald-100 dark:bg-emerald-900/40"
+                              : "bg-red-100 dark:bg-red-900/40"
+                          )}>
+                            {e.amount >= 0
+                              ? <ArrowUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                              : <ArrowDown className="h-4 w-4 text-red-600 dark:text-red-400" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {e.employee_name || t("stock.mother_sim")} · {movementLabel(e.movement_type)}
+                            </p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                              {e.reason || fmtDate(e.created_at)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className={cn(
+                              "font-semibold",
+                              e.amount >= 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-red-600 dark:text-red-400"
+                            )}>
+                              {e.amount >= 0 ? "+" : ""}{fmtMoney(e.amount)}
+                            </p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.balance_after")}: {fmtMoney(e.balance_after)}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {itopupLedger.length === 0 && (
+                        <div className="px-4 py-8 text-center text-gray-400 text-sm">{t("stock.no_data")}</div>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -2374,6 +2746,156 @@ export default function StockPage() {
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setModal(null)}>{t("stock.cancel")}</Button>
                 <Button onClick={submitAdjustment} disabled={actionLoading}>
+                  {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {t("stock.submit")}
+                </Button>
+              </div>
+            </div>
+          </ModalShell>
+        )}
+
+        {modal === "fromlifting" && (
+          <ModalShell title={t("stock.from_lifting")} onClose={() => setModal(null)} wide>
+            <div className="space-y-4">
+              {!selectedHouse && accessibleHouses.length > 0 && (
+                <div>
+                  <label className={labelCls}>{t("common.select_house")}</label>
+                  <select value={modalHouse} onChange={(e) => setModalHouse(e.target.value)} className={inputCls}>
+                    <option value="">{t("common.select_house")}</option>
+                    {accessibleHouses.map((h) => (
+                      <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <ScopeBadge house={effectiveHouse} t={t} />
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t("stock.select_liftings")}</p>
+              {liftingsLoading ? (
+                <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 px-2 py-4 animate-pulse">
+                      <div className="h-4 w-4 bg-gray-200 dark:bg-slate-700 rounded" />
+                      <div className="space-y-2 flex-1">
+                        <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                        <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : liftings.length === 0 ? (
+                <div className="px-4 py-10 text-center text-gray-400">
+                  {mutationHouseId ? t("stock.no_liftings") : t("stock.select_house_first")}
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50 dark:divide-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl">
+                  {liftings.map((l) => {
+                    const checked = selectedLiftingIds.includes(l.id);
+                    return (
+                      <button
+                        key={l.id}
+                        onClick={() => toggleLifting(l.id)}
+                        className="w-full flex items-center gap-3 px-3 py-3 text-left hover:bg-gray-50 dark:hover:bg-slate-800/60 transition-colors"
+                      >
+                        <CheckSquare className={cn("h-5 w-5 shrink-0", checked ? "text-emerald-500" : "text-gray-300 dark:text-gray-600")} />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 dark:text-gray-100">
+                            {t("stock.transfer_record")} #{l.id} · {l.lifting_date}
+                          </p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                            {l.product_count} {t("stock.products")} · {l.total_quantity.toLocaleString("en-US")} {t("stock.quantity")}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{fmtMoney(l.itopup_amount)}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.itopup_amount")}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {selectedLiftingIds.length > 0 && (
+                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  {selectedLiftingIds.length} {t("stock.selected_liftings")}
+                </p>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setModal(null)}>{t("stock.cancel")}</Button>
+                <Button onClick={submitFromLifting} disabled={actionLoading || selectedLiftingIds.length === 0}>
+                  {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {t("stock.submit")}
+                </Button>
+              </div>
+            </div>
+          </ModalShell>
+        )}
+
+        {modal === "itopup" && (
+          <ModalShell title={t("stock.itopup_transfer")} onClose={() => setModal(null)}>
+            <div className="space-y-4">
+              {!selectedHouse && accessibleHouses.length > 0 && (
+                <div>
+                  <label className={labelCls}>{t("common.select_house")}</label>
+                  <select value={modalHouse} onChange={(e) => setModalHouse(e.target.value)} className={inputCls}>
+                    <option value="">{t("common.select_house")}</option>
+                    {accessibleHouses.map((h) => (
+                      <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <ScopeBadge house={effectiveHouse} t={t} />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>{t("stock.from")}</label>
+                  <select value={itopupForm.from_employee_id} onChange={(e) => setItopupForm({ ...itopupForm, from_employee_id: e.target.value })} className={inputCls}>
+                    <option value="">{t("stock.mother_sim")}</option>
+                    {itopupRso.map((r) => (
+                      <option key={r.employee_id} value={r.employee_id}>{r.name || r.employee_code}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>{t("stock.to")}</label>
+                  <select value={itopupForm.to_employee_id} onChange={(e) => setItopupForm({ ...itopupForm, to_employee_id: e.target.value })} className={inputCls}>
+                    <option value="">{t("stock.mother_sim")}</option>
+                    {itopupRso.map((r) => (
+                      <option key={r.employee_id} value={r.employee_id}>{r.name || r.employee_code}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>{t("stock.amount")} *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={itopupForm.amount}
+                    onChange={(e) => setItopupForm({ ...itopupForm, amount: e.target.value })}
+                    className={inputCls}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>{t("stock.movement")}</label>
+                  <select value={itopupForm.movement} onChange={(e) => setItopupForm({ ...itopupForm, movement: e.target.value })} className={inputCls}>
+                    <option value="morning">{t("stock.morning")}</option>
+                    <option value="evening">{t("stock.evening")}</option>
+                    <option value="other">{t("stock.other")}</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>{t("stock.notes")}</label>
+                <input type="text" value={itopupForm.notes} onChange={(e) => setItopupForm({ ...itopupForm, notes: e.target.value })} className={inputCls} />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setModal(null)}>{t("stock.cancel")}</Button>
+                <Button onClick={submitITopUpTransfer} disabled={actionLoading}>
                   {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {t("stock.submit")}
                 </Button>
               </div>

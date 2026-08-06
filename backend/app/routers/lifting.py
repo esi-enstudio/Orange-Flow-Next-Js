@@ -289,8 +289,8 @@ async def preview_lifting(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("lifting.view")),
 ):
-    if not lifting_data.products:
-        raise HTTPException(status_code=422, detail="At least one product must be selected.")
+    if not lifting_data.products and lifting_data.total_bank_deposit <= 0:
+        raise HTTPException(status_code=422, detail="Select at least one product or enter a positive bank deposit for iTopUp lifting.")
 
     product_ids = [p.product_id for p in lifting_data.products]
     result = await db.execute(
@@ -326,8 +326,8 @@ async def create_lifting(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("lifting.create")),
 ):
-    if not lifting_data.products:
-        raise HTTPException(status_code=422, detail="At least one product must be selected.")
+    if not lifting_data.products and lifting_data.total_bank_deposit <= 0:
+        raise HTTPException(status_code=422, detail="Select at least one product or enter a positive bank deposit for iTopUp lifting.")
 
     product_ids = [p.product_id for p in lifting_data.products]
     result = await db.execute(

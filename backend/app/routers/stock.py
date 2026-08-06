@@ -1,10 +1,11 @@
 from typing import Optional
 from datetime import date, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, get_current_user, get_house_context, require_house_context
 from app.models.stock import StockItem, StockLedger, StockTransfer, StockAdjustment, DailyStockSnapshot
@@ -12,13 +13,16 @@ from app.models.product import Product
 from app.models.employee import Employee
 from app.models.house import House
 from app.models.user import User
+from app.models.lifting import LiftingRecord
 from app.schemas.stock import (
     StockItemSchema, StockItemCreate, StockBulkCreate,
     StockTransferCreate, StockTransferBulkCreate, StockTransferSchema,
     StockAdjustmentCreate, StockAdjustmentSchema,
     StockLedgerSchema, DailyStockSnapshotSchema, StockSummaryItem,
 )
+from app.schemas.itopup_balance import StockFromLiftingCreate
 from app.services.stock_service import apply_stock_change, ensure_house_access, LOCATION_RSO
+from app.services.itopup_service import apply_itopup_change
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
@@ -373,6 +377,121 @@ async def add_stock_item(
         new_values=data.model_dump(), request=request,
     )
     return {"success": True, "data": {"id": item.id, "quantity": item.quantity}}
+
+
+@router.get("/available-liftings")
+async def available_liftings(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("stock.view")),
+    house_id: int = Depends(require_house_context),
+):
+    await ensure_house_access(current_user, house_id)
+    rows = (await db.execute(
+        select(LiftingRecord)
+        .options(selectinload(LiftingRecord.products))
+        .where(
+            LiftingRecord.house_id == house_id,
+            LiftingRecord.is_deleted == False,
+            LiftingRecord.stock_added == False,
+        )
+        .order_by(LiftingRecord.lifting_date.desc(), LiftingRecord.id.desc())
+    )).unique().scalars().all()
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": l.id,
+                "lifting_date": str(l.lifting_date),
+                "itopup_amount": float(l.itopup_amount or 0.0),
+                "total_lifting_amount": float(l.total_lifting_amount or 0.0),
+                "product_count": len(l.products),
+                "total_quantity": sum((p.quantity or 0) for p in l.products),
+                "products": [
+                    {
+                        "product_id": p.product_id,
+                        "product_code": p.product_code,
+                        "product_name": p.product_name,
+                        "quantity": p.quantity,
+                        "total_price": float(p.total_price or 0.0),
+                    }
+                    for p in l.products
+                ],
+            }
+            for l in rows
+        ],
+    }
+
+
+@router.post("/from-lifting", status_code=201)
+async def add_stock_from_lifting(
+    data: StockFromLiftingCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("stock.create")),
+    house_id: int = Depends(require_house_context),
+):
+    await ensure_house_access(current_user, house_id)
+
+    liftings = (await db.execute(
+        select(LiftingRecord)
+        .options(selectinload(LiftingRecord.products))
+        .where(LiftingRecord.id.in_(data.lifting_ids), LiftingRecord.is_deleted == False)
+    )).unique().scalars().all()
+
+    if len(liftings) != len(set(data.lifting_ids)):
+        raise HTTPException(status_code=404, detail="One or more lifting records not found")
+
+    already = [l.id for l in liftings if l.stock_added]
+    if already:
+        raise HTTPException(status_code=409, detail=f"Lifting already added to stock: {already}")
+
+    other_house = [l.id for l in liftings if l.house_id != house_id]
+    if other_house:
+        raise HTTPException(status_code=403, detail=f"Lifting records belong to another house: {other_house}")
+
+    products_added = 0
+    total_itopup = Decimal("0.00")
+    try:
+        for l in liftings:
+            for lp in l.products:
+                await apply_stock_change(
+                    db, house_id=house_id, product_id=lp.product_id,
+                    location_type="warehouse", employee_id=None,
+                    delta=lp.quantity, movement_type="purchase",
+                    reference_type="lifting", reference_id=l.id,
+                    reason=f"Stock entry from lifting #{l.id}", user_id=current_user.id,
+                )
+                products_added += 1
+            if l.itopup_amount:
+                total_itopup += Decimal(str(l.itopup_amount))
+                await apply_itopup_change(
+                    db, house_id=house_id, employee_id=None,
+                    amount=float(l.itopup_amount), movement_type="lifting_in",
+                    reference_type="lifting", reference_id=l.id,
+                    reason=f"iTopUp balance from lifting #{l.id}", user_id=current_user.id,
+                )
+            l.stock_added = True
+            l.stock_added_at = now_naive()
+            l.stock_added_by = current_user.id
+    except HTTPException:
+        await db.rollback()
+        raise
+    await db.commit()
+
+    await log_activity(
+        db=db, user_id=current_user.id, user_name=current_user.name,
+        module="stock", action="create", record_identifier=", ".join(str(i) for i in data.lifting_ids),
+        new_values={"lifting_ids": data.lifting_ids, "products_added": products_added, "itopup_amount": float(total_itopup)},
+        request=request,
+    )
+    return {
+        "success": True,
+        "data": {
+            "lifting_ids": data.lifting_ids,
+            "products_added": products_added,
+            "itopup_amount": float(total_itopup),
+        },
+    }
 
 
 @router.post("/transfers/bulk", status_code=201)

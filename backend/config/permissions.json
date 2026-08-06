@@ -38,7 +38,8 @@
         "sim_inventory": { "display_name": "SIM Inventory", "permissions": ["sim_inventory.view", "sim_inventory.create", "sim_inventory.edit", "sim_inventory.delete", "sim_inventory.export", "sim_inventory.import"] },
         "ev_kit": { "display_name": "EV Kit Inventory", "permissions": ["ev_kit.view", "ev_kit.create", "ev_kit.edit", "ev_kit.delete", "ev_kit.allocate", "ev_kit.export"] },
         "sales": { "display_name": "Sales", "permissions": ["sales.view", "sales.create", "sales.edit", "sales.delete"] },
-        "stock": { "display_name": "Stock", "permissions": ["stock.view", "stock.create", "stock.transfer", "stock.adjust"] }
+        "stock": { "display_name": "Stock", "permissions": ["stock.view", "stock.create", "stock.transfer", "stock.adjust"] },
+        "itopup_balance": { "display_name": "iTopUp Balance", "permissions": ["itopup_balance.view", "itopup_balance.create", "itopup_balance.edit"] }
     },
     "default_roles": [
         {
@@ -51,11 +52,11 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust"]
+            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit"]
         },
         {
             "name": "Manager",
-            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust"]
+            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit"]
         },
         {
             "name": "Supervisor",

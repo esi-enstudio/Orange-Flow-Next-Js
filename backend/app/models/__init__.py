@@ -50,4 +50,5 @@ from app.models.stock import (
     StockItem, StockLedger, StockTransfer,
     StockAdjustment, DailyStockSnapshot,
 )
+from app.models.itopup_balance import ITopUpBalance, ITopUpBalanceLedger, ITopUpTransfer
 from app.models.sales import SalesRecord
