@@ -242,9 +242,9 @@ async def stock_employees(
     house_id: Optional[int] = Depends(get_house_context),
 ):
     query = select(Employee).where(Employee.status == "Active")
-    cond = _house_filter_condition(Employee, current_user, house_id)
-    if cond is not None:
-        query = query.where(cond)
+    emp_cond = _house_filter_condition(Employee, current_user, house_id)
+    if emp_cond is not None:
+        query = query.where(emp_cond)
     employees = (await db.execute(
         query.options(joinedload(Employee.user)).order_by(Employee.employee_id)
     )).unique().scalars().all()
@@ -258,8 +258,9 @@ async def stock_employees(
             StockItem.location_type == LOCATION_RSO,
             StockItem.is_deleted == False,
         )
-        if cond is not None:
-            stock_stmt = stock_stmt.where(cond)
+        stock_cond = _house_filter_condition(StockItem, current_user, house_id)
+        if stock_cond is not None:
+            stock_stmt = stock_stmt.where(stock_cond)
         stock_stmt = stock_stmt.group_by(StockItem.employee_id)
         for emp_id, qty in (await db.execute(stock_stmt)).all():
             stock_map[emp_id] = int(qty or 0)

@@ -1765,6 +1765,8 @@ export const translations = {
       out_of_stock: "Out of stock",
       max_available: "Max available",
       quantity_exceeds: "Quantity exceeds available stock",
+      in_stock: "In Stock",
+      uncategorized: "Uncategorized",
       select_product: "Select a product",
       select_employee: "Select an employee",
       quantity_required: "Quantity is required and must be greater than zero",
@@ -1782,6 +1784,7 @@ export const translations = {
       scope_house: "Scope",
       no_house_scope: "Select a house first",
       swap: "Swap direction",
+      all_houses: "All Houses",
     },
     sales: {
       title: "Sales Management",
@@ -3621,6 +3624,8 @@ export const translations = {
       out_of_stock: "স্টক নেই",
       max_available: "সর্বোচ্চ উপলব্ধ",
       quantity_exceeds: "পরিমাণ উপলব্ধ স্টকের বেশি",
+      in_stock: "স্টকে আছে",
+      uncategorized: "বিনা ক্যাটাগরি",
       select_product: "প্রোডাক্ট নির্বাচন করুন",
       select_employee: "কর্মচারী নির্বাচন করুন",
       quantity_required: "পরিমাণ আবশ্যক এবং শূন্যের বেশি হতে হবে",
@@ -3638,6 +3643,7 @@ export const translations = {
       scope_house: "স্কোপ",
       no_house_scope: "আগে হাউস নির্বাচন করুন",
       swap: "দিক অদলবদল করুন",
+      all_houses: "সব হাউস",
     },
     sales: {
       title: "সেলস ম্যানেজমেন্ট",

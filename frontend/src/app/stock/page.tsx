@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -32,6 +32,7 @@ import {
   TrendingUp,
   CalendarCheck,
   Users,
+  Building2,
 } from "lucide-react";
 
 interface Product {
@@ -567,11 +568,13 @@ export default function StockPage() {
   const [snapshotsTotal, setSnapshotsTotal] = useState(0);
 
   const [search, setSearch] = useState("");
+  const [stockFilter, setStockFilter] = useState<"in" | "out">("in");
   const [products, setProducts] = useState<Product[]>([]);
   const [employees, setEmployees] = useState<EmployeeOpt[]>([]);
 
   const [accessibleHouses, setAccessibleHouses] = useState<{ id: number; name: string; code: string }[]>([]);
   const [modalHouse, setModalHouse] = useState<string>("");
+  const [pageHouseId, setPageHouseId] = useState<number | undefined>(undefined);
   const productReqRef = useRef(0);
   const employeeReqRef = useRef(0);
 
@@ -584,7 +587,7 @@ export default function StockPage() {
   const [transferForm, setTransferForm] = useState({ product_id: "", from_type: "warehouse", from_employee_id: "", to_type: "rso", to_employee_id: "", quantity: "", notes: "" });
   const [adjustForm, setAdjustForm] = useState({ product_id: "", location_type: "warehouse", employee_id: "", adjustment_type: "loss", direction: "decrease", quantity: "", reason: "", notes: "" });
 
-  const houseId = selectedHouse?.id;
+  const houseId = pageHouseId ?? selectedHouse?.id;
 
   const headers = useMemo(() => {
     const h: Record<string, string> = {};
@@ -779,6 +782,22 @@ export default function StockPage() {
     );
   }, [summary, search]);
 
+  const groupedSummary = useMemo(() => {
+    const visible = stockFilter === "in"
+      ? filteredSummary.filter((r) => r.total_quantity > 0)
+      : filteredSummary.filter((r) => r.total_quantity === 0);
+    const groups = new Map<string, SummaryRow[]>();
+    for (const r of visible) {
+      const cat = r.category || t("stock.uncategorized");
+      const arr = groups.get(cat) ?? [];
+      arr.push(r);
+      groups.set(cat, arr);
+    }
+    return Array.from(groups.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([category, rows]) => ({ category, rows }));
+  }, [filteredSummary, stockFilter, t]);
+
   const swapTransfer = () => {
     setTransferForm((prev) => ({
       ...prev,
@@ -796,6 +815,9 @@ export default function StockPage() {
     }
     if (!selectedHouse && accessibleHouses.length === 1) {
       setModalHouse(String(accessibleHouses[0].id));
+    }
+    if (!selectedHouse && pageHouseId) {
+      setModalHouse(String(pageHouseId));
     }
     setModal(m);
   };
@@ -909,6 +931,10 @@ export default function StockPage() {
       toast.error(t("stock.select_employee"));
       return;
     }
+    if (adjustForm.direction === "decrease" && selectedAdjustProduct && quantity > adjustSourceStock) {
+      toast.error(t("stock.quantity_exceeds"));
+      return;
+    }
     setActionLoading(true);
     try {
       await apiClient.post("stock/adjustments", {
@@ -1001,6 +1027,14 @@ export default function StockPage() {
       ? (selectedTransferProduct?.rso_quantity ?? 0)
       : (selectedTransferProduct?.warehouse_quantity ?? 0);
 
+  const selectedAdjustProduct = adjustForm.product_id
+    ? products.find((p) => String(p.id) === adjustForm.product_id)
+    : undefined;
+  const adjustSourceStock =
+    adjustForm.location_type === "rso"
+      ? (selectedAdjustProduct?.rso_quantity ?? 0)
+      : (selectedAdjustProduct?.warehouse_quantity ?? 0);
+
   const movementLabel = (m: string) => {
     const map: Record<string, string> = {
       transfer_in: t("stock.transfer_in"),
@@ -1025,6 +1059,22 @@ export default function StockPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("stock.description")}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {accessibleHouses.length > 1 && (
+              <div className="relative">
+                <Building2 className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <select
+                  value={pageHouseId ? String(pageHouseId) : ""}
+                  onChange={(e) => setPageHouseId(e.target.value ? Number(e.target.value) : undefined)}
+                  className="appearance-none pl-9 pr-8 py-2 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <option value="">{t("stock.all_houses")}</option>
+                  {accessibleHouses.map((h) => (
+                    <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              </div>
+            )}
             {hasPermission("stock.create") && (
               <Button size="sm" onClick={() => openModal("stock")}>
                 <Plus className="h-4 w-4" /> {t("stock.add_stock")}
@@ -1117,7 +1167,29 @@ export default function StockPage() {
                     <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                       <FileClock className="h-4 w-4 text-emerald-500" /> {t("stock.summary_tab")}
                     </h3>
-                    <div className="relative sm:ml-auto sm:w-72">
+                    <div className="inline-flex items-center rounded-lg bg-gray-100 dark:bg-slate-800 p-1 sm:ml-auto">
+                      {(["in", "out"] as const).map((f) => {
+                        const count = f === "in"
+                          ? filteredSummary.filter((r) => r.total_quantity > 0).length
+                          : filteredSummary.filter((r) => r.total_quantity === 0).length;
+                        return (
+                          <button
+                            key={f}
+                            type="button"
+                            onClick={() => setStockFilter(f)}
+                            className={cn(
+                              "px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap",
+                              stockFilter === f
+                                ? "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm"
+                                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                            )}
+                          >
+                            {f === "in" ? t("stock.in_stock") : t("stock.out_of_stock")} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="relative sm:w-72">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                       <input
                         value={search}
@@ -1142,19 +1214,29 @@ export default function StockPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50 dark:divide-slate-800/60">
-                          {filteredSummary.map((r) => (
-                            <tr key={r.product_id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50">
-                              <td className="px-4 py-2">
-                                <p className="font-medium text-gray-900 dark:text-gray-100">{r.product_name}</p>
-                                <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.product_code}</p>
-                              </td>
-                              <td className="px-2 py-1 hidden sm:table-cell">{r.warehouse_quantity}</td>
-                              <td className="px-2 py-1">{r.rso_quantity}</td>
-                              <td className="px-2 py-1 font-medium">{r.total_quantity}</td>
-                              <td className="px-2 py-1 text-right font-medium">{fmtMoney(r.total_value)}</td>
-                            </tr>
+                          {groupedSummary.map((g) => (
+                            <Fragment key={g.category}>
+                              <tr className="bg-gray-50 dark:bg-slate-900/60">
+                                <td colSpan={5} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                  {g.category}
+                                  <span className="ml-1.5 text-gray-400 dark:text-gray-500">({g.rows.length})</span>
+                                </td>
+                              </tr>
+                              {g.rows.map((r) => (
+                                <tr key={r.product_id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50">
+                                  <td className="px-4 py-2">
+                                    <p className="font-medium text-gray-900 dark:text-gray-100">{r.product_name}</p>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.product_code}</p>
+                                  </td>
+                                  <td className="px-2 py-1 hidden sm:table-cell">{r.warehouse_quantity}</td>
+                                  <td className="px-2 py-1">{r.rso_quantity}</td>
+                                  <td className="px-2 py-1 font-medium">{r.total_quantity}</td>
+                                  <td className="px-2 py-1 text-right font-medium">{fmtMoney(r.total_value)}</td>
+                                </tr>
+                              ))}
+                            </Fragment>
                           ))}
-                          {filteredSummary.length === 0 && (
+                          {groupedSummary.length === 0 && (
                             <tr>
                               <td colSpan={5} className="px-4 py-10 text-center text-gray-400">{t("stock.no_data")}</td>
                             </tr>
@@ -1163,48 +1245,56 @@ export default function StockPage() {
                       </table>
                     </div>
                     <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
-                      {filteredSummary.map((r) => {
-                        const open = expandedId === r.product_id;
-                        return (
-                          <div key={r.product_id} className="px-4 py-3">
-                            <button className="w-full flex items-center gap-3 text-left" onClick={() => setExpandedId(open ? null : r.product_id)}>
-                              <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
-                                <Package className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{r.product_name}</p>
-                                <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.product_code}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-semibold text-gray-900 dark:text-gray-100">{r.total_quantity}</p>
-                                <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.total_qty")}</p>
-                              </div>
-                              {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-                            </button>
-                            {open && (
-                              <div className="mt-3 grid grid-cols-2 gap-3 text-sm bg-gray-50 dark:bg-slate-900 rounded-xl p-3">
-                                <div>
-                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.warehouse_qty")}</p>
-                                  <p className="font-medium text-gray-900 dark:text-gray-100">{r.warehouse_quantity}</p>
-                                </div>
-                                <div>
-                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.rso_qty")}</p>
-                                  <p className="font-medium text-gray-900 dark:text-gray-100">{r.rso_quantity}</p>
-                                </div>
-                                <div>
-                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.unit_value")}</p>
-                                  <p className="font-medium text-gray-900 dark:text-gray-100">{fmtMoney(r.unit_price)}</p>
-                                </div>
-                                <div>
-                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.total_value")}</p>
-                                  <p className="font-medium text-emerald-600 dark:text-emerald-400">{fmtMoney(r.total_value)}</p>
-                                </div>
-                              </div>
-                            )}
+                      {groupedSummary.map((g) => (
+                        <Fragment key={g.category}>
+                          <div className="px-4 py-2 bg-gray-50 dark:bg-slate-900/60 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            {g.category}
+                            <span className="ml-1.5 text-gray-400 dark:text-gray-500">({g.rows.length})</span>
                           </div>
-                        );
-                      })}
-                      {filteredSummary.length === 0 && (
+                          {g.rows.map((r) => {
+                            const open = expandedId === r.product_id;
+                            return (
+                              <div key={r.product_id} className="px-4 py-3">
+                                <button className="w-full flex items-center gap-3 text-left" onClick={() => setExpandedId(open ? null : r.product_id)}>
+                                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
+                                    <Package className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{r.product_name}</p>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.product_code}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="font-semibold text-gray-900 dark:text-gray-100">{r.total_quantity}</p>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.total_qty")}</p>
+                                  </div>
+                                  {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                                </button>
+                                {open && (
+                                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm bg-gray-50 dark:bg-slate-900 rounded-xl p-3">
+                                    <div>
+                                      <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.warehouse_qty")}</p>
+                                      <p className="font-medium text-gray-900 dark:text-gray-100">{r.warehouse_quantity}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.rso_qty")}</p>
+                                      <p className="font-medium text-gray-900 dark:text-gray-100">{r.rso_quantity}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.unit_value")}</p>
+                                      <p className="font-medium text-gray-900 dark:text-gray-100">{fmtMoney(r.unit_price)}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.total_value")}</p>
+                                      <p className="font-medium text-emerald-600 dark:text-emerald-400">{fmtMoney(r.total_value)}</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </Fragment>
+                      ))}
+                      {groupedSummary.length === 0 && (
                         <div className="px-4 py-10 text-center text-gray-400">{t("stock.no_data")}</div>
                       )}
                     </div>
@@ -2020,12 +2110,49 @@ export default function StockPage() {
               </div>
               <div>
                 <label className={labelCls}>{t("stock.product")}</label>
-                <select value={adjustForm.product_id} onChange={(e) => setAdjustForm({ ...adjustForm, product_id: e.target.value })} className={inputCls}>
-                  <option value="">{t("stock.select_product")}</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.product_name} ({p.product_code})</option>
-                  ))}
-                </select>
+                <ProductSelect
+                  products={products}
+                  value={adjustForm.product_id}
+                  sourceType={adjustForm.location_type as "warehouse" | "rso"}
+                  onChange={(v) => setAdjustForm({ ...adjustForm, product_id: v })}
+                />
+                {selectedAdjustProduct && (
+                  <div className="mt-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 p-3">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-500/10 shrink-0">
+                          <Wrench className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{selectedAdjustProduct.product_name}</p>
+                      </div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">{selectedAdjustProduct.product_code}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <StockStat label={t("stock.warehouse")} value={selectedAdjustProduct.warehouse_quantity ?? 0} active={adjustForm.location_type !== "rso"} />
+                      <StockStat label={t("stock.rso")} value={selectedAdjustProduct.rso_quantity ?? 0} active={adjustForm.location_type === "rso"} />
+                      <StockStat label={t("stock.total_qty")} value={selectedAdjustProduct.total_quantity ?? 0} />
+                    </div>
+                    <div className="mt-2.5 flex items-center justify-between pt-2.5 border-t border-gray-200 dark:border-slate-700">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {t("stock.available")} ({t(adjustForm.location_type === "rso" ? "stock.rso" : "stock.warehouse")})
+                      </p>
+                      <span className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums",
+                        adjustSourceStock > 0
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+                          : "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400"
+                      )}>
+                        {adjustSourceStock > 0 ? (
+                          <>
+                            <Package className="h-3.5 w-3.5" /> {adjustSourceStock.toLocaleString("en-US")}
+                          </>
+                        ) : (
+                          t("stock.out_of_stock")
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -2065,7 +2192,29 @@ export default function StockPage() {
                 </div>
                 <div>
                   <label className={labelCls}>{t("stock.quantity")}</label>
-                  <input type="number" min={1} value={adjustForm.quantity} onChange={(e) => setAdjustForm({ ...adjustForm, quantity: e.target.value })} className={inputCls} />
+                  <input
+                    type="number"
+                    min={1}
+                    max={adjustForm.direction === "decrease" ? adjustSourceStock || undefined : undefined}
+                    value={adjustForm.quantity}
+                    onChange={(e) => setAdjustForm({ ...adjustForm, quantity: e.target.value })}
+                    className={inputCls}
+                  />
+                  {selectedAdjustProduct && adjustForm.direction === "decrease" && (() => {
+                    const qty = Number(adjustForm.quantity);
+                    const over = adjustForm.quantity !== "" && qty > adjustSourceStock;
+                    return (
+                      <p className={cn(
+                        "mt-1.5 flex items-center gap-1.5 text-xs font-medium",
+                        over ? "text-red-500" : "text-gray-500 dark:text-gray-400"
+                      )}>
+                        {over && <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
+                        {over
+                          ? t("stock.quantity_exceeds")
+                          : `${t("stock.max_available")}: ${adjustSourceStock.toLocaleString("en-US")}`}
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
               <div>
