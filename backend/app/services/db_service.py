@@ -245,6 +245,24 @@ async def _migrate_lifting_stock_added():
     except Exception as e:
         logger.warning(f"Migration warning (lifting_records stock_added): {e}")
 
+async def _migrate_house_live_sync_enabled():
+    """Add is_live_sync_enabled column to houses table (GA live sync toggle)."""
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='houses' AND column_name='is_live_sync_enabled'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating houses: adding is_live_sync_enabled column...")
+            await conn.execute(text(
+                "ALTER TABLE houses ADD COLUMN is_live_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            logger.info("Migration complete: houses.is_live_sync_enabled")
+    except Exception as e:
+        logger.warning(f"Migration warning (houses.is_live_sync_enabled): {e}")
+
 async def _migrate_retailer_employee_link():
     """Fix retailers whose employee_id was auto-linked via itop_number but whose
     retailer_code is actually an employee's assisted_retailer_code.
@@ -275,6 +293,7 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
         await _migrate_employee_sr_no()
         await _migrate_retailer_employee_link()
+        await _migrate_house_live_sync_enabled()
         await _migrate_retailer_filter_tag_id()
         await _migrate_app_settings_daily_sync()
         await _migrate_live_activation_date_type()
