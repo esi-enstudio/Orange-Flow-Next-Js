@@ -1820,6 +1820,7 @@ export const translations = {
       employee_type: "Type",
       product_breakdown: "Product Breakdown",
       total_products: "Total Products",
+      itopup_same_holder: "Source and destination cannot be the same",
     },
     sales: {
       title: "Sales Management",
@@ -3722,6 +3723,7 @@ export const translations = {
       employee_type: "ধরন",
       product_breakdown: "প্রোডাক্টের বিবরণ",
       total_products: "মোট প্রোডাক্ট",
+      itopup_same_holder: "উৎস এবং গন্তব্য একই হতে পারবে না",
     },
     sales: {
       title: "সেলস ম্যানেজমেন্ট",

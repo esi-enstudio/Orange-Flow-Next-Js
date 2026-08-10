@@ -966,6 +966,10 @@ export default function StockPage() {
       toast.error(t("stock.select_employee"));
       return;
     }
+    if (from !== null && to !== null && from === to) {
+      toast.error(t("stock.itopup_same_holder"));
+      return;
+    }
     const amount = Number(itopupForm.amount);
     if (!amount || amount <= 0) {
       toast.error(t("stock.quantity_required"));
@@ -1062,6 +1066,12 @@ export default function StockPage() {
     if (transferForm.from_type !== "rso" && transferForm.to_type !== "rso") return;
     fetchEmployees();
   }, [modal, transferForm.from_type, transferForm.to_type, mutationHouseId]);
+
+  useEffect(() => {
+    if (modal !== "itopup") return;
+    if (!mutationHouseId) return;
+    fetchEmployees();
+  }, [modal, mutationHouseId]);
 
   useEffect(() => {
     if (modal !== "transfer") return;
@@ -1821,16 +1831,16 @@ export default function StockPage() {
                 {empStockLoading ? skeleton(5) : (
                   <>
                     <div className="hidden lg:block overflow-x-auto">
-                      <table className="w-full text-sm">
+                      <table className="w-full text-sm border-collapse border border-gray-200 dark:border-slate-700">
                         <thead>
-                          <tr className="border-b border-gray-100 dark:border-slate-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            <th className="px-4 py-3">{t("stock.employee")}</th>
-                            <th className="px-2 py-1">{t("stock.dms_code")}</th>
-                            <th className="px-2 py-1">{t("stock.employee_type")}</th>
-                            <th className="px-2 py-1">{t("stock.total_products")}</th>
-                            <th className="px-2 py-1">{t("stock.total_qty")}</th>
-                            <th className="px-2 py-1 text-right">{t("stock.total_value")}</th>
-                            <th className="px-2 py-1" />
+                          <tr className="text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            <th className="px-4 py-3 border border-gray-200 dark:border-slate-700">{t("stock.employee")}</th>
+                            <th className="px-2 py-1 border border-gray-200 dark:border-slate-700">{t("stock.dms_code")}</th>
+                            <th className="px-2 py-1 border border-gray-200 dark:border-slate-700">{t("stock.employee_type")}</th>
+                            <th className="px-2 py-1 border border-gray-200 dark:border-slate-700">{t("stock.total_products")}</th>
+                            <th className="px-2 py-1 border border-gray-200 dark:border-slate-700">{t("stock.total_qty")}</th>
+                            <th className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-right">{t("stock.total_value")}</th>
+                            <th className="px-2 py-1 border border-gray-200 dark:border-slate-700" />
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50 dark:divide-slate-800/60">
@@ -1839,12 +1849,12 @@ export default function StockPage() {
                             return (
                               <Fragment key={e.id}>
                                 <tr className="hover:bg-gray-50 dark:hover:bg-slate-900/50 cursor-pointer" onClick={() => setExpandedEmpId(open ? null : e.id)}>
-                                  <td className="px-4 py-2">
+                                  <td className="px-4 py-2 border border-gray-200 dark:border-slate-700">
                                     <p className="font-medium text-gray-900 dark:text-gray-100">{e.name}</p>
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400">{e.employee_id}{e.itop_number ? ` • ${e.itop_number}` : ""}</p>
                                   </td>
-                                  <td className="px-2 py-1 text-gray-600 dark:text-gray-300">{e.dms_code || "-"}</td>
-                                  <td className="px-2 py-1">
+                                  <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300">{e.dms_code || "-"}</td>
+                                  <td className="px-2 py-1 border border-gray-200 dark:border-slate-700">
                                     <span className={cn(
                                       "inline-flex rounded-full px-2 py-0.5 text-xs font-medium uppercase",
                                       e.employee_type === "rso"
@@ -1854,37 +1864,37 @@ export default function StockPage() {
                                       {e.employee_type}
                                     </span>
                                   </td>
-                                  <td className="px-2 py-1 text-gray-600 dark:text-gray-300">{e.product_count}</td>
-                                  <td className="px-2 py-1 font-medium">{e.total_quantity}</td>
-                                  <td className="px-2 py-1 text-right font-medium text-emerald-600 dark:text-emerald-400">{fmtMoney(e.total_value)}</td>
-                                  <td className="px-2 py-1">
+                                  <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300">{e.product_count}</td>
+                                  <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 font-medium">{e.total_quantity}</td>
+                                  <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-right font-medium text-emerald-600 dark:text-emerald-400">{fmtMoney(e.total_value)}</td>
+                                  <td className="px-2 py-1 border border-gray-200 dark:border-slate-700">
                                     {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
                                   </td>
                                 </tr>
                                 {open && (
                                   <tr className="bg-gray-50 dark:bg-slate-900/50">
-                                    <td colSpan={7} className="px-4 py-3">
+                                    <td colSpan={7} className="px-4 py-3 border border-gray-200 dark:border-slate-700">
                                       <div className="overflow-x-auto">
-                                        <table className="w-full text-sm">
+                                        <table className="w-full text-sm border-collapse border border-gray-200 dark:border-slate-700">
                                           <thead>
                                             <tr className="text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                              <th className="px-2 py-1">{t("stock.product")}</th>
-                                              <th className="px-2 py-1">{t("stock.product_code")}</th>
-                                              <th className="px-2 py-1">{t("stock.category")}</th>
-                                              <th className="px-2 py-1 text-right">{t("stock.unit_value")}</th>
-                                              <th className="px-2 py-1 text-right">{t("stock.quantity")}</th>
-                                              <th className="px-2 py-1 text-right">{t("stock.total_value")}</th>
+                                              <th className="px-2 py-1 border border-gray-200 dark:border-slate-700">{t("stock.product")}</th>
+                                              <th className="px-2 py-1 border border-gray-200 dark:border-slate-700">{t("stock.product_code")}</th>
+                                              <th className="px-2 py-1 border border-gray-200 dark:border-slate-700">{t("stock.category")}</th>
+                                              <th className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-right">{t("stock.unit_value")}</th>
+                                              <th className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-right">{t("stock.quantity")}</th>
+                                              <th className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-right">{t("stock.total_value")}</th>
                                             </tr>
                                           </thead>
                                           <tbody className="divide-y divide-gray-100 dark:divide-slate-800/60">
                                             {e.items.map((it) => (
                                               <tr key={it.product_id}>
-                                                <td className="px-2 py-1 font-medium text-gray-900 dark:text-gray-100">{it.product_name}</td>
-                                                <td className="px-2 py-1 text-gray-500 dark:text-gray-400">{it.product_code}</td>
-                                                <td className="px-2 py-1 text-gray-500 dark:text-gray-400">{it.category || "-"}</td>
-                                                <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-300">{fmtMoney(it.unit_price)}</td>
-                                                <td className="px-2 py-1 text-right font-medium">{it.quantity}</td>
-                                                <td className="px-2 py-1 text-right text-emerald-600 dark:text-emerald-400">{fmtMoney(it.total_value)}</td>
+                                                <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 font-medium text-gray-900 dark:text-gray-100">{it.product_name}</td>
+                                                <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400">{it.product_code}</td>
+                                                <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400">{it.category || "-"}</td>
+                                                <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-right text-gray-600 dark:text-gray-300">{fmtMoney(it.unit_price)}</td>
+                                                <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-right font-medium">{it.quantity}</td>
+                                                <td className="px-2 py-1 border border-gray-200 dark:border-slate-700 text-right text-emerald-600 dark:text-emerald-400">{fmtMoney(it.total_value)}</td>
                                               </tr>
                                             ))}
                                           </tbody>
@@ -1898,7 +1908,7 @@ export default function StockPage() {
                           })}
                           {empStock.length === 0 && (
                             <tr>
-                              <td colSpan={7} className="px-4 py-10 text-center text-gray-400">{t("stock.no_employee_stock")}</td>
+                              <td colSpan={7} className="px-4 py-10 text-center text-gray-400 border border-gray-200 dark:border-slate-700">{t("stock.no_employee_stock")}</td>
                             </tr>
                           )}
                         </tbody>
@@ -3114,8 +3124,10 @@ export default function StockPage() {
                   <label className={labelCls}>{t("stock.from")}</label>
                   <select value={itopupForm.from_employee_id} onChange={(e) => setItopupForm({ ...itopupForm, from_employee_id: e.target.value })} className={inputCls}>
                     <option value="">{t("stock.mother_sim")}</option>
-                    {itopupRso.map((r) => (
-                      <option key={r.employee_id} value={r.employee_id}>{r.name || r.employee_code}</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={String(emp.id)} disabled={String(emp.id) === itopupForm.to_employee_id}>
+                        {emp.name || emp.employee_id}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -3123,8 +3135,10 @@ export default function StockPage() {
                   <label className={labelCls}>{t("stock.to")}</label>
                   <select value={itopupForm.to_employee_id} onChange={(e) => setItopupForm({ ...itopupForm, to_employee_id: e.target.value })} className={inputCls}>
                     <option value="">{t("stock.mother_sim")}</option>
-                    {itopupRso.map((r) => (
-                      <option key={r.employee_id} value={r.employee_id}>{r.name || r.employee_code}</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={String(emp.id)} disabled={String(emp.id) === itopupForm.from_employee_id}>
+                        {emp.name || emp.employee_id}
+                      </option>
                     ))}
                   </select>
                 </div>
