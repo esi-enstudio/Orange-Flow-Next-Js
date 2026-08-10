@@ -665,6 +665,7 @@ export default function StockPage() {
 
   const [liftings, setLiftings] = useState<AvailableLifting[]>([]);
   const [liftingsLoading, setLiftingsLoading] = useState(false);
+  const [liftingCount, setLiftingCount] = useState(0);
   const [selectedLiftingIds, setSelectedLiftingIds] = useState<number[]>([]);
 
   const [itopupMother, setItopupMother] = useState<ITopUpBalanceRow[]>([]);
@@ -837,6 +838,15 @@ export default function StockPage() {
     }
   };
 
+  const fetchLiftingCount = async () => {
+    try {
+      const res = await apiClient.get("stock/available-liftings", { headers });
+      setLiftingCount((res.data.data || []).length);
+    } catch {
+      setLiftingCount(0);
+    }
+  };
+
   const fetchITopUp = async () => {
     setItopupLoading(true);
     try {
@@ -891,6 +901,7 @@ export default function StockPage() {
       fetchSummary();
       if (activeTab === "items") fetchItems();
       fetchITopUp();
+      fetchLiftingCount();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || t("common.error"));
     } finally {
@@ -949,6 +960,15 @@ export default function StockPage() {
 
   useEffect(() => {
     if (!authLoading && hasPermission("stock.view")) fetchSummary();
+  }, [authLoading, hasPermission, houseId]);
+
+  useEffect(() => {
+    if (authLoading || !hasPermission("stock.view")) return;
+    if (!houseId) {
+      setLiftingCount(0);
+      return;
+    }
+    fetchLiftingCount();
   }, [authLoading, hasPermission, houseId]);
 
   useEffect(() => {
@@ -1360,8 +1380,13 @@ export default function StockPage() {
                 </Button>
               )}
               {hasPermission("stock.create") && (
-                <Button size="sm" variant="outline" onClick={() => openModal("fromlifting")} className="w-full lg:w-auto">
+                <Button size="sm" variant="outline" onClick={() => openModal("fromlifting")} className="relative w-full lg:w-auto">
                   <PackagePlus className="h-4 w-4" /> {t("stock.from_lifting")}
+                  {liftingCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[11px] font-semibold flex items-center justify-center leading-none">
+                      {liftingCount}
+                    </span>
+                  )}
                 </Button>
               )}
               {hasPermission("stock.transfer") && (
