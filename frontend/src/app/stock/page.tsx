@@ -193,9 +193,33 @@ interface ITopUpTransferRow {
   created_by_name?: string;
 }
 
+interface EmployeeStockItem {
+  product_id: number;
+  product_code: string;
+  product_name: string;
+  category?: string;
+  quantity: number;
+  unit_price: number;
+  total_value: number;
+}
+
+interface EmployeeStockRow {
+  id: number;
+  employee_id: string;
+  name: string;
+  dms_code?: string;
+  itop_number?: string;
+  employee_type: string;
+  total_quantity: number;
+  total_value: number;
+  product_count: number;
+  items: EmployeeStockItem[];
+}
+
 const TABS = [
   { key: "summary", labelKey: "stock.summary_tab" },
   { key: "items", labelKey: "stock.items_tab" },
+  { key: "employee-stock", labelKey: "stock.employee_stock_tab" },
   { key: "transfers", labelKey: "stock.transfers_tab" },
   { key: "adjustments", labelKey: "stock.adjustments_tab" },
   { key: "ledger", labelKey: "stock.ledger_tab" },
@@ -647,6 +671,13 @@ export default function StockPage() {
   const [snapshotsPage, setSnapshotsPage] = useState(1);
   const [snapshotsTotal, setSnapshotsTotal] = useState(0);
 
+  const [empStock, setEmpStock] = useState<EmployeeStockRow[]>([]);
+  const [empStockPage, setEmpStockPage] = useState(1);
+  const [empStockTotal, setEmpStockTotal] = useState(0);
+  const [empStockLoading, setEmpStockLoading] = useState(false);
+  const [empStockSearch, setEmpStockSearch] = useState("");
+  const [expandedEmpId, setExpandedEmpId] = useState<number | null>(null);
+
   const [search, setSearch] = useState("");
   const [stockFilter, setStockFilter] = useState<"in" | "out">("in");
   const [products, setProducts] = useState<Product[]>([]);
@@ -826,6 +857,21 @@ export default function StockPage() {
     }
   };
 
+  const fetchEmployeeStock = async () => {
+    setEmpStockLoading(true);
+    try {
+      const params: Record<string, string> = { page: String(empStockPage), per_page: "20" };
+      if (empStockSearch.trim()) params.search = empStockSearch.trim();
+      const res = await apiClient.get("stock/employee-stock", { params, headers });
+      setEmpStock(res.data.data || []);
+      setEmpStockTotal(res.data.pagination?.total || 0);
+    } catch {
+      toast.error(t("common.error"));
+    } finally {
+      setEmpStockLoading(false);
+    }
+  };
+
   const fetchLiftings = async () => {
     setLiftingsLoading(true);
     try {
@@ -992,6 +1038,10 @@ export default function StockPage() {
   }, [activeTab, snapshotsPage, authLoading, hasPermission, houseId]);
 
   useEffect(() => {
+    if (!authLoading && hasPermission("stock.view") && activeTab === "employee-stock") fetchEmployeeStock();
+  }, [activeTab, empStockPage, empStockSearch, authLoading, hasPermission, houseId]);
+
+  useEffect(() => {
     if (modal !== "fromlifting") return;
     if (!mutationHouseId) return;
     setSelectedLiftingIds([]);
@@ -1079,6 +1129,16 @@ export default function StockPage() {
       ? (p.rso_quantity ?? 0)
       : (p.warehouse_quantity ?? 0);
   };
+
+  const transferSelectableProducts = useMemo(() => {
+    const isRsoSource = transferForm.from_type === "rso" && transferForm.from_employee_id;
+    const source = isRsoSource ? transferProducts : products;
+    return source.filter((p) =>
+      isRsoSource
+        ? (p.rso_quantity ?? 0) > 0
+        : (p.warehouse_quantity ?? 0) > 0
+    );
+  }, [products, transferProducts, transferForm.from_type, transferForm.from_employee_id]);
 
   const openModal = (m: "stock" | "transfer" | "adjustment" | "fromlifting" | "itopup") => {
     if (!selectedHouse && accessibleHouses.length === 0) {
@@ -1732,6 +1792,183 @@ export default function StockPage() {
                       )}
                     </div>
                     <div className="px-4 pb-4">{renderPagination(itemsPage, itemsTotal, itemsPerPage, setItemsPage)}</div>
+                  </>
+                )}
+              </Card>
+            )}
+
+            {/* ---------- EMPLOYEE STOCK ---------- */}
+            {activeTab === "employee-stock" && (
+              <Card className="overflow-hidden">
+                <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                      <Users className="h-4 w-4 text-emerald-500" /> {t("stock.employee_stock_tab")}
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("stock.employee_stock_desc")}</p>
+                  </div>
+                  <div className="relative sm:ml-auto sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      value={empStockSearch}
+                      onChange={(e) => { setEmpStockSearch(e.target.value); setEmpStockPage(1); }}
+                      placeholder={t("stock.search_employee")}
+                      className={cn(inputCls, "pl-9")}
+                    />
+                  </div>
+                </div>
+
+                {empStockLoading ? skeleton(5) : (
+                  <>
+                    <div className="hidden lg:block overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-100 dark:border-slate-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            <th className="px-4 py-3">{t("stock.employee")}</th>
+                            <th className="px-2 py-1">{t("stock.dms_code")}</th>
+                            <th className="px-2 py-1">{t("stock.employee_type")}</th>
+                            <th className="px-2 py-1">{t("stock.total_products")}</th>
+                            <th className="px-2 py-1">{t("stock.total_qty")}</th>
+                            <th className="px-2 py-1 text-right">{t("stock.total_value")}</th>
+                            <th className="px-2 py-1" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50 dark:divide-slate-800/60">
+                          {empStock.map((e) => {
+                            const open = expandedEmpId === e.id;
+                            return (
+                              <Fragment key={e.id}>
+                                <tr className="hover:bg-gray-50 dark:hover:bg-slate-900/50 cursor-pointer" onClick={() => setExpandedEmpId(open ? null : e.id)}>
+                                  <td className="px-4 py-2">
+                                    <p className="font-medium text-gray-900 dark:text-gray-100">{e.name}</p>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{e.employee_id}{e.itop_number ? ` • ${e.itop_number}` : ""}</p>
+                                  </td>
+                                  <td className="px-2 py-1 text-gray-600 dark:text-gray-300">{e.dms_code || "-"}</td>
+                                  <td className="px-2 py-1">
+                                    <span className={cn(
+                                      "inline-flex rounded-full px-2 py-0.5 text-xs font-medium uppercase",
+                                      e.employee_type === "rso"
+                                        ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+                                        : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                                    )}>
+                                      {e.employee_type}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-1 text-gray-600 dark:text-gray-300">{e.product_count}</td>
+                                  <td className="px-2 py-1 font-medium">{e.total_quantity}</td>
+                                  <td className="px-2 py-1 text-right font-medium text-emerald-600 dark:text-emerald-400">{fmtMoney(e.total_value)}</td>
+                                  <td className="px-2 py-1">
+                                    {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                                  </td>
+                                </tr>
+                                {open && (
+                                  <tr className="bg-gray-50 dark:bg-slate-900/50">
+                                    <td colSpan={7} className="px-4 py-3">
+                                      <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                          <thead>
+                                            <tr className="text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                              <th className="px-2 py-1">{t("stock.product")}</th>
+                                              <th className="px-2 py-1">{t("stock.product_code")}</th>
+                                              <th className="px-2 py-1">{t("stock.category")}</th>
+                                              <th className="px-2 py-1 text-right">{t("stock.unit_value")}</th>
+                                              <th className="px-2 py-1 text-right">{t("stock.quantity")}</th>
+                                              <th className="px-2 py-1 text-right">{t("stock.total_value")}</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-100 dark:divide-slate-800/60">
+                                            {e.items.map((it) => (
+                                              <tr key={it.product_id}>
+                                                <td className="px-2 py-1 font-medium text-gray-900 dark:text-gray-100">{it.product_name}</td>
+                                                <td className="px-2 py-1 text-gray-500 dark:text-gray-400">{it.product_code}</td>
+                                                <td className="px-2 py-1 text-gray-500 dark:text-gray-400">{it.category || "-"}</td>
+                                                <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-300">{fmtMoney(it.unit_price)}</td>
+                                                <td className="px-2 py-1 text-right font-medium">{it.quantity}</td>
+                                                <td className="px-2 py-1 text-right text-emerald-600 dark:text-emerald-400">{fmtMoney(it.total_value)}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                          {empStock.length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="px-4 py-10 text-center text-gray-400">{t("stock.no_employee_stock")}</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
+                      {empStock.map((e) => {
+                        const open = expandedEmpId === e.id;
+                        return (
+                          <div key={e.id} className="px-4 py-3">
+                            <button className="w-full flex items-center gap-3 text-left" onClick={() => setExpandedEmpId(open ? null : e.id)}>
+                              <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center shrink-0">
+                                <Users className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{e.name}</p>
+                                <p className="text-[11px] text-gray-500 dark:text-gray-400">{e.employee_id}{e.itop_number ? ` • ${e.itop_number}` : ""}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-semibold text-gray-900 dark:text-gray-100">{e.total_quantity}</p>
+                                <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.total_qty")}</p>
+                              </div>
+                              {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                            </button>
+                            {open && (
+                              <div className="mt-3 bg-gray-50 dark:bg-slate-900 rounded-xl p-3">
+                                <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                                  <div>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.dms_code")}</p>
+                                    <p className="font-medium text-gray-900 dark:text-gray-100">{e.dms_code || "-"}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.employee_type")}</p>
+                                    <p className="font-medium text-gray-900 dark:text-gray-100 uppercase">{e.employee_type}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.total_products")}</p>
+                                    <p className="font-medium text-gray-900 dark:text-gray-100">{e.product_count}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("stock.total_value")}</p>
+                                    <p className="font-medium text-emerald-600 dark:text-emerald-400">{fmtMoney(e.total_value)}</p>
+                                  </div>
+                                </div>
+                                <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">{t("stock.product_breakdown")}</p>
+                                <div className="divide-y divide-gray-100 dark:divide-slate-800">
+                                  {e.items.map((it) => (
+                                    <div key={it.product_id} className="py-2 flex items-center justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{it.product_name}</p>
+                                        <p className="text-[11px] text-gray-500 dark:text-gray-400">{it.product_code}</p>
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <p className="font-semibold text-gray-900 dark:text-gray-100">{it.quantity}</p>
+                                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{fmtMoney(it.total_value)}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {empStock.length === 0 && (
+                        <div className="px-4 py-10 text-center text-gray-400">{t("stock.no_employee_stock")}</div>
+                      )}
+                    </div>
+                    <div className="px-4 pb-4">{renderPagination(empStockPage, empStockTotal, 20, setEmpStockPage)}</div>
                   </>
                 )}
               </Card>
@@ -2576,7 +2813,7 @@ export default function StockPage() {
                           </button>
                         </div>
                         <ProductSelect
-                          products={transferForm.from_type === "rso" && transferForm.from_employee_id ? transferProducts : products}
+                          products={transferSelectableProducts}
                           value={line.product_id}
                           sourceType={transferForm.from_type as "warehouse" | "rso"}
                           onChange={(v) => updateTransferLine(idx, "product_id", v)}

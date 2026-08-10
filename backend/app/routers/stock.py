@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -300,6 +300,101 @@ async def stock_employees(
             for e in employees
         ],
     }
+
+
+@router.get("/employee-stock")
+async def employee_stock(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("stock.view")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    emp_query = select(Employee).join(Employee.user, isouter=True).where(Employee.status == "Active")
+    emp_cond = _house_filter_condition(Employee, current_user, house_id)
+    if emp_cond is not None:
+        emp_query = emp_query.where(emp_cond)
+    if search:
+        like = f"%{search}%"
+        emp_query = emp_query.where(
+            or_(
+                Employee.employee_id.ilike(like),
+                Employee.dms_code.ilike(like),
+                Employee.itop_number.ilike(like),
+                User.name.ilike(like),
+            )
+        )
+    total = (await db.execute(select(func.count()).select_from(emp_query.subquery()))).scalar() or 0
+    employees = (await db.execute(
+        emp_query
+        .options(joinedload(Employee.user))
+        .order_by(func.coalesce(User.name, Employee.employee_id))
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+    )).unique().scalars().all()
+
+    emp_ids = [e.id for e in employees]
+    stock_by_emp: dict = {}
+    if emp_ids:
+        stock_stmt = select(StockItem).where(
+            StockItem.employee_id.in_(emp_ids),
+            StockItem.location_type == LOCATION_RSO,
+            StockItem.is_deleted == False,
+        ).options(joinedload(StockItem.product))
+        stock_cond = _house_filter_condition(StockItem, current_user, house_id)
+        if stock_cond is not None:
+            stock_stmt = stock_stmt.where(stock_cond)
+        for si in (await db.execute(stock_stmt)).unique().scalars().all():
+            bucket = stock_by_emp.setdefault(si.employee_id, {})
+            bucket[si.product_id] = bucket.get(si.product_id, 0) + (si.quantity or 0)
+
+    prod_ids = {pid for bucket in stock_by_emp.values() for pid in bucket}
+    products = {}
+    if prod_ids:
+        for p in (await db.execute(select(Product).where(Product.id.in_(prod_ids)))).scalars().all():
+            products[p.id] = p
+
+    data = []
+    for e in employees:
+        bucket = stock_by_emp.get(e.id, {})
+        items = []
+        total_qty = 0
+        total_value = 0.0
+        for pid in sorted(bucket, key=lambda pid: (products[pid].product_name or "").lower() if pid in products else ""):
+            qty = bucket[pid]
+            if qty <= 0:
+                continue
+            p = products.get(pid)
+            if not p:
+                continue
+            unit = _unit_value(p)
+            tv = round(qty * unit, 2)
+            items.append({
+                "product_id": p.id,
+                "product_code": p.product_code,
+                "product_name": p.product_name,
+                "category": p.category,
+                "quantity": qty,
+                "unit_price": unit,
+                "total_value": tv,
+            })
+            total_qty += qty
+            total_value += tv
+        data.append({
+            "id": e.id,
+            "employee_id": e.employee_id,
+            "name": _emp_name(e) or e.employee_id or e.dms_code,
+            "dms_code": e.dms_code,
+            "itop_number": e.itop_number,
+            "employee_type": e.employee_type,
+            "total_quantity": total_qty,
+            "total_value": round(total_value, 2),
+            "product_count": len(items),
+            "items": items,
+        })
+
+    return {"success": True, "data": data, "pagination": _pagination(page, per_page, total)}
 
 
 @router.post("/items/bulk", status_code=201)
