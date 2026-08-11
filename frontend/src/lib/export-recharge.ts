@@ -46,6 +46,7 @@ interface ExportPayload {
   month: number;
   year: number;
   month_name: string;
+  report_type?: "recharge" | "ev_secondary";
   days_elapsed: number;
   total_days: number;
 }
@@ -205,9 +206,11 @@ function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)
 }
 
 export async function exportRechargeReport(payload: ExportPayload): Promise<void> {
-  const { summary, rso_performance, supervisor_performance, house_name, house_code, month, year, month_name, days_elapsed, total_days } = payload;
+  const { summary, rso_performance, supervisor_performance, house_name, house_code, month, year, month_name, report_type, days_elapsed, total_days } = payload;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const isEv = report_type === "ev_secondary";
+  const reportTitle = isEv ? "EV C2C Report" : "Recharge Report (C2C)";
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "Orange Flow";
@@ -222,7 +225,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
 
   ws.mergeCells(1, 1, 2, 3);
   const titleCell = ws.getCell('A1');
-  titleCell.value = `Recharge Report (C2C) - ${month_name} ${year}`;
+  titleCell.value = `${reportTitle} - ${month_name} ${year}`;
   titleCell.font = { bold: true, color: { argb: TEXT_DARK }, size: 14, name: "Calibri" };
   titleCell.alignment = { vertical: "middle", horizontal: "left" };
   titleCell.border = {
@@ -301,29 +304,39 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
   const writeSection = (label: string, employees: EmployeeRow[], identField: "itop_number" | "pool_number" | null) => {
     if (employees.length === 0) return;
     const isSupervisor = label === "SUPERVISOR PERFORMANCE";
-    const headers = isSupervisor
-      ? ["#", "Name", "Pool", "Target", "EV Tgt", "SC Tgt", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Status"]
-      : ["#", "Name", "Itop", "Target", "EV Tgt", "SC Tgt", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Status"];
+    const baseHeaders = isSupervisor ? ["#", "Name", "Pool"] : ["#", "Name", "Itop"];
+    const extraHeaders = isEv ? [] : ["EV Tgt", "SC Tgt"];
+    const headers = [...baseHeaders, "Target", ...extraHeaders, "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Status"];
     const fullBorder = true;
-    const cols = 13;
+    const cols = headers.length;
+    const pctIdx = headers.indexOf("%");
     r = addSectionHeader(ws, r, label, cols, fullBorder);
     r = addColHeaders(ws, r, headers, 1, fullBorder);
-    const pctIdx = 7;
     employees.forEach((emp, i) => {
       let ident = "—";
       if (identField === "itop_number" && emp.itop_number) ident = emp.itop_number;
       if (identField === "pool_number" && emp.pool_number) ident = emp.pool_number;
-      const drrWithF = Math.ceil(emp.remaining / Math.max(summary.days_remaining, 1));
-      const drrWithoutF = Math.ceil(emp.remaining / Math.max(summary.days_remaining - (summary.remaining_fridays ?? 0), 1));
-      const cells = [
-        i + 1, emp.name, ident,
-        fmt(emp.target), fmt(emp.ev_target ?? 0), fmt(emp.sc_target ?? 0),
-        fmt(emp.achievement), `${emp.percentage}%`,
-        fmt(emp.remaining),
-        `${drrWithoutF} / F:${drrWithF}`,
-        fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
-        timeBasedStatus(emp.percentage, days_elapsed, total_days),
-      ];
+      const drrWithF = Math.ceil(emp.remaining / Math.max(summary.days_remaining + (summary.remaining_fridays ?? 0), 1));
+      const drrWithoutF = Math.ceil(emp.remaining / Math.max(summary.days_remaining, 1));
+      const cells = isEv
+        ? [
+            i + 1, emp.name, ident,
+            fmt(emp.target),
+            fmt(emp.achievement), `${emp.percentage}%`,
+            fmt(emp.remaining),
+            `${drrWithoutF} / F:${drrWithF}`,
+            fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
+            timeBasedStatus(emp.percentage, days_elapsed, total_days),
+          ]
+        : [
+            i + 1, emp.name, ident,
+            fmt(emp.target), fmt(emp.ev_target ?? 0), fmt(emp.sc_target ?? 0),
+            fmt(emp.achievement), `${emp.percentage}%`,
+            fmt(emp.remaining),
+            `${drrWithoutF} / F:${drrWithF}`,
+            fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
+            timeBasedStatus(emp.percentage, days_elapsed, total_days),
+          ];
       addDataRow(ws, r, cells, 1, i % 2 === 1, cells.length - 1, pctIdx, fullBorder);
       r++;
     });
@@ -335,24 +348,33 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
       const totalDailyAvg = totalAchieved / Math.max(days_elapsed, 1);
       const totalProjection = employees.reduce((s, e) => s + e.projection, 0);
       const totalProjPct = totalTarget ? Math.round(totalProjection / totalTarget * 100) : 0;
-      const totalDRRwithF = Math.ceil(totalRemaining / Math.max(summary.days_remaining, 1));
-      const totalDRRwithoutF = Math.ceil(totalRemaining / Math.max(summary.days_remaining - (summary.remaining_fridays ?? 0), 1));
+      const totalDRRwithF = Math.ceil(totalRemaining / Math.max(summary.days_remaining + (summary.remaining_fridays ?? 0), 1));
+      const totalDRRwithoutF = Math.ceil(totalRemaining / Math.max(summary.days_remaining, 1));
       const evTotal = employees.reduce((s, e) => s + (e.ev_target ?? 0), 0);
       const scTotal = employees.reduce((s, e) => s + (e.sc_target ?? 0), 0);
-      const subtotalCells = [
-        "", "Subtotal", "",
-        fmt(totalTarget), fmt(evTotal), fmt(scTotal),
-        fmt(totalAchieved), `${totalPct}%`,
-        fmt(totalRemaining), `${totalDRRwithoutF} / F:${totalDRRwithF}`, fmt1(Math.round(totalDailyAvg)),
-        `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
-        timeBasedStatus(totalPct, days_elapsed, total_days),
-      ];
+      const subtotalCells = isEv
+        ? [
+            "", "Subtotal", "",
+            fmt(totalTarget),
+            fmt(totalAchieved), `${totalPct}%`,
+            fmt(totalRemaining), `${totalDRRwithoutF} / F:${totalDRRwithF}`, fmt1(Math.round(totalDailyAvg)),
+            `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
+            timeBasedStatus(totalPct, days_elapsed, total_days),
+          ]
+        : [
+            "", "Subtotal", "",
+            fmt(totalTarget), fmt(evTotal), fmt(scTotal),
+            fmt(totalAchieved), `${totalPct}%`,
+            fmt(totalRemaining), `${totalDRRwithoutF} / F:${totalDRRwithF}`, fmt1(Math.round(totalDailyAvg)),
+            `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
+            timeBasedStatus(totalPct, days_elapsed, total_days),
+          ];
       const subRow = ws.getRow(r);
       subtotalCells.forEach((val, i) => {
         const cell = subRow.getCell(1 + i);
         cell.value = val;
         const isStatus = i === subtotalCells.length - 1;
-        const isPct = i === 7;
+        const isPct = i === pctIdx;
         cell.font = {
           bold: true,
           color: { argb: isStatus ? statusColor(String(val)) : isPct ? pctColor(Number(String(val).replace('%', '')) || 0) : TEXT_DARK },

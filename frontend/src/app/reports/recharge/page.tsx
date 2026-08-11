@@ -9,7 +9,7 @@ import {
   RotateCcw, Download, Printer, Share2, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
-  ChevronDown,
+  ChevronDown, BatteryCharging,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis,
@@ -137,7 +137,7 @@ const monthNames = {
 };
 
 function formatNumber(n: number): string {
-  return n.toLocaleString();
+  return Math.round(n).toLocaleString();
 }
 
 function KpiCard({ icon: Icon, label, value, valueColor, valueExtra, subtitle, trend }: {
@@ -215,7 +215,7 @@ function timeBasedStatus(pct: number, daysElapsed: number, totalDays: number): s
   return "behind";
 }
 
-function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; daysElapsed: number; totalDays: number; daysRemaining: number }) {
+function PerformanceTable({ data, t, type, reportType, daysElapsed, totalDays, daysRemaining }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; reportType: "recharge" | "ev_secondary"; daysElapsed: number; totalDays: number; daysRemaining: number }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   if (!data || data.length === 0) {
@@ -266,13 +266,13 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                   <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.target")}</span>
                   <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(emp.target)}</span>
                 </div>
-                {emp.ev_target !== undefined && (
+                {reportType !== "ev_secondary" && emp.ev_target !== undefined && (
                   <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                     <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.ev_target")}</span>
                     <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(emp.ev_target)}</span>
                   </div>
                 )}
-                {emp.sc_target !== undefined && (
+                {reportType !== "ev_secondary" && emp.sc_target !== undefined && (
                   <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                     <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.sc_target")}</span>
                     <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(emp.sc_target)}</span>
@@ -284,7 +284,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">%</span>
-                  <span className="font-bold" style={{ color: emp.percentage >= 100 ? "#10b981" : emp.percentage >= 70 ? "#3b82f6" : emp.percentage >= 40 ? "#f59e0b" : "#ef4444" }}>{emp.percentage}%</span>
+                  <span className="font-bold" style={{ color: emp.percentage >= 100 ? "#10b981" : emp.percentage >= 70 ? "#3b82f6" : emp.percentage >= 40 ? "#f59e0b" : "#ef4444" }}>{Math.round(emp.percentage)}%</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.remaining")}</span>
@@ -292,11 +292,11 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">DRR</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(Math.ceil(emp.remaining / Math.max(daysRemaining, 1)))}</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.daily_average")}</span>
-                  <span className="text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
+                  <span className="text-gray-600 dark:text-gray-400">{formatNumber(Math.round(emp.daily_average))}</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.projection")}</span>
@@ -320,8 +320,12 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
               <th className="px-4 py-3 w-10">{t("recharge_report.rank")}</th>
               <th className="px-4 py-3">{type === "rso" ? "RSO" : t("recharge_report.employee")}</th>
               <th className="px-4 py-3 text-center">{t("recharge_report.target")}</th>
-              <th className="px-4 py-3 text-center">{t("recharge_report.ev_target")}</th>
-              <th className="px-4 py-3 text-center">{t("recharge_report.sc_target")}</th>
+              {reportType !== "ev_secondary" && (
+                <th className="px-4 py-3 text-center">{t("recharge_report.ev_target")}</th>
+              )}
+              {reportType !== "ev_secondary" && (
+                <th className="px-4 py-3 text-center">{t("recharge_report.sc_target")}</th>
+              )}
               <th className="px-4 py-3 text-center">{t("recharge_report.achieved")}</th>
               <th className="px-4 py-3 text-center">{t("recharge_report.percentage")}</th>
               <th className="px-4 py-3 text-center">{t("recharge_report.remaining")}</th>
@@ -357,12 +361,16 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                 <td className="px-2 py-1 text-center">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(emp.target)}</span>
                 </td>
-                <td className="px-2 py-1 text-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.ev_target ?? 0)}</span>
-                </td>
-                <td className="px-2 py-1 text-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.sc_target ?? 0)}</span>
-                </td>
+                {reportType !== "ev_secondary" && (
+                  <td className="px-2 py-1 text-center">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.ev_target ?? 0)}</span>
+                  </td>
+                )}
+                {reportType !== "ev_secondary" && (
+                  <td className="px-2 py-1 text-center">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.sc_target ?? 0)}</span>
+                  </td>
+                )}
                 <td className="px-2 py-1 text-center">
                   <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.achievement)}</span>
                 </td>
@@ -380,7 +388,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                       />
                     </div>
                     <span className="text-xs font-bold text-gray-600 dark:text-gray-400 w-10 text-center">
-                      {emp.percentage}%
+                      {Math.round(emp.percentage)}%
                     </span>
                   </div>
                 </td>
@@ -388,10 +396,10 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                   <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
                 </td>
                 <td className="px-2 py-1 text-center">
-                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(Math.ceil(emp.remaining / Math.max(daysRemaining, 1)))}</span>
                 </td>
                 <td className="px-2 py-1 text-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(Math.round(emp.daily_average))}</span>
                 </td>
                 <td className="px-2 py-1 text-center align-middle">
                   <div className="text-sm font-semibold text-gray-700 dark:text-gray-300 leading-tight">
@@ -424,12 +432,16 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                   <td className="px-2 py-1 text-center">
                     <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalTarget)}</span>
                   </td>
-                  <td className="px-2 py-1 text-center">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(totalEvTarget)}</span>
-                  </td>
-                  <td className="px-2 py-1 text-center">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(totalScTarget)}</span>
-                  </td>
+                  {reportType !== "ev_secondary" && (
+                    <td className="px-2 py-1 text-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(totalEvTarget)}</span>
+                    </td>
+                  )}
+                  {reportType !== "ev_secondary" && (
+                    <td className="px-2 py-1 text-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(totalScTarget)}</span>
+                    </td>
+                  )}
                   <td className="px-2 py-1 text-center">
                     <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalAchieved)}</span>
                   </td>
@@ -453,10 +465,10 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(totalRemaining)}</span>
                   </td>
                   <td className="px-2 py-1 text-center">
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(totalRemaining / Math.max(daysRemaining, 1))}</span>
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(Math.ceil(totalRemaining / Math.max(daysRemaining, 1)))}</span>
                   </td>
                   <td className="px-2 py-1 text-center">
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.round(totalDailyAvg)}</span>
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(Math.round(totalDailyAvg))}</span>
                   </td>
                   <td className="px-2 py-1 text-center align-middle">
                     <div className="text-sm font-bold text-gray-700 dark:text-gray-300 leading-tight">{formatNumber(Math.round(totalProjection))}</div>
@@ -517,7 +529,7 @@ function LeaderboardCard({ data, title, icon: Icon, color, t }: {
                   emp.percentage >= 40 ? "text-amber-600 dark:text-amber-400" :
                   "text-rose-600 dark:text-rose-400"
                 )}>
-                  {emp.percentage}%
+                  {Math.round(emp.percentage)}%
                 </p>
               </div>
             </div>
@@ -526,6 +538,16 @@ function LeaderboardCard({ data, title, icon: Icon, color, t }: {
       )}
     </div>
   );
+}
+
+const REPORT_TYPE_KEY = "recharge_report_type";
+
+function getStoredReportType(): "recharge" | "ev_secondary" {
+  try {
+    const stored = localStorage.getItem(REPORT_TYPE_KEY);
+    if (stored === "ev_secondary") return "ev_secondary";
+  } catch {}
+  return "recharge";
 }
 
 export default function RechargeDashboardPage() {
@@ -541,6 +563,7 @@ export default function RechargeDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"rso" | "supervisor">("rso");
+  const [reportType, setReportType] = useState<"recharge" | "ev_secondary">(getStoredReportType);
   const [isDark, setIsDark] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -552,6 +575,13 @@ export default function RechargeDashboardPage() {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
   }, []);
+
+  const handleReportTypeChange = (type: "recharge" | "ev_secondary") => {
+    setReportType(type);
+    try {
+      localStorage.setItem(REPORT_TYPE_KEY, type);
+    } catch {}
+  };
 
   useEffect(() => {
     if (!authLoading && !hasPermission("reports.view")) {
@@ -568,7 +598,7 @@ export default function RechargeDashboardPage() {
     }
     setLoading(true);
     try {
-      const params: Record<string, any> = { month, year };
+      const params: Record<string, any> = { month, year, report_type: reportType };
       if (selectedHouseId) params.house_id = selectedHouseId;
       const res = await apiClient.get("reports/recharge/dashboard", { params });
       setData(res.data);
@@ -577,7 +607,7 @@ export default function RechargeDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId]);
+  }, [month, year, selectedHouseId, reportType]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("reports.view")) {
@@ -591,7 +621,7 @@ export default function RechargeDashboardPage() {
     if (!authLoading && hasPermission("reports.view")) {
       fetchDashboard();
     }
-  }, [authLoading, hasPermission, month, year, selectedHouseId]);
+  }, [authLoading, hasPermission, month, year, selectedHouseId, reportType]);
 
   const handleExport = async () => {
     if (!data) return;
@@ -606,6 +636,7 @@ export default function RechargeDashboardPage() {
         month,
         year,
         month_name: getMonthName(month),
+        report_type: reportType,
         days_elapsed: data.summary.days_elapsed,
         total_days: data.summary.total_days,
       });
@@ -636,13 +667,49 @@ export default function RechargeDashboardPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="hidden sm:block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+          {t("recharge_report.report_type")}
+        </span>
+        <div className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-xl p-1 shadow-sm">
+          <button
+            onClick={() => handleReportTypeChange("recharge")}
+            className={cn(
+              "inline-flex items-center gap-2 px-3 md:px-5 py-2 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap",
+              reportType === "recharge"
+                ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            )}
+          >
+            <Zap className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+            {t("recharge_report.type_recharge")}
+          </button>
+          <button
+            onClick={() => handleReportTypeChange("ev_secondary")}
+            className={cn(
+              "inline-flex items-center gap-2 px-3 md:px-5 py-2 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap",
+              reportType === "ev_secondary"
+                ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            )}
+          >
+            <BatteryCharging className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            {t("recharge_report.type_ev_secondary")}
+          </button>
+        </div>
+      </div>
+
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {t("recharge_report.dashboard_title")}
+            {reportType === "ev_secondary"
+              ? t("recharge_report.ev_dashboard_title")
+              : t("recharge_report.dashboard_title")}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t("recharge_report.dashboard_subtitle")}
+            {reportType === "ev_secondary"
+              ? t("recharge_report.ev_dashboard_subtitle")
+              : t("recharge_report.dashboard_subtitle")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -732,7 +799,7 @@ export default function RechargeDashboardPage() {
           <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard
               icon={Target}
-              label={t("recharge_report.monthly_target")}
+              label={reportType === "ev_secondary" ? t("recharge_report.ev_c2c_target") : t("recharge_report.monthly_target")}
               value={formatNumber(s.monthly_target)}
               valueColor="text-gray-900 dark:text-gray-100"
               trend={s.previous_month_target > 0 ? {
@@ -745,27 +812,27 @@ export default function RechargeDashboardPage() {
             <KpiCard
               icon={TrendingUp}
               label={t("recharge_report.achievement")}
-              value={formatNumber(s.achievement)}
+              value={formatNumber(Math.round(s.achievement))}
               valueColor="text-emerald-600 dark:text-emerald-400"
-              valueExtra={<>{t("recharge_report.yesterday_badge", { count: s.yesterday_achievement })}</>}
+              valueExtra={<>{t("recharge_report.yesterday_badge", { count: formatNumber(s.yesterday_achievement) })}</>}
               subtitle={s.previous_month_target > 0
                 ? t("recharge_report.last_month_achievement", {
-                    count: s.previous_month_achievement,
+                    count: formatNumber(s.previous_month_achievement),
                     pct: Math.round((s.previous_month_achievement / s.previous_month_target) * 100),
                   })
-                : t("recharge_report.last_month_achievement", { count: s.previous_month_achievement, pct: 0 })}
+                : t("recharge_report.last_month_achievement", { count: formatNumber(s.previous_month_achievement), pct: 0 })}
             />
             <KpiCard
               icon={Award}
               label={t("recharge_report.achievement_pct")}
-              value={`${s.achievement_percentage}%`}
+              value={`${Math.round(s.achievement_percentage)}%`}
               valueColor={
                 s.achievement_percentage >= 100 ? "text-emerald-600 dark:text-emerald-400" :
                 s.achievement_percentage >= 70 ? "text-blue-600 dark:text-blue-400" :
                 s.achievement_percentage >= 40 ? "text-amber-600 dark:text-amber-400" :
                 "text-rose-600 dark:text-rose-400"
               }
-              subtitle={`${t("recharge_report.expected_pct")}: ${s.expected_percentage}%`}
+              subtitle={`${t("recharge_report.expected_pct")}: ${Math.round(s.expected_percentage)}%`}
             />
             <KpiCard
               icon={BarChart3}
@@ -777,16 +844,16 @@ export default function RechargeDashboardPage() {
             <KpiCard
               icon={Activity}
               label={t("recharge_report.daily_average")}
-              value={Math.round(s.daily_average)}
+              value={formatNumber(Math.round(s.daily_average))}
               valueColor="text-blue-600 dark:text-blue-400"
               subtitle={t("recharge_report.days_elapsed") + ": " + s.days_elapsed}
             />
             <KpiCard
               icon={Zap}
               label={t("recharge_report.daily_required")}
-              value={s.daily_required}
+              value={formatNumber(s.daily_required)}
               valueColor="text-purple-600 dark:text-purple-400"
-              subtitle={`${t("recharge_report.with_friday")}: ${s.daily_required_with_friday} | ${t("recharge_report.remaining_fridays")}: ${s.remaining_fridays}`}
+              subtitle={t("recharge_report.remaining_fridays") + ": " + s.remaining_fridays}
             />
             <KpiCard
               icon={Trophy}
@@ -797,36 +864,37 @@ export default function RechargeDashboardPage() {
                 s.expected_percentage >= 70 ? "text-blue-600 dark:text-blue-400" :
                 "text-amber-600 dark:text-amber-400"
               }
-              subtitle={`${t("recharge_report.expected_pct")}: ${s.expected_percentage}%`}
+              subtitle={`${t("recharge_report.expected_pct")}: ${Math.round(s.expected_percentage)}%`}
             />
             <KpiCard
               icon={Sparkles}
               label={t("recharge_report.expected_pct")}
-              value={`${s.expected_percentage}%`}
+              value={`${Math.round(s.expected_percentage)}%`}
               valueColor={
                 s.expected_percentage >= 100 ? "text-emerald-600 dark:text-emerald-400" :
                 s.expected_percentage >= 70 ? "text-blue-600 dark:text-blue-400" :
                 "text-amber-600 dark:text-amber-400"
               }
-              subtitle={`${formatNumber(Math.round(s.projection))} / ${formatNumber(s.monthly_target)}`}
             />
           </div>
 
           {/* EV C2C and SC Primary Target Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <KpiCard
-              icon={Zap}
-              label={t("recharge_report.ev_c2c_target")}
-              value={formatNumber(s.ev_c2c_target)}
-              valueColor="text-indigo-600 dark:text-indigo-400"
-            />
-            <KpiCard
-              icon={Zap}
-              label={t("recharge_report.sc_primary_target")}
-              value={formatNumber(s.sc_primary_target)}
-              valueColor="text-violet-600 dark:text-violet-400"
-            />
-          </div>
+          {reportType === "recharge" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <KpiCard
+                icon={Zap}
+                label={t("recharge_report.ev_c2c_target")}
+                value={formatNumber(s.ev_c2c_target)}
+                valueColor="text-indigo-600 dark:text-indigo-400"
+              />
+              <KpiCard
+                icon={Zap}
+                label={t("recharge_report.sc_primary_target")}
+                value={formatNumber(s.sc_primary_target)}
+                valueColor="text-violet-600 dark:text-violet-400"
+              />
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card className="bg-white dark:bg-slate-900 border-gray-100 dark:border-slate-800 shadow-sm">
@@ -848,7 +916,7 @@ export default function RechargeDashboardPage() {
                   <ChartContainer
                     config={{
                       actual: {
-                        label: "Recharge (BDT)",
+                        label: reportType === "ev_secondary" ? "EV C2C (BDT)" : "Recharge (BDT)",
                         color: isDark ? "#60a5fa" : "#3b82f6",
                       },
                     }}
@@ -913,7 +981,7 @@ export default function RechargeDashboardPage() {
               </h2>
               <div className="space-y-6">
                 <div className="text-center">
-                  <p className="text-4xl font-black text-gray-900 dark:text-gray-100">{s.achievement_percentage}%</p>
+                  <p className="text-4xl font-black text-gray-900 dark:text-gray-100">{Math.round(s.achievement_percentage)}%</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t("recharge_report.achievement_pct")}</p>
                   {(() => {
                     const st = timeBasedStatus(s.achievement_percentage, s.days_elapsed, s.total_days);
@@ -1048,10 +1116,10 @@ export default function RechargeDashboardPage() {
             </div>
 
             {activeTab === "rso" && (
-              <PerformanceTable data={data.rso_performance} t={t} type="rso" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
+              <PerformanceTable data={data.rso_performance} t={t} type="rso" reportType={reportType} daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
             )}
             {activeTab === "supervisor" && (
-              <PerformanceTable data={data.supervisor_performance} t={t} type="supervisor" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
+              <PerformanceTable data={data.supervisor_performance} t={t} type="supervisor" reportType={reportType} daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
             )}
           </div>
         </>

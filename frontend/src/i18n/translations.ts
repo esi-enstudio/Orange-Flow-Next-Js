@@ -834,6 +834,11 @@ export const translations = {
       loading: "Loading dashboard...",
       error_loading: "Failed to load dashboard data",
       no_data: "No data available",
+      report_type: "Report Type",
+      type_recharge: "Recharge",
+      type_ev_secondary: "EV Secondary",
+      ev_dashboard_title: "EV Secondary Dashboard (C2C)",
+      ev_dashboard_subtitle: "Monthly EV C2C recharge performance, target tracking and employee ranking",
     },
     settings: {
       title: "System Settings",
@@ -2737,6 +2742,11 @@ export const translations = {
       loading: "ড্যাশবোর্ড লোড হচ্ছে...",
       error_loading: "ড্যাশবোর্ড ডেটা লোড করতে ব্যর্থ",
       no_data: "কোনো ডেটা নেই",
+      report_type: "রিপোর্টের ধরন",
+      type_recharge: "রিচার্জ",
+      type_ev_secondary: "ইভি সেকেন্ডারি",
+      ev_dashboard_title: "ইভি সেকেন্ডারি ড্যাশবোর্ড (C2C)",
+      ev_dashboard_subtitle: "মাসিক ইভি C2C রিচার্জ পারফরম্যান্স, টার্গেট ট্র্যাকিং এবং কর্মচারী র‌্যাঙ্কিং",
     },
     settings: {
       title: "System Settings",

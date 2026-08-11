@@ -19,11 +19,12 @@ from app.models.house import House
 logger = logging.getLogger("app.services.RechargeReport")
 
 class RechargeReportService:
-    def __init__(self, db: AsyncSession, house_id: int, month: int, year: int):
+    def __init__(self, db: AsyncSession, house_id: int, month: int, year: int, report_type: str = "recharge"):
         self.db = db
         self.house_id = house_id
         self.month = month
         self.year = year
+        self.report_type = report_type if report_type in ("recharge", "ev_secondary") else "recharge"
         self.month_start = date(year, month, 1)
         _, last_day = monthrange(year, month)
         self.month_end = date(year, month, last_day)
@@ -35,6 +36,11 @@ class RechargeReportService:
             self._days_elapsed = 0
         self._days_remaining = max(0, self._days_in_month - self._days_elapsed)
         self._remaining_fridays = self._count_fridays_in_range(self.today, self.month_end) if self._days_remaining > 0 else 0
+        self._working_days_remaining = max(0, self._days_remaining - self._remaining_fridays)
+        elapsed_fridays = self._count_fridays_in_range(self.month_start, self.today - timedelta(days=1))
+        self._working_days_elapsed = max(0, self._days_elapsed - elapsed_fridays)
+        self._month_fridays = self._count_fridays_in_range(self.month_start, self.month_end)
+        self._working_days_in_month = max(0, self._days_in_month - self._month_fridays)
 
     def _count_fridays_in_range(self, start: date, end: date) -> int:
         count = 0
@@ -54,6 +60,13 @@ class RechargeReportService:
             )
         )
         return res.scalar_one_or_none()
+
+    def _primary_target(self, target: Optional[HouseTarget]) -> float:
+        if not target:
+            return 0
+        if self.report_type == "ev_secondary":
+            return target.ev_c2c_target or 0
+        return target.total_recharge_target or 0
 
     async def _get_recharge_sum(
         self,
@@ -95,7 +108,7 @@ class RechargeReportService:
 
     async def get_summary(self) -> dict:
         target = await self._get_house_target()
-        monthly_target = target.total_recharge_target or 0 if target else 0
+        monthly_target = self._primary_target(target)
         ev_c2c_target = target.ev_c2c_target or 0 if target else 0
         sc_primary_target = target.sc_primary_target or 0 if target else 0
 
@@ -112,7 +125,7 @@ class RechargeReportService:
             )
         )
         prev_target = prev_target_row.scalar_one_or_none()
-        previous_month_target = prev_target.total_recharge_target or 0 if prev_target else 0
+        previous_month_target = self._primary_target(prev_target)
 
         achievement = await self._get_recharge_sum()
         yesterday_date = self.today - timedelta(days=1)
@@ -122,11 +135,11 @@ class RechargeReportService:
 
         achievement_pct = round((achievement / monthly_target * 100), 1) if monthly_target else 0
         remaining = max(0, monthly_target - achievement)
-        excl_friday_days = max(self._days_remaining - self._remaining_fridays, 1)
+        excl_friday_days = max(self._working_days_remaining, 1)
         daily_required = round(remaining / excl_friday_days, 1) if self._days_remaining else 0
         daily_required_with_friday = round(remaining / max(self._days_remaining, 1), 1) if self._days_remaining else 0
-        daily_avg = round(achievement / max(self._days_elapsed, 1), 1) if self._days_elapsed else 0
-        projection = round(daily_avg * self._days_in_month, 1)
+        daily_avg = round(achievement / max(self._working_days_elapsed, 1), 1) if self._working_days_elapsed else 0
+        projection = round((achievement / max(self._working_days_elapsed, 1)) * self._working_days_in_month, 1)
         expected_pct = round((projection / monthly_target * 100), 1) if monthly_target else 0
 
         return {
@@ -142,9 +155,9 @@ class RechargeReportService:
             "daily_average": daily_avg,
             "projection": projection,
             "expected_percentage": expected_pct,
-            "days_elapsed": self._days_elapsed,
-            "days_remaining": self._days_remaining,
-            "total_days": self._days_in_month,
+            "days_elapsed": self._working_days_elapsed,
+            "days_remaining": self._working_days_remaining,
+            "total_days": self._working_days_in_month,
             "yesterday_achievement": yesterday_achievement,
             "previous_month_target": previous_month_target,
             "previous_month_achievement": prev_achievement,
@@ -204,13 +217,16 @@ class RechargeReportService:
             target_val = target_map.get(emp_id, 0)
             ev_target_val = ev_target_map.get(emp_id, 0)
             sc_target_val = sc_target_map.get(emp_id, 0)
+            if self.report_type == "ev_secondary":
+                target_val = ev_target_val
+                sc_target_val = 0
             retailer_ids = await self._get_retailer_ids_for_employee(emp_id)
             achievement = await self._get_recharge_sum(retailer_ids=retailer_ids) if retailer_ids else 0
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
-            daily_avg = round(achievement / max(self._days_elapsed, 1), 1)
-            projection = round(daily_avg * self._days_in_month, 1)
+            daily_avg = round(achievement / max(self._working_days_elapsed, 1), 1)
+            projection = round((achievement / max(self._working_days_elapsed, 1)) * self._working_days_in_month, 1)
 
             if pct >= 100:
                 status = "achieved"
@@ -309,6 +325,9 @@ class RechargeReportService:
             target_val = target_map.get(emp_id, 0)
             ev_target_val = ev_target_map.get(emp_id, 0)
             sc_target_val = sc_target_map.get(emp_id, 0)
+            if self.report_type == "ev_secondary":
+                target_val = ev_target_val
+                sc_target_val = 0
 
             rso_emps_for_sup = supervisor_user_to_rso_emps.get(emp.user_id) or []
             all_rso_retailer_ids: set[int] = set()
@@ -320,8 +339,8 @@ class RechargeReportService:
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
-            daily_avg = round(achievement / max(self._days_elapsed, 1), 1)
-            projection = round(daily_avg * self._days_in_month, 1)
+            daily_avg = round(achievement / max(self._working_days_elapsed, 1), 1)
+            projection = round((achievement / max(self._working_days_elapsed, 1)) * self._working_days_in_month, 1)
 
             if pct >= 100:
                 status = "achieved"
@@ -368,7 +387,7 @@ class RechargeReportService:
             trend_map[d.isoformat() if isinstance(d, date) else str(d)] = float(row[1])
 
         target = await self._get_house_target()
-        monthly_target = target.total_recharge_target or 0 if target else 0
+        monthly_target = self._primary_target(target)
         daily_target = round(monthly_target / self._days_in_month, 1) if self._days_in_month else 0
 
         result = []

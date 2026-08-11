@@ -1532,6 +1532,7 @@ async def export_activation_dashboard(
 async def get_recharge_dashboard(
     month: int = Query(None, ge=1, le=12),
     year: int = Query(None, ge=2020),
+    report_type: str = Query("recharge", pattern="^(recharge|ev_secondary)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("reports.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -1564,7 +1565,7 @@ async def get_recharge_dashboard(
     target_month = month or today.month
     target_year = year or today.year
 
-    service = RechargeReportService(db, target_house_id, target_month, target_year)
+    service = RechargeReportService(db, target_house_id, target_month, target_year, report_type)
     summary = await service.get_summary()
     daily_trend = await service.get_daily_trend()
     rso = await service.get_rso_performance()
@@ -1585,6 +1586,7 @@ async def get_recharge_dashboard(
 async def export_recharge_dashboard(
     month: int = Query(None, ge=1, le=12),
     year: int = Query(None, ge=2020),
+    report_type: str = Query("recharge", pattern="^(recharge|ev_secondary)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("reports.download")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -1620,7 +1622,7 @@ async def export_recharge_dashboard(
     target_month = month or today.month
     target_year = year or today.year
 
-    service = RechargeReportService(db, target_house_id, target_month, target_year)
+    service = RechargeReportService(db, target_house_id, target_month, target_year, report_type)
     summary = await service.get_summary()
     rso = await service.get_rso_performance()
     supervisor = await service.get_supervisor_performance()
@@ -1636,7 +1638,8 @@ async def export_recharge_dashboard(
         top=Side(style='thin'), bottom=Side(style='thin')
     )
 
-    ws.cell(row=1, column=1, value=f"Recharge Report (C2C) - {target_year}-{target_month:02d}").font = Font(bold=True, size=14)
+    report_label = "EV C2C Report" if report_type == "ev_secondary" else "Recharge Report (C2C)"
+    ws.cell(row=1, column=1, value=f"{report_label} - {target_year}-{target_month:02d}").font = Font(bold=True, size=14)
     ws.merge_cells('A1:H1')
 
     s = summary
@@ -1649,7 +1652,7 @@ async def export_recharge_dashboard(
         cell.border = thin_border
 
     summary_rows = [
-        ("Total Recharge Target", s["monthly_target"]),
+        ("Total Target" if report_type == "ev_secondary" else "Total Recharge Target", s["monthly_target"]),
         ("EV C2C Target", s["ev_c2c_target"]),
         ("SC Primary Target", s["sc_primary_target"]),
         ("Achievement", s["achievement"]),
