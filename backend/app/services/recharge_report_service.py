@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from calendar import monthrange
 from typing import Optional
 
-from sqlalchemy import select, func, false
+from sqlalchemy import select, func, false, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -164,12 +164,27 @@ class RechargeReportService:
         }
 
     async def _get_retailer_ids_for_employee(self, employee_id: int) -> set[int]:
-        res = await self.db.execute(
-            select(Retailer.id).where(
-                Retailer.employee_id == employee_id,
-                Retailer.house_id == self.house_id,
-            )
+        emp = await self.db.get(Employee, employee_id)
+        if not emp:
+            return set()
+        linked = and_(
+            Retailer.employee_id == employee_id,
+            Retailer.house_id == self.house_id,
         )
+        cond = linked
+        # BP/CC assisted retailers (e.g. R344412) carry the RSO's iTopUp SR
+        # number in itop_sr_number but are linked to the BP employee. The manual
+        # operator report attributes recharge by SR number, so include retailers
+        # whose itop_sr_number matches this RSO's itop_number to match it.
+        if emp.employee_type == "rso" and emp.itop_number:
+            cond = or_(
+                linked,
+                and_(
+                    Retailer.itop_sr_number == emp.itop_number,
+                    Retailer.house_id == self.house_id,
+                ),
+            )
+        res = await self.db.execute(select(Retailer.id).where(cond))
         return {r[0] for r in res.all()}
 
     async def _get_employee_name(self, emp: Employee) -> str:
@@ -302,11 +317,13 @@ class RechargeReportService:
         supervisor_user_to_rso_emps: dict[int, list[Employee]] = {uid: [] for uid in sup_user_map}
         if rso_users:
             rso_user_ids = [u.id for u in rso_users]
+            # Include resigned RSOs too: their iTopUp SR territory still belongs to the
+            # supervisor (the replacement RSO may be unassigned to any supervisor), so
+            # excluding them would under-report the supervisor's recharge achievement.
             rso_emp_rows = await self.db.execute(
                 select(Employee).where(
                     Employee.user_id.in_(rso_user_ids),
                     Employee.house_id == self.house_id,
-                    Employee.status == "Active",
                 )
             )
             rso_emps = rso_emp_rows.scalars().all()
