@@ -839,6 +839,9 @@ export const translations = {
       type_ev_secondary: "EV Secondary",
       ev_dashboard_title: "EV Secondary Dashboard (C2C)",
       ev_dashboard_subtitle: "Monthly EV C2C recharge performance, target tracking and employee ranking",
+      yesterday_c2c: "Yesterday C2C",
+      yesterday_c2s: "Yesterday C2S",
+      yesterday_transaction_count: "Yesterday Transaction Count",
     },
     settings: {
       title: "System Settings",
@@ -2747,6 +2750,9 @@ export const translations = {
       type_ev_secondary: "ইভি সেকেন্ডারি",
       ev_dashboard_title: "ইভি সেকেন্ডারি ড্যাশবোর্ড (C2C)",
       ev_dashboard_subtitle: "মাসিক ইভি C2C রিচার্জ পারফরম্যান্স, টার্গেট ট্র্যাকিং এবং কর্মচারী র‌্যাঙ্কিং",
+      yesterday_c2c: "গতকাল C2C",
+      yesterday_c2s: "গতকাল C2S",
+      yesterday_transaction_count: "গতকালের লেনদেন সংখ্যা",
     },
     settings: {
       title: "System Settings",

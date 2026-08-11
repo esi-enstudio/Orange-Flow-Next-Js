@@ -35,6 +35,9 @@ interface EmployeeRow {
   itop_number?: string;
   pool_number?: string;
   yesterday_achievement?: number;
+  yesterday_c2c?: number;
+  yesterday_c2s?: number;
+  yesterday_transaction_count?: number;
 }
 
 interface ExportPayload {
@@ -218,7 +221,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
     pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9, margins: { top: 0, bottom: 0, left: 0, right: 0, header: 0, footer: 0 } },
   });
 
-  const colWidths = [5, 30, 20, 18, 18, 10, 14, 18, 14, 16, 18, 24];
+  const colWidths = [5, 30, 20, 18, 18, 10, 14, 18, 14, 16, 18, 24, 16, 16, 22, 14];
   ws.columns = colWidths.map((w, i) => ({ key: String(i), width: w }));
 
   let r = 1;
@@ -305,10 +308,12 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
     const isSupervisor = label === "SUPERVISOR PERFORMANCE";
     const baseHeaders = isSupervisor ? ["#", "Name", "Pool"] : ["#", "Name", "Itop"];
     const extraHeaders = isEv ? [] : ["EV Tgt", "SC Tgt"];
-    const headers = [...baseHeaders, "Target", ...extraHeaders, "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Status"];
+    const yHeaders = ["Yesterday C2C", "Yesterday C2S", "Yesterday Txn Count"];
+    const headers = [...baseHeaders, "Target", ...extraHeaders, "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", ...yHeaders, "Status"];
     const fullBorder = true;
     const cols = headers.length;
     const pctIdx = headers.indexOf("%");
+    const statusIdx = headers.indexOf("Status");
     r = addSectionHeader(ws, r, label, cols, fullBorder);
     r = addColHeaders(ws, r, headers, 1, fullBorder);
     employees.forEach((emp, i) => {
@@ -324,6 +329,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
             fmt(emp.remaining),
             drrWithoutF,
             fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
+            fmt(emp.yesterday_c2c ?? 0), fmt(emp.yesterday_c2s ?? 0), emp.yesterday_transaction_count ?? 0,
             statusLabel(timeBasedStatus(emp.percentage, days_elapsed, total_days)),
           ]
         : [
@@ -333,9 +339,10 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
             fmt(emp.remaining),
             drrWithoutF,
             fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
+            fmt(emp.yesterday_c2c ?? 0), fmt(emp.yesterday_c2s ?? 0), emp.yesterday_transaction_count ?? 0,
             statusLabel(timeBasedStatus(emp.percentage, days_elapsed, total_days)),
           ];
-      addDataRow(ws, r, cells, 1, i % 2 === 1, cells.length - 1, pctIdx, fullBorder);
+      addDataRow(ws, r, cells, 1, i % 2 === 1, statusIdx, pctIdx, fullBorder);
       r++;
     });
     if (employees.length > 0) {
@@ -349,6 +356,9 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
       const totalDRRwithoutF = Math.ceil(totalRemaining / Math.max(summary.days_remaining, 1));
       const evTotal = employees.reduce((s, e) => s + (e.ev_target ?? 0), 0);
       const scTotal = employees.reduce((s, e) => s + (e.sc_target ?? 0), 0);
+      const totalYesterdayC2c = employees.reduce((s, e) => s + (e.yesterday_c2c ?? 0), 0);
+      const totalYesterdayC2s = employees.reduce((s, e) => s + (e.yesterday_c2s ?? 0), 0);
+      const totalTxnCount = employees.reduce((s, e) => s + (e.yesterday_transaction_count ?? 0), 0);
       const subtotalCells = isEv
         ? [
             "", "Subtotal", "",
@@ -356,6 +366,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
             fmt(totalAchieved), `${totalPct}%`,
             fmt(totalRemaining), totalDRRwithoutF, fmt1(Math.round(totalDailyAvg)),
             `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
+            fmt(totalYesterdayC2c), fmt(totalYesterdayC2s), totalTxnCount,
             statusLabel(timeBasedStatus(totalPct, days_elapsed, total_days)),
           ]
         : [
@@ -364,13 +375,14 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
             fmt(totalAchieved), `${totalPct}%`,
             fmt(totalRemaining), totalDRRwithoutF, fmt1(Math.round(totalDailyAvg)),
             `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
+            fmt(totalYesterdayC2c), fmt(totalYesterdayC2s), totalTxnCount,
             statusLabel(timeBasedStatus(totalPct, days_elapsed, total_days)),
           ];
       const subRow = ws.getRow(r);
       subtotalCells.forEach((val, i) => {
         const cell = subRow.getCell(1 + i);
         cell.value = val;
-        const isStatus = i === subtotalCells.length - 1;
+        const isStatus = i === statusIdx;
         const isPct = i === pctIdx;
         cell.font = {
           bold: true,

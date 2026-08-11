@@ -91,12 +91,13 @@ class RechargeReportService:
     async def _get_recharge_sum_for_date(
         self,
         target_date: date,
+        report_type: str = "C2C",
         retailer_ids: Optional[set[int]] = None,
         retailer_codes: Optional[list[str]] = None,
     ) -> float:
         q = select(func.coalesce(func.sum(ITopUpDetail.daily_value), 0)).where(
             ITopUpDetail.house_id == self.house_id,
-            ITopUpDetail.report_type == "C2C",
+            ITopUpDetail.report_type == report_type,
             ITopUpDetail.report_date == target_date,
         )
         if retailer_ids:
@@ -105,6 +106,22 @@ class RechargeReportService:
             q = q.where(ITopUpDetail.retailer_code.in_(retailer_codes))
         res = await self.db.execute(q)
         return float(res.scalar() or 0)
+
+    async def _get_unique_transaction_count(
+        self,
+        target_date: date,
+        report_type: str = "C2C",
+        retailer_ids: Optional[set[int]] = None,
+    ) -> int:
+        q = select(func.count(func.distinct(ITopUpDetail.retailer_id))).where(
+            ITopUpDetail.house_id == self.house_id,
+            ITopUpDetail.report_type == report_type,
+            ITopUpDetail.report_date == target_date,
+        )
+        if retailer_ids:
+            q = q.where(ITopUpDetail.retailer_id.in_(retailer_ids))
+        res = await self.db.execute(q)
+        return int(res.scalar() or 0)
 
     async def get_summary(self) -> dict:
         target = await self._get_house_target()
@@ -253,6 +270,8 @@ class RechargeReportService:
                 status = "behind"
 
             yesterday_val = await self._get_recharge_sum_for_date(yesterday_date, retailer_ids=retailer_ids) if retailer_ids and yesterday_date >= self.month_start else 0
+            yesterday_c2s = await self._get_recharge_sum_for_date(yesterday_date, report_type="C2S", retailer_ids=retailer_ids) if retailer_ids and yesterday_date >= self.month_start else 0
+            yesterday_txn_count = await self._get_unique_transaction_count(yesterday_date, retailer_ids=retailer_ids) if retailer_ids and yesterday_date >= self.month_start else 0
 
             results.append({
                 "id": emp_id,
@@ -269,6 +288,9 @@ class RechargeReportService:
                 "employee_type": "rso",
                 "itop_number": itop_map.get(emp_id),
                 "yesterday_achievement": yesterday_val,
+                "yesterday_c2c": yesterday_val,
+                "yesterday_c2s": yesterday_c2s,
+                "yesterday_transaction_count": yesterday_txn_count,
             })
 
         results.sort(key=lambda r: r["percentage"], reverse=True)
@@ -369,6 +391,8 @@ class RechargeReportService:
                 status = "behind"
 
             yesterday_val = await self._get_recharge_sum_for_date(yesterday_date, retailer_ids=all_rso_retailer_ids) if all_rso_retailer_ids and yesterday_date >= self.month_start else 0
+            yesterday_c2s = await self._get_recharge_sum_for_date(yesterday_date, report_type="C2S", retailer_ids=all_rso_retailer_ids) if all_rso_retailer_ids and yesterday_date >= self.month_start else 0
+            yesterday_txn_count = await self._get_unique_transaction_count(yesterday_date, retailer_ids=all_rso_retailer_ids) if all_rso_retailer_ids and yesterday_date >= self.month_start else 0
 
             results.append({
                 "id": emp_id,
@@ -385,6 +409,9 @@ class RechargeReportService:
                 "status": status,
                 "employee_type": "supervisor",
                 "yesterday_achievement": yesterday_val,
+                "yesterday_c2c": yesterday_val,
+                "yesterday_c2s": yesterday_c2s,
+                "yesterday_transaction_count": yesterday_txn_count,
             })
 
         results.sort(key=lambda r: r["percentage"], reverse=True)

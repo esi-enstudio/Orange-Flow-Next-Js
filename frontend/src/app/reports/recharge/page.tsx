@@ -70,6 +70,9 @@ interface EmployeePerformance {
   itop_number?: string;
   pool_number?: string;
   yesterday_achievement?: number;
+  yesterday_c2c?: number;
+  yesterday_c2s?: number;
+  yesterday_transaction_count?: number;
 }
 
 interface DailyTrend {
@@ -307,6 +310,18 @@ function PerformanceTable({ data, t, type, reportType, daysElapsed, totalDays, d
                     </div>
                   </span>
                 </div>
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.yesterday_c2c")}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_c2c ?? 0)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.yesterday_c2s")}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_c2s ?? 0)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">{t("recharge_report.yesterday_transaction_count")}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_transaction_count ?? 0)}</span>
+                </div>
               </div>
             )}
           </div>
@@ -332,6 +347,9 @@ function PerformanceTable({ data, t, type, reportType, daysElapsed, totalDays, d
               <th className="px-4 py-3 text-center">DRR</th>
               <th className="px-4 py-3 text-center">{t("recharge_report.daily_average")}</th>
               <th className="px-4 py-3 text-center">{t("recharge_report.projection")}</th>
+              <th className="px-4 py-3 text-center">{t("recharge_report.yesterday_c2c")}</th>
+              <th className="px-4 py-3 text-center">{t("recharge_report.yesterday_c2s")}</th>
+              <th className="px-4 py-3 text-center">{t("recharge_report.yesterday_transaction_count")}</th>
               <th className="px-4 py-3 text-center">{t("recharge_report.status")}</th>
             </tr>
           </thead>
@@ -410,6 +428,15 @@ function PerformanceTable({ data, t, type, reportType, daysElapsed, totalDays, d
                   </div>
                 </td>
                 <td className="px-2 py-1 text-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.yesterday_c2c ?? 0)}</span>
+                </td>
+                <td className="px-2 py-1 text-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.yesterday_c2s ?? 0)}</span>
+                </td>
+                <td className="px-2 py-1 text-center">
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(emp.yesterday_transaction_count ?? 0)}</span>
+                </td>
+                <td className="px-2 py-1 text-center">
                   <StatusBadge status={timeBasedStatus(emp.percentage, daysElapsed, totalDays)} t={t} />
                 </td>
               </tr>
@@ -423,6 +450,9 @@ function PerformanceTable({ data, t, type, reportType, daysElapsed, totalDays, d
               const totalRemaining = data.reduce((s, e) => s + e.remaining, 0);
               const totalDailyAvg = totalAchieved / Math.max(daysElapsed, 1);
               const totalProjection = data.reduce((s, e) => s + e.projection, 0);
+              const totalYesterdayC2c = data.reduce((s, e) => s + (e.yesterday_c2c ?? 0), 0);
+              const totalYesterdayC2s = data.reduce((s, e) => s + (e.yesterday_c2s ?? 0), 0);
+              const totalTxnCount = data.reduce((s, e) => s + (e.yesterday_transaction_count ?? 0), 0);
               return (
                 <tr className="border-t-2 border-gray-300 dark:border-slate-600 bg-gray-50/80 dark:bg-slate-800/80">
                   <td className="px-2 py-1" />
@@ -475,6 +505,15 @@ function PerformanceTable({ data, t, type, reportType, daysElapsed, totalDays, d
                     <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                       {Math.round(totalProjection / Math.max(totalTarget, 1) * 100)}%
                     </div>
+                  </td>
+                  <td className="px-2 py-1 text-center">
+                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalYesterdayC2c)}</span>
+                  </td>
+                  <td className="px-2 py-1 text-center">
+                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalYesterdayC2s)}</span>
+                  </td>
+                  <td className="px-2 py-1 text-center">
+                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalTxnCount)}</span>
                   </td>
                   <td className="px-2 py-1 text-center">
                     <StatusBadge status={timeBasedStatus(totalPct, daysElapsed, totalDays)} t={t} />
