@@ -24,6 +24,15 @@ interface House {
   id: number; name: string; code: string;
 }
 
+interface SupervisorOption {
+  id: number | null;
+  user_id: number | null;
+  name: string | null;
+  employee_id: string;
+  itop_number: string;
+  pool_number: string;
+}
+
 interface RSOTargetRecord {
   id: number;
   house_id: number;
@@ -87,6 +96,7 @@ export default function RSOTargetsPage() {
   const [editingItem, setEditingItem] = useState<RSOTargetRecord | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [rsoList, setRsoList] = useState<RSOOption[]>([]);
+  const [supervisorList, setSupervisorList] = useState<SupervisorOption[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [formData, setFormData] = useState({
     house_id: 0,
@@ -133,15 +143,28 @@ export default function RSOTargetsPage() {
     finally { setLoading(false); }
   }, [search, page, filters]);
 
-  const fetchRsoList = async (houseId?: number) => {
+  const fetchRsoList = async (houseId?: number, excludeMonth?: string) => {
     try {
       const params: Record<string, string> = {};
       if (houseId) params.house_id = String(houseId);
+      if (excludeMonth) params.exclude_month = excludeMonth;
       const res = await apiClient.get("employees/rso-list", { params });
       const list: RSOOption[] = res.data?.data || [];
       setRsoList(list);
     } catch (err: any) {
       console.error("Fetch RSO list error:", err);
+    }
+  };
+
+  const fetchSupervisorList = async (houseId?: number) => {
+    try {
+      const params: Record<string, string> = {};
+      if (houseId) params.house_id = String(houseId);
+      const res = await apiClient.get("employees/supervisors-list", { params });
+      const list: SupervisorOption[] = res.data?.data || [];
+      setSupervisorList(list);
+    } catch (err: any) {
+      console.error("Fetch supervisor list error:", err);
     }
   };
 
@@ -167,9 +190,12 @@ export default function RSOTargetsPage() {
   const openAddModal = async () => {
     await fetchHouses();
     setRsoList([]);
+    setSupervisorList([]);
     setEditingItem(null);
+    const now = new Date();
+    const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     setFormData({
-      house_id: 0, employee_id: 0, supervisor_id: 0, target_date: "", ev_secondary: "", sc_secondary: "",
+      house_id: 0, employee_id: 0, supervisor_id: 0, target_date: defaultMonth, ev_secondary: "", sc_secondary: "",
       total_recharge: "", ga: "", sso: "", lso: "", bso: "", ddso: "", dsso: "", dso: "", dlso: "",
       service_route: "", market_type: "", thana_name: "", extra_targets: [],
     });
@@ -180,7 +206,10 @@ export default function RSOTargetsPage() {
 
   const openEditModal = async (item: RSOTargetRecord) => {
     await fetchHouses();
-    if (item.house_id) fetchRsoList(item.house_id);
+    if (item.house_id) {
+      fetchRsoList(item.house_id);
+      fetchSupervisorList(item.house_id);
+    }
     setEditingItem(item);
     const extra = item.extra_targets;
     const extraArr = extra && typeof extra === "object"
@@ -219,13 +248,6 @@ export default function RSOTargetsPage() {
     if (!formData.ev_secondary) errors.ev_secondary = "EV Secondary is required";
     if (!formData.sc_secondary) errors.sc_secondary = "SC Secondary is required";
     if (!formData.ga) errors.ga = "GA is required";
-    if (!formData.sso) errors.sso = "SSO is required";
-    if (!formData.lso) errors.lso = "LSO is required";
-    if (!formData.bso) errors.bso = "BSO is required";
-    if (!formData.ddso) errors.ddso = "DDSO is required";
-    if (!formData.dsso) errors.dsso = "DSSO is required";
-    if (!formData.dso) errors.dso = "DSO is required";
-    if (!formData.dlso) errors.dlso = "DLSO is required";
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -675,7 +697,7 @@ export default function RSOTargetsPage() {
                       <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider ml-1">
                         {t('house_targets.field_house')} <span className="text-red-500">*</span>
                       </label>
-                      <select value={formData.house_id} onChange={e => { const h = parseInt(e.target.value); setFormData({...formData, house_id: h, employee_id: 0}); if (h) fetchRsoList(h); }}
+                      <select value={formData.house_id} onChange={e => { const h = parseInt(e.target.value); setFormData({...formData, house_id: h, employee_id: 0, supervisor_id: 0}); if (h) { fetchRsoList(h, formData.target_date); fetchSupervisorList(h); } }}
                         className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-2xl text-sm dark:text-gray-100 outline-none focus:border-primary-500/30 transition-all">
                         <option value={0} className="dark:bg-slate-800 dark:text-gray-400">{t('house_targets.field_house_placeholder')}</option>
                         {houses.map(h => (
@@ -697,13 +719,28 @@ export default function RSOTargetsPage() {
                       </select>
                       {fieldErrors.employee_id && <p className="text-[10px] text-red-500 font-bold ml-1">{fieldErrors.employee_id}</p>}
                     </div>
-                    <InputField label={t('rso_targets.field_supervisor')} type="text"
-                      value={formData.supervisor_id ? String(formData.supervisor_id) : ""}
-                      onChange={v => setFormData({...formData, supervisor_id: v ? parseInt(v) : 0})}
-                      placeholder={t('rso_targets.field_supervisor_placeholder')} />
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider ml-1">
+                        {t('rso_targets.field_supervisor')}
+                      </label>
+                      <select value={formData.supervisor_id} onChange={e => setFormData({...formData, supervisor_id: parseInt(e.target.value)})}
+                        disabled={!formData.house_id}
+                        className="w-full py-3 px-4 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-2xl text-sm dark:text-gray-100 outline-none focus:border-primary-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                        <option value={0} className="dark:bg-slate-800 dark:text-gray-400">{t('rso_targets.field_supervisor_placeholder')}</option>
+                        {supervisorList.map(s => (
+                          <option key={s.id ?? s.user_id} value={s.id ?? 0} className="dark:bg-slate-800 dark:text-gray-100">
+                            {s.name || s.pool_number || s.employee_id}{s.pool_number ? ` (${s.pool_number})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {fieldErrors.supervisor_id && <p className="text-[10px] text-red-500 font-bold ml-1">{fieldErrors.supervisor_id}</p>}
+                    </div>
                     <InputField label={t('rso_targets.field_target_date')} type="month" required
                       value={formData.target_date}
-                      onChange={v => setFormData({...formData, target_date: v})}
+                      onChange={v => {
+                        setFormData({...formData, target_date: v, employee_id: 0});
+                        if (formData.house_id && !editingItem) fetchRsoList(formData.house_id, v);
+                      }}
                       leftIcon={Crosshair}
                       error={fieldErrors.target_date} />
                   </div>
@@ -747,37 +784,37 @@ export default function RSOTargetsPage() {
 
                   <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest pt-2">SO Targets</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <InputField label={t('rso_targets.field_sso')} type="number" required
+                    <InputField label={t('rso_targets.field_sso')} type="number"
                       value={formData.sso}
                       onChange={v => setFormData({...formData, sso: v})}
                       placeholder={t('rso_targets.field_sso_placeholder')}
                       error={fieldErrors.sso} />
-                    <InputField label={t('rso_targets.field_lso')} type="number" required
+                    <InputField label={t('rso_targets.field_lso')} type="number"
                       value={formData.lso}
                       onChange={v => setFormData({...formData, lso: v})}
                       placeholder={t('rso_targets.field_lso_placeholder')}
                       error={fieldErrors.lso} />
-                    <InputField label={t('rso_targets.field_bso')} type="number" required
+                    <InputField label={t('rso_targets.field_bso')} type="number"
                       value={formData.bso}
                       onChange={v => setFormData({...formData, bso: v})}
                       placeholder={t('rso_targets.field_bso_placeholder')}
                       error={fieldErrors.bso} />
-                    <InputField label={t('rso_targets.field_ddso')} type="number" required
+                    <InputField label={t('rso_targets.field_ddso')} type="number"
                       value={formData.ddso}
                       onChange={v => setFormData({...formData, ddso: v})}
                       placeholder={t('rso_targets.field_ddso_placeholder')}
                       error={fieldErrors.ddso} />
-                    <InputField label={t('rso_targets.field_dsso')} type="number" required
+                    <InputField label={t('rso_targets.field_dsso')} type="number"
                       value={formData.dsso}
                       onChange={v => setFormData({...formData, dsso: v})}
                       placeholder={t('rso_targets.field_dsso_placeholder')}
                       error={fieldErrors.dsso} />
-                    <InputField label={t('rso_targets.field_dso')} type="number" required
+                    <InputField label={t('rso_targets.field_dso')} type="number"
                       value={formData.dso}
                       onChange={v => setFormData({...formData, dso: v})}
                       placeholder={t('rso_targets.field_dso_placeholder')}
                       error={fieldErrors.dso} />
-                    <InputField label={t('rso_targets.field_dlso')} type="number" required
+                    <InputField label={t('rso_targets.field_dlso')} type="number"
                       value={formData.dlso}
                       onChange={v => setFormData({...formData, dlso: v})}
                       placeholder={t('rso_targets.field_dlso_placeholder')}

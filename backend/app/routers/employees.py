@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response
@@ -15,6 +16,7 @@ from app.models.house import House
 from app.models.user import User
 from app.models.retailer import Retailer
 from app.models.bp_retailer_code import BpRetailerCode
+from app.models.rso_target import RSOTarget
 from pydantic import BaseModel
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
@@ -847,6 +849,7 @@ async def get_unassigned_rsos(
 @router.get("/rso-list")
 async def get_rso_list(
     selected_house_id: Optional[int] = Query(None, alias="house_id"),
+    exclude_month: Optional[str] = Query(None, alias="exclude_month"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("employees.view")),
     house_id: Optional[int] = Depends(get_house_context),
@@ -866,6 +869,15 @@ async def get_rso_list(
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
             query = query.where(Employee.house_id.in_(user_house_ids))
+
+    if exclude_month:
+        try:
+            exclude_date = date.fromisoformat(exclude_month + "-01")
+        except ValueError:
+            exclude_date = None
+        if exclude_date:
+            exclude_subq = select(RSOTarget.employee_id).where(RSOTarget.target_date == exclude_date)
+            query = query.where(Employee.id.not_in(exclude_subq))
 
     result = await db.execute(query.order_by(Employee.dms_code))
     employees = result.unique().scalars().all()

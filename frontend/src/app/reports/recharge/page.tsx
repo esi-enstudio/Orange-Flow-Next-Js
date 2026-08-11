@@ -335,7 +335,7 @@ function PerformanceTable({ data, t, type, reportType, daysElapsed, totalDays, d
               <th className="px-4 py-3 text-center">{t("recharge_report.status")}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50 dark:border-slate-800">
+          <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
             {data.map((emp, idx) => (
               <tr key={emp.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
                 <td className="px-2 py-1">
@@ -517,7 +517,7 @@ function LeaderboardCard({ data, title, icon: Icon, color, t }: {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
-                <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                <div className="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-500">
                   <span>{formatNumber(emp.achievement)} / {formatNumber(emp.target)}</span>
                 </div>
               </div>
