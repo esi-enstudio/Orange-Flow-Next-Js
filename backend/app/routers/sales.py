@@ -198,14 +198,22 @@ async def list_sales(
     per_page: int = Query(20, ge=1, le=100),
     product_id: Optional[int] = Query(None),
     source_type: Optional[str] = Query(None),
+    employee_id: Optional[int] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("sales.view")),
-    house_id: Optional[int] = Depends(get_house_context),
+    context_house_id: Optional[int] = Depends(get_house_context),
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
-    cond = _house_filter_condition(SalesRecord, current_user, house_id)
+    cond = _house_filter_condition(SalesRecord, current_user, context_house_id)
+    if filter_house_id is not None:
+        if not is_admin_user(current_user):
+            user_house_ids = [h.id for h in current_user.houses]
+            if filter_house_id not in user_house_ids:
+                raise HTTPException(status_code=403, detail="Access denied to this house")
+        cond = SalesRecord.house_id == filter_house_id
     base = select(SalesRecord)
     if cond is not None:
         base = base.where(cond)
@@ -214,6 +222,8 @@ async def list_sales(
         base = base.where(SalesRecord.product_id == product_id)
     if source_type:
         base = base.where(SalesRecord.source_type == source_type)
+    if employee_id:
+        base = base.where(SalesRecord.employee_id == employee_id)
     if from_date:
         try:
             base = base.where(SalesRecord.sale_date >= date.fromisoformat(from_date))
@@ -235,7 +245,8 @@ async def list_sales(
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
     query = (
         base
-        .options(joinedload(SalesRecord.product),
+        .options(joinedload(SalesRecord.house),
+                 joinedload(SalesRecord.product),
                  joinedload(SalesRecord.employee).joinedload(Employee.user),
                  joinedload(SalesRecord.creator))
         .order_by(SalesRecord.sale_date.desc(), SalesRecord.id.desc())
@@ -255,6 +266,19 @@ async def list_sales(
         employee_name=_emp_name(s.employee),
         employee_dms_code=s.employee.dms_code if s.employee else None,
         created_by_name=s.creator.name if s.creator else None,
+        house_name=s.house.name if s.house else None,
+        house_code=s.house.code if s.house else None,
+        house_region=s.house.region if s.house else None,
+        house_district=s.house.district if s.house else None,
+        house_address=s.house.address if s.house else None,
+        house_proprietor_name=s.house.proprietor_name if s.house else None,
+        house_proprietor_contact=s.house.proprietor_contact if s.house else None,
+        employee_identifier=s.employee.employee_id if s.employee else None,
+        employee_itop_number=s.employee.itop_number if s.employee else None,
+        employee_pool_number=s.employee.pool_number if s.employee else None,
+        employee_personal_number=s.employee.personal_number if s.employee else None,
+        employee_type=s.employee.employee_type if s.employee else None,
+        employee_status=s.employee.status if s.employee else None,
     ).model_dump() for s in rows]
 
     totals = {
@@ -297,7 +321,8 @@ async def get_sale(
 ):
     result = await db.execute(
         select(SalesRecord)
-        .options(joinedload(SalesRecord.product),
+        .options(joinedload(SalesRecord.house),
+                 joinedload(SalesRecord.product),
                  joinedload(SalesRecord.employee).joinedload(Employee.user),
                  joinedload(SalesRecord.creator))
         .where(SalesRecord.id == sale_id, SalesRecord.is_deleted == False)
@@ -318,6 +343,19 @@ async def get_sale(
         employee_name=_emp_name(sale.employee),
         employee_dms_code=sale.employee.dms_code if sale.employee else None,
         created_by_name=sale.creator.name if sale.creator else None,
+        house_name=sale.house.name if sale.house else None,
+        house_code=sale.house.code if sale.house else None,
+        house_region=sale.house.region if sale.house else None,
+        house_district=sale.house.district if sale.house else None,
+        house_address=sale.house.address if sale.house else None,
+        house_proprietor_name=sale.house.proprietor_name if sale.house else None,
+        house_proprietor_contact=sale.house.proprietor_contact if sale.house else None,
+        employee_identifier=sale.employee.employee_id if sale.employee else None,
+        employee_itop_number=sale.employee.itop_number if sale.employee else None,
+        employee_pool_number=sale.employee.pool_number if sale.employee else None,
+        employee_personal_number=sale.employee.personal_number if sale.employee else None,
+        employee_type=sale.employee.employee_type if sale.employee else None,
+        employee_status=sale.employee.status if sale.employee else None,
     ).model_dump()}
 
 

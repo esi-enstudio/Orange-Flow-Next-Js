@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -71,6 +71,33 @@ interface Sale {
   notes?: string;
   created_at?: string;
   created_by_name?: string;
+  house_id?: number;
+  house_name?: string;
+  house_code?: string;
+  house_region?: string;
+  house_district?: string;
+  house_address?: string;
+  house_proprietor_name?: string;
+  house_proprietor_contact?: string;
+  employee_identifier?: string;
+  employee_dms_code?: string;
+  employee_itop_number?: string;
+  employee_pool_number?: string;
+  employee_personal_number?: string;
+  employee_type?: string;
+  employee_status?: string;
+}
+
+interface SaleGroup {
+  key: string;
+  type: "employee" | "house";
+  id: number;
+  name: string;
+  number: string;
+  source_type: "rso" | "warehouse";
+  count: number;
+  quantity: number;
+  amount: number;
 }
 
 function fmtMoney(n: number) {
@@ -80,6 +107,93 @@ function fmtMoney(n: number) {
 function fmtDate(d?: string) {
   if (!d) return "-";
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function empNumber(s: Sale) {
+  return s.employee_identifier || s.employee_dms_code || s.employee_itop_number || s.employee_personal_number || "";
+}
+
+function GroupDetailContent({
+  loading,
+  rows,
+  canEdit,
+  canDelete,
+  onEdit,
+  onDelete,
+  t,
+}: {
+  loading: boolean;
+  rows: Sale[];
+  canEdit: boolean;
+  canDelete: boolean;
+  onEdit: (s: Sale) => void;
+  onDelete: (s: Sale) => void;
+  t: (path: string, params?: Record<string, string | number | undefined>) => string;
+}) {
+  if (loading) {
+    return (
+      <div className="divide-y divide-gray-50 dark:divide-slate-800">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 px-3 sm:px-4 py-3 animate-pulse">
+            <div className="w-9 h-9 rounded-lg bg-gray-200 dark:bg-slate-700 shrink-0" />
+            <div className="space-y-2 flex-1">
+              <div className="h-3 w-36 bg-gray-200 dark:bg-slate-700 rounded-md" />
+              <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+            </div>
+            <div className="hidden sm:block space-y-2">
+              <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
+              <div className="h-2.5 w-12 bg-gray-100 dark:bg-slate-800 rounded-md" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return <p className="py-8 text-center text-sm text-gray-400">{t("sales.no_data")}</p>;
+  }
+
+  return (
+    <div className="divide-y divide-gray-100 dark:divide-slate-800">
+      {rows.map((r) => (
+        <div key={r.id} className="flex items-center gap-3 px-3 sm:px-4 py-2.5">
+          <div className={cn(
+            "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+            r.source_type === "warehouse" ? "bg-blue-100 dark:bg-blue-900/40" : "bg-purple-100 dark:bg-purple-900/40"
+          )}>
+            {r.source_type === "warehouse"
+              ? <Boxes className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              : <Layers className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{r.product_name}</p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              {r.product_code} · {r.sale_date ? String(r.sale_date).slice(0, 10) : fmtDate(r.created_at)}
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{fmtMoney(r.total_amount)}</p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.quantity} × {fmtMoney(r.unit_price)}</p>
+          </div>
+          {(canEdit || canDelete) && (
+            <div className="flex items-center gap-1 shrink-0">
+              {canEdit && (
+                <button onClick={() => onEdit(r)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400">
+                  <Edit2 className="h-4 w-4" />
+                </button>
+              )}
+              {canDelete && (
+                <button onClick={() => onDelete(r)} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function FieldError({ msg }: { msg?: string }) {
@@ -471,7 +585,9 @@ export default function SalesPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState<Sale | null>(null);
 
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupRows, setGroupRows] = useState<Sale[]>([]);
   const [housePrompt, setHousePrompt] = useState(false);
   const [accessibleHouses, setAccessibleHouses] = useState<{ id: number; name: string; code: string }[]>([]);
   const [modalHouse, setModalHouse] = useState<string>("");
@@ -538,6 +654,55 @@ export default function SalesPage() {
       setProducts(res.data.data || []);
     } catch {
       // non-blocking
+    }
+  };
+
+  const groups = useMemo<SaleGroup[]>(() => {
+    const map = new Map<string, SaleGroup>();
+    for (const s of sales) {
+      const isRso = s.source_type === "rso";
+      const key = isRso ? `emp:${s.employee_id ?? 0}` : `house:${s.house_id ?? 0}`;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key,
+          type: isRso ? "employee" : "house",
+          id: isRso ? (s.employee_id ?? 0) : (s.house_id ?? 0),
+          name: isRso ? (s.employee_name || "-") : (s.house_name || "-"),
+          number: isRso ? empNumber(s) : (s.house_code || ""),
+          source_type: isRso ? "rso" : "warehouse",
+          count: 0,
+          quantity: 0,
+          amount: 0,
+        };
+        map.set(key, g);
+      }
+      g.count += 1;
+      g.quantity += s.quantity;
+      g.amount += s.total_amount;
+    }
+    return Array.from(map.values());
+  }, [sales]);
+
+  const toggleGroup = async (g: SaleGroup) => {
+    if (expandedKey === g.key) {
+      setExpandedKey(null);
+      setGroupRows([]);
+      return;
+    }
+    setExpandedKey(g.key);
+    setGroupLoading(true);
+    setGroupRows([]);
+    try {
+      const params: Record<string, string> = { per_page: "100" };
+      if (g.type === "employee") params.employee_id = String(g.id);
+      else params.house_id = String(g.id);
+      const res = await apiClient.get("sales", { params, headers });
+      setGroupRows(res.data.data || []);
+    } catch {
+      toast.error(t("common.error"));
+    } finally {
+      setGroupLoading(false);
     }
   };
 
@@ -866,58 +1031,81 @@ export default function SalesPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-slate-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      <th className="px-4 py-3">{t("sales.product")}</th>
+                      <th className="px-4 py-3">{t("sales.party")}</th>
                       <th className="px-2 py-1">{t("sales.source")}</th>
-                      <th className="px-2 py-1">{t("sales.employee")}</th>
-                      <th className="px-2 py-1">{t("sales.quantity")}</th>
-                      <th className="px-2 py-1 text-right">{t("sales.unit_price")}</th>
-                      <th className="px-2 py-1 text-right">{t("sales.total")}</th>
-                      <th className="px-2 py-1">{t("sales.sale_date")}</th>
-                      <th className="px-2 py-1 text-right">{t("common.actions")}</th>
+                      <th className="px-2 py-1 text-right">{t("sales.records")}</th>
+                      <th className="px-2 py-1 text-right">{t("sales.total_quantity")}</th>
+                      <th className="px-2 py-1 text-right">{t("sales.total_amount")}</th>
+                      <th className="px-2 py-1 text-right">{t("common.table_actions")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 dark:divide-slate-800/60">
-                    {sales.map((s) => (
-                      <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50">
-                        <td className="px-4 py-2">
-                          <p className="font-medium text-gray-900 dark:text-gray-100">{s.product_name}</p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{s.product_code}</p>
-                        </td>
-                        <td className="px-2 py-1">
-                          <span className={cn(
-                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-                            s.source_type === "warehouse"
-                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                              : "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
-                          )}>
-                            {s.source_type === "warehouse" ? <Boxes className="h-3 w-3" /> : <Layers className="h-3 w-3" />}
-                            {s.source_type === "warehouse" ? t("sales.warehouse") : t("sales.rso")}
-                          </span>
-                        </td>
-                        <td className="px-2 py-1 text-gray-600 dark:text-gray-300">{s.employee_name || "-"}</td>
-                        <td className="px-2 py-1 font-medium">{s.quantity}</td>
-                        <td className="px-2 py-1 text-right">{fmtMoney(s.unit_price)}</td>
-                        <td className="px-2 py-1 text-right font-semibold text-emerald-600 dark:text-emerald-400">{fmtMoney(s.total_amount)}</td>
-                        <td className="px-2 py-1 text-gray-500 dark:text-gray-400">{s.sale_date ? String(s.sale_date).slice(0, 10) : fmtDate(s.created_at)}</td>
-                        <td className="px-2 py-1">
-                          <div className="flex items-center justify-end gap-1">
-                            {hasPermission("sales.edit") && (
-                              <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400">
-                                <Edit2 className="h-4 w-4" />
-                              </button>
-                            )}
-                            {hasPermission("sales.delete") && (
-                              <button onClick={() => { setDeleting(s); confirmDelete(); }} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500">
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {sales.length === 0 && (
+                    {groups.map((g) => {
+                      const open = expandedKey === g.key;
+                      return (
+                        <Fragment key={g.key}>
+                          <tr onClick={() => toggleGroup(g)} className="cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-900/50">
+                            <td className="px-4 py-2">
+                              <div className="flex items-center gap-3">
+                                <div className={cn(
+                                  "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                                  g.type === "employee" ? "bg-purple-100 dark:bg-purple-900/40" : "bg-blue-100 dark:bg-blue-900/40"
+                                )}>
+                                  {g.type === "employee"
+                                    ? <Users className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                                    : <Warehouse className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{g.name}</p>
+                                  <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{g.number || "-"}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-2 py-1">
+                              <span className={cn(
+                                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                                g.type === "employee"
+                                  ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+                                  : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                              )}>
+                                {g.type === "employee" ? <Layers className="h-3 w-3" /> : <Boxes className="h-3 w-3" />}
+                                {g.type === "employee" ? t("sales.rso") : t("sales.warehouse")}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1 text-right tabular-nums">{g.count}</td>
+                            <td className="px-2 py-1 text-right tabular-nums">{g.quantity}</td>
+                            <td className="px-2 py-1 text-right font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">{fmtMoney(g.amount)}</td>
+                            <td className="px-2 py-1">
+                              <div className="flex items-center justify-end">
+                                {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                              </div>
+                            </td>
+                          </tr>
+                          {open && (
+                            <tr className="bg-gray-50/70 dark:bg-slate-900/60">
+                              <td colSpan={6} className="px-4 py-3">
+                                <div className="flex items-center justify-between mb-2 px-1">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("sales.sale_history")}</p>
+                                  <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">{groupLoading ? "..." : groupRows.length}</span>
+                                </div>
+                                <GroupDetailContent
+                                  loading={groupLoading}
+                                  rows={groupRows}
+                                  canEdit={hasPermission("sales.edit")}
+                                  canDelete={hasPermission("sales.delete")}
+                                  onEdit={openEdit}
+                                  onDelete={(s) => { setDeleting(s); confirmDelete(); }}
+                                  t={t}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {groups.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-4 py-10 text-center text-gray-400">{t("sales.no_data")}</td>
+                        <td colSpan={6} className="px-4 py-10 text-center text-gray-400">{t("sales.no_data")}</td>
                       </tr>
                     )}
                   </tbody>
@@ -925,67 +1113,46 @@ export default function SalesPage() {
               </div>
 
               <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
-                {sales.map((s) => {
-                  const open = expandedId === s.id;
+                {groups.map((g) => {
+                  const open = expandedKey === g.key;
                   return (
-                    <div key={s.id} className="px-4 py-3">
-                      <button className="w-full flex items-center gap-3 text-left" onClick={() => setExpandedId(open ? null : s.id)}>
+                    <div key={g.key} className="px-4 py-3">
+                      <button className="w-full flex items-center gap-3 text-left" onClick={() => toggleGroup(g)}>
                         <div className={cn(
                           "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-                          s.source_type === "warehouse" ? "bg-blue-100 dark:bg-blue-900/40" : "bg-purple-100 dark:bg-purple-900/40"
+                          g.type === "employee" ? "bg-purple-100 dark:bg-purple-900/40" : "bg-blue-100 dark:bg-blue-900/40"
                         )}>
-                          {s.source_type === "warehouse"
-                            ? <Boxes className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                            : <Layers className="h-5 w-5 text-purple-600 dark:text-purple-400" />}
+                          {g.type === "employee"
+                            ? <Users className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                            : <Warehouse className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{s.product_name}</p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{s.product_code} · {fmtDate(s.sale_date || s.created_at)}</p>
+                          <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{g.name}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{g.number || "-"}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-semibold text-emerald-600 dark:text-emerald-400">{fmtMoney(s.total_amount)}</p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{s.quantity} × {fmtMoney(s.unit_price)}</p>
+                          <p className="font-semibold text-emerald-600 dark:text-emerald-400">{fmtMoney(g.amount)}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{g.count} {t("sales.records").toLowerCase()}</p>
                         </div>
-                        {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                        {open ? <ChevronUp className="h-4 w-4 text-gray-400 shrink-0" /> : <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />}
                       </button>
                       {open && (
-                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm bg-gray-50 dark:bg-slate-900 rounded-xl p-3">
-                          <div>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("sales.source")}</p>
-                            <p className="font-medium text-gray-900 dark:text-gray-100">
-                              {s.source_type === "warehouse" ? t("sales.warehouse") : t("sales.rso")}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("sales.employee")}</p>
-                            <p className="font-medium text-gray-900 dark:text-gray-100">{s.employee_name || "-"}</p>
-                          </div>
-                          <div>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("sales.quantity")}</p>
-                            <p className="font-medium text-gray-900 dark:text-gray-100">{s.quantity}</p>
-                          </div>
-                          <div>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("sales.unit_price")}</p>
-                            <p className="font-medium text-gray-900 dark:text-gray-100">{fmtMoney(s.unit_price)}</p>
-                          </div>
-                          <div className="col-span-2 flex items-center justify-end gap-2 pt-1 border-t border-gray-200 dark:border-slate-800">
-                            {hasPermission("sales.edit") && (
-                              <Button size="sm" variant="outline" onClick={() => openEdit(s)}>
-                                <Edit2 className="h-3.5 w-3.5" /> {t("common.edit")}
-                              </Button>
-                            )}
-                            {hasPermission("sales.delete") && (
-                              <Button size="sm" variant="destructive" onClick={() => { setDeleting(s); confirmDelete(); }}>
-                                <Trash2 className="h-3.5 w-3.5" /> {t("common.delete")}
-                              </Button>
-                            )}
-                          </div>
+                        <div className="mt-3 rounded-xl bg-gray-50 dark:bg-slate-900 p-2">
+                          <GroupDetailContent
+                            loading={groupLoading}
+                            rows={groupRows}
+                            canEdit={hasPermission("sales.edit")}
+                            canDelete={hasPermission("sales.delete")}
+                            onEdit={openEdit}
+                            onDelete={(s) => { setDeleting(s); confirmDelete(); }}
+                            t={t}
+                          />
                         </div>
                       )}
                     </div>
                   );
                 })}
-                {sales.length === 0 && (
+                {groups.length === 0 && (
                   <div className="px-4 py-10 text-center text-gray-400">{t("sales.no_data")}</div>
                 )}
               </div>

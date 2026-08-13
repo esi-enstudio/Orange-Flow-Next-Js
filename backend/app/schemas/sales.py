@@ -86,6 +86,21 @@ class SalesSchema(BaseModel):
     employee_dms_code: Optional[str] = None
     created_by_name: Optional[str] = None
 
+    house_name: Optional[str] = None
+    house_code: Optional[str] = None
+    house_region: Optional[str] = None
+    house_district: Optional[str] = None
+    house_address: Optional[str] = None
+    house_proprietor_name: Optional[str] = None
+    house_proprietor_contact: Optional[str] = None
+
+    employee_identifier: Optional[str] = None
+    employee_itop_number: Optional[str] = None
+    employee_pool_number: Optional[str] = None
+    employee_personal_number: Optional[str] = None
+    employee_type: Optional[str] = None
+    employee_status: Optional[str] = None
+
     class Config:
         from_attributes = True
 
