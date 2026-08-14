@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional
 
@@ -55,44 +56,59 @@ class WhatsAppServiceClient:
         file_bytes: bytes,
         caption: str = "",
         mimetype: str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        retries: int = 2,
     ) -> dict:
         self._check_enabled()
-        try:
-            files = {"file": (filename, file_bytes, mimetype)}
-            data = {"chatId": chat_id, "caption": caption}
-            async with httpx.AsyncClient(timeout=60) as client:
-                resp = await client.post(f"{self.base_url}/api/send-file", files=files, data=data)
-                resp.raise_for_status()
-                body = resp.json()
-                if not body.get("success"):
-                    raise WhatsAppServiceError(
-                        code=body.get("error", {}).get("code", "WA_SEND_FAILED"),
-                        message=body.get("error", {}).get("message", "Unknown error"),
-                    )
-                return body
-        except httpx.HTTPError as e:
-            logger.error(f"WhatsApp file send failed to {chat_id}: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+        files = {"file": (filename, file_bytes, mimetype)}
+        data = {"chatId": chat_id, "caption": caption}
+        last_err: Optional[WhatsAppServiceError] = None
+        for attempt in range(1 + retries):
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    resp = await client.post(f"{self.base_url}/api/send-file", files=files, data=data)
+                    resp.raise_for_status()
+                    body = resp.json()
+                    if not body.get("success"):
+                        raise WhatsAppServiceError(
+                            code=body.get("error", {}).get("code", "WA_SEND_FAILED"),
+                            message=body.get("error", {}).get("message", "Unknown error"),
+                        )
+                    return body
+            except httpx.HTTPError as e:
+                detail = str(e) or f"{type(e).__name__} (no detail)"
+                logger.warning(f"WhatsApp file send attempt {attempt + 1} failed to {chat_id}: {detail}")
+                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=detail)
+                if attempt < retries:
+                    await asyncio.sleep(3 * (attempt + 1))
+        assert last_err is not None
+        raise last_err
 
-    async def send_text(self, chat_id: str, text: str) -> dict:
+    async def send_text(self, chat_id: str, text: str, retries: int = 2) -> dict:
         self._check_enabled()
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{self.base_url}/api/send-text",
-                    json={"chatId": chat_id, "text": text},
-                )
-                resp.raise_for_status()
-                body = resp.json()
-                if not body.get("success"):
-                    raise WhatsAppServiceError(
-                        code=body.get("error", {}).get("code", "WA_SEND_FAILED"),
-                        message=body.get("error", {}).get("message", "Unknown error"),
+        last_err: Optional[WhatsAppServiceError] = None
+        for attempt in range(1 + retries):
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    resp = await client.post(
+                        f"{self.base_url}/api/send-text",
+                        json={"chatId": chat_id, "text": text},
                     )
-                return body
-        except httpx.HTTPError as e:
-            logger.error(f"WhatsApp text send failed to {chat_id}: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+                    resp.raise_for_status()
+                    body = resp.json()
+                    if not body.get("success"):
+                        raise WhatsAppServiceError(
+                            code=body.get("error", {}).get("code", "WA_SEND_FAILED"),
+                            message=body.get("error", {}).get("message", "Unknown error"),
+                        )
+                    return body
+            except httpx.HTTPError as e:
+                detail = str(e) or f"{type(e).__name__} (no detail)"
+                logger.warning(f"WhatsApp text send attempt {attempt + 1} failed to {chat_id}: {detail}")
+                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=detail)
+                if attempt < retries:
+                    await asyncio.sleep(3 * (attempt + 1))
+        assert last_err is not None
+        raise last_err
 
 
 class WhatsAppServiceError(Exception):

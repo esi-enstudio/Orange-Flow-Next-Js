@@ -98,16 +98,10 @@ function statusColor(s: string): string {
   return colors[key] || TEXT_MUTED;
 }
 
-function timeBasedStatus(pct: number, daysElapsed: number, totalDays: number): string {
-  if (pct >= 100) return "achieved";
-  if (daysElapsed <= 7) {
-    if (pct >= 70) return "on_track";
-    if (pct >= 40) return "needs_attention";
-    return "behind";
-  }
-  const timePct = totalDays > 0 ? (daysElapsed / totalDays) * 100 : 0;
-  if (pct >= timePct) return "on_track";
-  if (pct >= timePct * 0.5) return "needs_attention";
+function projectionStatus(achPct: number, projPct: number): string {
+  if (achPct >= 100) return "achieved";
+  if (projPct >= 100) return "on_track";
+  if (projPct >= 95) return "needs_attention";
   return "behind";
 }
 
@@ -257,7 +251,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
   });
 
   const dataRow = ws.getRow(2);
-  const statusStr = timeBasedStatus(summary.achievement_percentage, days_elapsed, total_days).toLowerCase().replace(/\s+/g, "_");
+  const statusStr = projectionStatus(summary.achievement_percentage, Math.round(summary.projection / Math.max(summary.monthly_target, 1) * 100)).toLowerCase().replace(/\s+/g, "_");
   const projPct = summary.monthly_target ? Math.round(summary.projection / summary.monthly_target * 100) : 0;
   const hsValues = [
     fmt(summary.monthly_target),
@@ -330,7 +324,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
             drrWithoutF,
             fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
             fmt(emp.yesterday_c2c ?? 0), fmt(emp.yesterday_c2s ?? 0), emp.yesterday_transaction_count ?? 0,
-            statusLabel(timeBasedStatus(emp.percentage, days_elapsed, total_days)),
+            statusLabel(projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100))),
           ]
         : [
             i + 1, emp.name, ident,
@@ -340,7 +334,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
             drrWithoutF,
             fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
             fmt(emp.yesterday_c2c ?? 0), fmt(emp.yesterday_c2s ?? 0), emp.yesterday_transaction_count ?? 0,
-            statusLabel(timeBasedStatus(emp.percentage, days_elapsed, total_days)),
+            statusLabel(projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100))),
           ];
       addDataRow(ws, r, cells, 1, i % 2 === 1, statusIdx, pctIdx, fullBorder);
       r++;
@@ -367,7 +361,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
             fmt(totalRemaining), totalDRRwithoutF, fmt1(Math.round(totalDailyAvg)),
             `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
             fmt(totalYesterdayC2c), fmt(totalYesterdayC2s), totalTxnCount,
-            statusLabel(timeBasedStatus(totalPct, days_elapsed, total_days)),
+            statusLabel(projectionStatus(totalPct, totalProjPct)),
           ]
         : [
             "", "Subtotal", "",
@@ -376,7 +370,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
             fmt(totalRemaining), totalDRRwithoutF, fmt1(Math.round(totalDailyAvg)),
             `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
             fmt(totalYesterdayC2c), fmt(totalYesterdayC2s), totalTxnCount,
-            statusLabel(timeBasedStatus(totalPct, days_elapsed, total_days)),
+            statusLabel(projectionStatus(totalPct, totalProjPct)),
           ];
       const subRow = ws.getRow(r);
       subtotalCells.forEach((val, i) => {

@@ -97,16 +97,10 @@ function statusColor(s: string): string {
   return colors[key] || TEXT_MUTED;
 }
 
-function timeBasedStatus(pct: number, daysElapsed: number, totalDays: number): string {
-  if (pct >= 100) return "Achieved";
-  if (daysElapsed <= 7) {
-    if (pct >= 70) return "On Track";
-    if (pct >= 40) return "Needs Attention";
-    return "Behind";
-  }
-  const timePct = totalDays > 0 ? (daysElapsed / totalDays) * 100 : 0;
-  if (pct >= timePct) return "On Track";
-  if (pct >= timePct * 0.5) return "Needs Attention";
+function projectionStatus(achPct: number, projPct: number): string {
+  if (achPct >= 100) return "Achieved";
+  if (projPct >= 100) return "On Track";
+  if (projPct >= 95) return "Needs Attention";
   return "Behind";
 }
 
@@ -257,7 +251,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
 
   // ── HOUSE SUMMARY data (row 2, cols D-M) ──
   const dataRow = ws.getRow(2);
-  const statusStr = timeBasedStatus(summary.achievement_percentage, days_elapsed, total_days).toLowerCase().replace(/\s+/g, "_");
+  const statusStr = projectionStatus(summary.achievement_percentage, Math.round(summary.projection / Math.max(summary.monthly_target, 1) * 100)).toLowerCase().replace(/\s+/g, "_");
   const hsValues = [
     fmt(summary.monthly_target),
     fmt(summary.achievement),
@@ -340,7 +334,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
             fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
             `Yest ${fmt(emp.market_yesterday ?? 0)} / MTD ${fmt(emp.market_activation ?? 0)}`,
             `Yest ${fmt(emp.yesterday_activation ?? 0)} / MTD ${fmt(emp.month_total_activation ?? 0)} (Day ${emp.active_days ?? 0})`,
-            timeBasedStatus(emp.percentage, days_elapsed, total_days),
+            projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
           ]
         : isBp
           ? [
@@ -351,7 +345,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
               fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
               fmt(emp.yesterday_activation ?? 0),
               String(emp.active_days ?? 0),
-              timeBasedStatus(emp.percentage, days_elapsed, total_days),
+              projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
             ]
           : isSupervisor
             ? [
@@ -361,13 +355,13 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
                 `${drrWithoutF} / F:${drrWithF}`,
                 fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
                 fmt(emp.yesterday_activation ?? 0),
-                timeBasedStatus(emp.percentage, days_elapsed, total_days),
+                projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
               ]
           : [
               i + 1, emp.name, ident,
               fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
               fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
-              timeBasedStatus(emp.percentage, days_elapsed, total_days),
+              projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
             ];
       addDataRow(ws, r, cells, 1, i % 2 === 1, cells.length - 1, pctIdx, fullBorder);
       r++;
@@ -391,7 +385,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
             `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
             `Yest ${fmt(employees.reduce((s, e) => s + (e.market_yesterday ?? 0), 0))} / MTD ${fmt(employees.reduce((s, e) => s + (e.market_activation ?? 0), 0))}`,
             `Yest ${fmt(employees.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0))} / MTD ${fmt(employees.reduce((s, e) => s + (e.month_total_activation ?? 0), 0))}`,
-            timeBasedStatus(totalPct, days_elapsed, total_days),
+            projectionStatus(totalPct, totalProjPct),
           ]
         : isBp
           ? [
@@ -401,7 +395,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
               `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
               fmt(employees.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0)),
               String(employees.reduce((s, e) => s + (e.active_days ?? 0), 0)),
-              timeBasedStatus(totalPct, days_elapsed, total_days),
+              projectionStatus(totalPct, totalProjPct),
             ]
           : [
               "", "Subtotal", "",
@@ -409,7 +403,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
               fmt(totalRemaining), `${totalDRRwithoutF} / F:${totalDRRwithF}`, fmt1(Math.round(totalDailyAvg)),
               `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
               fmt(employees.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0)),
-              timeBasedStatus(totalPct, days_elapsed, total_days),
+              projectionStatus(totalPct, totalProjPct),
             ];
       const subRow = ws.getRow(r);
       subtotalCells.forEach((val, i) => {

@@ -216,22 +216,14 @@ function StatusBadge({ status, t }: { status: string; t: (key: string) => string
   );
 }
 
-function timeBasedStatus(pct: number, daysElapsed: number, totalDays: number): string {
-  if (pct >= 100) return "achieved";
-  // First 7 days: use raw percentage (old system)
-  if (daysElapsed <= 7) {
-    if (pct >= 70) return "on_track";
-    if (pct >= 40) return "needs_attention";
-    return "behind";
-  }
-  // After 7 days: time-based comparison (both as percentages 0–100)
-  const timePct = totalDays > 0 ? (daysElapsed / totalDays) * 100 : 0;
-  if (pct >= timePct) return "on_track";
-  if (pct >= timePct * 0.5) return "needs_attention";
+function projectionStatus(achPct: number, projPct: number): string {
+  if (achPct >= 100) return "achieved";
+  if (projPct >= 100) return "on_track";
+  if (projPct >= 95) return "needs_attention";
   return "behind";
 }
 
-function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; daysElapsed: number; totalDays: number; daysRemaining: number }) {
+function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; daysElapsed: number; daysRemaining: number }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   if (!data || data.length === 0) {
@@ -287,7 +279,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.achieved")}</span>
-                  <span className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">{formatNumber(emp.achievement)} <StatusBadge status={timeBasedStatus(emp.percentage, daysElapsed, totalDays)} t={t} /></span>
+                  <span className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">{formatNumber(emp.achievement)} <StatusBadge status={projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100))} t={t} /></span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">%</span>
@@ -484,7 +476,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                   </td>
                 )}
                 <td className="px-2 py-1 text-center">
-                  <StatusBadge status={timeBasedStatus(emp.percentage, daysElapsed, totalDays)} t={t} />
+                  <StatusBadge status={projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100))} t={t} />
                 </td>
               </tr>
             ))}
@@ -570,7 +562,7 @@ function PerformanceTable({ data, t, type, daysElapsed, totalDays, daysRemaining
                     </td>
                   )}
                   <td className="px-2 py-1 text-center">
-                    <StatusBadge status={timeBasedStatus(totalPct, daysElapsed, totalDays)} t={t} />
+                    <StatusBadge status={projectionStatus(totalPct, totalProjection ? Math.round(totalProjection / Math.max(totalTarget, 1) * 100) : 0)} t={t} />
                   </td>
                 </tr>
               );
@@ -1335,7 +1327,7 @@ export default function ActivationDashboardPage() {
                   <p className="text-4xl font-black text-gray-900 dark:text-gray-100">{s.achievement_percentage}%</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t("activation_report.achievement_pct")}</p>
                   {(() => {
-                    const st = timeBasedStatus(s.achievement_percentage, s.days_elapsed, s.total_days);
+                    const st = projectionStatus(s.achievement_percentage, Math.round(s.projection / Math.max(s.monthly_target, 1) * 100));
                     const statusColors: Record<string, string> = {
                       achieved: "text-emerald-600 dark:text-emerald-400",
                       on_track: "text-blue-600 dark:text-blue-400",
@@ -1989,16 +1981,16 @@ export default function ActivationDashboardPage() {
             </div>
 
               {activeTab === "rso" && (
-              <PerformanceTable data={data.rso_performance} t={t} type="rso" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
+              <PerformanceTable data={data.rso_performance} t={t} type="rso" daysElapsed={data.summary.days_elapsed} daysRemaining={data.summary.days_remaining} />
             )}
             {activeTab === "bp" && (
-              <PerformanceTable data={data.bp_performance} t={t} type="bp" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
+              <PerformanceTable data={data.bp_performance} t={t} type="bp" daysElapsed={data.summary.days_elapsed} daysRemaining={data.summary.days_remaining} />
             )}
             {activeTab === "cc" && (
-              <PerformanceTable data={data.cc_performance} t={t} type="cc" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
+              <PerformanceTable data={data.cc_performance} t={t} type="cc" daysElapsed={data.summary.days_elapsed} daysRemaining={data.summary.days_remaining} />
             )}
             {activeTab === "supervisor" && (
-              <PerformanceTable data={data.supervisor_performance} t={t} type="supervisor" daysElapsed={data.summary.days_elapsed} totalDays={data.summary.total_days} daysRemaining={data.summary.days_remaining} />
+              <PerformanceTable data={data.supervisor_performance} t={t} type="supervisor" daysElapsed={data.summary.days_elapsed} daysRemaining={data.summary.days_remaining} />
             )}
           </div>
         </>

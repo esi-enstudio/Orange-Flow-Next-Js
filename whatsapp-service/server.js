@@ -49,6 +49,7 @@ function buildClient() {
     puppeteer: {
       headless: true,
       executablePath: process.env.CHROME_PATH || undefined,
+      protocolTimeout: Number(process.env.PROTOCOL_TIMEOUT) || 120000,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -108,6 +109,9 @@ function buildClient() {
 }
 
 let restartTimer = null;
+let watchdogTimer = null;
+let lastMessageAt = Date.now();
+
 function scheduleRestart(ms) {
   if (restartTimer) return;
   restartTimer = setTimeout(() => {
@@ -118,6 +122,51 @@ function scheduleRestart(ms) {
     } catch (e) { /* ignore */ }
     buildClient();
   }, ms);
+}
+
+async function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sendMessageWithTimeout(chatId, payload, timeoutMs, options) {
+  const ms = timeoutMs || Number(process.env.SEND_TIMEOUT) || 90000;
+  try {
+    await withTimeout(client.sendMessage(chatId, payload, options), ms, "sendMessage");
+    lastMessageAt = Date.now();
+    return { success: true };
+  } catch (err) {
+    log("sendMessage failed:", err.message);
+    lastError = `Send failed: ${err.message}`;
+    scheduleRestart(2000);
+    throw err;
+  }
+}
+
+function startWatchdog() {
+  if (watchdogTimer) clearInterval(watchdogTimer);
+  watchdogTimer = setInterval(async () => {
+    if (!client || !clientReady) return;
+    // If we recently sent something successfully, the client is alive.
+    if (Date.now() - lastMessageAt < 15 * 60 * 1000) return;
+    try {
+      const state = await withTimeout(client.getState(), 15000, "getState");
+      if (state !== "CONNECTED") {
+        log("Watchdog: unexpected state", state, "restarting client");
+        scheduleRestart(1000);
+      }
+    } catch (err) {
+      log("Watchdog: health check failed:", err.message);
+      scheduleRestart(1000);
+    }
+  }, 60 * 1000);
 }
 
 async function requireReady(req, res, next) {
@@ -219,10 +268,10 @@ app.post("/api/send-text", requireReady, async (req, res) => {
     return res.status(400).json({ success: false, error: { code: "VALIDATION_ERROR", message: "chatId and text are required" } });
   }
   try {
-    await client.sendMessage(chatId, text);
+    const result = await sendMessageWithTimeout(chatId, text);
     // sendMessage may resolve to undefined on newer WA builds even though the
     // message is delivered; treat a non-throwing call as success.
-    res.json({ success: true });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: { code: "WA_SEND_FAILED", message: err.message } });
   }
@@ -241,8 +290,8 @@ app.post("/api/send-file", requireReady, upload.single("file"), async (req, res)
       base64,
       req.file.originalname || "report.xlsx"
     );
-    await client.sendMessage(chatId, media, { caption: caption || undefined });
-    res.json({ success: true });
+    const result = await sendMessageWithTimeout(chatId, media, Number(process.env.SEND_TIMEOUT) || 120000, { caption: caption || undefined });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: { code: "WA_SEND_FAILED", message: err.message } });
   }
@@ -251,4 +300,5 @@ app.post("/api/send-file", requireReady, upload.single("file"), async (req, res)
 app.listen(PORT, () => {
   log(`WhatsApp service listening on port ${PORT}`);
   buildClient();
+  startWatchdog();
 });

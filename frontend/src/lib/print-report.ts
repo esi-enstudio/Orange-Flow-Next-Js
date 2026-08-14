@@ -58,16 +58,10 @@ function fmt1(n: number): string {
   return Math.round(n).toLocaleString("en-US");
 }
 
-function timeBasedStatus(pct: number, daysElapsed: number, totalDays: number): string {
-  if (pct >= 100) return "Achieved";
-  if (daysElapsed <= 7) {
-    if (pct >= 70) return "On Track";
-    if (pct >= 40) return "Needs Attention";
-    return "Behind";
-  }
-  const timePct = totalDays > 0 ? (daysElapsed / totalDays) * 100 : 0;
-  if (pct >= timePct) return "On Track";
-  if (pct >= timePct * 0.5) return "Needs Attention";
+function projectionStatus(achPct: number, projPct: number): string {
+  if (achPct >= 100) return "Achieved";
+  if (projPct >= 100) return "On Track";
+  if (projPct >= 95) return "Needs Attention";
   return "Behind";
 }
 
@@ -85,7 +79,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-  const statusStr = timeBasedStatus(summary.achievement_percentage, days_elapsed, total_days).toLowerCase().replace(/\s+/g, "_");
+  const statusStr = projectionStatus(summary.achievement_percentage, Math.round(summary.projection / Math.max(summary.monthly_target, 1) * 100)).toLowerCase().replace(/\s+/g, "_");
 
   function sectionTable(label: string, employees: EmployeeRow[], identLabel: string, headers: string[], renderRow: (emp: EmployeeRow, i: number) => string[], renderSubtotal: () => string[]): string {
     if (employees.length === 0) return "";
@@ -192,7 +186,7 @@ ${imageMode ? `<style>
     </thead>
     <tbody>
       <tr>
-        ${[fmt(summary.monthly_target), fmt(summary.achievement), `${summary.achievement_percentage}%`, fmt(summary.remaining), fmt1(summary.daily_required), fmt1(summary.daily_average), fmt1(summary.projection), fmt(summary.yesterday_activation), `${summary.expected_percentage}%`, timeBasedStatus(summary.achievement_percentage, days_elapsed, total_days)].map((val, i) => {
+        ${[fmt(summary.monthly_target), fmt(summary.achievement), `${summary.achievement_percentage}%`, fmt(summary.remaining), fmt1(summary.daily_required), fmt1(summary.daily_average), fmt1(summary.projection), fmt(summary.yesterday_activation), `${summary.expected_percentage}%`, projectionStatus(summary.achievement_percentage, Math.round(summary.projection / Math.max(summary.monthly_target, 1) * 100))].map((val, i) => {
           const isPct = i === 2;
           const isStatus = i === 9;
           const pctNum = isPct ? summary.achievement_percentage : 0;
@@ -220,7 +214,7 @@ ${imageMode ? `<style>
           fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
           `Yest ${fmt(emp.market_yesterday ?? 0)} / MTD ${fmt(emp.market_activation ?? 0)}`,
           `Yest ${fmt(emp.yesterday_activation ?? 0)} / MTD ${fmt(emp.month_total_activation ?? 0)} (Day ${emp.active_days ?? 0})`,
-          timeBasedStatus(emp.percentage, days_elapsed, total_days),
+          projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
         ];
         return `<tr${i % 2 === 1 ? ' style="background:#F8FAFC"' : ''}>
           ${cells.map((c, ci) => {
@@ -248,7 +242,7 @@ ${imageMode ? `<style>
           `${fmt1(Math.round(pr))} (${pp}%)`,
           `Yest ${fmt(rso_performance.reduce((s, e) => s + (e.market_yesterday ?? 0), 0))} / MTD ${fmt(rso_performance.reduce((s, e) => s + (e.market_activation ?? 0), 0))}`,
           `Yest ${fmt(rso_performance.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0))} / MTD ${fmt(rso_performance.reduce((s, e) => s + (e.month_total_activation ?? 0), 0))} (Day ${rso_performance.reduce((s, e) => s + (e.active_days ?? 0), 0)})`,
-          timeBasedStatus(p, days_elapsed, total_days),
+          projectionStatus(p, pp),
         ];
         return `<tr style="background:#F8FAFC;font-weight:700">
           ${subCells.map((c, ci) => {
@@ -281,7 +275,7 @@ ${imageMode ? `<style>
           fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
           fmt(emp.yesterday_activation ?? 0),
           String(emp.active_days ?? 0),
-          timeBasedStatus(emp.percentage, days_elapsed, total_days),
+          projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
         ];
         return `<tr${i % 2 === 1 ? ' style="background:#F8FAFC"' : ''}>
           ${cells.map((c, ci) => {
@@ -309,7 +303,7 @@ ${imageMode ? `<style>
           `${fmt1(Math.round(pr))} (${pp}%)`,
           fmt(bp_performance.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0)),
           String(bp_performance.reduce((s, e) => s + (e.active_days ?? 0), 0)),
-          timeBasedStatus(p, days_elapsed, total_days),
+          projectionStatus(p, pp),
         ];
         return `<tr style="background:#F8FAFC;font-weight:700">
           ${subCells.map((c, ci) => {
@@ -338,7 +332,7 @@ ${imageMode ? `<style>
           String(i + 1), emp.name, "—",
           fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
           fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
-          timeBasedStatus(emp.percentage, days_elapsed, total_days),
+          projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
         ];
         return `<tr${i % 2 === 1 ? ' style="background:#F8FAFC"' : ''}>
           ${cells.map((c, ci) => {
@@ -370,7 +364,7 @@ ${imageMode ? `<style>
           String(Math.ceil(emp.remaining / Math.max(summary.days_remaining, 1))),
           fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
           fmt(emp.yesterday_activation ?? 0),
-          timeBasedStatus(emp.percentage, days_elapsed, total_days),
+          projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
         ];
         return `<tr${i % 2 === 1 ? ' style="background:#F8FAFC"' : ''}>
           ${cells.map((c, ci) => {
@@ -397,7 +391,7 @@ ${imageMode ? `<style>
           fmt(r), String(drr), fmt1(Math.round(da)),
           `${fmt1(Math.round(pr))} (${pp}%)`,
           fmt(supervisor_performance.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0)),
-          timeBasedStatus(p, days_elapsed, total_days),
+          projectionStatus(p, pp),
         ];
         return `<tr style="background:#F8FAFC;font-weight:700">
           ${subCells.map((c, ci) => {
@@ -479,7 +473,7 @@ export function printRechargeReport(payload: RechargePrintPayload, returnHtmlOnl
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-  const statusStr = timeBasedStatus(summary.achievement_percentage, days_elapsed, total_days).toLowerCase().replace(/\s+/g, "_");
+  const statusStr = projectionStatus(summary.achievement_percentage, Math.round(summary.projection / Math.max(summary.monthly_target, 1) * 100)).toLowerCase().replace(/\s+/g, "_");
 
   const rsoHeaders = ["#", "Name", "Itopup", "Target", "EV Tgt", "SC Tgt", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Status"];
   const supHeaders = ["#", "Name", "Pool", "Target", "EV Tgt", "SC Tgt", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Status"];
@@ -506,7 +500,7 @@ export function printRechargeReport(payload: RechargePrintPayload, returnHtmlOnl
         fmt(emp.remaining),
         String(Math.ceil(emp.remaining / Math.max(summary.days_remaining, 1))),
         fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
-        timeBasedStatus(emp.percentage, days_elapsed, total_days),
+        projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
       ];
       return `<tr${i % 2 === 1 ? ' style="background:#F8FAFC"' : ''}>
         ${cells.map((c, ci) => {
@@ -525,7 +519,7 @@ export function printRechargeReport(payload: RechargePrintPayload, returnHtmlOnl
       fmt(totalAchieved), `${totalPct}%`,
       fmt(totalRemaining), String(totalDRR), fmt1(Math.round(totalDailyAvg)),
       `${fmt1(Math.round(totalProjection))} (${totalProjPct}%)`,
-      timeBasedStatus(totalPct, days_elapsed, total_days),
+      projectionStatus(totalPct, totalProjPct),
     ];
     const subtotal = `<tr style="background:#F8FAFC;font-weight:700">
       ${subCells.map((c, ci) => {
@@ -598,7 +592,7 @@ ${imageMode ? `<style>
     </thead>
     <tbody>
       <tr>
-        ${[fmt(summary.monthly_target), fmt(summary.achievement), `${summary.achievement_percentage}%`, fmt(summary.remaining), fmt1(summary.daily_required), fmt1(summary.daily_average), fmt1(summary.projection), fmt(summary.yesterday_achievement), `${summary.expected_percentage}%`, timeBasedStatus(summary.achievement_percentage, days_elapsed, total_days)].map((val, i) => {
+        ${[fmt(summary.monthly_target), fmt(summary.achievement), `${summary.achievement_percentage}%`, fmt(summary.remaining), fmt1(summary.daily_required), fmt1(summary.daily_average), fmt1(summary.projection), fmt(summary.yesterday_achievement), `${summary.expected_percentage}%`, projectionStatus(summary.achievement_percentage, Math.round(summary.projection / Math.max(summary.monthly_target, 1) * 100))].map((val, i) => {
           const isPct = i === 2;
           const isStatus = i === 9;
           const pctNum = isPct ? summary.achievement_percentage : 0;
