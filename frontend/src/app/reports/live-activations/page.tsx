@@ -19,6 +19,7 @@ import {
 import { toast } from "react-hot-toast";
 import SectionConfigModal from "./SectionConfigModal";
 import LiveActivationDetailModal from "./LiveActivationDetailModal";
+import WhatsAppScheduleModal from "./WhatsAppScheduleModal";
 import { exportLiveReport } from "@/lib/export-ga-live-report";
 import {
   PieChart, Pie, Cell,
@@ -560,6 +561,7 @@ export default function GaLiveReportPage() {
   const [liveSyncLoading, setLiveSyncLoading] = useState(false);
   const captureRef = useRef<HTMLDivElement>(null);
   const [capturing, setCapturing] = useState(false);
+  const [wsModalOpen, setWsModalOpen] = useState(false);
   const [detailModal, setDetailModal] = useState<{
     open: boolean;
     employeeId: number | null;
@@ -1021,6 +1023,16 @@ export default function GaLiveReportPage() {
           >
             <FileSpreadsheet className="w-4 h-4" />
           </button>
+          {hasPermission("live_activations.schedule") && (
+            <button
+              onClick={() => setWsModalOpen(true)}
+              disabled={!effectiveHouseId}
+              className="p-2.5 rounded-xl border border-green-300 dark:border-green-500/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 transition-colors disabled:opacity-50"
+              title="WhatsApp report delivery"
+            >
+              <MessageCircle className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -1991,6 +2003,13 @@ export default function GaLiveReportPage() {
         roleType={detailModal.roleType}
         employeeName={detailModal.employeeName}
         houseId={effectiveHouseId!}
+      />
+
+      {/* ────── WhatsApp Report Delivery Modal ────── */}
+      <WhatsAppScheduleModal
+        open={wsModalOpen}
+        houseId={effectiveHouseId}
+        onClose={() => setWsModalOpen(false)}
       />
     </div>
   );

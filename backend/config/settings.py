@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Timezone
     TIME_ZONE: str = "Asia/Dhaka"
 
+    # WhatsApp Report Delivery Service
+    WHATSAPP_SERVICE_URL: str = "http://localhost:3001"
+    WHATSAPP_SERVICE_ENABLED: bool = True
+
     @model_validator(mode="after")
     def validate_secret_key(self) -> "Settings":
         insecure_defaults = {"your-secret-key-change-it-in-env", ""}

@@ -75,6 +75,7 @@ from app.routers.shifts import router as shifts_router
 from app.routers.stock import router as stock_router
 from app.routers.sales import router as sales_router
 from app.routers.itopup_balance import router as itopup_balance_router
+from app.routers.whatsapp_schedules import router as whatsapp_schedules_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -127,6 +128,7 @@ app.include_router(shifts_router)
 app.include_router(stock_router)
 app.include_router(sales_router)
 app.include_router(itopup_balance_router)
+app.include_router(whatsapp_schedules_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -285,6 +287,31 @@ def _get_memory_mb() -> int:
         return 0
 
 # ==========================================
+# 2b. WHATSAPP REPORT DELIVERY SCHEDULER
+# ==========================================
+
+async def whatsapp_schedule_runner():
+    """Dedicated loop that delivers due GA live report WhatsApp schedules.
+
+    Runs every 30 seconds so deliveries fire close to the configured time
+    without disturbing the main automation cadence.
+    """
+    from app.services.db_service import async_session
+    from app.services.whatsapp_schedule_service import check_and_run_due_schedules
+    from config.settings import settings as _settings
+    if getattr(_settings, "DISABLE_SCHEDULER", False):
+        return
+    logger.info("WhatsApp Report Scheduler started...")
+    await asyncio.sleep(25)
+    while True:
+        try:
+            async with async_session() as session:
+                await check_and_run_due_schedules(session)
+        except Exception as e:
+            logger.error(f"WhatsApp schedule runner error: {e}", exc_info=True)
+        await asyncio.sleep(30)
+
+# ==========================================
 # 3. MAIN ENTRY POINT
 # ==========================================
 
@@ -362,6 +389,9 @@ async def main():
 
         if settings.ENABLE_GA_SYNC and engine_ok:
             background_tasks.append(asyncio.create_task(master_automation_scheduler()))
+
+        if settings.WHATSAPP_SERVICE_ENABLED:
+            background_tasks.append(asyncio.create_task(whatsapp_schedule_runner()))
 
         logger.info("OrangeFlow API is Live on port 8000")
 

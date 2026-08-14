@@ -82,6 +82,21 @@ services:
   # Dev: run frontend directly on WSL2 host (avoids Docker filesystem bottleneck)
   #   cd frontend && npm install && npm run dev
   # Production: uncomment profiles line and use the command below
+  whatsapp-service:
+    build: ./whatsapp-service
+    container_name: orange_flow_whatsapp
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - SESSION_DIR=/data
+    volumes:
+      - wa_session:/data
+    deploy:
+      resources:
+        limits:
+          memory: 1G
   frontend:
     profiles: ["production"]
     image: node:20-slim
@@ -108,3 +123,4 @@ services:
 
 volumes:
   postgres_data:
+  wa_session:

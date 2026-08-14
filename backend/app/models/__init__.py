@@ -52,3 +52,4 @@ from app.models.stock import (
 )
 from app.models.itopup_balance import ITopUpBalance, ITopUpBalanceLedger, ITopUpTransfer
 from app.models.sales import SalesRecord
+from app.models.whatsapp_schedule import WhatsAppSchedule

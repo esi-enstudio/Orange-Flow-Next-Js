@@ -14,7 +14,7 @@
         "sim_status": { "display_name": "SIM Status Check", "permissions": ["sim_status.view"] },
         "activations": { "display_name": "Activations", "permissions": ["activations.view", "activations.export", "activations.import", "activations.delete"] },
         "itopup": { "display_name": "iTopUp Details", "permissions": ["itopup.view", "itopup.export", "itopup.import"] },
-        "live_activations": { "display_name": "Live Activations", "permissions": ["live_activations.view", "live_activations.export", "live_activations.import"] },
+        "live_activations": { "display_name": "Live Activations", "permissions": ["live_activations.view", "live_activations.export", "live_activations.import", "live_activations.schedule"] },
         "scratch_card": { "display_name": "Scratch Card Issues", "permissions": ["scratch_card.view", "scratch_card.create", "scratch_card.edit", "scratch_card.delete", "scratch_card.import", "scratch_card.export"] },
         "scratch_card_serials": { "display_name": "SC Serial Management", "permissions": ["scratch_card_serials.view", "scratch_card_serials.create", "scratch_card_serials.edit", "scratch_card_serials.delete", "scratch_card_serials.delete.permanent", "scratch_card_serials.import", "scratch_card_serials.export"] },
         "sim_issues": { "display_name": "SIM Issues", "permissions": ["sim_issues.view", "sim_issues.create", "sim_issues.edit", "sim_issues.delete", "sim_issues.import", "sim_issues.export"] },

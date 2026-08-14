@@ -39,6 +39,7 @@ import app.models.cv
 import app.models.stock
 import app.models.sales
 import app.models.itopup_balance
+import app.models.whatsapp_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +288,24 @@ async def _migrate_retailer_employee_link():
     except Exception as e:
         logger.warning(f"Migration warning (retailer employee link): {e}")
 
+async def _migrate_whatsapp_schedule_columns():
+    try:
+        async with engine.begin() as conn:
+            exists = await conn.execute(text(
+                "SELECT to_regclass('public.whatsapp_schedules') IS NOT NULL AS exists"
+            ))
+            if not exists.scalar():
+                return
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR(20) NOT NULL DEFAULT 'daily'"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS interval_minutes INTEGER"
+            ))
+            logger.info("Migration complete: whatsapp_schedules interval columns ensured")
+    except Exception as e:
+        logger.warning(f"Migration warning (whatsapp schedule columns): {e}")
+
 async def init_db():
     try:
         async with engine.begin() as conn:
@@ -302,6 +321,7 @@ async def init_db():
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_stock_added()
         await _migrate_indexes()
+        await _migrate_whatsapp_schedule_columns()
         from app.models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func
         async with async_session() as session:
