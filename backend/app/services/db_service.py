@@ -128,6 +128,7 @@ INDEX_MIGRATIONS = [
     ("ix_retailer_filters_tag_id", "CREATE INDEX IF NOT EXISTS ix_retailer_filters_tag_id ON retailer_filters (tag_id)"),
     # retailers table
     ("ix_retailers_house_id", "CREATE INDEX IF NOT EXISTS ix_retailers_house_id ON retailers (house_id)"),
+    ("ix_retailers_house_employee", "CREATE INDEX IF NOT EXISTS ix_retailers_house_employee ON retailers (house_id, employee_id)"),
     # filter_tags table
     ("ix_filter_tags_name", "CREATE INDEX IF NOT EXISTS ix_filter_tags_name ON filter_tags (name)"),
 ]

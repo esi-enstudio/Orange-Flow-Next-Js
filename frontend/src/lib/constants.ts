@@ -153,6 +153,7 @@ export const navItems: NavItem[] = [
     children: [
       { title: "Activations", translationKey: "nav.report_activations", href: "/reports/activations", permission: "reports.view" },
       { title: "Recharge", translationKey: "nav.report_recharge", href: "/reports/recharge", permission: "reports.view" },
+      { title: "Active LSO", translationKey: "nav.report_active_lso", href: "/reports/active-lso", permission: "active_lso.view" },
 
       { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permission: "reports.view" },
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permission: "reports.view" },

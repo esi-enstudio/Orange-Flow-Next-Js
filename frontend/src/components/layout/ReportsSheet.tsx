@@ -10,6 +10,7 @@ import {
   CreditCard,
   Smartphone,
   Zap,
+  Target,
   X,
   ChevronRight,
 } from "lucide-react";
@@ -26,6 +27,11 @@ const reportItems = [
     key: "report_recharge",
     href: "/reports/recharge",
     icon: Zap,
+  },
+  {
+    key: "report_active_lso",
+    href: "/reports/active-lso",
+    icon: Target,
   },
   {
     key: "report_itopup",

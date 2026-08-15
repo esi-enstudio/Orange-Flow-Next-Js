@@ -30,6 +30,13 @@ from app.services.Automation.live_activation_excel import export_live_activation
 from app.services.Automation.ga_live_performance_excel import export_ga_live_performance_excel
 from app.services.Automation.issue_reports_excel import export_scratch_card_excel, export_sim_issue_excel
 from app.services.target_achievement_service import TargetAchievementService
+from app.services.active_lso_report_service import (
+    ActiveLsoReportService,
+    VALID_STATUSES,
+    get_active_lso_filters as _get_active_lso_filters,
+    get_employee_profile,
+    subordinate_rso_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1740,3 +1747,286 @@ async def get_my_target_progress(
     else:
         result = await service.get_house_progress()
         return {"success": True, "data": result, "user_role": "house"}
+
+
+# --------------------------------------------------------------------------- #
+# Active LSO (Target vs Achievement) report
+# --------------------------------------------------------------------------- #
+
+def _forbidden(msg: str = "You do not have access to this report data"):
+    raise HTTPException(status_code=403, detail=msg)
+
+
+async def _resolve_active_lso_scope(db, current_user, house_id, manager_id, supervisor_id, rso_id):
+    """Role-aware scope resolution for the Active LSO report.
+
+    Returns (house_id, manager_id, supervisor_id, rso_id) that the service may use.
+    RSO/Supervisor accounts are forced to their own data; admin/manager accounts
+    are limited to their assigned houses.
+    """
+    role_names = {r.name.strip().lower() for r in current_user.roles}
+    emp = await get_employee_profile(db, current_user.id)
+
+    if "rso" in role_names:
+        if not emp or emp.employee_type != "rso" or not emp.house_id or emp.status != "Active":
+            raise HTTPException(status_code=403, detail="No active RSO employee profile linked to this account")
+        if house_id and house_id != emp.house_id:
+            _forbidden()
+        if manager_id or supervisor_id:
+            _forbidden()
+        if rso_id and rso_id != emp.id:
+            _forbidden()
+        return emp.house_id, None, None, emp.id
+
+    if "supervisor" in role_names:
+        if not emp or emp.employee_type != "supervisor" or not emp.house_id or emp.status != "Active":
+            raise HTTPException(status_code=403, detail="No active supervisor employee profile linked to this account")
+        if house_id and house_id != emp.house_id:
+            _forbidden()
+        if manager_id:
+            _forbidden()
+        if rso_id:
+            sub_ids = await subordinate_rso_ids(db, emp)
+            if rso_id not in sub_ids:
+                _forbidden()
+        return emp.house_id, None, emp.id, rso_id
+
+    accessible = [h.id for h in current_user.houses]
+    if not accessible:
+        if is_admin_user(current_user):
+            q = select(House.id)
+            accessible = [r[0] for r in (await db.execute(q)).all()]
+    if not accessible:
+        raise HTTPException(status_code=403, detail="No house assigned to this account")
+    if not house_id:
+        house_id = accessible[0]
+    if house_id not in accessible:
+        _forbidden("Access denied to this house")
+
+    if manager_id:
+        m = await db.get(Employee, manager_id)
+        if not m or m.house_id != house_id or m.employee_type != "manager" or m.status != "Active":
+            raise HTTPException(status_code=400, detail="Invalid manager selection")
+    if supervisor_id:
+        s = await db.get(Employee, supervisor_id)
+        if not s or s.house_id != house_id or s.employee_type != "supervisor" or s.status != "Active":
+            raise HTTPException(status_code=400, detail="Invalid supervisor selection")
+    if rso_id:
+        r = await db.get(Employee, rso_id)
+        if not r or r.house_id != house_id or r.employee_type != "rso" or r.status != "Active":
+            raise HTTPException(status_code=400, detail="Invalid RSO selection")
+        if supervisor_id:
+            sup_emp = await db.get(Employee, supervisor_id)
+            sub_ids = await subordinate_rso_ids(db, sup_emp)
+            if rso_id not in sub_ids:
+                _forbidden("RSO does not belong to the selected supervisor")
+    return house_id, manager_id, supervisor_id, rso_id
+
+
+def _resolve_active_lso_period(start_date, end_date):
+    today = date.today()
+    if not start_date and not end_date:
+        start_date = date(today.year, today.month, 1)
+        end_date = today
+    elif not start_date:
+        start_date = date(end_date.year, end_date.month, 1)
+    elif not end_date:
+        end_date = today
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+    return start_date, end_date
+
+
+async def _build_active_lso_result(db, current_user, start_date, end_date, house_id, manager_id, supervisor_id, rso_id, status):
+    if status and status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {', '.join(VALID_STATUSES)}")
+    start_date, end_date = _resolve_active_lso_period(start_date, end_date)
+    house_id, manager_id, supervisor_id, rso_id = await _resolve_active_lso_scope(
+        db, current_user, house_id, manager_id, supervisor_id, rso_id
+    )
+    service = ActiveLsoReportService(
+        db, house_id, start_date, end_date,
+        supervisor_id=supervisor_id, rso_id=rso_id, status_filter=status,
+    )
+    return await service.build_dashboard()
+
+
+@router.get("/reports/active-lso/filters")
+async def get_active_lso_report_filters(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_lso.view")),
+):
+    result = await _get_active_lso_filters(db, current_user)
+    if result is None:
+        raise HTTPException(status_code=403, detail="You do not have access to this report data")
+    return result
+
+
+@router.get("/reports/active-lso")
+async def get_active_lso_report(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    manager_id: Optional[int] = Query(None),
+    supervisor_id: Optional[int] = Query(None),
+    rso_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_lso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    resolved_house = house_id or house_ctx
+    return await _build_active_lso_result(
+        db, current_user, start_date, end_date,
+        resolved_house, manager_id, supervisor_id, rso_id, status,
+    )
+
+
+@router.get("/reports/active-lso/export")
+async def export_active_lso_report(
+    format: str = Query("xlsx", pattern="^(xlsx|csv)$"),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    manager_id: Optional[int] = Query(None),
+    supervisor_id: Optional[int] = Query(None),
+    rso_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_lso.export")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    from io import BytesIO, StringIO
+    import csv as csv_module
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Border, Side
+
+    resolved_house = house_id or house_ctx
+    result = await _build_active_lso_result(
+        db, current_user, start_date, end_date,
+        resolved_house, manager_id, supervisor_id, rso_id, status,
+    )
+
+    period = result["period"]
+    period_label = f"{period['start_date']} to {period['end_date']}"
+    filename = f"active_lso_report_{period['start_date']}_to_{period['end_date']}.{format}"
+
+    headers = ["RSO", "Supervisor", "Target", "Achieved", "Ach %", "Remain",
+               "DRR", "D.Avg", "Projection", "Status", "Retailers",
+               "0 Day", "1 Day", "2 Day", "3 Day", "4 Day", "5 Day", "6 Day",
+               "Days No Sales", "Inactive Last Month", "Reactivated"]
+    count_keys = ["day_0", "day_1", "day_2", "day_3", "day_4", "day_5", "day_6",
+                  "days_no_sales", "inactive_last_month", "reactivated"]
+
+    def row_values(item, include_name=True):
+        base = [item.get("name", "Grand Total"), item.get("supervisor_name") or ""] if include_name else []
+        base += [
+            item["target"], item["achieved"], item["ach_pct"], item["remaining"],
+            item["drr"], item["daily_avg"], item["projection"],
+            item["status"].replace("_", " ").title(), item["retailer_count"],
+        ]
+        rc = item["retailer_counts"]
+        base += [rc[k] for k in count_keys]
+        return base
+
+    if format == "csv":
+        buf = StringIO()
+        writer = csv_module.writer(buf)
+        writer.writerow(["Active LSO Target vs Achievement Report"])
+        writer.writerow([f"Period: {period_label}"])
+        writer.writerow([f"Active threshold: {period['active_threshold_days']} days / {period['active_threshold_amount']} taka"])
+        writer.writerow([])
+        writer.writerow(headers)
+        for r in result["rows"]:
+            writer.writerow(row_values(r))
+        writer.writerow(row_values(result["summary"]))
+        writer.writerow([])
+        writer.writerow(["Supervisor Summary"])
+        sup_headers = ["Supervisor", "RSO Count", "Retailers", "Target", "Achieved",
+                       "Ach %", "Remain", "DRR", "D.Avg", "Projection", "Status"]
+        sup_headers += count_keys
+        writer.writerow(sup_headers)
+        for s in result["supervisor_summary"]:
+            vals = [s["supervisor_name"], s["rso_count"], s["retailer_count"],
+                    s["target"], s["achieved"], s["ach_pct"], s["remaining"],
+                    s["drr"], s["daily_avg"], s["projection"],
+                    s["status"].replace("_", " ").title()]
+            rc = s["retailer_counts"]
+            vals += [rc[k] for k in count_keys]
+            writer.writerow(vals)
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Active LSO Report"
+
+    title_font = Font(bold=True, size=14)
+    section_font = Font(bold=True, size=12)
+    header_font = Font(bold=True, size=10, color="FFFFFF")
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    total_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
+    thin_border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin'),
+    )
+
+    ws.cell(row=1, column=1, value="Active LSO Target vs Achievement Report").font = title_font
+    ws.cell(row=2, column=1, value=f"Period: {period_label}").font = Font(bold=True, size=10)
+    ws.cell(row=3, column=1, value=f"Active threshold: {period['active_threshold_days']} days / {period['active_threshold_amount']} taka").font = Font(size=10, italic=True)
+
+    header_row = 5
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=header_row, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    for i, r in enumerate(result["rows"]):
+        for col, val in enumerate(row_values(r), 1):
+            cell = ws.cell(row=header_row + 1 + i, column=col, value=val)
+            cell.border = thin_border
+
+    total_row = header_row + 1 + len(result["rows"])
+    for col, val in enumerate(row_values(result["summary"]), 1):
+        cell = ws.cell(row=total_row, column=col, value=val)
+        cell.border = thin_border
+        cell.fill = total_fill
+        cell.font = Font(bold=True)
+
+    sup_start = total_row + 3
+    ws.cell(row=sup_start, column=1, value="Supervisor Summary").font = section_font
+    sup_headers = ["Supervisor", "RSO Count", "Retailers", "Target", "Achieved",
+                   "Ach %", "Remain", "DRR", "D.Avg", "Projection", "Status"] + count_keys
+    for col, h in enumerate(sup_headers, 1):
+        cell = ws.cell(row=sup_start + 1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    for i, s in enumerate(result["supervisor_summary"]):
+        vals = [s["supervisor_name"], s["rso_count"], s["retailer_count"],
+                s["target"], s["achieved"], s["ach_pct"], s["remaining"],
+                s["drr"], s["daily_avg"], s["projection"],
+                s["status"].replace("_", " ").title()]
+        rc = s["retailer_counts"]
+        vals += [rc[k] for k in count_keys]
+        for col, val in enumerate(vals, 1):
+            cell = ws.cell(row=sup_start + 2 + i, column=col, value=val)
+            cell.border = thin_border
+
+    widths = [26, 22, 10, 10, 9, 9, 9, 9, 10, 14, 10, 8, 8, 8, 8, 8, 8, 8, 14, 16, 14]
+    for idx, w in enumerate(widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = w
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return Response(
+        content=output.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
