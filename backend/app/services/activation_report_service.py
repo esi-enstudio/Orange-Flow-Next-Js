@@ -287,22 +287,22 @@ class ActivationReportService:
             else:
                 status = "behind"
 
+            # Own Activation (yesterday, MTD total, active days) comes ONLY from
+            # the assisted retailer code. RSOs without an assisted code show zero.
             assisted_code = assisted_code_map.get(emp_id) if assisted_code_map else None
             if type_label == "rso" and assisted_code and yesterday_date >= self.month_start:
                 yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_codes=[assisted_code], exclude_tags=False)
-            elif yesterday_date >= self.month_start:
-                yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_ids=retailer_ids)
             else:
                 yesterday_activation = 0
 
             if type_label == "rso" and assisted_code and yesterday_date >= self.month_start:
                 month_total = await self._count_activations(retailer_codes=[assisted_code], end_date=yesterday_date, exclude_tags=False)
             else:
-                month_total = achievement
+                month_total = 0
             if type_label == "rso" and assisted_code:
                 active_days = await self._count_active_days(retailer_codes=[assisted_code], exclude_tags=False, end_date=yesterday_date, threshold=self.active_days_threshold)
             else:
-                active_days = await self._count_active_days(retailer_ids)
+                active_days = 0
 
             results.append({
                 "id": emp_id,
