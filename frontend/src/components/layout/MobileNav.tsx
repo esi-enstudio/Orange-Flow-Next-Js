@@ -24,6 +24,7 @@ const reportPermissions = [
   "itopup.view",
   "live_activations.view",
   "scratch_card.view",
+  "transactions.view",
   "dms.sim_issue",
 ];
 

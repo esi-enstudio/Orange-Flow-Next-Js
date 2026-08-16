@@ -76,6 +76,7 @@ from app.routers.stock import router as stock_router
 from app.routers.sales import router as sales_router
 from app.routers.itopup_balance import router as itopup_balance_router
 from app.routers.whatsapp_schedules import router as whatsapp_schedules_router
+from app.routers.transactions import router as transactions_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -129,6 +130,7 @@ app.include_router(stock_router)
 app.include_router(sales_router)
 app.include_router(itopup_balance_router)
 app.include_router(whatsapp_schedules_router)
+app.include_router(transactions_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)

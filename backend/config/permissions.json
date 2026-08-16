@@ -40,7 +40,8 @@
         "sales": { "display_name": "Sales", "permissions": ["sales.view", "sales.create", "sales.edit", "sales.delete"] },
         "stock": { "display_name": "Stock", "permissions": ["stock.view", "stock.create", "stock.transfer", "stock.adjust"] },
         "itopup_balance": { "display_name": "iTopUp Balance", "permissions": ["itopup_balance.view", "itopup_balance.create", "itopup_balance.edit"] },
-        "active_lso": { "display_name": "Active LSO Report", "permissions": ["active_lso.view", "active_lso.export", "active_lso.print"] }
+        "active_lso": { "display_name": "Active LSO Report", "permissions": ["active_lso.view", "active_lso.export", "active_lso.print"] },
+        "transactions": { "display_name": "Transactions", "permissions": ["transactions.view", "transactions.export"] }
     },
     "default_roles": [
         {
@@ -53,27 +54,27 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print"]
+            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export"]
         },
         {
             "name": "Manager",
-            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print"]
+            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export"]
         },
         {
             "name": "Supervisor",
-            "permissions": ["reports.view", "retailers.view", "sim_status.view", "activations.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "sales.view", "stock.view", "active_lso.view"]
+            "permissions": ["reports.view", "retailers.view", "sim_status.view", "activations.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "sales.view", "stock.view", "active_lso.view", "transactions.view"]
         },
         {
             "name": "RSO",
-            "permissions": ["reports.view", "retailers.view", "sim_status.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "active_lso.view"]
+            "permissions": ["reports.view", "retailers.view", "sim_status.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "active_lso.view", "transactions.view"]
         },
         {
             "name": "BP",
-            "permissions": ["reports.view"]
+            "permissions": ["reports.view", "transactions.view"]
         },
         {
             "name": "Cc",
-            "permissions": ["reports.view"]
+            "permissions": ["reports.view", "transactions.view"]
         }
     ]
 }

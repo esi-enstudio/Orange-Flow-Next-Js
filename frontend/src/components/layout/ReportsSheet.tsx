@@ -11,47 +11,62 @@ import {
   Smartphone,
   Zap,
   Target,
+  ArrowLeftRight,
   X,
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
+import { useAuth } from "@/context/AuthContext";
 
 const reportItems = [
   {
     key: "report_activations",
     href: "/reports/activations",
     icon: BarChart3,
+    permission: "reports.view",
   },
   {
     key: "report_recharge",
     href: "/reports/recharge",
     icon: Zap,
+    permission: "reports.view",
+  },
+  {
+    key: "report_transactions",
+    href: "/reports/transactions",
+    icon: ArrowLeftRight,
+    permission: "transactions.view",
   },
   {
     key: "report_active_lso",
     href: "/reports/active-lso",
     icon: Target,
+    permission: "active_lso.view",
   },
   {
     key: "report_itopup",
     href: "/reports/itopup-details",
     icon: FileSpreadsheet,
+    permission: "itopup.view",
   },
   {
     key: "report_live_activations",
     href: "/reports/live-activations",
     icon: Activity,
+    permission: "reports.view",
   },
   {
     key: "report_scratch_card",
     href: "/reports/scratch-card",
     icon: CreditCard,
+    permission: "reports.view",
   },
   {
     key: "report_sim_issue",
     href: "/reports/sim-issues",
     icon: Smartphone,
+    permission: "reports.view",
   },
 ];
 
@@ -63,6 +78,9 @@ interface ReportsSheetProps {
 export function ReportsSheet({ open, onClose }: ReportsSheetProps) {
   const pathname = usePathname();
   const { t } = useLanguage();
+  const { hasPermission } = useAuth();
+
+  const visibleItems = reportItems.filter(item => !item.permission || hasPermission(item.permission));
 
   return (
     <AnimatePresence>
@@ -95,7 +113,7 @@ export function ReportsSheet({ open, onClose }: ReportsSheetProps) {
               </button>
             </div>
             <div className="overflow-y-auto px-4 py-3 space-y-1">
-              {reportItems.map((item) => (
+              {visibleItems.map((item) => (
                 <Link
                   key={item.key}
                   href={item.href}
