@@ -6,7 +6,7 @@ import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
   BarChart3, TrendingUp, Target, Award, Users,
-  RotateCcw, Download, Printer, Share2, Building2, Calendar,
+  RotateCcw, Download, Share2, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
   ChevronDown, BatteryCharging,
@@ -785,13 +785,6 @@ export default function RechargeDashboardPage() {
             title={t("recharge_report.export_dashboard")}
           >
             <Download className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleExport}
-            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
-            title={t("recharge_report.print")}
-          >
-            <Printer className="w-4 h-4" />
           </button>
           <button
             onClick={fetchDashboard}
