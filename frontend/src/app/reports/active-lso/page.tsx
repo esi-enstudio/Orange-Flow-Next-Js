@@ -20,6 +20,18 @@ import {
   Target as TargetIcon,
   AlertTriangle,
   Inbox,
+  TrendingUp,
+  Award,
+  BarChart3,
+  Activity,
+  Zap,
+  Trophy,
+  Sparkles,
+  Medal,
+  PieChart as PieChartIcon,
+  ArrowUp,
+  ArrowDown,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -59,6 +71,8 @@ interface RsoRow {
   employee_id: number;
   employee_code: string;
   name: string;
+  dms_code: string | null;
+  itop_number: string | null;
   supervisor_id: number | null;
   supervisor_name: string | null;
   target: number;
@@ -165,6 +179,130 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function KpiCard({
+  icon: Icon,
+  label,
+  value,
+  valueColor,
+  valueExtra,
+  subtitle,
+  trend,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+  valueColor?: string;
+  valueExtra?: React.ReactNode;
+  subtitle?: string | React.ReactNode;
+  trend?: { dir: "up" | "down"; text: string };
+}) {
+  return (
+    <div className="group bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-shadow relative">
+      <div className="flex items-start justify-between">
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            {label}
+          </p>
+          <div className="flex items-center gap-2">
+            <p className={cn("text-2xl font-black tracking-tight", valueColor || "text-gray-900 dark:text-gray-100")}>
+              {value}
+            </p>
+            {valueExtra && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
+                {valueExtra}
+              </span>
+            )}
+          </div>
+          {subtitle && (
+            <div className="text-[11px] text-gray-400 dark:text-gray-500">{subtitle}</div>
+          )}
+        </div>
+        <div className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
+          <Icon className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+        </div>
+      </div>
+      {trend && (
+        <div className="mt-3 flex items-center gap-1.5">
+          {trend.dir === "up" ? (
+            <ArrowUp className="w-3 h-3 text-emerald-500" />
+          ) : (
+            <ArrowDown className="w-3 h-3 text-rose-500" />
+          )}
+          <span className={`text-[11px] font-medium ${trend.dir === "up" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{trend.text}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function projectionStatus(achPct: number, projPct: number): string {
+  if (achPct >= 100) return "achieved";
+  if (projPct >= 100) return "on_track";
+  if (projPct >= 95) return "needs_attention";
+  return "behind";
+}
+
+function LeaderboardCard({ data, title, icon: Icon, color, t, subtitleKey }: {
+  data: Array<{ name: string; achieved: number; target: number; ach_pct: number }>;
+  title: string;
+  icon: LucideIcon;
+  color: string;
+  t: (key: string) => string;
+  subtitleKey: string;
+}) {
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", color)}>
+          <Icon className="w-4 h-4 text-white" />
+        </div>
+        <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{title}</h3>
+      </div>
+      {data.length === 0 ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-4">{t("active_lso_report.messages.no_data")}</p>
+      ) : (
+        <div className="space-y-2">
+          {data.map((emp, idx) => (
+            <div key={`${emp.name}-${idx}`} className="flex items-center gap-3 py-1.5">
+              <div className={cn(
+                "w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-black shrink-0",
+                idx === 0 ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400" :
+                idx === 1 ? "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300" :
+                idx === 2 ? "bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400" :
+                "bg-gray-100 dark:bg-slate-800 text-gray-400"
+              )}>
+                {idx + 1}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
+                <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                  <span>{formatNumber(emp.achieved)} / {formatNumber(emp.target)}</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className={cn(
+                  "text-xs font-black",
+                  emp.ach_pct >= 100 ? "text-emerald-600 dark:text-emerald-400" :
+                  emp.ach_pct >= 70 ? "text-blue-600 dark:text-blue-400" :
+                  emp.ach_pct >= 40 ? "text-amber-600 dark:text-amber-400" :
+                  "text-rose-600 dark:text-rose-400"
+                )}>
+                  {emp.ach_pct}%
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {subtitleKey && data.length > 0 && (
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3 border-t border-gray-100 dark:border-slate-800 pt-3">
+          {t(subtitleKey)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SkeletonTable() {
   return (
     <div className="animate-pulse bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 overflow-hidden shadow-sm">
@@ -181,6 +319,16 @@ function SkeletonTable() {
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+function SkeletonKpiCard() {
+  return (
+    <div className="animate-pulse bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm">
+      <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md mb-3" />
+      <div className="h-7 w-32 bg-gray-200 dark:bg-slate-700 rounded-md mb-2" />
+      <div className="h-2.5 w-20 bg-gray-100 dark:bg-slate-800 rounded-md" />
     </div>
   );
 }
@@ -657,11 +805,184 @@ export default function ActiveLsoReportPage() {
       )}
 
       {/* Loading */}
-      {loading && !data && <SkeletonTable />}
+      {loading && !data && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => <SkeletonKpiCard key={i} />)}
+          </div>
+          <div className="animate-pulse bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
+            <div className="h-4 w-44 bg-gray-200 dark:bg-slate-700 rounded-md mb-4" />
+            <div className="h-40 bg-gray-100 dark:bg-slate-800 rounded-lg" />
+          </div>
+          <SkeletonTable />
+        </>
+      )}
 
       {/* Sections */}
       {!loading && !error && data && (
         <>
+          {summary && period && (
+            <>
+              {/* Summary KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <KpiCard
+                  icon={TargetIcon}
+                  label={t("active_lso_report.cards.monthly_target")}
+                  value={formatNumber(summary.target)}
+                  valueColor="text-gray-900 dark:text-gray-100"
+                  subtitle={`${formatNumber(summary.rso_count)} ${t("active_lso_report.summary.rso_count")}`}
+                />
+                <KpiCard
+                  icon={TrendingUp}
+                  label={t("active_lso_report.cards.achievement")}
+                  value={formatNumber(summary.achieved)}
+                  valueColor="text-emerald-600 dark:text-emerald-400"
+                  subtitle={`${formatNumber(summary.retailer_count)} ${t("active_lso_report.summary.retailer_count")}`}
+                />
+                <KpiCard
+                  icon={Award}
+                  label={t("active_lso_report.cards.achievement_pct")}
+                  value={`${summary.ach_pct}%`}
+                  valueColor={
+                    summary.ach_pct >= 100 ? "text-emerald-600 dark:text-emerald-400" :
+                    summary.ach_pct >= 70 ? "text-blue-600 dark:text-blue-400" :
+                    summary.ach_pct >= 40 ? "text-amber-600 dark:text-amber-400" :
+                    "text-rose-600 dark:text-rose-400"
+                  }
+                  subtitle={<StatusBadge status={summary.status} />}
+                />
+                <KpiCard
+                  icon={BarChart3}
+                  label={t("active_lso_report.cards.remaining")}
+                  value={formatNumber(summary.remaining)}
+                  valueColor="text-amber-600 dark:text-amber-400"
+                  subtitle={t("active_lso_report.days_remaining") + ": " + period.days_remaining}
+                />
+                <KpiCard
+                  icon={Activity}
+                  label={t("active_lso_report.cards.daily_average")}
+                  value={formatNumber(summary.daily_avg)}
+                  valueColor="text-blue-600 dark:text-blue-400"
+                  subtitle={t("active_lso_report.days_elapsed") + ": " + period.days_elapsed}
+                />
+                <KpiCard
+                  icon={Zap}
+                  label={t("active_lso_report.cards.daily_required")}
+                  value={formatNumber(summary.drr)}
+                  valueColor="text-purple-600 dark:text-purple-400"
+                  subtitle={t("active_lso_report.cards.per_day")}
+                />
+                <KpiCard
+                  icon={Trophy}
+                  label={t("active_lso_report.cards.projection")}
+                  value={formatNumber(Math.round(summary.projection))}
+                  valueColor="text-amber-600 dark:text-amber-400"
+                  subtitle={t("active_lso_report.cards.expected_pct") + ": " + (summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0) + "%"}
+                />
+                <KpiCard
+                  icon={Sparkles}
+                  label={t("active_lso_report.cards.expected_pct")}
+                  value={(summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0) + "%"}
+                  valueColor="text-amber-600 dark:text-amber-400"
+                  subtitle={`${formatNumber(Math.round(summary.projection))} / ${formatNumber(summary.target)}`}
+                />
+              </div>
+
+              {/* Target vs Achievement */}
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
+                <h2 className="font-bold text-base flex items-center gap-2 dark:text-gray-100 mb-4">
+                  <PieChartIcon className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                  {t("active_lso_report.cards.target_vs_achievement")}
+                </h2>
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <p className="text-4xl font-black text-gray-900 dark:text-gray-100">{summary.ach_pct}%</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t("active_lso_report.cards.achievement_pct")}</p>
+                    {(() => {
+                      const st = projectionStatus(summary.ach_pct, summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0);
+                      const statusText: Record<string, string> = {
+                        achieved: t("active_lso_report.status.achieved"),
+                        on_track: t("active_lso_report.status.on_track"),
+                        needs_attention: t("active_lso_report.status.needs_attention"),
+                        behind: t("active_lso_report.status.behind"),
+                      };
+                      const statusTxtColor: Record<string, string> = {
+                        achieved: "text-emerald-600 dark:text-emerald-400",
+                        on_track: "text-blue-600 dark:text-blue-400",
+                        needs_attention: "text-amber-600 dark:text-amber-400",
+                        behind: "text-rose-600 dark:text-rose-400",
+                      };
+                      const statusIconColor: Record<string, string> = {
+                        achieved: "text-emerald-600 dark:text-emerald-400",
+                        on_track: "text-blue-600 dark:text-blue-400",
+                        needs_attention: "text-amber-600 dark:text-amber-400",
+                        behind: "text-rose-600 dark:text-rose-400",
+                      };
+                      return (
+                        <div className="grid grid-cols-2 gap-3 pt-2">
+                          <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
+                            <TrendingUp className={`w-6 h-6 mx-auto mt-1 ${statusIconColor[st]}`} />
+                            <p className={`text-lg font-black mt-1 ${statusTxtColor[st]}`}>{statusText[st]}</p>
+                          </div>
+                          <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{t("active_lso_report.cards.eta_days")}</p>
+                            <Clock className="w-6 h-6 mx-auto mt-1 text-rose-600 dark:text-rose-400" />
+                            <p className="text-lg font-black text-rose-600 dark:text-rose-400">{period.days_remaining}</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex justify-between text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                        <span>{t("active_lso_report.cards.achievement")}</span>
+                        <span>{formatNumber(summary.achieved)} / {formatNumber(summary.target)}</span>
+                      </div>
+                      <div className="h-3 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-700",
+                            summary.ach_pct >= 100 ? "bg-emerald-500" :
+                            summary.ach_pct >= 70 ? "bg-blue-500" :
+                            summary.ach_pct >= 40 ? "bg-amber-500" : "bg-rose-500"
+                          )}
+                          style={{ width: `${Math.min(summary.ach_pct, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Top Performers Leaderboard */}
+              {(() => {
+                const topRso = [...rows].sort((a, b) => b.ach_pct - a.ach_pct).slice(0, 5)
+                  .map((r) => ({ name: r.name, achieved: r.achieved, target: r.target, ach_pct: r.ach_pct }));
+                const topSup = [...supSummary].sort((a, b) => b.ach_pct - a.ach_pct).slice(0, 5)
+                  .map((s) => ({ name: s.supervisor_name, achieved: s.achieved, target: s.target, ach_pct: s.ach_pct }));
+                const cards = [
+                  topRso.length > 0 ? { data: topRso, title: t("active_lso_report.cards.rso_performance"), icon: Users, color: "bg-blue-500" } : null,
+                  topSup.length > 0 ? { data: topSup, title: t("active_lso_report.cards.supervisor_performance"), icon: UserRound, color: "bg-purple-500" } : null,
+                ].filter(Boolean) as Array<{ data: Array<{ name: string; achieved: number; target: number; ach_pct: number }>; title: string; icon: LucideIcon; color: string }>;
+                if (cards.length === 0) return null;
+                return (
+                  <div>
+                    <h2 className="font-bold text-base flex items-center gap-2 dark:text-gray-100 mb-4">
+                      <Medal className="w-5 h-5 text-amber-500" />
+                      {t("active_lso_report.cards.top_performers")}
+                    </h2>
+                    <div className={`grid grid-cols-1 ${cards.length === 2 ? "md:grid-cols-1 lg:grid-cols-2" : ""} gap-4`}>
+                      {cards.map((c) => (
+                        <LeaderboardCard key={c.title} data={c.data} title={c.title} icon={c.icon} color={c.color} t={t} subtitleKey="" />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </>
+          )}
+
           {/* Section A + B */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 dark:border-slate-800">
@@ -717,7 +1038,13 @@ export default function ActiveLsoReportPage() {
                       <tr key={row.employee_id} className={idx % 2 === 1 ? "bg-gray-50/50 dark:bg-slate-800/30" : ""}>
                         <td className="sticky left-0 z-10 px-3 py-1.5 font-medium text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
                           <p className="font-medium text-xs">{row.name}</p>
-                          <p className="text-[11px] text-gray-400 dark:text-gray-500">{row.employee_code}</p>
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                            {row.dms_code || "—"}
+                            {(row.dms_code || "—") && row.itop_number && (
+                              <span className="text-gray-300 dark:text-gray-600"> · </span>
+                            )}
+                            {row.itop_number || ""}
+                          </p>
                         </td>
                         <td className="px-3 py-1.5 border-b border-r border-gray-100 dark:border-slate-800">
                           <p className="font-medium">{row.supervisor_name || "—"}</p>

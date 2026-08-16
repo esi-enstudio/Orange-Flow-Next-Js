@@ -472,6 +472,8 @@ class ActiveLsoReportService:
             "employee_id": emp.id,
             "employee_code": emp.employee_id or emp.dms_code,
             "name": name_map.get(emp.id, f"EMP-{emp.id}"),
+            "dms_code": emp.dms_code,
+            "itop_number": emp.itop_number,
             "supervisor_id": sup_id,
             "supervisor_name": sup_names.get(sup_id) if sup_id else None,
             "target": target,
