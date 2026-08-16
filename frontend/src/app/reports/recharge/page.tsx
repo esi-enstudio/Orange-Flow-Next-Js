@@ -701,9 +701,6 @@ export default function RechargeDashboardPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="hidden sm:block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-          {t("recharge_report.report_type")}
-        </span>
         <div className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-xl p-1 shadow-sm">
           <button
             onClick={() => handleReportTypeChange("recharge")}
