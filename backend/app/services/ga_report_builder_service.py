@@ -37,30 +37,31 @@ ACTIVATION_METRICS = ("activation_count", "today_activation", "yesterday_activat
 
 COLUMN_REGISTRY: list[dict[str, Any]] = [
     # house
-    {"key": "house_code", "category": "house", "type": "string", "sortable": True},
-    {"key": "house_name", "category": "house", "type": "string", "sortable": True},
+    {"key": "house_code", "label": "House Code", "category": "house", "type": "string", "sortable": True},
+    {"key": "house_name", "label": "House Name", "category": "house", "type": "string", "sortable": True},
     # rso
-    {"key": "rso_name", "category": "rso", "type": "string", "sortable": True},
-    {"key": "rso_itop_number", "category": "rso", "type": "string", "sortable": True},
-    {"key": "rso_dms_code", "category": "rso", "type": "string", "sortable": True},
-    {"key": "rso_assisted_code", "category": "rso", "type": "string", "sortable": True},
-    {"key": "rso_pool_number", "category": "rso", "type": "string", "sortable": True},
+    {"key": "rso_name", "label": "RSO Name", "category": "rso", "type": "string", "sortable": True},
+    {"key": "rso_itop_number", "label": "RSO iTopUp No", "category": "rso", "type": "string", "sortable": True},
+    {"key": "rso_dms_code", "label": "RSO DMS Code", "category": "rso", "type": "string", "sortable": True},
+    {"key": "rso_assisted_code", "label": "RSO Assisted Code", "category": "rso", "type": "string", "sortable": True},
+    {"key": "rso_pool_number", "label": "RSO Pool No", "category": "rso", "type": "string", "sortable": True},
     # retailer
-    {"key": "retailer_code", "category": "retailer", "type": "string", "sortable": True},
-    {"key": "retailer_name", "category": "retailer", "type": "string", "sortable": True},
-    {"key": "retailer_itop_number", "category": "retailer", "type": "string", "sortable": True},
-    {"key": "retailer_type", "category": "retailer", "type": "string", "sortable": True},
-    {"key": "retailer_district", "category": "retailer", "type": "string", "sortable": True},
-    {"key": "retailer_thana", "category": "retailer", "type": "string", "sortable": True},
-    {"key": "retailer_address", "category": "retailer", "type": "string", "sortable": False},
-    {"key": "retailer_contact_no", "category": "retailer", "type": "string", "sortable": False},
+    {"key": "retailer_code", "label": "Retailer Code", "category": "retailer", "type": "string", "sortable": True},
+    {"key": "retailer_name", "label": "Retailer Name", "category": "retailer", "type": "string", "sortable": True},
+    {"key": "retailer_itop_number", "label": "Retailer iTopUp No", "category": "retailer", "type": "string", "sortable": True},
+    {"key": "retailer_type", "label": "Retailer Type", "category": "retailer", "type": "string", "sortable": True},
+    {"key": "retailer_district", "label": "District", "category": "retailer", "type": "string", "sortable": True},
+    {"key": "retailer_thana", "label": "Thana", "category": "retailer", "type": "string", "sortable": True},
+    {"key": "retailer_address", "label": "Address", "category": "retailer", "type": "string", "sortable": False},
+    {"key": "retailer_contact_no", "label": "Contact No", "category": "retailer", "type": "string", "sortable": False},
     # activation metrics
-    {"key": "activation_count", "category": "activation", "type": "number", "sortable": True},
-    {"key": "today_activation", "category": "activation", "type": "number", "sortable": True},
-    {"key": "yesterday_activation", "category": "activation", "type": "number", "sortable": True},
+    {"key": "activation_count", "label": "Activations", "category": "activation", "type": "number", "sortable": True},
+    {"key": "today_activation", "label": "Today", "category": "activation", "type": "number", "sortable": True},
+    {"key": "yesterday_activation", "label": "Yesterday", "category": "activation", "type": "number", "sortable": True},
 ]
 
 COLUMN_KEYS = {c["key"] for c in COLUMN_REGISTRY}
+COLUMN_LABELS = {c["key"]: c["label"] for c in COLUMN_REGISTRY}
 COLUMN_CATEGORIES = ["house", "rso", "retailer", "activation"]
 DEFAULT_COLUMNS = [
     "house_code", "rso_name", "rso_itop_number",
@@ -86,6 +87,7 @@ class ReportConfig:
     def __init__(self, payload: dict):
         self.house_id = payload.get("house_id")
         self.event_id = payload.get("event_id")
+        self.event_name = payload.get("event_name")
         self.start_date = self._parse_date(payload.get("start_date"))
         self.end_date = self._parse_date(payload.get("end_date"))
         self.retailer_codes: list[str] = payload.get("retailer_codes") or []
@@ -369,12 +371,13 @@ class GaReportBuilderService:
     # -------------------------------------------------------------- renderers
 
     def _select_columns(self, rows: list[dict], totals: dict) -> tuple[list[str], list[list[Any]], list[Any]]:
-        header = self.cfg.columns
+        keys = self.cfg.columns
+        header = ["#"] + [COLUMN_LABELS.get(key, key) for key in keys]
         body = [
-            [r.get(key, "") if key not in ACTIVATION_METRICS else (r.get(key, 0) or 0) for key in header]
-            for r in rows
+            [i + 1] + [r.get(key, "") if key not in ACTIVATION_METRICS else (r.get(key, 0) or 0) for key in keys]
+            for i, r in enumerate(rows)
         ]
-        total_row = [totals.get(key, "") for key in header]
+        total_row = ["Total"] + [totals.get(key, "") for key in keys]
         return header, body, total_row
 
     async def build_report_excel(self) -> bytes:
@@ -393,7 +396,7 @@ class GaReportBuilderService:
         header_fill = PatternFill(start_color="C2410C", end_color="C2410C", fill_type="solid")
         thin = Border(*[Side(style="thin")] * 4)
 
-        ws.cell(row=1, column=1, value="GA Report Builder").font = Font(bold=True, size=14)
+        ws.cell(row=1, column=1, value=self.cfg.event_name or "GA Report").font = Font(bold=True, size=14)
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(len(header), 1))
         for ci, h in enumerate(header, 1):
             cell = ws.cell(row=3, column=ci, value=h)
@@ -425,7 +428,8 @@ class GaReportBuilderService:
         report = await self.build_report()
         header, body, total_row = self._select_columns(report["rows"], report["totals"])
         lines: list[str] = []
-        lines.append(f"*GA Report ({report['window']['start']} to {report['window']['end']})*")
+        title = self.cfg.event_name or "GA Report"
+        lines.append(f"*{title} ({report['window']['start']} to {report['window']['end']})*")
         lines.append(f"Retailers: {len(body)}")
         lines.append("")
         lines.append("```")
@@ -442,9 +446,10 @@ class GaReportBuilderService:
 
         report = await self.build_report()
         header, body, total_row = self._select_columns(report["rows"], report["totals"])
+        title = self.cfg.event_name or "GA Report"
         return build_report_image(
-            title=f"GA Report ({report['window']['start']} to {report['window']['end']})",
-            subtitle=f"Retailers: {len(body)}",
+            title=title,
+            subtitle=f"{report['window']['start']} to {report['window']['end']} · Retailers: {len(body)}",
             header=header,
             rows=body,
             total_row=total_row,

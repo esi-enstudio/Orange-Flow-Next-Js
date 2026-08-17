@@ -309,6 +309,21 @@ async def _migrate_whatsapp_schedule_columns():
     except Exception as e:
         logger.warning(f"Migration warning (whatsapp schedule columns): {e}")
 
+async def _migrate_ga_report_events_config():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='ga_report_events' AND column_name='config'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating ga_report_events: adding config column...")
+            await conn.execute(text("ALTER TABLE ga_report_events ADD COLUMN config JSON"))
+            logger.info("Migration complete: ga_report_events.config")
+    except Exception as e:
+        logger.warning(f"Migration warning (ga_report_events.config): {e}")
+
 async def init_db():
     try:
         async with engine.begin() as conn:
@@ -325,6 +340,7 @@ async def init_db():
         await _migrate_lifting_stock_added()
         await _migrate_indexes()
         await _migrate_whatsapp_schedule_columns()
+        await _migrate_ga_report_events_config()
         from app.models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func
         async with async_session() as session:

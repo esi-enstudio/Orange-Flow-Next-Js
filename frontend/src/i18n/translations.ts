@@ -1023,6 +1023,7 @@ export const translations = {
       },
       builder: {
         config_title: "Report Configuration",
+        configure: "Configure Report",
         preview_title: "Report Preview",
         build: "Build Report",
         building: "Building...",
@@ -1056,6 +1057,7 @@ export const translations = {
         delete_success: "Event deleted successfully",
         no_events: "No events yet. Create one to reuse a date range.",
         manage: "Manage Events",
+        section: "Events",
       },
       columns: {
         house_code: "House Code",
@@ -3204,6 +3206,7 @@ export const translations = {
       },
       builder: {
         config_title: "রিপোর্ট কনফিগারেশন",
+        configure: "রিপোর্ট কনফিগার",
         preview_title: "রিপোর্ট প্রিভিউ",
         build: "রিপোর্ট তৈরি করুন",
         building: "তৈরি হচ্ছে...",
@@ -3237,6 +3240,7 @@ export const translations = {
         delete_success: "ইভেন্ট সফলভাবে মুছে ফেলা হয়েছে",
         no_events: "কোনো ইভেন্ট নেই। তারিখ রেঞ্জ পুনরায় ব্যবহার করতে একটি তৈরি করুন।",
         manage: "ইভেন্ট পরিচালনা",
+        section: "ইভেন্ট",
       },
       columns: {
         house_code: "হাউস কোড",

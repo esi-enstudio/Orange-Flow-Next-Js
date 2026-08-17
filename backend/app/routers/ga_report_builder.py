@@ -101,6 +101,7 @@ class EventCreate(BaseModel):
     start_date: str
     end_date: str
     description: Optional[str] = None
+    config: Optional[dict] = None
 
     @field_validator("name")
     @classmethod
@@ -125,6 +126,7 @@ class EventUpdate(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     description: Optional[str] = None
+    config: Optional[dict] = None
 
 
 class TemplateCreate(BaseModel):
@@ -267,6 +269,7 @@ async def list_events(
                 "start_date": e.start_date.isoformat(),
                 "end_date": e.end_date.isoformat(),
                 "description": e.description,
+                "config": e.config or {},
             }
             for e in events
         ],
@@ -295,6 +298,7 @@ async def create_event(
         start_date=start,
         end_date=end,
         description=data.description,
+        config=data.config or {},
         created_by=current_user.id,
         updated_by=current_user.id,
     )
@@ -340,6 +344,9 @@ async def update_event(
     if data.end_date is not None:
         event.end_date = date.fromisoformat(data.end_date)
         new_values["end_date"] = data.end_date
+    if data.config is not None:
+        event.config = data.config
+        new_values["config"] = data.config
     if event.start_date > event.end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
     event.updated_by = current_user.id
@@ -536,6 +543,7 @@ async def _config_from_payload(db: AsyncSession, current_user: User, payload: Re
         event = await _get_owned_event(db, current_user, payload.event_id)
         raw["start_date"] = event.start_date.isoformat()
         raw["end_date"] = event.end_date.isoformat()
+        raw["event_name"] = event.name
 
     cfg = ReportConfig(raw)
     return cfg
