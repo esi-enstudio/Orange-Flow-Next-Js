@@ -196,12 +196,15 @@ class TransactionReportService:
     async def get_entities(self, entity_type: str, search: Optional[str], limit: int = 50) -> list[dict]:
         p = f"%{search}%" if search else None
         if entity_type == "retailer":
-            query = select(Retailer).options(joinedload(Retailer.employee)).where(Retailer.house_id == self.house_id)
+            query = select(Retailer).options(
+                joinedload(Retailer.employee).joinedload(Employee.user)
+            ).where(Retailer.house_id == self.house_id)
             if p:
                 query = query.where(
                     or_(
                         Retailer.retailer_code.ilike(p),
                         Retailer.name.ilike(p),
+                        Retailer.itop_number.ilike(p),
                     )
                 )
             res = await self.db.execute(query.order_by(Retailer.name.asc()).limit(limit))
@@ -211,6 +214,7 @@ class TransactionReportService:
                     "id": r.id,
                     "code": r.retailer_code,
                     "name": r.name,
+                    "itop_number": r.itop_number or "",
                     "rso_name": r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else ""),
                 }
                 for r in retailers
