@@ -41,7 +41,8 @@
         "stock": { "display_name": "Stock", "permissions": ["stock.view", "stock.create", "stock.transfer", "stock.adjust"] },
         "itopup_balance": { "display_name": "iTopUp Balance", "permissions": ["itopup_balance.view", "itopup_balance.create", "itopup_balance.edit"] },
         "active_lso": { "display_name": "Active LSO Report", "permissions": ["active_lso.view", "active_lso.export", "active_lso.print"] },
-        "transactions": { "display_name": "Transactions", "permissions": ["transactions.view", "transactions.export"] }
+        "transactions": { "display_name": "Transactions", "permissions": ["transactions.view", "transactions.export"] },
+        "ga_report_builder": { "display_name": "GA Report Builder", "permissions": ["ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"] }
     },
     "default_roles": [
         {
@@ -54,11 +55,11 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export"]
+            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export", "ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"]
         },
         {
             "name": "Manager",
-            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export"]
+            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export", "ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"]
         },
         {
             "name": "Supervisor",

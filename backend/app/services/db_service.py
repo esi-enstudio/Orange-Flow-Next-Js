@@ -40,6 +40,8 @@ import app.models.stock
 import app.models.sales
 import app.models.itopup_balance
 import app.models.whatsapp_schedule
+import app.models.ga_report_event
+import app.models.ga_report_template
 
 logger = logging.getLogger(__name__)
 

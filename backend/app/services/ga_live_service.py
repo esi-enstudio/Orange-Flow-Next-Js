@@ -531,7 +531,7 @@ class GaLiveQueryBuilder:
                 "assisted_code": rso_info[4] if rso_info else "",
                 "total_activation": rso_total,
                 "own_activation": rso_own if rso_code else 0,
-                "market_activation": (rso_total - rso_own) if rso_code else 0,
+                "market_activation": rso_total - rso_own,
                 "target": rso_target_val,
                 "remaining": max(0, rso_target_val - mtd_achievement),
                 "contribution": 0,
@@ -612,7 +612,7 @@ class GaLiveQueryBuilder:
             y_own = yest_code_counts.get(r_code, 0) if r_code else 0
             y_market = y_total - y_own
             r["yesterday_own"] = y_own if r_code else 0
-            r["yesterday_market"] = y_market if r_code else 0
+            r["yesterday_market"] = y_market
             r["yesterday_total"] = y_total
         rso_data.sort(key=lambda x: x["total_activation"], reverse=True)
 

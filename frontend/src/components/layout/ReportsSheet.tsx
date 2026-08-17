@@ -12,6 +12,7 @@ import {
   Zap,
   Target,
   ArrowLeftRight,
+  SlidersHorizontal,
   X,
   ChevronRight,
 } from "lucide-react";
@@ -67,6 +68,12 @@ const reportItems = [
     href: "/reports/sim-issues",
     icon: Smartphone,
     permission: "reports.view",
+  },
+  {
+    key: "report_ga_builder",
+    href: "/reports/ga-report-builder",
+    icon: SlidersHorizontal,
+    permission: "ga_report_builder.view",
   },
 ];
 
