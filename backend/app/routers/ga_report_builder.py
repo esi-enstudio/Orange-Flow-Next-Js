@@ -1,8 +1,9 @@
+import io
 import logging
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, File, Form
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,8 @@ from app.models.user import User
 from app.models.house import House
 from app.models.ga_report_event import GaReportEvent
 from app.models.ga_report_template import GaReportTemplate
+from app.models.ga_report_target import GaReportTarget
+from app.models.retailer import Retailer
 from app.services.ga_report_builder_service import (
     GaReportBuilderService,
     ReportConfig,
@@ -93,6 +96,67 @@ async def _get_owned_template(db: AsyncSession, current_user: User, template_id:
     return template
 
 
+async def _replace_event_targets(
+    db: AsyncSession,
+    event: GaReportEvent,
+    target_type: str,
+    entries: list,
+    current_user: User,
+):
+    """Replace all targets for an event+type (soft-delete old, insert new)."""
+    existing = await db.execute(
+        select(GaReportTarget).where(
+            GaReportTarget.event_id == event.id,
+            GaReportTarget.target_type == target_type,
+            GaReportTarget.is_deleted == False,  # noqa: E712
+        )
+    )
+    for t in existing.scalars().all():
+        t.is_deleted = True
+        t.deleted_at = now_naive()
+        t.deleted_by = current_user.id
+
+    for e in entries or []:
+        if not isinstance(e, dict):
+            continue
+        slab = int(e.get("slab") or 1)
+        try:
+            value = float(e.get("target_value") or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if target_type == "retailer":
+            code = str(e.get("retailer_code") or "").strip()
+            if not code:
+                continue
+            db.add(GaReportTarget(
+                house_id=event.house_id,
+                event_id=event.id,
+                target_type=target_type,
+                entity_id=e.get("entity_id"),
+                retailer_code=code,
+                slab=slab,
+                target_value=value,
+                created_by=current_user.id,
+                updated_by=current_user.id,
+            ))
+        else:
+            entity_id = e.get("entity_id")
+            if entity_id is None:
+                continue
+            db.add(GaReportTarget(
+                house_id=event.house_id,
+                event_id=event.id,
+                target_type=target_type,
+                entity_id=int(entity_id),
+                retailer_code=None,
+                slab=slab,
+                target_value=value,
+                created_by=current_user.id,
+                updated_by=current_user.id,
+            ))
+    await db.commit()
+
+
 # ------------------------------------------------------------------ schemas
 
 
@@ -102,6 +166,7 @@ class EventCreate(BaseModel):
     end_date: str
     description: Optional[str] = None
     config: Optional[dict] = None
+    targets: Optional[dict] = None
 
     @field_validator("name")
     @classmethod
@@ -127,6 +192,7 @@ class EventUpdate(BaseModel):
     end_date: Optional[str] = None
     description: Optional[str] = None
     config: Optional[dict] = None
+    targets: Optional[dict] = None
 
 
 class TemplateCreate(BaseModel):
@@ -154,12 +220,22 @@ class ReportPayload(BaseModel):
     event_id: Optional[int] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    target_type: Optional[str] = None
     retailer_codes: list[str] = []
     rso_ids: list[int] = []
+    bp_ids: list[int] = []
+    slabs: Optional[int] = None
     columns: list = []
     filters: dict = {}
     sort_by: Optional[str] = None
     sort_order: str = "desc"
+
+    @field_validator("target_type")
+    @classmethod
+    def _type(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("rso", "bp", "retailer"):
+            raise ValueError("target_type must be 'rso', 'bp' or 'retailer'")
+        return v
 
     @field_validator("sort_order")
     @classmethod
@@ -216,8 +292,9 @@ async def get_columns(
 
 @router.get("/ga-report-builder/entities")
 async def get_entities(
-    entity_type: str = Query("retailer", pattern="^(rso|retailer)$"),
+    entity_type: str = Query("retailer", pattern="^(rso|bp|retailer)$"),
     search: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=5000),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("ga_report_builder.view")),
@@ -226,7 +303,7 @@ async def get_entities(
     target_house_id = await _resolve_house(db, current_user, q_house_id, header_house_id)
     _require_house_id(target_house_id)
     service = GaReportBuilderService(db, ReportConfig({"house_id": target_house_id}))
-    return {"success": True, "data": await service.get_entities(entity_type, search)}
+    return {"success": True, "data": await service.get_entities(entity_type, search, limit=limit)}
 
 
 @router.get("/ga-report-builder/exclusions")
@@ -240,6 +317,66 @@ async def get_exclusions(
     _require_house_id(target_house_id)
     service = GaReportBuilderService(db, ReportConfig({"house_id": target_house_id}))
     return {"success": True, "data": await service.get_exclusion_options()}
+
+
+@router.post("/ga-report-builder/targets/preview")
+async def preview_targets_upload(
+    file: UploadFile = File(...),
+    slab: int = Form(1),
+    q_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("ga_report_builder.create")),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    """Parse a retailer-target Excel file (col 1 = Retailer Code, col 2 = Target).
+
+    Validates retailer codes against the house and returns a preview without
+    persisting anything. Actual targets are saved with the event (EventCreate/Update targets).
+    """
+    target_house_id = await _resolve_house(db, current_user, q_house_id, header_house_id)
+    _require_house_id(target_house_id)
+
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(await file.read()), data_only=True)
+    ws = wb.active
+    parsed: list[dict] = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or len(row) < 2:
+            continue
+        code = str(row[0]).strip() if row[0] is not None else ""
+        if not code:
+            continue
+        try:
+            tval = float(row[1])
+        except (TypeError, ValueError):
+            tval = None
+        parsed.append({"retailer_code": code, "target_value": tval, "valid_target": tval is not None})
+
+    valid_codes: set[str] = set()
+    codes = [r["retailer_code"] for r in parsed]
+    if codes:
+        res = await db.execute(
+            select(Retailer.retailer_code).where(
+                Retailer.house_id == target_house_id,
+                Retailer.retailer_code.in_(codes),
+            )
+        )
+        valid_codes = {row[0] for row in res.all()}
+    for r in parsed:
+        r["valid_retailer"] = r["retailer_code"] in valid_codes
+
+    matched = sum(1 for r in parsed if r["valid_retailer"] and r["valid_target"])
+    return {
+        "success": True,
+        "data": {
+            "slab": slab,
+            "rows": parsed,
+            "total": len(parsed),
+            "matched": matched,
+            "invalid": len(parsed) - matched,
+        },
+    }
 
 
 # ------------------------------------------------------------------ events
@@ -276,6 +413,35 @@ async def list_events(
     }
 
 
+@router.get("/ga-report-builder/events/{event_id}/targets")
+async def get_event_targets(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("ga_report_builder.view")),
+):
+    await _get_owned_event(db, current_user, event_id)
+    result = await db.execute(
+        select(GaReportTarget).where(
+            GaReportTarget.event_id == event_id,
+            GaReportTarget.is_deleted == False,  # noqa: E712
+        ).order_by(GaReportTarget.slab.asc())
+    )
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": t.id,
+                "target_type": t.target_type,
+                "entity_id": t.entity_id,
+                "retailer_code": t.retailer_code,
+                "slab": t.slab,
+                "target_value": t.target_value,
+            }
+            for t in result.scalars().all()
+        ],
+    }
+
+
 @router.post("/ga-report-builder/events")
 async def create_event(
     data: EventCreate,
@@ -305,6 +471,11 @@ async def create_event(
     db.add(event)
     await db.commit()
     await db.refresh(event)
+
+    if data.targets and data.targets.get("target_type"):
+        await _replace_event_targets(
+            db, event, data.targets["target_type"], data.targets.get("entries") or [], current_user
+        )
 
     await log_activity(
         db,
@@ -352,6 +523,11 @@ async def update_event(
     event.updated_by = current_user.id
     await db.commit()
 
+    if data.targets and data.targets.get("target_type"):
+        await _replace_event_targets(
+            db, event, data.targets["target_type"], data.targets.get("entries") or [], current_user
+        )
+
     await log_activity(
         db,
         user_id=current_user.id,
@@ -389,6 +565,47 @@ async def delete_event(
         record_id=event.id,
         record_identifier=event.name,
         old_values={"name": event.name, "start_date": event.start_date.isoformat(), "end_date": event.end_date.isoformat()},
+        request=request,
+    )
+    return {"success": True, "data": {"id": event.id}}
+
+
+@router.delete("/ga-report-builder/events/{event_id}/permanent")
+async def permanent_delete_event(
+    event_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("ga_report_builder.delete.permanent")),
+):
+    event = await _get_owned_event(db, current_user, event_id)
+
+    event_data = {
+        "name": event.name,
+        "start_date": event.start_date.isoformat(),
+        "end_date": event.end_date.isoformat(),
+    }
+
+    templates = (
+        await db.execute(select(GaReportTemplate).where(GaReportTemplate.event_id == event_id))
+    ).scalars().all()
+    for tpl in templates:
+        tpl.event_id = None
+        cfg = dict(tpl.config or {})
+        cfg.pop("event_id", None)
+        tpl.config = cfg
+
+    await db.delete(event)
+    await db.commit()
+
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="ga_report_builder",
+        action="event.permanent_delete",
+        record_id=event.id,
+        record_identifier=event.name,
+        old_values=event_data,
         request=request,
     )
     return {"success": True, "data": {"id": event.id}}
@@ -544,6 +761,13 @@ async def _config_from_payload(db: AsyncSession, current_user: User, payload: Re
         raw["start_date"] = event.start_date.isoformat()
         raw["end_date"] = event.end_date.isoformat()
         raw["event_name"] = event.name
+        ev_cfg = event.config or {}
+        if ev_cfg.get("target_type"):
+            raw["target_type"] = ev_cfg["target_type"]
+        if ev_cfg.get("bp_ids"):
+            raw["bp_ids"] = ev_cfg["bp_ids"]
+        if ev_cfg.get("slabs"):
+            raw["slabs"] = ev_cfg["slabs"]
 
     cfg = ReportConfig(raw)
     return cfg

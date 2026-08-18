@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import {
   SlidersHorizontal, Building2, Loader2, RefreshCw, FileSpreadsheet,
-  MessageCircle, ChevronDown, ChevronUp, Check, Plus, Pencil, Trash2,
+  MessageCircle, ChevronDown, ChevronUp, Check, Plus, Minus, Pencil, Trash2,
   CalendarDays, Save, FolderOpen, Filter, Columns3, ArrowUpDown,
   Search, X, GripVertical, ChevronRight,
 } from "lucide-react";
@@ -15,6 +15,7 @@ import { toast } from "react-hot-toast";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import WhatsAppShareModal, { type ReportPayloadConfig } from "./WhatsAppShareModal";
+import EntitySelector, { type SelectorItem } from "../../zoom-in/_components/EntitySelector";
 
 /* ─────────── types ─────────── */
 
@@ -30,6 +31,8 @@ interface EntityOption {
   name: string;
   itop_number: string;
   rso_name?: string;
+  pool_number?: string;
+  assisted_code?: string;
 }
 
 interface TagOption {
@@ -75,8 +78,11 @@ interface Payload {
   event_id: number | null;
   start_date: string;
   end_date: string;
+  target_type: "rso" | "bp" | "retailer";
   retailer_codes: string[];
   rso_ids: number[];
+  bp_ids: number[];
+  slabs: number;
   columns: string[];
   filters: {
     exclude_product_codes: string[];
@@ -84,6 +90,13 @@ interface Payload {
   };
   sort_by: string;
   sort_order: string;
+}
+
+interface TargetEntry {
+  entity_id?: number;
+  retailer_code?: string;
+  slab: number;
+  target_value: number;
 }
 
 /* ─────────── default payload ─────────── */
@@ -94,8 +107,11 @@ function defaultColumns(): string[] {
 
 function emptyEventConfig(): Partial<Payload> {
   return {
+    target_type: "retailer",
     retailer_codes: [],
     rso_ids: [],
+    bp_ids: [],
+    slabs: 1,
     columns: defaultColumns(),
     filters: {
       exclude_product_codes: [],
@@ -111,8 +127,11 @@ function emptyPayload(): Payload {
     event_id: null,
     start_date: "",
     end_date: "",
+    target_type: "retailer",
     retailer_codes: [],
     rso_ids: [],
+    bp_ids: [],
+    slabs: 1,
     columns: defaultColumns(),
     filters: {
       exclude_product_codes: [],
@@ -241,7 +260,7 @@ interface SearchableMultiProps {
   loading: boolean;
   searchable?: boolean;
   displayField: "code" | "name";
-  secondaryField?: "code" | "name" | "rso_name" | "itop_number";
+  secondaryField?: "code" | "name" | "rso_name" | "itop_number" | "pool_number";
   keyField?: "code" | "id" | "name";
 }
 
@@ -458,24 +477,23 @@ function ColumnPicker({
 
 /* ─────────── Event Manager Modal ─────────── */
 function EventManagerModal({
-  open, onClose, houseId, events, onSaved, canEdit, canDelete,
-  columnsMeta, retailerItems, retailerLoading, onSearchRetailers,
-  rsoItems, rsoLoading, onSearchRsos, productCodes, tags,
+  open, onClose, houseId, events, onSaved, canCreate, canEdit, canDelete, canPermanentDelete,
+  columnsMeta, rsoItems, bpItems, fetchAllEntities,
+  productCodes, tags,
 }: {
   open: boolean;
   onClose: () => void;
   houseId: number | null;
   events: EventItem[];
   onSaved: (eventId: number) => void;
+  canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canPermanentDelete: boolean;
   columnsMeta: ColumnOption[];
-  retailerItems: EntityOption[];
-  retailerLoading: boolean;
-  onSearchRetailers: (q: string) => void;
   rsoItems: EntityOption[];
-  rsoLoading: boolean;
-  onSearchRsos: (q: string) => void;
+  bpItems: EntityOption[];
+  fetchAllEntities: (type: "rso" | "bp" | "retailer") => Promise<EntityOption[]>;
   productCodes: string[];
   tags: TagOption[];
 }) {
@@ -487,8 +505,65 @@ function EventManagerModal({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<Partial<Payload>>(emptyEventConfig());
+  const [targetValues, setTargetValues] = useState<Record<string, Record<number, number>>>({});
+  const [uploadedTargets, setUploadedTargets] = useState<TargetEntry[]>([]);
+  const [uploadSlab, setUploadSlab] = useState(1);
+  const [uploadRows, setUploadRows] = useState<Array<{ retailer_code: string; target_value: number | null; valid_target: boolean; valid_retailer: boolean }>>([]);
+  const [uploadSummary, setUploadSummary] = useState<{ total: number; matched: number; invalid: number } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [localRsoItems, setLocalRsoItems] = useState<EntityOption[]>([]);
+  const [localBpItems, setLocalBpItems] = useState<EntityOption[]>([]);
+  const [modalEntityItems, setModalEntityItems] = useState<Record<"rso" | "bp" | "retailer", SelectorItem[]>>({
+    rso: [], bp: [], retailer: [],
+  });
+  const [modalEntityLoading, setModalEntityLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toSelectorItems = (type: "rso" | "bp" | "retailer", list: EntityOption[]): SelectorItem[] => {
+    if (type === "retailer") {
+      return list.map((i) => ({ id: i.code, label: i.code, sublabel: i.name }));
+    }
+    if (type === "bp") {
+      return list.map((i) => ({ id: i.id, label: i.name, sublabel: i.pool_number || i.code }));
+    }
+    return list.map((i) => ({ id: i.id, label: i.name, sublabel: i.code }));
+  };
+
+  const loadModalEntities = async (type: "rso" | "bp" | "retailer") => {
+    setModalEntityLoading(true);
+    try {
+      const all = await fetchAllEntities(type);
+      setModalEntityItems((prev) => ({ ...prev, [type]: toSelectorItems(type, all) }));
+    } catch { /* silent */ } finally {
+      setModalEntityLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (open) {
+      const type = (config.target_type ?? "retailer") as "rso" | "bp" | "retailer";
+      void loadModalEntities(type);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, config.target_type]);
 
   const updateConfig = (patch: Partial<Payload>) => setConfig((c) => ({ ...c, ...patch }));
+
+  const entityRows = useMemo(() => {
+    const type = config.target_type ?? "retailer";
+    const map = new Map<number, { id: number; name: string; code: string }>();
+    if (type === "rso") {
+      for (const s of modalEntityItems.rso) map.set(Number(s.id), { id: Number(s.id), name: s.label, code: s.sublabel ?? "" });
+      for (const i of [...localRsoItems, ...rsoItems]) map.set(i.id, { id: i.id, name: i.name, code: i.code });
+      return (config.rso_ids ?? []).map((id) => map.get(id)).filter((x): x is { id: number; name: string; code: string } => Boolean(x));
+    }
+    if (type === "bp") {
+      for (const s of modalEntityItems.bp) map.set(Number(s.id), { id: Number(s.id), name: s.label, code: s.sublabel ?? "" });
+      for (const i of [...localBpItems, ...bpItems]) map.set(i.id, { id: i.id, name: i.name, code: i.code });
+      return (config.bp_ids ?? []).map((id) => map.get(id)).filter((x): x is { id: number; name: string; code: string } => Boolean(x));
+    }
+    return [];
+  }, [config.target_type, config.rso_ids, config.bp_ids, rsoItems, bpItems, localRsoItems, localBpItems, modalEntityItems]);
 
   const columnLabel = (key: string) => {
     const translated = t(`ga_report_builder.columns.${key}`);
@@ -502,22 +577,33 @@ function EventManagerModal({
     setEnd("");
     setEditingId(null);
     setConfig(emptyEventConfig());
+    setTargetValues({});
+    setUploadedTargets([]);
+    setUploadRows([]);
+    setUploadSummary(null);
+    setUploadSlab(1);
+    setLocalRsoItems([]);
+    setLocalBpItems([]);
   };
 
   useEffect(() => {
     if (open) reset();
   }, [open]);
 
-  const startEdit = (e: EventItem) => {
+  const startEdit = async (e: EventItem) => {
     const cfg = (e.config ?? {}) as Partial<Payload>;
     setEditingId(e.id);
     setName(e.name);
     setDescription(e.description ?? "");
     setStart(e.start_date);
     setEnd(e.end_date);
+    const type = cfg.target_type ?? "retailer";
     setConfig({
+      target_type: type,
       retailer_codes: cfg.retailer_codes ?? [],
       rso_ids: cfg.rso_ids ?? [],
+      bp_ids: cfg.bp_ids ?? [],
+      slabs: cfg.slabs && cfg.slabs > 0 ? cfg.slabs : 1,
       columns: (cfg.columns && cfg.columns.length > 0) ? cfg.columns : defaultColumns(),
       filters: {
         exclude_product_codes: cfg.filters?.exclude_product_codes ?? [],
@@ -526,16 +612,34 @@ function EventManagerModal({
       sort_by: cfg.sort_by ?? "activation_count",
       sort_order: cfg.sort_order ?? "desc",
     });
-  };
-
-  const retailerToggle = (code: string) => {
-    const codes = config.retailer_codes ?? [];
-    updateConfig({ retailer_codes: codes.includes(code) ? codes.filter((x) => x !== code) : [...codes, code] });
-  };
-
-  const rsoToggle = (id: number) => {
-    const ids = config.rso_ids ?? [];
-    updateConfig({ rso_ids: ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id] });
+    setUploadedTargets([]);
+    setUploadRows([]);
+    setUploadSummary(null);
+    setTargetValues({});
+    try {
+      const res = await apiClient.get(`/ga-report-builder/events/${e.id}/targets`);
+      const list = (res.data?.data ?? []) as Array<{ target_type: string; entity_id: number | null; retailer_code: string | null; slab: number; target_value: number }>;
+      const values: Record<string, Record<number, number>> = {};
+      const ups: TargetEntry[] = [];
+      for (const it of list) {
+        if (it.target_type !== type) continue;
+        if (it.retailer_code) {
+          ups.push({ retailer_code: it.retailer_code, slab: it.slab, target_value: it.target_value });
+        } else if (it.entity_id != null) {
+          const key = String(it.entity_id);
+          values[key] = { ...(values[key] ?? {}), [it.slab]: it.target_value };
+        }
+      }
+      setTargetValues(values);
+      setUploadedTargets(ups);
+    } catch { /* silent */ }
+    if (type === "rso") {
+      const all = await fetchAllEntities("rso");
+      if (all.length > 0) setLocalRsoItems(all);
+    } else if (type === "bp") {
+      const all = await fetchAllEntities("bp");
+      if (all.length > 0) setLocalBpItems(all);
+    }
   };
 
   const productToggle = (code: string) => {
@@ -560,6 +664,82 @@ function EventManagerModal({
     });
   };
 
+  const setTargetType = (type: "rso" | "bp" | "retailer") => {
+    updateConfig({ target_type: type });
+    setTargetValues({});
+    setUploadedTargets([]);
+    setUploadRows([]);
+    setUploadSummary(null);
+  };
+
+  const adjustSlabs = (delta: number) => {
+    const next = Math.min(10, Math.max(1, (config.slabs ?? 1) + delta));
+    updateConfig({ slabs: next });
+  };
+
+  const setTargetValue = (key: string, slab: number, value: number) => {
+    setTargetValues((prev) => {
+      const row = { ...(prev[key] ?? {}) };
+      row[slab] = value;
+      return { ...prev, [key]: row };
+    });
+  };
+
+  const handleUpload = async (file: File) => {
+    if (!file || !houseId) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("slab", String(uploadSlab));
+      const res = await apiClient.post("/ga-report-builder/targets/preview", fd, {
+        params: { house_id: houseId },
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const d = res.data?.data;
+      setUploadRows(d?.rows ?? []);
+      setUploadSummary({ total: d?.total ?? 0, matched: d?.matched ?? 0, invalid: d?.invalid ?? 0 });
+      const entries: TargetEntry[] = [];
+      for (const r of (d?.rows ?? []) as Array<{ retailer_code: string; target_value: number | null; valid_retailer: boolean; valid_target: boolean }>) {
+        if (r.valid_retailer && r.target_value != null) {
+          entries.push({ retailer_code: r.retailer_code, slab: uploadSlab, target_value: r.target_value });
+        }
+      }
+      setUploadedTargets(entries);
+    } catch (e) {
+      toast.error((e as Error).message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const clearUpload = () => {
+    setUploadRows([]);
+    setUploadSummary(null);
+    setUploadedTargets([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const buildTargetEntries = (): TargetEntry[] => {
+    const entries: TargetEntry[] = [];
+    const type = config.target_type ?? "retailer";
+    const slabs = config.slabs ?? 1;
+    if (type === "retailer") {
+      entries.push(...uploadedTargets);
+      return entries;
+    }
+    const ids = type === "rso" ? (config.rso_ids ?? []) : (config.bp_ids ?? []);
+    for (const id of ids) {
+      const row = targetValues[String(id)] ?? {};
+      for (let s = 1; s <= slabs; s++) {
+        if (row[s] && row[s] > 0) {
+          entries.push({ entity_id: id, slab: s, target_value: row[s] });
+        }
+      }
+    }
+    return entries;
+  };
+
   const save = async () => {
     if (!houseId) return;
     if (!name.trim() || !start || !end) {
@@ -578,8 +758,11 @@ function EventManagerModal({
         end_date: end,
         description: description || null,
         config: {
+          target_type: config.target_type ?? "retailer",
           retailer_codes: config.retailer_codes ?? [],
           rso_ids: config.rso_ids ?? [],
+          bp_ids: config.bp_ids ?? [],
+          slabs: config.slabs ?? 1,
           columns: (config.columns && config.columns.length > 0) ? config.columns : defaultColumns(),
           filters: {
             exclude_product_codes: config.filters?.exclude_product_codes ?? [],
@@ -587,6 +770,10 @@ function EventManagerModal({
           },
           sort_by: config.sort_by ?? "activation_count",
           sort_order: config.sort_order ?? "desc",
+        },
+        targets: {
+          target_type: config.target_type ?? "retailer",
+          entries: buildTargetEntries(),
         },
       };
       let savedId: number | null = null;
@@ -620,6 +807,18 @@ function EventManagerModal({
     }
   };
 
+  const removePermanent = async (e: EventItem) => {
+    if (!window.confirm(t("ga_report_builder.event.delete_permanent_confirm"))) return;
+    try {
+      await apiClient.delete(`/ga-report-builder/events/${e.id}/permanent`);
+      toast.success(t("ga_report_builder.event.delete_permanent_success"));
+      if (editingId === e.id) reset();
+      onSaved(e.id);
+    } catch (err) {
+      toast.error((err as Error).message || "Permanent delete failed");
+    }
+  };
+
   return (
     <div className={cn("fixed inset-0 z-[90] flex items-center justify-center bg-black/65 backdrop-blur-md p-4", !open && "hidden")}>
       <motion.div
@@ -629,10 +828,29 @@ function EventManagerModal({
       >
         <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
-            <CalendarDays className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+            {editingId ? (
+              <Pencil className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+            ) : canCreate ? (
+              <Plus className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+            ) : (
+              <CalendarDays className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-gray-900 dark:text-gray-100">{t("ga_report_builder.event.manage")}</h3>
+            <h3 className="font-bold text-gray-900 dark:text-gray-100">
+              {editingId
+                ? t("ga_report_builder.event.edit")
+                : canCreate
+                  ? t("ga_report_builder.event.create")
+                  : t("ga_report_builder.event.manage")}
+            </h3>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              {editingId
+                ? t("ga_report_builder.event.subtitle_edit")
+                : canCreate
+                  ? t("ga_report_builder.event.subtitle_create")
+                  : t("ga_report_builder.event.subtitle_manage")}
+            </p>
           </div>
           <button onClick={() => { reset(); onClose(); }} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400">
             <X className="w-5 h-5" />
@@ -641,6 +859,7 @@ function EventManagerModal({
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {/* form */}
+          {(canCreate || canEdit) && (
           <div className="rounded-2xl border border-gray-200 dark:border-slate-700/60 p-4 space-y-3">
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
               {editingId ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -693,86 +912,260 @@ function EventManagerModal({
                 {t("ga_report_builder.builder.config_title")}
               </p>
               <div className="space-y-4">
-                <SearchableMulti
-                  label={t("ga_report_builder.filters.retailers")}
-                  placeholder={t("ga_report_builder.filters.retailer_placeholder")}
-                  items={retailerItems}
-                  selectedKeys={config.retailer_codes ?? []}
-                  onToggle={retailerToggle}
-                  onSearch={onSearchRetailers}
-                  loading={retailerLoading}
-                  displayField="code"
-                  secondaryField="name"
-                  keyField="code"
-                />
-                <SearchableMulti
-                  label={t("ga_report_builder.filters.rso")}
-                  placeholder={t("ga_report_builder.filters.rso_placeholder")}
-                  items={rsoItems}
-                  selectedKeys={(config.rso_ids ?? []).map(String)}
-                  onToggle={(k) => rsoToggle(Number(k))}
-                  onSearch={onSearchRsos}
-                  loading={rsoLoading}
-                  displayField="name"
-                  secondaryField="code"
-                  keyField="id"
-                />
-                <ColumnPicker
-                  allColumns={columnsMeta}
-                  selected={config.columns ?? []}
-                  onChange={(cols) => updateConfig({ columns: cols })}
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.sort_by")}</label>
-                    <select
-                      value={config.sort_by ?? "activation_count"}
-                      onChange={(e) => updateConfig({ sort_by: e.target.value })}
-                      className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                    >
-                      {(config.columns ?? []).map((c) => (
-                        <option key={c} value={c}>{columnLabel(c)}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.sort_order")}</label>
-                    <select
-                      value={config.sort_order ?? "desc"}
-                      onChange={(e) => updateConfig({ sort_order: e.target.value })}
-                      className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                    >
-                      <option value="desc">{t("ga_report_builder.filters.desc")}</option>
-                      <option value="asc">{t("ga_report_builder.filters.asc")}</option>
-                    </select>
+                {/* Target type */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                    {t("ga_report_builder.target.type")}
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["rso", "bp", "retailer"] as const).map((tp) => (
+                      <button
+                        key={tp}
+                        type="button"
+                        onClick={() => setTargetType(tp)}
+                        className={cn(
+                          "min-h-[44px] rounded-xl border text-sm font-medium transition-colors",
+                          (config.target_type ?? "retailer") === tp
+                            ? "bg-primary-600 border-primary-600 text-white"
+                            : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        {t(`ga_report_builder.target.${tp}`)}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <div className="space-y-3">
-                  <SearchableMulti
-                    label={t("ga_report_builder.filters.exclude_products")}
-                    placeholder={t("ga_report_builder.filters.exclude_products_placeholder")}
-                    items={productCodes.map((code) => ({ id: 0, code, name: code, itop_number: "" }))}
-                    selectedKeys={config.filters?.exclude_product_codes ?? []}
-                    onToggle={productToggle}
-                    onSearch={() => {}}
-                    loading={false}
-                    searchable={false}
-                    displayField="code"
-                    keyField="code"
+
+                {/* Entity selection */}
+                {(config.target_type ?? "retailer") === "retailer" && (
+                  <EntitySelector
+                    label={t("ga_report_builder.filters.retailers")}
+                    items={modalEntityItems.retailer}
+                    selectedIds={config.retailer_codes ?? []}
+                    onChange={(ids) => updateConfig({ retailer_codes: ids.map(String) })}
+                    placeholder={t("ga_report_builder.filters.retailer_placeholder")}
+                    searchPlaceholder={t("ga_report_builder.filters.retailer_placeholder")}
+                    emptyMessage={modalEntityLoading ? t("ga_report_builder.messages.loading") : t("ga_report_builder.filters.no_entities")}
+                    noResultsMessage={t("ga_report_builder.filters.no_results")}
+                    selectAllLabel={t("ga_report_builder.target.select_all")}
+                    clearLabel={t("ga_report_builder.target.deselect_all")}
                   />
-                  <SearchableMulti
-                    label={t("ga_report_builder.filters.exclude_tags")}
-                    placeholder={t("ga_report_builder.filters.exclude_tags_placeholder")}
-                    items={tags}
-                    selectedKeys={config.filters?.exclude_retailer_tags ?? []}
-                    onToggle={tagToggle}
-                    onSearch={() => {}}
-                    loading={false}
-                    searchable={false}
-                    displayField="name"
-                    keyField="name"
+                )}
+
+                {(config.target_type ?? "retailer") === "rso" && (
+                  <EntitySelector
+                    label={t("ga_report_builder.filters.rso")}
+                    items={modalEntityItems.rso}
+                    selectedIds={(config.rso_ids ?? []).map(String)}
+                    onChange={(ids) => updateConfig({ rso_ids: ids.map(Number) })}
+                    placeholder={t("ga_report_builder.filters.rso_placeholder")}
+                    searchPlaceholder={t("ga_report_builder.filters.rso_placeholder")}
+                    emptyMessage={modalEntityLoading ? t("ga_report_builder.messages.loading") : t("ga_report_builder.filters.no_entities")}
+                    noResultsMessage={t("ga_report_builder.filters.no_results")}
+                    selectAllLabel={t("ga_report_builder.target.select_all")}
+                    clearLabel={t("ga_report_builder.target.deselect_all")}
                   />
+                )}
+
+                {(config.target_type ?? "retailer") === "bp" && (
+                  <EntitySelector
+                    label={t("ga_report_builder.filters.bp")}
+                    items={modalEntityItems.bp}
+                    selectedIds={(config.bp_ids ?? []).map(String)}
+                    onChange={(ids) => updateConfig({ bp_ids: ids.map(Number) })}
+                    placeholder={t("ga_report_builder.filters.bp_placeholder")}
+                    searchPlaceholder={t("ga_report_builder.filters.bp_placeholder")}
+                    emptyMessage={modalEntityLoading ? t("ga_report_builder.messages.loading") : t("ga_report_builder.filters.no_entities")}
+                    noResultsMessage={t("ga_report_builder.filters.no_results")}
+                    selectAllLabel={t("ga_report_builder.target.select_all")}
+                    clearLabel={t("ga_report_builder.target.deselect_all")}
+                  />
+                )}
+
+                {/* Slabs */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                    {t("ga_report_builder.target.slabs")}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => adjustSlabs(-1)} className="w-[44px] h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300">
+                      <Minus className="w-4 h-4 mx-auto" />
+                    </button>
+                    <span className="flex-1 text-center font-semibold text-gray-800 dark:text-gray-200">{config.slabs ?? 1}</span>
+                    <button type="button" onClick={() => adjustSlabs(1)} className="w-[44px] h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300">
+                      <Plus className="w-4 h-4 mx-auto" />
+                    </button>
+                  </div>
                 </div>
+
+                {/* RSO / BP target grid */}
+                {(config.target_type === "rso" || config.target_type === "bp") && (
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                      {t("ga_report_builder.target.targets")}
+                    </label>
+                    {entityRows.length === 0 ? (
+                      <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
+                        {t("ga_report_builder.target.no_selection")}
+                      </p>
+                    ) : (
+                      <div className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 dark:bg-slate-800/60">
+                              <th className="px-2 py-2 text-left font-semibold text-xs text-gray-500 dark:text-gray-400">
+                                {config.target_type === "rso" ? t("ga_report_builder.filters.rso") : t("ga_report_builder.filters.bp")}
+                              </th>
+                              {Array.from({ length: config.slabs ?? 1 }).map((_, i) => (
+                                <th key={i} className="px-2 py-2 text-left font-semibold text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                  {t("ga_report_builder.slab.label", { number: i + 1 })} {t("ga_report_builder.slab.target")}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                            {entityRows.map((e) => (
+                              <tr key={e.id}>
+                                <td className="px-2 py-1">
+                                  <p className="font-medium text-gray-800 dark:text-gray-200">{e.name}</p>
+                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{e.code}</p>
+                                </td>
+                                {Array.from({ length: config.slabs ?? 1 }).map((_, i) => (
+                                  <td key={i} className="px-2 py-1">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={targetValues[String(e.id)]?.[i + 1] ?? ""}
+                                      onChange={(ev) => setTargetValue(String(e.id), i + 1, Number(ev.target.value) || 0)}
+                                      placeholder="0"
+                                      className="w-24 min-h-[44px] px-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                                    />
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Retailer Excel upload */}
+                {config.target_type === "retailer" && (
+                  <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-3 space-y-2">
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block">
+                      {t("ga_report_builder.target.upload_title")}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".xlsx,.xls"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); }}
+                        className="flex-1 text-sm text-gray-500 dark:text-gray-400 file:mr-2 file:min-h-[44px] file:rounded-lg file:border-0 file:bg-primary-600 file:px-3 file:text-white file:text-sm file:font-medium hover:file:bg-primary-700"
+                      />
+                      <label className="text-xs text-gray-500 dark:text-gray-400 shrink-0">{t("ga_report_builder.slab.label", { number: uploadSlab })}</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={uploadSlab}
+                        onChange={(e) => setUploadSlab(Math.max(1, Number(e.target.value) || 1))}
+                        className="w-16 min-h-[44px] px-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                      />
+                    </div>
+                    <p className="text-[11px] text-gray-400">{t("ga_report_builder.target.upload_hint")}</p>
+                    {uploading && (
+                      <div className="flex items-center gap-2 text-sm text-gray-400">
+                        <Loader2 className="w-4 h-4 animate-spin" /> {t("ga_report_builder.target.uploading")}
+                      </div>
+                    )}
+                    {uploadSummary && (
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-gray-600 dark:text-gray-300">
+                          {t("ga_report_builder.target.upload_summary", { total: uploadSummary.total, matched: uploadSummary.matched, invalid: uploadSummary.invalid })}
+                        </span>
+                        <button type="button" onClick={clearUpload} className="text-red-500 underline">
+                          {t("ga_report_builder.target.clear")}
+                        </button>
+                      </div>
+                    )}
+                    {uploadRows.length > 0 && (
+                      <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-100 dark:border-slate-800 divide-y divide-gray-100 dark:divide-slate-800">
+                        {uploadRows.map((r, i) => (
+                          <div key={i} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                            <span className="font-medium text-gray-700 dark:text-gray-300">{r.retailer_code}</span>
+                            <span className={cn("tabular-nums", r.valid_target && r.valid_retailer ? "text-green-600" : "text-red-500")}>
+                              {r.target_value ?? "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Retailer-only: columns, sort, exclusions */}
+                {config.target_type === "retailer" && (
+                  <>
+                    <ColumnPicker
+                      allColumns={columnsMeta}
+                      selected={config.columns ?? []}
+                      onChange={(cols) => updateConfig({ columns: cols })}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.sort_by")}</label>
+                        <select
+                          value={config.sort_by ?? "activation_count"}
+                          onChange={(e) => updateConfig({ sort_by: e.target.value })}
+                          className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        >
+                          {(config.columns ?? []).map((c) => (
+                            <option key={c} value={c}>{columnLabel(c)}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.sort_order")}</label>
+                        <select
+                          value={config.sort_order ?? "desc"}
+                          onChange={(e) => updateConfig({ sort_order: e.target.value })}
+                          className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        >
+                          <option value="desc">{t("ga_report_builder.filters.desc")}</option>
+                          <option value="asc">{t("ga_report_builder.filters.asc")}</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <SearchableMulti
+                        label={t("ga_report_builder.filters.exclude_products")}
+                        placeholder={t("ga_report_builder.filters.exclude_products_placeholder")}
+                        items={productCodes.map((code) => ({ id: 0, code, name: code, itop_number: "" }))}
+                        selectedKeys={config.filters?.exclude_product_codes ?? []}
+                        onToggle={productToggle}
+                        onSearch={() => {}}
+                        loading={false}
+                        searchable={false}
+                        displayField="code"
+                        keyField="code"
+                      />
+                      <SearchableMulti
+                        label={t("ga_report_builder.filters.exclude_tags")}
+                        placeholder={t("ga_report_builder.filters.exclude_tags_placeholder")}
+                        items={tags}
+                        selectedKeys={config.filters?.exclude_retailer_tags ?? []}
+                        onToggle={tagToggle}
+                        onSearch={() => {}}
+                        loading={false}
+                        searchable={false}
+                        displayField="name"
+                        keyField="name"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -792,6 +1185,7 @@ function EventManagerModal({
               </button>
             </div>
           </div>
+          )}
 
           {/* list */}
           <div className="space-y-2">
@@ -819,6 +1213,12 @@ function EventManagerModal({
                       <Trash2 className="w-4 h-4" />
                     </button>
                   )}
+                  {canPermanentDelete && (
+                    <button onClick={() => removePermanent(e)} className="relative p-2 rounded-lg border border-red-300 dark:border-red-500/60 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20" title="Delete Permanently">
+                      <Trash2 className="w-4 h-4" />
+                      <X className="w-3 h-3 absolute -bottom-0.5 -right-0.5 bg-white dark:bg-slate-900 rounded-full" />
+                    </button>
+                  )}
                 </div>
               ))
             )}
@@ -844,15 +1244,22 @@ function ReportTable({
 
   useEffect(() => { setSortedRows(rows); }, [rows]);
 
+  const slabRegex = /^slab_(\d+)_(\w+)$/;
   const label = (key: string) => {
+    const m = key.match(slabRegex);
+    if (m) {
+      const metricKey = t(`ga_report_builder.slab.${m[2]}`);
+      const metric = metricKey !== `ga_report_builder.slab.${m[2]}` ? metricKey : m[2];
+      return `${t("ga_report_builder.slab.label", { number: Number(m[1]) })} ${metric}`;
+    }
     const translated = t(`ga_report_builder.columns.${key}`);
     return translated !== `ga_report_builder.columns.${key}` ? translated : (columnMeta[key]?.label ?? key);
   };
   const fmt = (key: string, val: string | number) => {
-    if (columnMeta[key]?.type === "number") return Number(val).toLocaleString();
+    if (isNum(key)) return Number(val).toLocaleString();
     return String(val ?? "—");
   };
-  const isNum = (key: string) => columnMeta[key]?.type === "number";
+  const isNum = (key: string) => slabRegex.test(key) || columnMeta[key]?.type === "number";
 
   if (rows.length === 0) {
     return (
@@ -911,7 +1318,7 @@ function ReportTable({
       {/* Mobile accordion */}
       <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
         {sortedRows.map((row, i) => {
-          const primaryKey = columns.find((c) => c === "retailer_name" || c === "retailer_code") ?? columns[0];
+          const primaryKey = columns.find((c) => c === "retailer_name" || c === "retailer_code" || c === "rso_name" || c === "bp_name") ?? columns[0];
           const expanded = expandedId === i;
           return (
             <div key={i} className="py-1">
@@ -964,10 +1371,14 @@ export default function GaReportBuilderPage() {
   const [productCodes, setProductCodes] = useState<string[]>([]);
   const [tags, setTags] = useState<TagOption[]>([]);
 
-  const [retailerItems, setRetailerItems] = useState<EntityOption[]>([]);
-  const [retailerLoading, setRetailerLoading] = useState(false);
   const [rsoItems, setRsoItems] = useState<EntityOption[]>([]);
   const [rsoLoading, setRsoLoading] = useState(false);
+  const [bpItems, setBpItems] = useState<EntityOption[]>([]);
+  const [bpLoading, setBpLoading] = useState(false);
+  const [configEntityItems, setConfigEntityItems] = useState<Record<"rso" | "bp" | "retailer", SelectorItem[]>>({
+    rso: [], bp: [], retailer: [],
+  });
+  const [configEntityLoading, setConfigEntityLoading] = useState(false);
 
   const [payload, setPayload] = useState<Payload>(emptyPayload());
   const [report, setReport] = useState<ReportData | null>(null);
@@ -984,6 +1395,7 @@ export default function GaReportBuilderPage() {
   const canCreate = hasPermission("ga_report_builder.create");
   const canEdit = hasPermission("ga_report_builder.edit");
   const canDelete = hasPermission("ga_report_builder.delete");
+  const canPermanentDelete = hasPermission("ga_report_builder.delete.permanent");
   const canExport = hasPermission("ga_report_builder.export");
   const canSend = hasPermission("ga_report_builder.send");
 
@@ -1077,8 +1489,11 @@ export default function GaReportBuilderPage() {
       event_id: ev.id,
       start_date: ev.start_date,
       end_date: ev.end_date,
+      target_type: cfg.target_type ?? "retailer",
       retailer_codes: cfg.retailer_codes ?? [],
       rso_ids: cfg.rso_ids ?? [],
+      bp_ids: cfg.bp_ids ?? [],
+      slabs: cfg.slabs && cfg.slabs > 0 ? cfg.slabs : 1,
       columns: (cfg.columns && cfg.columns.length > 0) ? cfg.columns : defaultColumns(),
       filters: {
         exclude_product_codes: cfg.filters?.exclude_product_codes ?? [],
@@ -1109,35 +1524,6 @@ export default function GaReportBuilderPage() {
   }, [effectiveHouseId, loadEvents, loadTemplates, loadExclusions, applyEvent]);
 
   /* ── entity search ── */
-  const retailerSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (retailerSearchTimer.current) clearTimeout(retailerSearchTimer.current);
-    };
-  }, []);
-
-  const searchRetailers = useCallback((q: string) => {
-    if (retailerSearchTimer.current) clearTimeout(retailerSearchTimer.current);
-    if (!effectiveHouseId) return;
-    setRetailerLoading(true);
-    const doFetch = async () => {
-      try {
-        const res = await apiClient.get("/ga-report-builder/entities", {
-          params: { entity_type: "retailer", search: q || undefined, house_id: effectiveHouseId },
-        });
-        setRetailerItems(res.data?.data ?? []);
-      } catch { /* silent */ } finally {
-        setRetailerLoading(false);
-      }
-    };
-    if (q) {
-      retailerSearchTimer.current = setTimeout(doFetch, 500);
-    } else {
-      void doFetch();
-    }
-  }, [effectiveHouseId]);
-
   const searchRsos = useCallback(async (q: string) => {
     if (!effectiveHouseId) return;
     setRsoLoading(true);
@@ -1151,7 +1537,60 @@ export default function GaReportBuilderPage() {
     }
   }, [effectiveHouseId]);
 
-  useEffect(() => { if (effectiveHouseId) { searchRetailers(""); searchRsos(""); } }, [effectiveHouseId, searchRetailers, searchRsos]);
+  const searchBps = useCallback(async (q: string) => {
+    if (!effectiveHouseId) return;
+    setBpLoading(true);
+    try {
+      const res = await apiClient.get("/ga-report-builder/entities", {
+        params: { entity_type: "bp", search: q || undefined, house_id: effectiveHouseId },
+      });
+      setBpItems(res.data?.data ?? []);
+    } catch { /* silent */ } finally {
+      setBpLoading(false);
+    }
+  }, [effectiveHouseId]);
+
+  const fetchAllEntities = useCallback(async (type: "rso" | "bp" | "retailer"): Promise<EntityOption[]> => {
+    if (!effectiveHouseId) return [];
+    try {
+      const res = await apiClient.get("/ga-report-builder/entities", {
+        params: { entity_type: type, limit: 5000, house_id: effectiveHouseId },
+      });
+      return res.data?.data ?? [];
+    } catch {
+      return [];
+    }
+  }, [effectiveHouseId]);
+
+  const loadConfigEntities = useCallback(async (type: "rso" | "bp" | "retailer") => {
+    setConfigEntityLoading(true);
+    try {
+      const all = await fetchAllEntities(type);
+      const items: SelectorItem[] = type === "retailer"
+        ? all.map((i) => ({ id: i.code, label: i.code, sublabel: i.name }))
+        : type === "bp"
+          ? all.map((i) => ({ id: i.id, label: i.name, sublabel: i.pool_number || i.code }))
+          : all.map((i) => ({ id: i.id, label: i.name, sublabel: i.code }));
+      setConfigEntityItems((prev) => ({ ...prev, [type]: items }));
+    } catch { /* silent */ } finally {
+      setConfigEntityLoading(false);
+    }
+  }, [fetchAllEntities]);
+
+  useEffect(() => {
+    if (configOpen && effectiveHouseId) {
+      const type = (payload.target_type ?? "retailer") as "rso" | "bp" | "retailer";
+      void loadConfigEntities(type);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configOpen, effectiveHouseId, payload.target_type]);
+
+  useEffect(() => {
+    if (effectiveHouseId) {
+      searchRsos("");
+      searchBps("");
+    }
+  }, [effectiveHouseId, searchRsos, searchBps]);
 
   /* ── payload helpers ── */
   const updatePayload = (patch: Partial<Payload>) => setPayload((p) => ({ ...p, ...patch }));
@@ -1205,8 +1644,11 @@ export default function GaReportBuilderPage() {
       event_id: cfg.event_id ?? template.event_id ?? null,
       start_date: cfg.start_date ?? "",
       end_date: cfg.end_date ?? "",
+      target_type: cfg.target_type ?? "retailer",
       retailer_codes: cfg.retailer_codes ?? [],
       rso_ids: cfg.rso_ids ?? [],
+      bp_ids: cfg.bp_ids ?? [],
+      slabs: cfg.slabs && cfg.slabs > 0 ? cfg.slabs : 1,
       columns: (cfg.columns ?? defaultColumns()).length > 0 ? (cfg.columns ?? defaultColumns()) : defaultColumns(),
       filters: {
         exclude_product_codes: filters.exclude_product_codes ?? [],
@@ -1260,6 +1702,17 @@ export default function GaReportBuilderPage() {
     }
   };
 
+  const quickDeleteEvent = async (ev: EventItem) => {
+    if (!window.confirm(t("ga_report_builder.event.delete_confirm"))) return;
+    try {
+      await apiClient.delete(`/ga-report-builder/events/${ev.id}`);
+      toast.success(t("ga_report_builder.event.delete_success"));
+      await handleEventsSaved(ev.id);
+    } catch (err) {
+      toast.error((err as Error).message || "Delete failed");
+    }
+  };
+
   /* auth guard */
   if (authLoading) return <PageSkeleton />;
   if (!hasPermission("ga_report_builder.view")) return <AccessDenied />;
@@ -1277,6 +1730,19 @@ export default function GaReportBuilderPage() {
         ? payload.rso_ids.filter((x) => x !== id)
         : [...payload.rso_ids, id],
     });
+  };
+  const bpToggle = (id: number) => {
+    updatePayload({
+      bp_ids: payload.bp_ids.includes(id)
+        ? payload.bp_ids.filter((x) => x !== id)
+        : [...payload.bp_ids, id],
+    });
+  };
+  const setPayloadTargetType = (type: "rso" | "bp" | "retailer") => {
+    updatePayload({ target_type: type });
+  };
+  const adjustPayloadSlabs = (delta: number) => {
+    updatePayload({ slabs: Math.min(10, Math.max(1, (payload.slabs ?? 1) + delta)) });
   };
   const tagToggle = (name: string) => {
     updatePayload({
@@ -1317,6 +1783,14 @@ export default function GaReportBuilderPage() {
                 <Plus className="w-4 h-4" /> {t("ga_report_builder.event.create")}
               </button>
             )}
+            {(canEdit || canDelete) && !canCreate && (
+              <button
+                onClick={() => setEventModalOpen(true)}
+                className="ml-auto flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-gray-300 dark:border-slate-600 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+              >
+                <CalendarDays className="w-4 h-4" /> {t("ga_report_builder.event.manage")}
+              </button>
+            )}
           </div>
           {events.length === 0 ? (
             <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-4 py-3">
@@ -1325,22 +1799,32 @@ export default function GaReportBuilderPage() {
           ) : (
             <div className="flex flex-wrap gap-2">
               {events.map((ev) => (
-                <button
-                  key={ev.id}
-                  onClick={() => void applyEvent(ev, true)}
-                  className={cn(
-                    "flex items-center gap-2.5 px-3 py-2 min-h-[44px] rounded-xl border text-sm transition-colors",
-                    payload.event_id === ev.id
-                      ? "bg-primary-600 border-primary-600 text-white shadow-sm"
-                      : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+                <div key={ev.id} className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => void applyEvent(ev, true)}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-2 min-h-[44px] rounded-xl border text-sm transition-colors",
+                      payload.event_id === ev.id
+                        ? "bg-primary-600 border-primary-600 text-white shadow-sm"
+                        : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    )}
+                  >
+                    <CalendarDays className={cn("w-4 h-4", payload.event_id === ev.id ? "text-white" : "text-primary-500")} />
+                    <span className="font-medium">{ev.name}</span>
+                    <span className={cn("text-[11px]", payload.event_id === ev.id ? "text-white/80" : "text-gray-400")}>
+                      {ev.start_date} → {ev.end_date}
+                    </span>
+                  </button>
+                  {canDelete && (
+                    <button
+                      onClick={() => void quickDeleteEvent(ev)}
+                      className="p-2 rounded-xl border border-red-200 dark:border-red-500/40 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 shrink-0"
+                      title={t("ga_report_builder.event.delete_confirm")}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   )}
-                >
-                  <CalendarDays className={cn("w-4 h-4", payload.event_id === ev.id ? "text-white" : "text-primary-500")} />
-                  <span className="font-medium">{ev.name}</span>
-                  <span className={cn("text-[11px]", payload.event_id === ev.id ? "text-white/80" : "text-gray-400")}>
-                    {ev.start_date} → {ev.end_date}
-                  </span>
-                </button>
+                </div>
               ))}
             </div>
           )}
@@ -1371,12 +1855,19 @@ export default function GaReportBuilderPage() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setConfigOpen(true)}
-                className="flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
-              >
-                <SlidersHorizontal className="w-4 h-4" /> {t("ga_report_builder.builder.configure")}
-              </button>
+              {events.length > 0 && (
+                <button
+                  onClick={() => setConfigOpen(true)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl text-sm transition-colors",
+                    report
+                      ? "border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+                      : "bg-primary-600 text-white font-semibold hover:bg-primary-700"
+                  )}
+                >
+                  <SlidersHorizontal className="w-4 h-4" /> {t("ga_report_builder.builder.configure")}
+                </button>
+              )}
               {report && canExport && (
                 <button
                   onClick={exportExcel}
@@ -1418,7 +1909,7 @@ export default function GaReportBuilderPage() {
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <ArrowUpDown className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
               <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
-                {t("ga_report_builder.filters.columns_hint")}
+                {t("ga_report_builder.builder.empty_hint")}
               </p>
             </div>
           )}
@@ -1497,44 +1988,105 @@ export default function GaReportBuilderPage() {
                 </div>
               </div>
 
-              {/* Retailers */}
+              {/* Target type */}
               <div className="mb-4">
-                <SearchableMulti
-                  label={t("ga_report_builder.filters.retailers")}
-                  placeholder={t("ga_report_builder.filters.retailer_placeholder")}
-                  items={retailerItems}
-                  selectedKeys={payload.retailer_codes}
-                  onToggle={retailerToggle}
-                  onSearch={searchRetailers}
-                  loading={retailerLoading}
-                  displayField="code"
-                  secondaryField="name"
-                  keyField="code"
-                />
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.target.type")}</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["rso", "bp", "retailer"] as const).map((tp) => (
+                    <button
+                      key={tp}
+                      type="button"
+                      onClick={() => setPayloadTargetType(tp)}
+                      className={cn(
+                        "min-h-[44px] rounded-xl border text-sm font-medium transition-colors",
+                        (payload.target_type ?? "retailer") === tp
+                          ? "bg-primary-600 border-primary-600 text-white"
+                          : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+                      )}
+                    >
+                      {t(`ga_report_builder.target.${tp}`)}
+                    </button>
+                  ))}
+                </div>
               </div>
 
+              {/* Retailers */}
+              {(payload.target_type ?? "retailer") === "retailer" && (
+                <div className="mb-4">
+                  <EntitySelector
+                    label={t("ga_report_builder.filters.retailers")}
+                    items={configEntityItems.retailer}
+                    selectedIds={payload.retailer_codes}
+                    onChange={(ids) => updatePayload({ retailer_codes: ids.map(String) })}
+                    placeholder={t("ga_report_builder.filters.retailer_placeholder")}
+                    searchPlaceholder={t("ga_report_builder.filters.retailer_placeholder")}
+                    emptyMessage={configEntityLoading ? t("ga_report_builder.messages.loading") : t("ga_report_builder.filters.no_entities")}
+                    noResultsMessage={t("ga_report_builder.filters.no_results")}
+                    selectAllLabel={t("ga_report_builder.target.select_all")}
+                    clearLabel={t("ga_report_builder.target.deselect_all")}
+                  />
+                </div>
+              )}
+
               {/* RSOs */}
+              {(payload.target_type ?? "retailer") === "rso" && (
+                <div className="mb-4">
+                  <EntitySelector
+                    label={t("ga_report_builder.filters.rso")}
+                    items={configEntityItems.rso}
+                    selectedIds={payload.rso_ids.map(String)}
+                    onChange={(ids) => updatePayload({ rso_ids: ids.map(Number) })}
+                    placeholder={t("ga_report_builder.filters.rso_placeholder")}
+                    searchPlaceholder={t("ga_report_builder.filters.rso_placeholder")}
+                    emptyMessage={configEntityLoading ? t("ga_report_builder.messages.loading") : t("ga_report_builder.filters.no_entities")}
+                    noResultsMessage={t("ga_report_builder.filters.no_results")}
+                    selectAllLabel={t("ga_report_builder.target.select_all")}
+                    clearLabel={t("ga_report_builder.target.deselect_all")}
+                  />
+                </div>
+              )}
+
+              {/* BPs */}
+              {(payload.target_type ?? "retailer") === "bp" && (
+                <div className="mb-4">
+                  <EntitySelector
+                    label={t("ga_report_builder.filters.bp")}
+                    items={configEntityItems.bp}
+                    selectedIds={payload.bp_ids.map(String)}
+                    onChange={(ids) => updatePayload({ bp_ids: ids.map(Number) })}
+                    placeholder={t("ga_report_builder.filters.bp_placeholder")}
+                    searchPlaceholder={t("ga_report_builder.filters.bp_placeholder")}
+                    emptyMessage={configEntityLoading ? t("ga_report_builder.messages.loading") : t("ga_report_builder.filters.no_entities")}
+                    noResultsMessage={t("ga_report_builder.filters.no_results")}
+                    selectAllLabel={t("ga_report_builder.target.select_all")}
+                    clearLabel={t("ga_report_builder.target.deselect_all")}
+                  />
+                </div>
+              )}
+
+              {/* Slabs */}
               <div className="mb-4">
-                <SearchableMulti
-                  label={t("ga_report_builder.filters.rso")}
-                  placeholder={t("ga_report_builder.filters.rso_placeholder")}
-                  items={rsoItems}
-                  selectedKeys={payload.rso_ids.map(String)}
-                  onToggle={(k) => rsoToggle(Number(k))}
-                  onSearch={searchRsos}
-                  loading={rsoLoading}
-                  displayField="name"
-                  secondaryField="code"
-                  keyField="id"
-                />
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.target.slabs")}</label>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => adjustPayloadSlabs(-1)} className="w-[44px] h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300">
+                    <Minus className="w-4 h-4 mx-auto" />
+                  </button>
+                  <span className="flex-1 text-center font-semibold text-gray-800 dark:text-gray-200">{payload.slabs ?? 1}</span>
+                  <button type="button" onClick={() => adjustPayloadSlabs(1)} className="w-[44px] h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300">
+                    <Plus className="w-4 h-4 mx-auto" />
+                  </button>
+                </div>
               </div>
 
               {/* Columns */}
-              <div className="mb-4">
-                <ColumnPicker allColumns={columnsMeta} selected={payload.columns} onChange={(cols) => updatePayload({ columns: cols })} />
-              </div>
+              {(payload.target_type ?? "retailer") === "retailer" && (
+                <div className="mb-4">
+                  <ColumnPicker allColumns={columnsMeta} selected={payload.columns} onChange={(cols) => updatePayload({ columns: cols })} />
+                </div>
+              )}
 
               {/* Sort */}
+              {(payload.target_type ?? "retailer") === "retailer" && (
               <div className="grid grid-cols-2 gap-2 mb-4">
                 <div>
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.sort_by")}</label>
@@ -1560,8 +2112,10 @@ export default function GaReportBuilderPage() {
                   </select>
                 </div>
               </div>
+              )}
 
               {/* Exclusions */}
+              {(payload.target_type ?? "retailer") === "retailer" && (
               <div className="mb-4 space-y-3">
                 <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
                   <Filter className="w-3.5 h-3.5" /> {t("ga_report_builder.filters.exclusions")}
@@ -1598,6 +2152,7 @@ export default function GaReportBuilderPage() {
                   keyField="name"
                 />
               </div>
+              )}
 
               {/* Actions */}
               <div className="space-y-2">
@@ -1667,15 +2222,14 @@ export default function GaReportBuilderPage() {
         houseId={effectiveHouseId}
         events={events}
         onSaved={handleEventsSaved}
+        canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canPermanentDelete={canPermanentDelete}
         columnsMeta={columnsMeta}
-        retailerItems={retailerItems}
-        retailerLoading={retailerLoading}
-        onSearchRetailers={searchRetailers}
         rsoItems={rsoItems}
-        rsoLoading={rsoLoading}
-        onSearchRsos={searchRsos}
+        bpItems={bpItems}
+        fetchAllEntities={fetchAllEntities}
         productCodes={productCodes}
         tags={tags}
       />

@@ -28,12 +28,39 @@ from app.models.user import User
 from app.models.house import House
 from app.models.ga_filter import FilterTag, RetailerFilter
 from app.models.product_exclusion import ExcludedProductCode
+from app.models.ga_report_target import GaReportTarget
 from app.utils.activation_rules import exclude_clause
 from app.utils.timezone import now_naive
 
 logger = __import__("logging").getLogger("app.services.GaReportBuilder")
 
 ACTIVATION_METRICS = ("activation_count", "today_activation", "yesterday_activation")
+
+SLAB_METRIC_SUFFIXES = ("target", "achievement", "achievement_pct", "remaining")
+
+
+def slab_column_keys(slabs: int) -> list[str]:
+    keys: list[str] = []
+    for s in range(1, slabs + 1):
+        keys.extend([
+            f"slab_{s}_target",
+            f"slab_{s}_achievement",
+            f"slab_{s}_achievement_pct",
+            f"slab_{s}_remaining",
+        ])
+    return keys
+
+
+def is_slab_column(key: str) -> bool:
+    return key.startswith("slab_") and key.rsplit("_", 1)[-1] in SLAB_METRIC_SUFFIXES
+
+
+def slab_column_label(key: str) -> str:
+    try:
+        _, num, metric = key.split("_", 2)
+        return f"Slab {num} {metric.replace('_', ' ').title()}"
+    except ValueError:
+        return key
 
 COLUMN_REGISTRY: list[dict[str, Any]] = [
     # house
@@ -45,6 +72,10 @@ COLUMN_REGISTRY: list[dict[str, Any]] = [
     {"key": "rso_dms_code", "label": "RSO DMS Code", "category": "rso", "type": "string", "sortable": True},
     {"key": "rso_assisted_code", "label": "RSO Assisted Code", "category": "rso", "type": "string", "sortable": True},
     {"key": "rso_pool_number", "label": "RSO Pool No", "category": "rso", "type": "string", "sortable": True},
+    # bp
+    {"key": "bp_name", "label": "BP Name", "category": "bp", "type": "string", "sortable": True},
+    {"key": "bp_pool_number", "label": "BP Pool No", "category": "bp", "type": "string", "sortable": True},
+    {"key": "bp_assisted_code", "label": "BP Assisted Code", "category": "bp", "type": "string", "sortable": True},
     # retailer
     {"key": "retailer_code", "label": "Retailer Code", "category": "retailer", "type": "string", "sortable": True},
     {"key": "retailer_name", "label": "Retailer Name", "category": "retailer", "type": "string", "sortable": True},
@@ -92,6 +123,12 @@ class ReportConfig:
         self.end_date = self._parse_date(payload.get("end_date"))
         self.retailer_codes: list[str] = payload.get("retailer_codes") or []
         self.rso_ids: list[int] = payload.get("rso_ids") or []
+        self.bp_ids: list[int] = payload.get("bp_ids") or []
+        self.target_type: Optional[str] = payload.get("target_type") or None  # rso | bp | retailer
+        try:
+            self.slabs: int = max(1, int(payload.get("slabs") or 1))
+        except (TypeError, ValueError):
+            self.slabs = 1
         raw_columns = payload.get("columns") or DEFAULT_COLUMNS
         # Accept either a list of keys or a list of {"key": ...} objects.
         self.columns: list[str] = [
@@ -155,10 +192,11 @@ class GaReportBuilderService:
                 }
                 for r in retailers
             ]
-        query = select(Employee).options(joinedload(Employee.user)).where(
-            Employee.employee_type == "rso",
-            Employee.status == "Active",
-        )
+        query = select(Employee).options(joinedload(Employee.user))
+        if entity_type == "bp":
+            query = query.where(Employee.employee_type == "bp", Employee.status == "Active")
+        else:
+            query = query.where(Employee.employee_type == "rso", Employee.status == "Active")
         if self.cfg.house_id:
             query = query.where(Employee.house_id == self.cfg.house_id)
         if p:
@@ -166,6 +204,7 @@ class GaReportBuilderService:
                 or_(
                     Employee.dms_code.ilike(p),
                     Employee.itop_number.ilike(p),
+                    Employee.pool_number.ilike(p),
                     Employee.user.has(User.name.ilike(p)),
                 )
             )
@@ -177,6 +216,8 @@ class GaReportBuilderService:
                 "code": e.dms_code or "",
                 "name": e.user.name if e.user else (e.dms_code or f"#{e.id}"),
                 "itop_number": e.itop_number or "",
+                "pool_number": e.pool_number or "",
+                "assisted_code": e.assisted_retailer_code or "",
             }
             for e in employees
         ]
@@ -264,33 +305,38 @@ class GaReportBuilderService:
         res = await self.db.execute(query)
         return res.scalars().all()
 
-    # -------------------------------------------------------------- reporting
+    async def _load_targets(self) -> dict:
+        if not self.cfg.event_id:
+            return {}
+        res = await self.db.execute(
+            select(GaReportTarget).where(
+                GaReportTarget.event_id == self.cfg.event_id,
+                GaReportTarget.house_id == self.cfg.house_id,
+                GaReportTarget.target_type == (self.cfg.target_type or ""),
+                GaReportTarget.is_deleted == False,  # noqa: E712
+            )
+        )
+        targets: dict = {}
+        for t in res.scalars().all():
+            key = t.retailer_code if t.target_type == "retailer" else str(t.entity_id)
+            targets[(key, t.slab)] = float(t.target_value or 0)
+        return targets
 
-    async def build_report(self) -> dict:
-        today = now_naive().date()
-        start, end = self._event_window()
-
-        excluded_retailer_ids = await self._excluded_retailer_ids()
-        retailers = await self._load_retailer_rows(excluded_retailer_ids)
-        if not retailers:
-            return {"columns": self.cfg.columns, "rows": [], "totals": {}, "window": self._window_info(today, start, end)}
-
-        # history: everything strictly before today, clamped to the event window
+    async def _activation_counts(
+        self, today: date, start: date, end: date, excluded_retailer_ids: set[int]
+    ) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
         history_end = min(today - timedelta(days=1), end)
-        history_start = start
         history_counts: dict[int, int] = {}
         yesterday_counts: dict[int, int] = {}
-        if history_start <= history_end:
+        if start <= history_end:
             history_counts = await self._count_activations_by_retailer(
-                Activation, history_start, history_end, excluded_retailer_ids
+                Activation, start, history_end, excluded_retailer_ids
             )
             yesterday = today - timedelta(days=1)
             if start <= yesterday <= history_end:
                 yesterday_counts = await self._count_activations_by_retailer(
                     Activation, yesterday, yesterday, excluded_retailer_ids
                 )
-
-        # today: LiveActivation first, fall back to Activations
         today_counts: dict[int, int] = {}
         if start <= today <= end:
             use_live = await self._has_live_today(today)
@@ -298,6 +344,93 @@ class GaReportBuilderService:
             today_counts = await self._count_activations_by_retailer(
                 model, today, today, excluded_retailer_ids
             )
+        return history_counts, today_counts, yesterday_counts
+
+    async def _count_activations_by_retailer_code(
+        self, start: date, end: date, excluded_retailer_ids: set[int]
+    ) -> dict[str, int]:
+        today = now_naive().date()
+        counts: dict[str, int] = {}
+
+        async def _count_model(model, s, e):
+            query = (
+                select(model.retailer_code, func.count(model.id))
+                .where(
+                    model.house_id == self.cfg.house_id,
+                    model.retailer_code != None,  # noqa: E711
+                    model.activation_date >= s,
+                    model.activation_date <= e,
+                )
+                .group_by(model.retailer_code)
+            )
+            clause = exclude_clause(model, self._excluded_codes())
+            if clause is not None:
+                query = query.where(clause)
+            if excluded_retailer_ids:
+                query = query.where(model.retailer_id.notin_(excluded_retailer_ids))
+            res = await self.db.execute(query)
+            for row in res.all():
+                counts[row[0]] = counts.get(row[0], 0) + int(row[1])
+
+        if start > end:
+            return counts
+        use_live = (start <= today <= end) and await self._has_live_today(today)
+        if use_live:
+            if start <= min(today - timedelta(days=1), end):
+                await _count_model(Activation, start, min(today - timedelta(days=1), end))
+            await _count_model(LiveActivation, today, end)
+        else:
+            await _count_model(Activation, start, end)
+        return counts
+
+    @staticmethod
+    def _apply_slab_columns(row: dict, achievement: float, targets: dict, entity_key: str, slabs: int) -> dict:
+        for s in range(1, slabs + 1):
+            target = targets.get((entity_key, s), 0)
+            row[f"slab_{s}_target"] = target
+            row[f"slab_{s}_achievement"] = achievement
+            row[f"slab_{s}_achievement_pct"] = round((achievement / target * 100), 1) if target else 0
+            row[f"slab_{s}_remaining"] = max(0, target - achievement)
+        return row
+
+    @staticmethod
+    def _compute_totals(rows: list[dict], columns: list[str], slabs: int) -> dict:
+        totals: dict = {}
+        for key in columns:
+            if key in ACTIVATION_METRICS:
+                totals[key] = sum(float(r.get(key, 0) or 0) for r in rows)
+            elif is_slab_column(key) and not key.endswith("_achievement_pct"):
+                totals[key] = sum(float(r.get(key, 0) or 0) for r in rows)
+        for s in range(1, slabs + 1):
+            tgt = totals.get(f"slab_{s}_target", 0)
+            ach = totals.get(f"slab_{s}_achievement", 0)
+            totals[f"slab_{s}_achievement_pct"] = round((ach / tgt * 100), 1) if tgt else 0
+        return totals
+
+    # -------------------------------------------------------------- reporting
+
+    async def build_report(self) -> dict:
+        today = now_naive().date()
+        start, end = self._event_window()
+        window = self._window_info(today, start, end)
+
+        if self.cfg.target_type == "rso":
+            return await self._build_employee_report("rso", today, start, end, window)
+        if self.cfg.target_type == "bp":
+            return await self._build_employee_report("bp", today, start, end, window)
+        return await self._build_retailer_report(today, start, end, window)
+
+    async def _build_retailer_report(self, today: date, start: date, end: date, window: dict) -> dict:
+        excluded_retailer_ids = await self._excluded_retailer_ids()
+        retailers = await self._load_retailer_rows(excluded_retailer_ids)
+        targets = await self._load_targets()
+        columns = [c for c in self.cfg.columns] + slab_column_keys(self.cfg.slabs)
+        if not retailers:
+            return {"columns": columns, "rows": [], "totals": {}, "window": window}
+
+        history_counts, today_counts, yesterday_counts = await self._activation_counts(
+            today, start, end, excluded_retailer_ids
+        )
 
         house_cache: dict[int, House] = {}
         if self.cfg.house_id:
@@ -327,6 +460,7 @@ class GaReportBuilderService:
                 "today_activation": today_counts.get(r.id, 0),
                 "yesterday_activation": yesterday_counts.get(r.id, 0),
             }
+            self._apply_slab_columns(row, count, targets, r.retailer_code or "", self.cfg.slabs)
             if house_cache:
                 h = house_cache.get(r.house_id)
                 if h:
@@ -337,7 +471,7 @@ class GaReportBuilderService:
                     row["house_name"] = ""
             rows.append(row)
 
-        if self.cfg.sort_by in COLUMN_KEYS:
+        if self.cfg.sort_by in columns:
             reverse = self.cfg.sort_order != "asc"
             col_type = next((c["type"] for c in COLUMN_REGISTRY if c["key"] == self.cfg.sort_by), "string")
             if col_type == "number":
@@ -345,20 +479,82 @@ class GaReportBuilderService:
             else:
                 rows.sort(key=lambda x: str(x.get(self.cfg.sort_by, "") or ""), reverse=reverse)
 
-        totals: dict = {}
-        if "activation_count" in self.cfg.columns:
-            totals["activation_count"] = sum(r["activation_count"] for r in rows)
-        if "today_activation" in self.cfg.columns:
-            totals["today_activation"] = sum(r["today_activation"] for r in rows)
-        if "yesterday_activation" in self.cfg.columns:
-            totals["yesterday_activation"] = sum(r["yesterday_activation"] for r in rows)
+        totals = self._compute_totals(rows, columns, self.cfg.slabs)
+        return {"columns": columns, "rows": rows, "totals": totals, "window": window}
 
-        return {
-            "columns": self.cfg.columns,
-            "rows": rows,
-            "totals": totals,
-            "window": self._window_info(today, start, end),
-        }
+    async def _build_employee_report(self, entity_type: str, today: date, start: date, end: date, window: dict) -> dict:
+        id_filter = self.cfg.rso_ids if entity_type == "rso" else self.cfg.bp_ids
+        query = select(Employee).options(joinedload(Employee.user)).where(
+            Employee.house_id == self.cfg.house_id,
+            Employee.employee_type == entity_type,
+            Employee.status == "Active",
+        )
+        if id_filter:
+            query = query.where(Employee.id.in_(id_filter))
+        employees = (await self.db.execute(query)).scalars().all()
+
+        identity = (
+            ["rso_name", "rso_dms_code", "rso_itop_number"]
+            if entity_type == "rso"
+            else ["bp_name", "bp_pool_number", "bp_assisted_code"]
+        )
+        columns = identity + slab_column_keys(self.cfg.slabs)
+        if not employees:
+            return {"columns": columns, "rows": [], "totals": {}, "window": window}
+
+        excluded_retailer_ids = await self._excluded_retailer_ids()
+        targets = await self._load_targets()
+        history_counts, today_counts, yesterday_counts = await self._activation_counts(
+            today, start, end, excluded_retailer_ids
+        )
+
+        achievement_map: dict[int, float] = {}
+        if entity_type == "rso":
+            emp_ids = [e.id for e in employees]
+            retailer_rows = (
+                await self.db.execute(
+                    select(Retailer.id, Retailer.employee_id).where(
+                        Retailer.house_id == self.cfg.house_id,
+                        Retailer.employee_id.in_(emp_ids),
+                        Retailer.employee_id.isnot(None),
+                    )
+                )
+            ).all()
+            emp_retailer_ids: dict[int, set[int]] = {}
+            for rid, eid in retailer_rows:
+                emp_retailer_ids.setdefault(eid, set()).add(rid)
+            for emp in employees:
+                rid_set = emp_retailer_ids.get(emp.id, set())
+                achievement_map[emp.id] = sum(
+                    history_counts.get(rid, 0) + today_counts.get(rid, 0) for rid in rid_set
+                )
+        else:
+            code_counts = await self._count_activations_by_retailer_code(start, end, excluded_retailer_ids)
+            for emp in employees:
+                achievement_map[emp.id] = code_counts.get(emp.assisted_retailer_code or "", 0)
+
+        rows: list[dict] = []
+        for emp in employees:
+            if entity_type == "rso":
+                row = {
+                    "rso_name": emp.user.name if emp.user else (emp.dms_code or f"#{emp.id}"),
+                    "rso_dms_code": emp.dms_code or "",
+                    "rso_itop_number": emp.itop_number or "",
+                }
+            else:
+                row = {
+                    "bp_name": emp.user.name if emp.user else (emp.dms_code or f"#{emp.id}"),
+                    "bp_pool_number": emp.pool_number or "",
+                    "bp_assisted_code": emp.assisted_retailer_code or "",
+                }
+            self._apply_slab_columns(row, achievement_map.get(emp.id, 0), targets, str(emp.id), self.cfg.slabs)
+            rows.append(row)
+
+        sort_key = self.cfg.sort_by if self.cfg.sort_by in columns else "slab_1_achievement"
+        rows.sort(key=lambda x: x.get(sort_key, 0) or 0, reverse=self.cfg.sort_order != "asc")
+
+        totals = self._compute_totals(rows, columns, self.cfg.slabs)
+        return {"columns": columns, "rows": rows, "totals": totals, "window": window}
 
     def _window_info(self, today: date, start: date, end: date) -> dict:
         return {
@@ -370,15 +566,20 @@ class GaReportBuilderService:
 
     # -------------------------------------------------------------- renderers
 
-    def _select_columns(self, rows: list[dict], totals: dict) -> tuple[list[str], list[list[Any]], list[Any]]:
-        keys = self.cfg.columns
-        header = ["#"] + [COLUMN_LABELS.get(key, key) for key in keys]
+    def _select_columns(self, columns: list[str], rows: list[dict], totals: dict) -> tuple[list[str], list[list[Any]], list[Any]]:
+        header = ["#"] + [self._column_label(key) for key in columns]
         body = [
-            [i + 1] + [r.get(key, "") if key not in ACTIVATION_METRICS else (r.get(key, 0) or 0) for key in keys]
+            [i + 1] + [r.get(key, "") if key not in ACTIVATION_METRICS else (r.get(key, 0) or 0) for key in columns]
             for i, r in enumerate(rows)
         ]
-        total_row = ["Total"] + [totals.get(key, "") for key in keys]
+        total_row = ["Total"] + [totals.get(key, "") for key in columns]
         return header, body, total_row
+
+    @staticmethod
+    def _column_label(key: str) -> str:
+        if is_slab_column(key):
+            return slab_column_label(key)
+        return COLUMN_LABELS.get(key, key)
 
     async def build_report_excel(self) -> bytes:
         import openpyxl
@@ -386,7 +587,7 @@ class GaReportBuilderService:
         from openpyxl.utils import get_column_letter
 
         report = await self.build_report()
-        header, body, total_row = self._select_columns(report["rows"], report["totals"])
+        header, body, total_row = self._select_columns(report["columns"], report["rows"], report["totals"])
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -426,7 +627,7 @@ class GaReportBuilderService:
 
     async def build_report_text(self) -> list[str]:
         report = await self.build_report()
-        header, body, total_row = self._select_columns(report["rows"], report["totals"])
+        header, body, total_row = self._select_columns(report["columns"], report["rows"], report["totals"])
         lines: list[str] = []
         title = self.cfg.event_name or "GA Report"
         lines.append(f"*{title} ({report['window']['start']} to {report['window']['end']})*")
@@ -445,7 +646,7 @@ class GaReportBuilderService:
         from app.services.ga_report_image import build_report_image
 
         report = await self.build_report()
-        header, body, total_row = self._select_columns(report["rows"], report["totals"])
+        header, body, total_row = self._select_columns(report["columns"], report["rows"], report["totals"])
         title = self.cfg.event_name or "GA Report"
         return build_report_image(
             title=title,
