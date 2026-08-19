@@ -14,6 +14,7 @@ import {
 import { toast } from "react-hot-toast";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import WhatsAppShareModal, { type ReportPayloadConfig } from "./WhatsAppShareModal";
 import EntitySelector, { type SelectorItem } from "../../zoom-in/_components/EntitySelector";
 
@@ -504,6 +505,8 @@ function EventManagerModal({
   const [end, setEnd] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ event: EventItem; permanent: boolean } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [config, setConfig] = useState<Partial<Payload>>(emptyEventConfig());
   const [targetValues, setTargetValues] = useState<Record<string, Record<number, number>>>({});
   const [uploadedTargets, setUploadedTargets] = useState<TargetEntry[]>([]);
@@ -796,26 +799,32 @@ function EventManagerModal({
   };
 
   const remove = async (e: EventItem) => {
-    if (!window.confirm(t("ga_report_builder.event.delete_confirm"))) return;
-    try {
-      await apiClient.delete(`/ga-report-builder/events/${e.id}`);
-      toast.success(t("ga_report_builder.event.delete_success"));
-      if (editingId === e.id) reset();
-      onSaved(e.id);
-    } catch (err) {
-      toast.error((err as Error).message || "Delete failed");
-    }
+    setDeleteTarget({ event: e, permanent: false });
   };
 
   const removePermanent = async (e: EventItem) => {
-    if (!window.confirm(t("ga_report_builder.event.delete_permanent_confirm"))) return;
+    setDeleteTarget({ event: e, permanent: true });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const { event: e, permanent } = deleteTarget;
+    setDeleting(true);
     try {
-      await apiClient.delete(`/ga-report-builder/events/${e.id}/permanent`);
-      toast.success(t("ga_report_builder.event.delete_permanent_success"));
+      if (permanent) {
+        await apiClient.delete(`/ga-report-builder/events/${e.id}/permanent`);
+        toast.success(t("ga_report_builder.event.delete_permanent_success"));
+      } else {
+        await apiClient.delete(`/ga-report-builder/events/${e.id}`);
+        toast.success(t("ga_report_builder.event.delete_success"));
+      }
       if (editingId === e.id) reset();
+      setDeleteTarget(null);
       onSaved(e.id);
     } catch (err) {
-      toast.error((err as Error).message || "Permanent delete failed");
+      toast.error((err as Error).message || "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -956,7 +965,7 @@ function EventManagerModal({
                   <EntitySelector
                     label={t("ga_report_builder.filters.rso")}
                     items={modalEntityItems.rso}
-                    selectedIds={(config.rso_ids ?? []).map(String)}
+                    selectedIds={config.rso_ids ?? []}
                     onChange={(ids) => updateConfig({ rso_ids: ids.map(Number) })}
                     placeholder={t("ga_report_builder.filters.rso_placeholder")}
                     searchPlaceholder={t("ga_report_builder.filters.rso_placeholder")}
@@ -971,7 +980,7 @@ function EventManagerModal({
                   <EntitySelector
                     label={t("ga_report_builder.filters.bp")}
                     items={modalEntityItems.bp}
-                    selectedIds={(config.bp_ids ?? []).map(String)}
+                    selectedIds={config.bp_ids ?? []}
                     onChange={(ids) => updateConfig({ bp_ids: ids.map(Number) })}
                     placeholder={t("ga_report_builder.filters.bp_placeholder")}
                     searchPlaceholder={t("ga_report_builder.filters.bp_placeholder")}
@@ -1225,6 +1234,17 @@ function EventManagerModal({
           </div>
         </div>
       </motion.div>
+
+      <ConfirmationModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title={deleteTarget?.permanent ? t("ga_report_builder.event.delete_permanent") : t("ga_report_builder.event.delete")}
+        message={`${deleteTarget?.permanent ? t("ga_report_builder.event.delete_permanent_confirm") : t("ga_report_builder.event.delete_confirm")} "${deleteTarget?.event.name ?? ""}"`}
+        confirmText={deleteTarget?.permanent ? t("ga_report_builder.event.delete_permanent") : t("ga_report_builder.event.delete")}
+        type="danger"
+        loading={deleting}
+      />
     </div>
   );
 }
@@ -1391,6 +1411,8 @@ export default function GaReportBuilderPage() {
   const [eventModalOpen, setEventModalOpen] = useState(false);
   const [waModalOpen, setWaModalOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [quickDeleteTarget, setQuickDeleteTarget] = useState<EventItem | null>(null);
+  const [quickDeleting, setQuickDeleting] = useState(false);
 
   const canCreate = hasPermission("ga_report_builder.create");
   const canEdit = hasPermission("ga_report_builder.edit");
@@ -1702,14 +1724,23 @@ export default function GaReportBuilderPage() {
     }
   };
 
-  const quickDeleteEvent = async (ev: EventItem) => {
-    if (!window.confirm(t("ga_report_builder.event.delete_confirm"))) return;
+  const quickDeleteEvent = (ev: EventItem) => {
+    setQuickDeleteTarget(ev);
+  };
+
+  const confirmQuickDelete = async () => {
+    if (!quickDeleteTarget) return;
+    setQuickDeleting(true);
     try {
-      await apiClient.delete(`/ga-report-builder/events/${ev.id}`);
+      await apiClient.delete(`/ga-report-builder/events/${quickDeleteTarget.id}`);
       toast.success(t("ga_report_builder.event.delete_success"));
-      await handleEventsSaved(ev.id);
+      const id = quickDeleteTarget.id;
+      setQuickDeleteTarget(null);
+      await handleEventsSaved(id);
     } catch (err) {
       toast.error((err as Error).message || "Delete failed");
+    } finally {
+      setQuickDeleting(false);
     }
   };
 
@@ -1817,7 +1848,7 @@ export default function GaReportBuilderPage() {
                   </button>
                   {canDelete && (
                     <button
-                      onClick={() => void quickDeleteEvent(ev)}
+                      onClick={() => quickDeleteEvent(ev)}
                       className="p-2 rounded-xl border border-red-200 dark:border-red-500/40 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 shrink-0"
                       title={t("ga_report_builder.event.delete_confirm")}
                     >
@@ -2034,7 +2065,7 @@ export default function GaReportBuilderPage() {
                   <EntitySelector
                     label={t("ga_report_builder.filters.rso")}
                     items={configEntityItems.rso}
-                    selectedIds={payload.rso_ids.map(String)}
+                    selectedIds={payload.rso_ids}
                     onChange={(ids) => updatePayload({ rso_ids: ids.map(Number) })}
                     placeholder={t("ga_report_builder.filters.rso_placeholder")}
                     searchPlaceholder={t("ga_report_builder.filters.rso_placeholder")}
@@ -2052,7 +2083,7 @@ export default function GaReportBuilderPage() {
                   <EntitySelector
                     label={t("ga_report_builder.filters.bp")}
                     items={configEntityItems.bp}
-                    selectedIds={payload.bp_ids.map(String)}
+                    selectedIds={payload.bp_ids}
                     onChange={(ids) => updatePayload({ bp_ids: ids.map(Number) })}
                     placeholder={t("ga_report_builder.filters.bp_placeholder")}
                     searchPlaceholder={t("ga_report_builder.filters.bp_placeholder")}
@@ -2232,6 +2263,16 @@ export default function GaReportBuilderPage() {
         fetchAllEntities={fetchAllEntities}
         productCodes={productCodes}
         tags={tags}
+      />
+      <ConfirmationModal
+        isOpen={!!quickDeleteTarget}
+        onClose={() => setQuickDeleteTarget(null)}
+        onConfirm={confirmQuickDelete}
+        title={t("ga_report_builder.event.delete")}
+        message={`${t("ga_report_builder.event.delete_confirm")} "${quickDeleteTarget?.name ?? ""}"`}
+        confirmText={t("ga_report_builder.event.delete")}
+        type="danger"
+        loading={quickDeleting}
       />
       <WhatsAppShareModal
         open={waModalOpen}
