@@ -79,24 +79,26 @@ services:
     # Production: uvicorn with multiple workers
     # command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --loop asyncio
 
-  # Dev: run frontend directly on WSL2 host (avoids Docker filesystem bottleneck)
-  #   cd frontend && npm install && npm run dev
-  # Production: uncomment profiles line and use the command below
-  whatsapp-service:
-    build: ./whatsapp-service
-    container_name: orange_flow_whatsapp
+  # WhatsApp Multi-Session Gateway (go-whatsapp-multi-session-rest-api)
+  whatsapp-gateway:
+    image: ghiovanidebrians/go-whatsapp-multi-session-rest-api:latest
+    container_name: orange_flow_wa_gateway
     restart: always
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
-      - "3001:3001"
+      - "7001:7001"
     environment:
-      - PORT=3001
-      - SESSION_DIR=/data
-    volumes:
-      - wa_session:/data
+      - ADMIN_SECRET_KEY=${WA_GATEWAY_ADMIN_KEY:-changeme-admin-secret}
+      - JWT_SECRET_KEY=${WA_GATEWAY_JWT_KEY:-changeme-jwt-secret-min-32-chars-long}
+      - SERVER_PORT=7001
+      - WHATSAPP_DATASTORE_TYPE=postgres
+      - WHATSAPP_DATASTORE_URI=postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@db:5432/${DB_NAME:-orange_flow_dev_db}?sslmode=disable
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 512M
   frontend:
     profiles: ["production"]
     image: node:20-slim
@@ -123,4 +125,3 @@ services:
 
 volumes:
   postgres_data:
-  wa_session:

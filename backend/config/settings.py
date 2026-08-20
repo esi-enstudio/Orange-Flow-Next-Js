@@ -51,9 +51,11 @@ class Settings(BaseSettings):
     # Timezone
     TIME_ZONE: str = "Asia/Dhaka"
 
-    # WhatsApp Report Delivery Service
-    WHATSAPP_SERVICE_URL: str = "http://localhost:3001"
-    WHATSAPP_SERVICE_ENABLED: bool = True
+    # WhatsApp Multi-Session Gateway (go-whatsapp-multi-session-rest-api)
+    WA_GATEWAY_URL: str = "http://localhost:7001"
+    WA_GATEWAY_ADMIN_KEY: str = ""
+    WA_GATEWAY_JWT_KEY: str = ""
+    WA_GATEWAY_ENABLED: bool = True
 
     @model_validator(mode="after")
     def validate_secret_key(self) -> "Settings":

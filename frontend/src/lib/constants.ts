@@ -28,6 +28,7 @@ import {
   CalendarDays,
   Warehouse,
   BadgeDollarSign,
+  MessageCircle,
 } from "lucide-react";
 
 export interface NavItem {
@@ -237,5 +238,13 @@ export const navItems: NavItem[] = [
       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
     ]
+  },
+  {
+    title: "WhatsApp",
+    translationKey: "nav.whatsapp",
+    href: "/whatsapp",
+    icon: MessageCircle,
+    color: "text-green-500",
+    permission: "whatsapp.view",
   },
 ];

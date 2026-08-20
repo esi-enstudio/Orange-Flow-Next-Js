@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.whatsapp_schedule import WhatsAppSchedule
 from app.models.user import User
+from app.models.house import House
 from app.services.whatsapp_service_client import (
     whatsapp_service_client,
     WhatsAppServiceError,
@@ -67,9 +68,21 @@ async def send_schedule_report(db: AsyncSession, schedule: WhatsAppSchedule) -> 
 
     caption = schedule.caption or f"GA Live Report - {_today_bst().strftime('%d %B %Y')}"
 
+    # Resolve per-house JWT token
+    house_res = await db.execute(select(House).where(House.id == schedule.house_id))
+    house = house_res.scalar_one_or_none()
+    if not house or not house.wa_jwt_token:
+        schedule.last_status = "failed"
+        schedule.last_error = "WhatsApp not configured for this house"
+        await db.commit()
+        await _log_schedule_action(db, schedule, "whatsapp_send_failed", status_code=500,
+                                   error="WhatsApp not configured")
+        return False
+
     try:
         await whatsapp_service_client.send_file(
-            chat_id=schedule.whatsapp_chat_id,
+            jwt_token=house.wa_jwt_token,
+            chat_jid=schedule.whatsapp_chat_id,
             filename="ga_live_report.png",
             file_bytes=image_bytes,
             caption=caption,

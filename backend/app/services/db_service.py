@@ -325,6 +325,33 @@ async def _migrate_ga_report_events_config():
     except Exception as e:
         logger.warning(f"Migration warning (ga_report_events.config): {e}")
 
+async def _migrate_house_whatsapp_columns():
+    """Add WhatsApp gateway columns to houses table."""
+    try:
+        async with engine.begin() as conn:
+            columns = [
+                ("wa_api_key", "VARCHAR(200)"),
+                ("wa_device_id", "VARCHAR(100)"),
+                ("wa_device_secret", "VARCHAR(200)"),
+                ("wa_jwt_token", "VARCHAR(500)"),
+                ("wa_phone_number", "VARCHAR(20)"),
+                ("wa_status", "VARCHAR(20) DEFAULT 'disconnected'"),
+                ("wa_last_error", "VARCHAR(500)"),
+                ("wa_last_connected_at", "TIMESTAMP WITHOUT TIME ZONE"),
+            ]
+            for col_name, col_def in columns:
+                result = await conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='houses' AND column_name='{col_name}'"
+                ))
+                if result.scalar():
+                    continue
+                await conn.execute(text(f"ALTER TABLE houses ADD COLUMN {col_name} {col_def}"))
+                logger.info(f"Migration: added houses.{col_name}")
+            logger.info("Migration complete: houses WhatsApp columns")
+    except Exception as e:
+        logger.warning(f"Migration warning (houses WhatsApp columns): {e}")
+
 async def init_db():
     try:
         async with engine.begin() as conn:
@@ -342,6 +369,7 @@ async def init_db():
         await _migrate_indexes()
         await _migrate_whatsapp_schedule_columns()
         await _migrate_ga_report_events_config()
+        await _migrate_house_whatsapp_columns()
         from app.models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func
         async with async_session() as session:

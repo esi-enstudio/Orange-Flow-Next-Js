@@ -125,6 +125,7 @@ export const translations = {
       stock_sales: "Stock & Sales",
       stock: "Stock Management",
       sales_module: "Sales",
+      whatsapp: "WhatsApp",
     },
     dashboard: {
       overview: "Dashboard Overview",
@@ -2316,6 +2317,7 @@ export const translations = {
       stock_sales: "স্টক ও সেলস",
       stock: "স্টক ম্যানেজমেন্ট",
       sales_module: "সেলস",
+      whatsapp: "হোয়াটসঅ্যাপ",
     },
     dashboard: {
       overview: "Dashboard Overview",

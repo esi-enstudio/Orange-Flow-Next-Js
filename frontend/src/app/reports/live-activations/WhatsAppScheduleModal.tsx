@@ -10,6 +10,7 @@ import {
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
+import WhatsAppConnectModal from "@/components/WhatsAppConnectModal";
 
 interface Props {
   open: boolean;
@@ -63,6 +64,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [showConnectModal, setShowConnectModal] = useState(false);
 
   const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
 
@@ -70,11 +72,11 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
     if (!houseId) return;
     setLoading(true);
     try {
-      const houseHeader = { "X-House-ID": String(houseId) };
+      const hH = { "X-House-ID": String(houseId) };
       const [statusRes, groupsRes, schedulesRes] = await Promise.all([
-        apiClient.get("/whatsapp/status"),
-        apiClient.get("/whatsapp/groups"),
-        apiClient.get("/whatsapp-schedules", { params: { house_id: houseId }, headers: houseHeader }),
+        apiClient.get("/whatsapp/status", { headers: hH }),
+        apiClient.get("/whatsapp/groups", { headers: hH }),
+        apiClient.get("/whatsapp-schedules", { params: { house_id: houseId }, headers: hH }),
       ]);
       setStatus(statusRes.data);
       setGroups(groupsRes.data?.data ?? []);
@@ -90,11 +92,11 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
     if (open && houseId) {
       (async () => {
         try {
-          const houseHeader = { "X-House-ID": String(houseId) };
+          const hH = { "X-House-ID": String(houseId) };
           const [statusRes, groupsRes, schedulesRes] = await Promise.all([
-            apiClient.get("/whatsapp/status"),
-            apiClient.get("/whatsapp/groups"),
-            apiClient.get("/whatsapp-schedules", { params: { house_id: houseId }, headers: houseHeader }),
+            apiClient.get("/whatsapp/status", { headers: hH }),
+            apiClient.get("/whatsapp/groups", { headers: hH }),
+            apiClient.get("/whatsapp-schedules", { params: { house_id: houseId }, headers: hH }),
           ]);
           setStatus(statusRes.data);
           setGroups(groupsRes.data?.data ?? []);
@@ -104,7 +106,8 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
         }
       })();
       const timer = setInterval(() => {
-        apiClient.get("/whatsapp/status").then((r) => setStatus(r.data)).catch(() => {});
+        const hH = houseId ? { "X-House-ID": String(houseId) } : {};
+        apiClient.get("/whatsapp/status", { headers: hH }).then((r) => setStatus(r.data)).catch(() => {});
       }, 5000);
       return () => clearInterval(timer);
     }
@@ -280,9 +283,11 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     {status?.qr
                       ? "Scan the QR code below with WhatsApp (Linked Devices) to link this account."
-                      : !status?.connected && !status?.qr
-                        ? "Start the whatsapp-service container first. If a QR already appeared on the service logs, the session is still linking."
-                        : "Reports will be delivered from this linked WhatsApp account."}
+                      : status?.state === "not_configured"
+                        ? <span>WhatsApp not configured for this house. <button onClick={() => setShowConnectModal(true)} className="text-green-600 dark:text-green-400 underline font-medium">Setup WhatsApp</button></span>
+                        : !status?.connected && !status?.qr
+                          ? "Start the whatsapp-service container first. If a QR already appeared on the service logs, the session is still linking."
+                          : "Reports will be delivered from this linked WhatsApp account."}
                   </p>
                 </div>
                 <button
@@ -537,6 +542,12 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
           </motion.div>
         </motion.div>
       )}
+      <WhatsAppConnectModal
+        open={showConnectModal}
+        houseId={houseId}
+        onClose={() => setShowConnectModal(false)}
+        onConnected={() => { setShowConnectModal(false); loadAll(); }}
+      />
     </AnimatePresence>
   );
 }

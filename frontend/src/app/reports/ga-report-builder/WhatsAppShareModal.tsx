@@ -11,6 +11,7 @@ import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { useLanguage } from "@/i18n/useLanguage";
+import WhatsAppConnectModal from "@/components/WhatsAppConnectModal";
 
 export interface ReportPayloadConfig {
   event_id?: number | null;
@@ -58,12 +59,13 @@ export default function WhatsAppShareModal({ open, houseId, payload, onClose, on
   const [caption, setCaption] = useState("");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [showConnectModal, setShowConnectModal] = useState(false);
 
   const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
 
   const loadStatus = async () => {
     try {
-      const res = await apiClient.get("/whatsapp/status");
+      const res = await apiClient.get("/whatsapp/status", { headers: houseHeader });
       setStatus(res.data);
     } catch {
       setStatus({ connected: false, state: "unreachable", error: "Service unreachable" });
@@ -79,8 +81,8 @@ export default function WhatsAppShareModal({ open, houseId, payload, onClose, on
     (async () => {
       try {
         const [statusRes, groupsRes] = await Promise.all([
-          apiClient.get("/whatsapp/status"),
-          apiClient.get("/whatsapp/groups"),
+          apiClient.get("/whatsapp/status", { headers: houseHeader }),
+          apiClient.get("/whatsapp/groups", { headers: houseHeader }),
         ]);
         setStatus(statusRes.data);
         setGroups(groupsRes.data?.data ?? []);
@@ -91,7 +93,7 @@ export default function WhatsAppShareModal({ open, houseId, payload, onClose, on
       }
     })();
     const timer = setInterval(() => {
-      apiClient.get("/whatsapp/status").then((r) => setStatus(r.data)).catch(() => {});
+      apiClient.get("/whatsapp/status", { headers: houseHeader }).then((r) => setStatus(r.data)).catch(() => {});
     }, 5000);
     return () => clearInterval(timer);
   }, [open]);
@@ -197,9 +199,11 @@ export default function WhatsAppShareModal({ open, houseId, payload, onClose, on
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     {status?.qr
                       ? "Scan the QR code below with WhatsApp (Linked Devices)."
-                      : !status?.connected && !status?.qr
-                        ? t("ga_report_builder.whatsapp.no_status")
-                        : "Reports are sent from this linked WhatsApp account."}
+                      : !status?.connected && status?.state === "not_configured"
+                        ? <span>WhatsApp not configured for this house. <button onClick={() => setShowConnectModal(true)} className="text-green-600 dark:text-green-400 underline font-medium">Setup WhatsApp</button></span>
+                        : !status?.connected && !status?.qr
+                          ? t("ga_report_builder.whatsapp.no_status")
+                          : "Reports are sent from this linked WhatsApp account."}
                   </p>
                 </div>
                 <button
@@ -312,6 +316,12 @@ export default function WhatsAppShareModal({ open, houseId, payload, onClose, on
           </motion.div>
         </motion.div>
       )}
+      <WhatsAppConnectModal
+        open={showConnectModal}
+        houseId={houseId}
+        onClose={() => setShowConnectModal(false)}
+        onConnected={() => { setShowConnectModal(false); loadStatus(); }}
+      />
     </AnimatePresence>
   );
 }

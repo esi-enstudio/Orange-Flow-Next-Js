@@ -820,6 +820,13 @@ async def whatsapp_send(
     cfg = await _config_from_payload(db, current_user, payload)
     service = GaReportBuilderService(db, cfg)
 
+    # Resolve house for JWT token
+    house_res = await db.execute(select(House).where(House.id == cfg.house_id))
+    house = house_res.scalar_one_or_none()
+    if not house or not house.wa_jwt_token:
+        raise HTTPException(status_code=400, detail="WhatsApp not configured for this house. Run setup first.")
+    jwt_token = house.wa_jwt_token
+
     try:
         if payload.format == "image":
             data = await service.build_report_image()
@@ -828,7 +835,7 @@ async def whatsapp_send(
         elif payload.format == "text":
             chunks = await service.build_report_text()
             for chunk in chunks:
-                await whatsapp_service_client.send_text(payload.whatsapp_chat_id, chunk)
+                await whatsapp_service_client.send_text(jwt_token, payload.whatsapp_chat_id, chunk)
             await _log_whatsapp(db, current_user, request, cfg, payload, chunks=len(chunks))
             return {"success": True, "data": {"format": "text", "messages": len(chunks)}}
         else:
@@ -850,13 +857,23 @@ async def whatsapp_send(
         raise HTTPException(status_code=502, detail=f"Report build failed: {e}")
 
     try:
-        await whatsapp_service_client.send_file(
-            chat_id=payload.whatsapp_chat_id,
-            filename=filename,
-            file_bytes=data,
-            caption=payload.caption or f"GA Report ({cfg.start_date} to {cfg.end_date})",
-            mimetype=mimetype,
-        )
+        if payload.format == "image":
+            await whatsapp_service_client.send_image(
+                jwt_token=jwt_token,
+                chat_jid=payload.whatsapp_chat_id,
+                filename=filename,
+                image_bytes=data,
+                caption=payload.caption or f"GA Report ({cfg.start_date} to {cfg.end_date})",
+            )
+        else:
+            await whatsapp_service_client.send_file(
+                jwt_token=jwt_token,
+                chat_jid=payload.whatsapp_chat_id,
+                filename=filename,
+                file_bytes=data,
+                caption=payload.caption or f"GA Report ({cfg.start_date} to {cfg.end_date})",
+                mimetype=mimetype,
+            )
     except WhatsAppServiceError as e:
         await log_activity(
             db,

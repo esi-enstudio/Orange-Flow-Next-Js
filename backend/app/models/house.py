@@ -34,6 +34,17 @@ class House(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     is_sync_enabled = Column(Boolean, default=False, nullable=False)
     is_live_sync_enabled = Column(Boolean, default=False, nullable=False)
+
+    # WhatsApp Gateway (go-whatsapp-multi-session-rest-api)
+    wa_api_key = Column(String(200), nullable=True)
+    wa_device_id = Column(String(100), nullable=True)
+    wa_device_secret = Column(String(200), nullable=True)
+    wa_jwt_token = Column(String(500), nullable=True)
+    wa_phone_number = Column(String(20), nullable=True)
+    wa_status = Column(String(20), default="disconnected")  # disconnected|connecting|connected|error
+    wa_last_error = Column(String(500), nullable=True)
+    wa_last_connected_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 

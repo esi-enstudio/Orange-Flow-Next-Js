@@ -7,9 +7,10 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, has_permission, get_current_user, require_house_context
+from app.routers.deps import get_db, has_permission, get_current_user, require_house_context, get_house_context
 from app.models.whatsapp_schedule import WhatsAppSchedule
 from app.models.user import User
+from app.models.house import House
 from app.services.whatsapp_service_client import (
     whatsapp_service_client,
     WhatsAppServiceError,
@@ -348,10 +349,32 @@ async def send_now(
 
 @router.get("/whatsapp/status")
 async def whatsapp_status(
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("live_activations.schedule")),
+    house_context: Optional[int] = Depends(get_house_context),
 ):
+    if not house_context:
+        return {
+            "success": False,
+            "enabled": False,
+            "connected": False,
+            "state": "no_house",
+            "error": "Select a house first",
+            "qr": None,
+        }
+    result = await db.execute(select(House).where(House.id == house_context))
+    house = result.scalar_one_or_none()
+    if not house or not house.wa_jwt_token:
+        return {
+            "success": False,
+            "enabled": False,
+            "connected": False,
+            "state": "not_configured",
+            "error": "WhatsApp not configured for this house",
+            "qr": None,
+        }
     try:
-        status = await whatsapp_service_client.get_status()
+        status = await whatsapp_service_client.get_device_status(house.wa_jwt_token)
         return {"success": True, "enabled": True, **status}
     except WhatsAppServiceError as e:
         return {
@@ -366,10 +389,18 @@ async def whatsapp_status(
 
 @router.get("/whatsapp/groups")
 async def whatsapp_groups(
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("live_activations.schedule")),
+    house_context: Optional[int] = Depends(get_house_context),
 ):
+    if not house_context:
+        return {"success": True, "data": []}
+    result = await db.execute(select(House).where(House.id == house_context))
+    house = result.scalar_one_or_none()
+    if not house or not house.wa_jwt_token:
+        return {"success": True, "data": []}
     try:
-        groups = await whatsapp_service_client.get_groups()
+        groups = await whatsapp_service_client.get_groups(house.wa_jwt_token)
         return {"success": True, "data": groups}
     except WhatsAppServiceError as e:
         raise HTTPException(status_code=503, detail=f"{e.code}: {e.message}")
