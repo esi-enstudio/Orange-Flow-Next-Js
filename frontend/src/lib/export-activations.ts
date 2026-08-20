@@ -182,7 +182,7 @@ function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)
     };
     cell.fill = alt
       ? { type: "pattern", pattern: "solid", fgColor: { argb: ROW_ALT } }
-      : undefined;
+      : { type: "pattern", pattern: "solid", fgColor: { argb: "00000000" } };
     cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
     cell.border = fullBorder
       ? {
@@ -430,7 +430,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
           top: { style: "thin", color: { argb: BORDER } },
           bottom: { style: "thin", color: { argb: BORDER } },
           left: i === 0 ? { style: "thin", color: { argb: BORDER } } : undefined,
-          right: i === cells.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
+          right: i === subtotalCells.length - 1 ? { style: "thin", color: { argb: BORDER } } : undefined,
         };
       });
       r++;

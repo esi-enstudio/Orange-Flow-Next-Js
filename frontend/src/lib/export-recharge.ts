@@ -183,7 +183,7 @@ function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)
     };
     cell.fill = alt
       ? { type: "pattern", pattern: "solid", fgColor: { argb: ROW_ALT } }
-      : undefined;
+      : { type: "pattern", pattern: "solid", fgColor: { argb: "00000000" } };
     cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
     cell.border = fullBorder
       ? {

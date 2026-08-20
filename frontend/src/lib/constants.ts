@@ -42,6 +42,7 @@ export interface NavItem {
     translationKey?: string;
     href: string;
     icon?: LucideIcon;
+    color?: string;
     permission?: string;
     children?: {
       title: string;

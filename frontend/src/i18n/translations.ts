@@ -1066,6 +1066,7 @@ export const translations = {
         delete_permanent_success: "Event permanently deleted",
         no_events: "No events yet. Create one to reuse a date range.",
         manage: "Manage Events",
+        locked: "Event period has ended and can no longer be edited",
         subtitle_manage: "View, edit or delete your saved events",
         subtitle_create: "Create a reusable event with a date range",
         subtitle_edit: "Update the event details and configuration",
@@ -1116,6 +1117,7 @@ export const translations = {
         activation_count: "Activations",
         today_activation: "Today",
         yesterday_activation: "Yesterday",
+        live_activation: "Live Activation",
       },
       whatsapp: {
         title: "Share Report on WhatsApp",
@@ -3287,6 +3289,7 @@ export const translations = {
         delete_permanent_success: "ইভেন্ট স্থায়ীভাবে মুছে ফেলা হয়েছে",
         no_events: "কোনো ইভেন্ট নেই। তারিখ রেঞ্জ পুনরায় ব্যবহার করতে একটি তৈরি করুন।",
         manage: "ইভেন্ট পরিচালনা",
+        locked: "ইভেন্টের সময়কাল শেষ হয়ে গেছে, আর সম্পাদনা করা যাবে না",
         subtitle_manage: "আপনার সংরক্ষিত ইভেন্ট দেখুন, সম্পাদনা বা মুছুন",
         subtitle_create: "তারিখ রেঞ্জসহ একটি পুনঃব্যবহারযোগ্য ইভেন্ট তৈরি করুন",
         subtitle_edit: "ইভেন্টের বিবরণ ও কনফিগারেশন আপডেট করুন",
@@ -3337,6 +3340,7 @@ export const translations = {
         activation_count: "অ্যাক্টিভেশন",
         today_activation: "আজ",
         yesterday_activation: "গতকাল",
+        live_activation: "লাইভ অ্যাক্টিভেশন",
       },
       whatsapp: {
         title: "হোয়াটসঅ্যাপে রিপোর্ট শেয়ার",

@@ -1,6 +1,7 @@
 import apiClient from "./api";
 import type {
   CommissionFilterPayload,
+  CommissionFilterState,
   PaginatedResponse,
   DashboardAnalytics,
   FilterOptions,

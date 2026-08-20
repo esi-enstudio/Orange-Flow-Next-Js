@@ -229,6 +229,7 @@ class ReportPayload(BaseModel):
     filters: dict = {}
     sort_by: Optional[str] = None
     sort_order: str = "desc"
+    targets: list = []
 
     @field_validator("target_type")
     @classmethod
@@ -501,6 +502,11 @@ async def update_event(
     current_user: User = Depends(has_permission("ga_report_builder.edit")),
 ):
     event = await _get_owned_event(db, current_user, event_id)
+    if event.end_date < now_naive().date():
+        raise HTTPException(
+            status_code=400,
+            detail="Event period has ended and can no longer be edited",
+        )
     old_values = {"name": event.name, "start_date": event.start_date.isoformat(), "end_date": event.end_date.isoformat()}
     new_values = dict(old_values)
 
@@ -762,11 +768,14 @@ async def _config_from_payload(db: AsyncSession, current_user: User, payload: Re
         raw["end_date"] = event.end_date.isoformat()
         raw["event_name"] = event.name
         ev_cfg = event.config or {}
-        if ev_cfg.get("target_type"):
+        # Only fall back to the event's config for fields the payload did not set.
+        # The report builder always sends target_type/bp_ids/slabs (so its edits win);
+        # the WhatsApp payload omits them (so the event's canonical values are used).
+        if raw.get("target_type") is None and ev_cfg.get("target_type"):
             raw["target_type"] = ev_cfg["target_type"]
-        if ev_cfg.get("bp_ids"):
+        if raw.get("bp_ids") is None and ev_cfg.get("bp_ids"):
             raw["bp_ids"] = ev_cfg["bp_ids"]
-        if ev_cfg.get("slabs"):
+        if raw.get("slabs") is None and ev_cfg.get("slabs"):
             raw["slabs"] = ev_cfg["slabs"]
 
     cfg = ReportConfig(raw)
