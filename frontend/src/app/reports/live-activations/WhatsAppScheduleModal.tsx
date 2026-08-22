@@ -224,15 +224,16 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
   };
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 backdrop-blur-md p-4"
-          onClick={closeModal}
-        >
+    <>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 backdrop-blur-md p-4"
+            onClick={closeModal}
+          >
           <motion.div
             initial={{ scale: 0.96, y: 16, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
@@ -542,12 +543,13 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
           </motion.div>
         </motion.div>
       )}
+      </AnimatePresence>
       <WhatsAppConnectModal
         open={showConnectModal}
         houseId={houseId}
         onClose={() => setShowConnectModal(false)}
         onConnected={() => { setShowConnectModal(false); loadAll(); }}
       />
-    </AnimatePresence>
+    </>
   );
 }

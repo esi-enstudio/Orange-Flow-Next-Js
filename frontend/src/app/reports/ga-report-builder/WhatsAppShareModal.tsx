@@ -232,9 +232,9 @@ export default function WhatsAppShareModal({ open, houseId, payload, onClose, on
                 </label>
                 {groups.length > 0 ? (
                   <div className="grid grid-cols-1 gap-2 max-h-44 overflow-y-auto pr-1">
-                    {groups.map((g) => (
+                    {groups.map((g, gi) => (
                       <button
-                        key={g.id}
+                        key={g.id || g.name || `group-${gi}`}
                         onClick={() => setChatId(g.id)}
                         className={cn(
                           "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",

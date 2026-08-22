@@ -140,7 +140,7 @@ export default function RsoDetailModal({ open, onClose, employeeId, roleType, em
                     const isAssisted = group.is_assisted;
                     const isFirstMarket = !isAssisted && idx > 0 && arr[idx - 1]?.is_assisted;
                     return (
-                      <div key={group.retailer_code}>
+                      <div key={group.retailer_code || `retailer-${idx}`}>
                         {isFirstMarket && (
                           <div className="flex items-center gap-2 mb-4 mt-2">
                             <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
@@ -185,8 +185,8 @@ export default function RsoDetailModal({ open, onClose, employeeId, roleType, em
                             </span>
                           </div>
                           <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
-                            {group.products.map((product) => (
-                              <div key={product.product_code}>
+                            {group.products.map((product, pi) => (
+                              <div key={product.product_code || `product-${pi}`}>
                                 <div className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-slate-800/50">
                                   <Package className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                                   <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
