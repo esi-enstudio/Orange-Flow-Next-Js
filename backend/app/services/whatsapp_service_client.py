@@ -27,17 +27,43 @@ class WhatsAppServiceClient:
                 message="WhatsApp gateway is disabled. Set WA_GATEWAY_ENABLED=True.",
             )
 
+    @staticmethod
+    def _raise(resp: httpx.Response) -> None:
+        """Raise structured errors; 401 on a device JWT => WA_TOKEN_EXPIRED."""
+        if resp.status_code == 401:
+            raise WhatsAppServiceError(
+                code="WA_TOKEN_EXPIRED",
+                message="Device token has been revoked or expired",
+            )
+        resp.raise_for_status()
+
     # ── Admin APIs (one-time setup) ──────────────────────────────────
 
-    async def create_api_key(self, customer_name: str, max_devices: int = 10) -> str:
-        """Create an API key for a customer/house. Returns api_key string."""
+    async def create_api_key(
+        self,
+        customer_name: str,
+        customer_email: str = "",
+        customer_phone: str = "",
+        max_devices: int = 10,
+    ) -> str:
+        """Create an API key for a customer/house. Returns api_key string.
+
+        Gateway requires: customer_name, customer_email, customer_phone,
+        max_devices > 0 and rate_limit_per_hour > 0.
+        """
         self._check_enabled()
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(
                     f"{self.base_url}/admin/api-keys",
                     headers={"X-Admin-Secret": self.admin_key, "Content-Type": "application/json"},
-                    json={"customer_name": customer_name, "max_devices": max_devices},
+                    json={
+                        "customer_name": customer_name,
+                        "customer_email": customer_email,
+                        "customer_phone": customer_phone,
+                        "max_devices": max_devices,
+                        "rate_limit_per_hour": 1000,
+                    },
                 )
                 resp.raise_for_status()
                 body = resp.json()
@@ -121,7 +147,7 @@ class WhatsAppServiceClient:
                     f"{self.base_url}/devices/me/status",
                     headers={"Authorization": f"Bearer {jwt_token}"},
                 )
-                resp.raise_for_status()
+                self._raise(resp)
                 body = resp.json()
                 if not body.get("status"):
                     raise WhatsAppServiceError(
@@ -143,7 +169,7 @@ class WhatsAppServiceClient:
                     headers={"Authorization": f"Bearer {jwt_token}"},
                     data={"output": "json"},
                 )
-                resp.raise_for_status()
+                self._raise(resp)
                 body = resp.json()
                 if not body.get("status"):
                     raise WhatsAppServiceError(
@@ -165,7 +191,7 @@ class WhatsAppServiceClient:
                     headers={"Authorization": f"Bearer {jwt_token}"},
                     json={"phone_number": phone_number},
                 )
-                resp.raise_for_status()
+                self._raise(resp)
                 body = resp.json()
                 if not body.get("status"):
                     raise WhatsAppServiceError(
@@ -186,7 +212,7 @@ class WhatsAppServiceClient:
                     f"{self.base_url}/devices/me/reconnect",
                     headers={"Authorization": f"Bearer {jwt_token}"},
                 )
-                resp.raise_for_status()
+                self._raise(resp)
                 body = resp.json()
                 return body.get("data", body)
         except httpx.HTTPError as e:
@@ -202,7 +228,7 @@ class WhatsAppServiceClient:
                     f"{self.base_url}/devices/me/session",
                     headers={"Authorization": f"Bearer {jwt_token}"},
                 )
-                resp.raise_for_status()
+                self._raise(resp)
                 body = resp.json()
                 return body.get("data", body)
         except httpx.HTTPError as e:
@@ -218,7 +244,7 @@ class WhatsAppServiceClient:
                     f"{self.base_url}/groups",
                     headers={"Authorization": f"Bearer {jwt_token}"},
                 )
-                resp.raise_for_status()
+                self._raise(resp)
                 body = resp.json()
                 if not body.get("status"):
                     raise WhatsAppServiceError(
@@ -226,9 +252,22 @@ class WhatsAppServiceClient:
                         message=body.get("message", "Failed to fetch groups"),
                     )
                 raw_groups = body.get("data", [])
+                # Gateway returns capitalized keys (EnhancedGroupInfo: JID/Name),
+                # older builds may return lowercase jid/id/name/subject.
+                def _pick(d: dict, *keys: str) -> str:
+                    for k in keys:
+                        v = d.get(k)
+                        if v:
+                            return str(v)
+                    return ""
+
                 return [
-                    {"id": g.get("jid", g.get("id", "")), "name": g.get("name", g.get("subject", ""))}
+                    {
+                        "id": _pick(g, "JID", "jid", "id"),
+                        "name": _pick(g, "Name", "name", "subject") or "Unnamed Group",
+                    }
                     for g in raw_groups
+                    if isinstance(g, dict)
                 ]
         except httpx.HTTPError as e:
             logger.error(f"WA gateway groups fetch failed: {e}")
@@ -246,7 +285,7 @@ class WhatsAppServiceClient:
                         headers={"Authorization": f"Bearer {jwt_token}", "Content-Type": "application/json"},
                         json={"text": text},
                     )
-                    resp.raise_for_status()
+                    self._raise(resp)
                     body = resp.json()
                     if not body.get("status"):
                         raise WhatsAppServiceError(
@@ -286,7 +325,7 @@ class WhatsAppServiceClient:
                         files={"file": (filename, file_bytes, mimetype)},
                         data={"filename": filename, "caption": caption},
                     )
-                    resp.raise_for_status()
+                    self._raise(resp)
                     body = resp.json()
                     if not body.get("status"):
                         raise WhatsAppServiceError(
@@ -325,7 +364,7 @@ class WhatsAppServiceClient:
                         files={"file": (filename, image_bytes, "image/png")},
                         data={"caption": caption},
                     )
-                    resp.raise_for_status()
+                    self._raise(resp)
                     body = resp.json()
                     if not body.get("status"):
                         raise WhatsAppServiceError(

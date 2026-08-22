@@ -30,6 +30,7 @@ interface HouseStatus {
   house_id: number;
   connected: boolean;
   state: string;
+  linked?: boolean;
   phone_number?: string;
   error?: string;
 }
@@ -334,6 +335,29 @@ export default function WhatsAppPage() {
                             Disconnect
                           </button>
                         </>
+                      ) : s.linked === false ? (
+                        <>
+                          <button
+                            onClick={() => openConnect(house.id)}
+                            disabled={connectingHouse === house.id}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition-all disabled:opacity-50 min-h-[36px]"
+                          >
+                            <Smartphone className="w-3.5 h-3.5" />
+                            Connect
+                          </button>
+                          <button
+                            onClick={() => handleReset(house)}
+                            disabled={resettingHouse === house.id}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 dark:border-red-500/40 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all disabled:opacity-50 min-h-[36px]"
+                          >
+                            {resettingHouse === house.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Power className="w-3.5 h-3.5" />
+                            )}
+                            Reset
+                          </button>
+                        </>
                       ) : (
                         <>
                           <button
@@ -444,6 +468,29 @@ export default function WhatsAppPage() {
                         >
                           <WifiOff className="w-4 h-4" />
                           Disconnect
+                        </button>
+                      </>
+                    ) : s.linked === false ? (
+                      <>
+                        <button
+                          onClick={() => openConnect(house.id)}
+                          disabled={connectingHouse === house.id}
+                          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition-all disabled:opacity-50 min-h-[44px]"
+                        >
+                          <Smartphone className="w-4 h-4" />
+                          Connect
+                        </button>
+                        <button
+                          onClick={() => handleReset(house)}
+                          disabled={resettingHouse === house.id}
+                          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-red-200 dark:border-red-500/40 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50 min-h-[44px]"
+                        >
+                          {resettingHouse === house.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Power className="w-4 h-4" />
+                          )}
+                          Reset
                         </button>
                       </>
                     ) : (

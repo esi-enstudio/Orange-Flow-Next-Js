@@ -12,6 +12,7 @@ from app.services.whatsapp_service_client import (
     WhatsAppServiceError,
 )
 from app.services.ga_live_whatsapp_image import build_ga_live_report_image
+from app.services.whatsapp_token import with_house_token
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
 
@@ -80,13 +81,16 @@ async def send_schedule_report(db: AsyncSession, schedule: WhatsAppSchedule) -> 
         return False
 
     try:
-        await whatsapp_service_client.send_file(
-            jwt_token=house.wa_jwt_token,
-            chat_jid=schedule.whatsapp_chat_id,
-            filename="ga_live_report.png",
-            file_bytes=image_bytes,
-            caption=caption,
-            mimetype="image/png",
+        await with_house_token(
+            db,
+            house,
+            lambda token: whatsapp_service_client.send_image(
+                jwt_token=token,
+                chat_jid=schedule.whatsapp_chat_id,
+                filename="ga_live_report.png",
+                image_bytes=image_bytes,
+                caption=caption,
+            ),
         )
     except WhatsAppServiceError as e:
         schedule.last_status = "failed"

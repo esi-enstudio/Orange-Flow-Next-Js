@@ -80,8 +80,15 @@ services:
     # command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --loop asyncio
 
   # WhatsApp Multi-Session Gateway (go-whatsapp-multi-session-rest-api)
+  # NOTE: pinned to locally built :pgx-fixed — the published :latest image
+  # (2025-12-21) predates upstream commit e678308c (2026-02-06, "Fix pgx DSN
+  # for Postgres") and appends prefer_simple_protocol=true to the DSN, which
+  # Postgres rejects with FATAL 42704. Rebuild via upstream source until a
+  # newer image is published:
+  #   git clone https://github.com/gdbrns/go-whatsapp-multi-session-rest-api
+  #   docker build -t ghiovanidebrians/go-whatsapp-multi-session-rest-api:pgx-fixed .
   whatsapp-gateway:
-    image: ghiovanidebrians/go-whatsapp-multi-session-rest-api:latest
+    image: ghiovanidebrians/go-whatsapp-multi-session-rest-api:pgx-fixed
     container_name: orange_flow_wa_gateway
     restart: always
     depends_on:

@@ -13,6 +13,7 @@ from app.services.whatsapp_service_client import (
     whatsapp_service_client,
     WhatsAppServiceError,
 )
+from app.services.whatsapp_token import with_house_token
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
@@ -64,6 +65,9 @@ async def setup_whatsapp_for_house(
     try:
         api_key = await whatsapp_service_client.create_api_key(
             customer_name=f"House-{house.code}-{house.name}",
+            customer_email=(house.email or "").strip()
+            or f"{(house.code or 'house').lower()}@orange-flow.local",
+            customer_phone=(house.poc_mobile or "").strip() or "N/A",
             max_devices=1,
         )
         device_data = await whatsapp_service_client.create_device(
@@ -128,8 +132,17 @@ async def whatsapp_status(
         }
 
     try:
-        status_data = await whatsapp_service_client.get_device_status(house.wa_jwt_token)
+        status_data = await with_house_token(
+            db,
+            house,
+            lambda token: whatsapp_service_client.get_device_status(token),
+        )
         connected = status_data.get("connected", status_data.get("is_connected", False))
+        # Gateway has no device_jid in /status; is_logged_in == authenticated session
+        linked = bool(
+            status_data.get("device_jid")
+            or status_data.get("is_logged_in")
+        )
         state = "connected" if connected else "disconnected"
         qr = status_data.get("qr", None)
 
@@ -142,6 +155,7 @@ async def whatsapp_status(
         return {
             "success": True,
             "connected": connected,
+            "linked": linked,
             "state": state,
             "qr": qr,
             "phone_number": house.wa_phone_number,
@@ -187,7 +201,11 @@ async def connect_whatsapp(
     await db.commit()
 
     try:
-        qr_data = await whatsapp_service_client.login_qr(house.wa_jwt_token)
+        qr_data = await with_house_token(
+            db,
+            house,
+            lambda token: whatsapp_service_client.login_qr(token),
+        )
         return {"success": True, "data": qr_data}
     except WhatsAppServiceError as e:
         house.wa_status = "error"
@@ -215,8 +233,12 @@ async def connect_whatsapp_pairing(
     await db.commit()
 
     try:
-        result = await whatsapp_service_client.login_pairing_code(
-            house.wa_jwt_token, payload.phone_number
+        result = await with_house_token(
+            db,
+            house,
+            lambda token: whatsapp_service_client.login_pairing_code(
+                token, payload.phone_number
+            ),
         )
         return {"success": True, "data": result}
     except WhatsAppServiceError as e:
@@ -246,7 +268,11 @@ async def whatsapp_groups(
         return {"success": True, "data": []}
 
     try:
-        groups = await whatsapp_service_client.get_groups(house.wa_jwt_token)
+        groups = await with_house_token(
+            db,
+            house,
+            lambda token: whatsapp_service_client.get_groups(token),
+        )
         return {"success": True, "data": groups}
     except WhatsAppServiceError as e:
         raise HTTPException(status_code=503, detail=f"{e.code}: {e.message}")
@@ -270,7 +296,11 @@ async def disconnect_whatsapp(
         raise HTTPException(status_code=400, detail="WhatsApp not configured")
 
     try:
-        await whatsapp_service_client.disconnect_device(house.wa_jwt_token)
+        await with_house_token(
+            db,
+            house,
+            lambda token: whatsapp_service_client.disconnect_device(token),
+        )
     except WhatsAppServiceError:
         pass
 
@@ -311,8 +341,20 @@ async def reconnect_whatsapp(
     if not house.wa_jwt_token:
         raise HTTPException(status_code=400, detail="WhatsApp not configured")
 
+    async def _reconnect(token: str):
+        status_data = await whatsapp_service_client.get_device_status(token)
+        if not (status_data.get("device_jid") or status_data.get("is_logged_in")):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This device has never been linked to WhatsApp. "
+                    "Use Connect to scan the QR code first."
+                ),
+            )
+        await whatsapp_service_client.reconnect_device(token)
+
     try:
-        await whatsapp_service_client.reconnect_device(house.wa_jwt_token)
+        await with_house_token(db, house, _reconnect)
         house.wa_status = "connecting"
         await db.commit()
         return {"success": True, "data": {"status": "connecting"}}

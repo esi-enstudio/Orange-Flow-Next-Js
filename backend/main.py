@@ -396,7 +396,7 @@ async def main():
         if settings.ENABLE_GA_SYNC and engine_ok:
             background_tasks.append(asyncio.create_task(master_automation_scheduler()))
 
-        if settings.WHATSAPP_SERVICE_ENABLED:
+        if settings.WA_GATEWAY_ENABLED:
             background_tasks.append(asyncio.create_task(whatsapp_schedule_runner()))
 
         logger.info("OrangeFlow API is Live on port 8000")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, Loader2, RefreshCw, Smartphone, CheckCircle2,
@@ -44,28 +44,56 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
     }
   }, [houseId]);
 
-  const pollStatus = useCallback(async () => {
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  // Poll for scan success while a QR/pairing attempt is active.
+  // Preserves the QR across status refreshes (status endpoint has no qr)
+  // and re-generates it every ~45s before WhatsApp expires/rotates it.
+  const startPolling = useCallback(() => {
     if (!houseId) return;
+    stopPolling();
     let attempts = 0;
-    const maxAttempts = 60;
-    const timer = setInterval(async () => {
+    const maxAttempts = 100;
+    pollTimerRef.current = setInterval(async () => {
       attempts++;
       try {
+        let refreshedQr: string | undefined | null = undefined;
+        if (attempts % 15 === 0) {
+          try {
+            const r = await apiClient.post("/whatsapp/connect", null, { headers: houseHeader });
+            refreshedQr = r.data?.data?.QRCode || r.data?.data?.qr_code || null;
+          } catch {
+            /* keep previous QR on refresh failure */
+          }
+        }
         const res = await apiClient.get("/whatsapp/status", { headers: houseHeader });
         const data = res.data;
-        setStatus(data);
+        setStatus((prev) => ({
+          ...data,
+          connected: !!data.connected,
+          state: data.connected ? "connected" : "connecting",
+          qr: data.connected ? undefined : (refreshedQr ?? data.qr ?? prev?.qr),
+        }));
         if (data.connected) {
-          clearInterval(timer);
+          stopPolling();
           toast.success("WhatsApp connected successfully!");
           onConnected?.();
         }
-        if (attempts >= maxAttempts) clearInterval(timer);
       } catch {
-        if (attempts >= maxAttempts) clearInterval(timer);
+        /* transient errors — keep polling */
+      } finally {
+        if (attempts >= maxAttempts) stopPolling();
       }
     }, 3000);
-    return () => clearInterval(timer);
-  }, [houseId, onConnected]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [houseId, onConnected, stopPolling]);
 
   useEffect(() => {
     if (!open || !houseId) return;
@@ -75,11 +103,12 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
 
   useEffect(() => {
     if (!open) {
+      stopPolling();
       setStatus(null);
       setPhoneInput("");
       setShowPairing(false);
     }
-  }, [open]);
+  }, [open, stopPolling]);
 
   const handleSetup = async () => {
     setActionLoading(true);
@@ -97,9 +126,17 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
   const handleConnect = async () => {
     setActionLoading(true);
     try {
-      await apiClient.post("/whatsapp/connect", null, { headers: houseHeader });
+      // Gateway returns the QR only in this response (key: QRCode);
+      // /whatsapp/status never carries it, so capture before refreshing.
+      const res = await apiClient.post("/whatsapp/connect", null, { headers: houseHeader });
+      const qrCode: string | null =
+        res.data?.data?.QRCode || res.data?.data?.qr_code || null;
       await checkStatus();
-      pollStatus();
+      setStatus((prev) => {
+        const base: StatusData = prev ?? { connected: false, state: "connecting" };
+        return { ...base, connected: false, state: "connecting", qr: qrCode ?? undefined };
+      });
+      startPolling();
     } catch (e) {
       toast.error((e as Error).message || "Connect failed");
     } finally {
@@ -120,7 +157,7 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
         { headers: houseHeader },
       );
       toast.success("Pairing code sent. Check your phone.");
-      pollStatus();
+      startPolling();
     } catch (e) {
       toast.error((e as Error).message || "Pairing failed");
     } finally {
