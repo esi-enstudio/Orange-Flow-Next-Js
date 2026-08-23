@@ -8,7 +8,7 @@
         "employees": { "display_name": "Employees", "permissions": ["employees.view", "employees.create", "employees.edit", "employees.delete", "employees.import", "employees.export", "employees.assign"] },
         "bts": { "display_name": "BTS", "permissions": ["bts.view", "bts.create", "bts.edit", "bts.delete", "bts.import", "bts.export"] },
         "lifting": { "display_name": "Lifting", "permissions": ["lifting.view", "lifting.create", "lifting.edit", "lifting.delete", "lifting.approve", "lifting.import", "lifting.export"] },
-        "reports": { "display_name": "Reports", "permissions": ["reports.view", "reports.edit", "reports.download", "reports.dms_access", "reports.target_achievement", "reports.achievement.config"] },
+        "reports": { "display_name": "Reports", "permissions": ["reports.view", "reports.edit", "reports.download", "reports.dms_access", "reports.target_achievement", "reports.achievement.config", "reports.whatsapp_share"] },
         "products": { "display_name": "Products", "permissions": ["products.view", "products.create", "products.edit", "products.delete", "products.import", "products.export"] },
         "commission": { "display_name": "Commission", "permissions": ["commission.view", "commission.manage", "commission.import", "commission.export"] },
         "sim_status": { "display_name": "SIM Status Check", "permissions": ["sim_status.view"] },
@@ -40,7 +40,7 @@
         "sales": { "display_name": "Sales", "permissions": ["sales.view", "sales.create", "sales.edit", "sales.delete"] },
         "stock": { "display_name": "Stock", "permissions": ["stock.view", "stock.create", "stock.transfer", "stock.adjust"] },
         "itopup_balance": { "display_name": "iTopUp Balance", "permissions": ["itopup_balance.view", "itopup_balance.create", "itopup_balance.edit"] },
-        "active_lso": { "display_name": "Active LSO Report", "permissions": ["active_lso.view", "active_lso.export", "active_lso.print"] },
+        "active_lso": { "display_name": "Active LSO Report", "permissions": ["active_lso.view", "active_lso.export", "active_lso.print", "active_lso.config"] },
         "transactions": { "display_name": "Transactions", "permissions": ["transactions.view", "transactions.export"] },
         "ga_report_builder": { "display_name": "GA Report Builder", "permissions": ["ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.delete.permanent", "ga_report_builder.export", "ga_report_builder.send"] },
         "whatsapp": { "display_name": "WhatsApp Gateway", "permissions": ["whatsapp.view", "whatsapp.connect", "whatsapp.disconnect", "whatsapp.setup"] }
@@ -56,11 +56,11 @@
         },
         {
             "name": "Distributor",
-            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export", "ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"]
+            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "reports.whatsapp_share", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export", "ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"]
         },
         {
             "name": "Manager",
-            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export", "ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"]
+            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "reports.whatsapp_share", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "transactions.view", "transactions.export", "ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"]
         },
         {
             "name": "Supervisor",

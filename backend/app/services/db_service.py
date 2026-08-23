@@ -21,6 +21,7 @@ import app.models.sync_history
 import app.models.house_target
 import app.models.supervisor_target
 import app.models.rso_target
+import app.models.active_lso_config
 import app.models.bp_target
 import app.models.activity_log
 import app.models.product_exclusion

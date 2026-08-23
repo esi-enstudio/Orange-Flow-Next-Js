@@ -1,8 +1,9 @@
 """Active LSO (Target vs Achievement) report service.
 
 A retailer is considered an "Active LSO" when, within the selected period, it has
-at least ACTIVE_LSO_DAYS distinct C2S report dates AND a cumulative C2S amount of
-at least ACTIVE_LSO_AMOUNT. Achieved = count of such active retailers per RSO.
+at least the configured number of distinct C2S report dates AND a cumulative C2S
+amount of at least the configured amount (per house + month; defaults 7 days /
+500 BDT). Achieved = count of such active retailers per RSO.
 
 Retailer attribution is based solely on `retailers.employee_id` (the RSO the
 retailer is linked to). BP/CC assisted codes are never auto-assigned to RSOs here.
@@ -15,6 +16,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.active_lso_config import ActiveLsoConfig
 from app.models.employee import Employee
 from app.models.house import House
 from app.models.itopup_detail import ITopUpDetail
@@ -25,8 +27,8 @@ from app.utils.access_control import is_admin_user
 
 logger = logging.getLogger("app.services.ActiveLsoReport")
 
-ACTIVE_LSO_DAYS = 7
-ACTIVE_LSO_AMOUNT = 500.0
+DEFAULT_ACTIVE_LSO_DAYS = 7
+DEFAULT_ACTIVE_LSO_AMOUNT = 500.0
 REPORT_TYPE_C2S = "C2S"
 
 VALID_STATUSES = ("achieved", "on_track", "needs_attention", "behind")
@@ -161,6 +163,25 @@ async def get_employee_profile(db: AsyncSession, user_id: int) -> Optional[Emplo
     )
     res = await db.execute(q)
     return res.scalars().first()
+
+
+async def get_active_lso_thresholds(db: AsyncSession, house_id: int, month_start: date) -> Tuple[int, float]:
+    """Configured Active LSO thresholds for a house+month, or defaults."""
+    if not house_id or not month_start:
+        return DEFAULT_ACTIVE_LSO_DAYS, DEFAULT_ACTIVE_LSO_AMOUNT
+    month_start = month_start.replace(day=1)
+    res = await db.execute(
+        select(ActiveLsoConfig.days_threshold, ActiveLsoConfig.amount_threshold).where(
+            ActiveLsoConfig.house_id == house_id,
+            ActiveLsoConfig.target_month == month_start,
+        )
+    )
+    row = res.first()
+    if not row:
+        return DEFAULT_ACTIVE_LSO_DAYS, DEFAULT_ACTIVE_LSO_AMOUNT
+    days = int(row[0]) if row[0] is not None else DEFAULT_ACTIVE_LSO_DAYS
+    amount = float(row[1]) if row[1] is not None else DEFAULT_ACTIVE_LSO_AMOUNT
+    return max(1, min(31, days)), max(0.0, amount)
 
 
 async def get_active_lso_filters(db: AsyncSession, current_user: User) -> dict:
@@ -315,8 +336,27 @@ class ActiveLsoReportService:
         self.prev_month_start = prev_month_last.replace(day=1)
         self.prev_month_end = prev_month_last
 
+        self.active_days = DEFAULT_ACTIVE_LSO_DAYS
+        self.active_amount = DEFAULT_ACTIVE_LSO_AMOUNT
+        self.prev_active_days = DEFAULT_ACTIVE_LSO_DAYS
+        self.prev_active_amount = DEFAULT_ACTIVE_LSO_AMOUNT
+
+    # ------------------------------------------------------------------ #
+    async def _load_thresholds(self) -> None:
+        """Load Active LSO thresholds for the target month and previous month.
+
+        Falls back to defaults when no per-month config exists.
+        """
+        self.active_days, self.active_amount = await get_active_lso_thresholds(
+            self.db, self.house_id, date(self.start_date.year, self.start_date.month, 1)
+        )
+        self.prev_active_days, self.prev_active_amount = await get_active_lso_thresholds(
+            self.db, self.house_id, self.prev_month_start
+        )
+
     # ------------------------------------------------------------------ #
     async def build_dashboard(self) -> dict:
+        await self._load_thresholds()
         emps = await self._get_rso_employees()
         if not emps:
             return self._empty_result()
@@ -420,8 +460,7 @@ class ActiveLsoReportService:
         return {r[0]: (int(r[1] or 0), float(r[2] or 0.0)) for r in rows}
 
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def _compute_retailer_counts(rid_list: Sequence[int], cur_map: Dict[int, Tuple[int, float]],
+    def _compute_retailer_counts(self, rid_list: Sequence[int], cur_map: Dict[int, Tuple[int, float]],
                                   prev_map: Dict[int, Tuple[int, float]]) -> dict:
         counts = {k: 0 for k in COUNT_KEYS}
         counts["active"] = 0
@@ -430,29 +469,20 @@ class ActiveLsoReportService:
             cd, ca = cur_map.get(rid, (0, 0.0))
             pd, pa = prev_map.get(rid, (0, 0.0))
 
-            if cd == 0:
-                counts["day_0"] += 1
-            elif cd == 1:
-                counts["day_1"] += 1
-            elif cd == 2:
-                counts["day_2"] += 1
-            elif cd == 3:
-                counts["day_3"] += 1
-            elif cd == 4:
-                counts["day_4"] += 1
-            elif cd == 5:
-                counts["day_5"] += 1
-            elif cd == 6:
-                counts["day_6"] += 1
-            elif ca < ACTIVE_LSO_AMOUNT:
-                counts["days_no_sales"] += 1
-            else:
+            is_active = cd >= self.active_days and ca >= self.active_amount
+            if is_active:
                 counts["active"] += 1
+            elif cd <= 6:
+                counts[f"day_{cd}"] += 1
+            else:
+                # Sold on more than the displayed 6 buckets but did not meet
+                # the configured Active LSO criteria.
+                counts["days_no_sales"] += 1
 
-            prev_active = pd >= ACTIVE_LSO_DAYS and pa >= ACTIVE_LSO_AMOUNT
+            prev_active = pd >= self.prev_active_days and pa >= self.prev_active_amount
             if not prev_active:
                 counts["inactive_last_month"] += 1
-                if cd >= ACTIVE_LSO_DAYS and ca >= ACTIVE_LSO_AMOUNT:
+                if is_active:
                     counts["reactivated"] += 1
         return counts
 
@@ -546,8 +576,8 @@ class ActiveLsoReportService:
             "target_month": self.start_date.strftime("%Y-%m"),
             "prev_month_start": self.prev_month_start.isoformat(),
             "prev_month_end": self.prev_month_end.isoformat(),
-            "active_threshold_days": ACTIVE_LSO_DAYS,
-            "active_threshold_amount": ACTIVE_LSO_AMOUNT,
+            "active_threshold_days": self.active_days,
+            "active_threshold_amount": self.active_amount,
         }
 
     def _empty_result(self) -> dict:

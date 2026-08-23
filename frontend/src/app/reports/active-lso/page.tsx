@@ -14,6 +14,8 @@ import {
   Filter,
   RotateCcw,
   Clock,
+  Settings,
+  X as XIcon,
   Users,
   UserCog,
   UserRound,
@@ -148,6 +150,10 @@ function toDateStr(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function endOfMonthStr(year: number, month: number): string {
+  return toDateStr(new Date(year, month, 0));
 }
 
 function formatNumber(n: number): string {
@@ -351,13 +357,18 @@ export default function ActiveLsoReportPage() {
     month: today.getMonth() + 1,
     year: today.getFullYear(),
     startDate: toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)),
-    endDate: toDateStr(today),
+    endDate: endOfMonthStr(today.getFullYear(), today.getMonth() + 1),
   });
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [exporting, setExporting] = useState<"xlsx" | "csv" | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configIsCustom, setConfigIsCustom] = useState(false);
+  const [configForm, setConfigForm] = useState({ days: "7", amount: "500" });
 
   const initializedRef = useRef(false);
   const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -445,7 +456,7 @@ export default function ActiveLsoReportPage() {
         const m = patch.month ?? prev.month;
         const y = patch.year ?? prev.year;
         next.startDate = toDateStr(new Date(y, m - 1, 1));
-        next.endDate = toDateStr(new Date());
+        next.endDate = endOfMonthStr(y, m);
       }
       return next;
     });
@@ -472,7 +483,7 @@ export default function ActiveLsoReportPage() {
       month: today.getMonth() + 1,
       year: today.getFullYear(),
       startDate: toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)),
-      endDate: toDateStr(today),
+      endDate: endOfMonthStr(today.getFullYear(), today.getMonth() + 1),
     }));
   };
 
@@ -498,6 +509,55 @@ export default function ActiveLsoReportPage() {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const openConfig = async () => {
+    setShowConfig(true);
+    setConfigLoading(true);
+    try {
+      const params: Record<string, string> = { month: String(filters.month), year: String(filters.year) };
+      if (filters.houseId) params.house_id = filters.houseId;
+      const res = await apiClient.get("reports/active-lso/config", { params });
+      const d = res.data?.data;
+      if (d) {
+        setConfigForm({ days: String(d.days_threshold), amount: String(d.amount_threshold) });
+        setConfigIsCustom(!!d.is_custom);
+      }
+    } catch {
+      toast.error(t("active_lso_report.config.load_failed"));
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
+  const saveConfig = async () => {
+    const days = parseInt(configForm.days, 10);
+    const amount = parseFloat(configForm.amount);
+    if (!Number.isFinite(days) || days < 1 || days > 31) {
+      toast.error(t("active_lso_report.config.invalid_days"));
+      return;
+    }
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.error(t("active_lso_report.config.invalid_amount"));
+      return;
+    }
+    setSavingConfig(true);
+    try {
+      await apiClient.put("reports/active-lso/config", {
+        house_id: filters.houseId ? Number(filters.houseId) : undefined,
+        month: filters.month,
+        year: filters.year,
+        days_threshold: days,
+        amount_threshold: amount,
+      });
+      toast.success(t("active_lso_report.config.save_success"));
+      setShowConfig(false);
+      fetchData(filters);
+    } catch {
+      toast.error(t("active_lso_report.config.save_failed"));
+    } finally {
+      setSavingConfig(false);
+    }
   };
 
   if (authLoading) {
@@ -616,6 +676,15 @@ export default function ActiveLsoReportPage() {
               title={t("active_lso_report.actions.print")}
             >
               <Printer className="w-4 h-4" />
+            </button>
+          )}
+          {hasPermission("active_lso.config") && (
+            <button
+              onClick={openConfig}
+              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
+              title={t("active_lso_report.config.title")}
+            >
+              <Settings className="w-4 h-4" />
             </button>
           )}
           <button
@@ -1138,6 +1207,93 @@ export default function ActiveLsoReportPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* Active LSO Config Modal */}
+      {showConfig && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowConfig(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-50 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center">
+                  <Settings className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{t("active_lso_report.config.title")}</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {getMonthName(filters.month)} {filters.year}
+                    {filters.houseId && filterOptions ? ` · ${filterOptions.houses.find((h) => String(h.id) === filters.houseId)?.name ?? ""}` : ""}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowConfig(false)}
+                className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+              >
+                <XIcon className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+
+            {configLoading ? (
+              <div className="p-5 space-y-4 animate-pulse">
+                <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                <div className="h-11 w-full bg-gray-200 dark:bg-slate-700 rounded-lg" />
+                <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                <div className="h-11 w-full bg-gray-200 dark:bg-slate-700 rounded-lg" />
+              </div>
+            ) : (
+              <>
+                <div className="p-5 space-y-4">
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">{t("active_lso_report.config.desc")}</p>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                      {t("active_lso_report.config.days")}
+                      {!configIsCustom && (
+                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500 font-medium">
+                          {t("active_lso_report.config.default_badge")}
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={configForm.days}
+                      onChange={(e) => setConfigForm((f) => ({ ...f, days: e.target.value }))}
+                      className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{t("active_lso_report.config.amount")}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={configForm.amount}
+                      onChange={(e) => setConfigForm((f) => ({ ...f, amount: e.target.value }))}
+                      className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    />
+                  </div>
+                </div>
+                <div className="px-5 py-4 border-t border-gray-100 dark:border-slate-800 flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setShowConfig(false)}
+                    className="px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                  <button
+                    onClick={saveConfig}
+                    disabled={savingConfig}
+                    className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                  >
+                    {savingConfig ? t("active_lso_report.config.saving") : t("active_lso_report.config.save")}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
