@@ -57,16 +57,7 @@ interface PeriodInfo {
 }
 
 interface RetailerCounts {
-  day_0: number;
-  day_1: number;
-  day_2: number;
-  day_3: number;
-  day_4: number;
-  day_5: number;
-  day_6: number;
-  days_no_sales: number;
-  inactive_last_month: number;
-  reactivated: number;
+  [key: string]: number;
 }
 
 interface RsoRow {
@@ -111,6 +102,7 @@ interface SupSummary extends Summary {
 interface ReportData {
   success: boolean;
   period: PeriodInfo;
+  count_keys?: string[];
   rows: RsoRow[];
   summary: Summary;
   supervisor_summary: SupSummary[];
@@ -169,7 +161,17 @@ const statusColors: Record<string, string> = {
 };
 
 const A_COL_KEYS = ["target", "achieved", "ach_pct", "remaining", "drr", "daily_avg", "projection", "status"] as const;
-const B_COL_KEYS = ["retailers", "day_0", "day_1", "day_2", "day_3", "day_4", "day_5", "day_6", "days_no_sales", "inactive_last_month", "reactivated"] as const;
+const B_TAIL_KEYS = ["days_no_sales", "inactive_last_month", "reactivated"] as const;
+const DEFAULT_ACTIVE_DAYS = 7;
+
+function buildBColKeys(thresholdDays: number): string[] {
+  const days = Math.min(31, Math.max(1, thresholdDays));
+  return [
+    "retailers",
+    ...Array.from({ length: days }, (_, i) => `day_${i}`),
+    ...B_TAIL_KEYS,
+  ];
+}
 
 function StatusBadge({ status }: { status: string }) {
   const { t } = useLanguage();
@@ -600,9 +602,26 @@ export default function ActiveLsoReportPage() {
   const selectClass =
     "pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer min-w-[150px] disabled:opacity-50 disabled:cursor-not-allowed";
 
-  const renderCountCell = (counts: RetailerCounts, key: (typeof B_COL_KEYS)[number], retailerCount?: number) => {
+  const bColKeys = data?.count_keys?.length
+    ? ["retailers", ...data.count_keys]
+    : buildBColKeys(period?.active_threshold_days ?? DEFAULT_ACTIVE_DAYS);
+
+  const bnDigits = (n: number) => String(n).replace(/[0-9]/g, (d) => "০১২৩৪৫৬৭৮৯"[Number(d)]);
+
+  const colLabel = (key: string): string => {
+    if (key.startsWith("day_")) {
+      const n = Number(key.slice(4));
+      return language === "bn" ? `${bnDigits(n)} দিন` : `${n} Day`;
+    }
+    if ((B_TAIL_KEYS as readonly string[]).includes(key)) {
+      return t(`active_lso_report.columns.${key}`);
+    }
+    return key;
+  };
+
+  const renderCountCell = (counts: RetailerCounts, key: string, retailerCount?: number) => {
     if (key === "retailers") return formatNumber(retailerCount ?? 0);
-    return formatNumber((counts as unknown as Record<string, number>)[key] ?? 0);
+    return formatNumber(counts[key] ?? 0);
   };
 
   const renderACell = (row: { target: number; achieved: number; ach_pct: number; remaining: number; drr: number; daily_avg: number; projection: number; status: string }, key: (typeof A_COL_KEYS)[number]) => {
@@ -618,13 +637,13 @@ export default function ActiveLsoReportPage() {
     }
   };
 
-  const renderTotalCell = (key: (typeof A_COL_KEYS)[number] | (typeof B_COL_KEYS)[number]) => {
+  const renderTotalCell = (key: (typeof A_COL_KEYS)[number] | string) => {
     if (!summary) return "";
-    if (A_COL_KEYS.includes(key as (typeof A_COL_KEYS)[number])) {
+    if ((A_COL_KEYS as readonly string[]).includes(key)) {
       return renderACell(summary, key as (typeof A_COL_KEYS)[number]);
     }
     if (key === "retailers") return formatNumber(summary.retailer_count);
-    return formatNumber((summary.retailer_counts as unknown as Record<string, number>)[key as string] ?? 0);
+    return formatNumber(summary.retailer_counts[key] ?? 0);
   };
 
   return (
@@ -1085,7 +1104,7 @@ export default function ActiveLsoReportPage() {
                       <th colSpan={A_COL_KEYS.length} className="sticky top-0 z-30 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-center font-bold text-gray-600 dark:text-gray-300 border-b border-r border-gray-200 dark:border-slate-700">
                         {t("active_lso_report.section_a")}
                       </th>
-                      <th colSpan={B_COL_KEYS.length} className="sticky top-0 z-30 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-center font-bold text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-slate-700">
+                      <th colSpan={bColKeys.length} className="sticky top-0 z-30 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-center font-bold text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-slate-700">
                         {t("active_lso_report.section_b")}
                       </th>
                     </tr>
@@ -1095,9 +1114,9 @@ export default function ActiveLsoReportPage() {
                           {t(`active_lso_report.columns.${k}`)}
                         </th>
                       ))}
-                      {B_COL_KEYS.map((k) => (
+                      {bColKeys.map((k) => (
                         <th key={k} className="sticky top-9 z-20 h-9 px-2 bg-slate-100 dark:bg-slate-800 text-center font-semibold text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                          {t(`active_lso_report.columns.${k}`)}
+                          {colLabel(k)}
                         </th>
                       ))}
                     </tr>
@@ -1124,7 +1143,7 @@ export default function ActiveLsoReportPage() {
                             {renderACell(row, k)}
                           </td>
                         ))}
-                        {B_COL_KEYS.map((k) => (
+                        {bColKeys.map((k) => (
                           <td key={k} className={cn("px-2 py-1.5 text-center border-b border-gray-100 dark:border-slate-800", k === "days_no_sales" || k === "inactive_last_month" || k === "reactivated" ? "bg-amber-50/40 dark:bg-amber-500/5" : "")}>
                             {renderCountCell(row.retailer_counts, k, row.retailer_count)}
                           </td>
@@ -1144,7 +1163,7 @@ export default function ActiveLsoReportPage() {
                           {renderTotalCell(k)}
                         </td>
                       ))}
-                      {B_COL_KEYS.map((k) => (
+                      {bColKeys.map((k) => (
                         <td key={k} className="px-2 py-2 text-center font-bold text-gray-900 dark:text-gray-100 border-t-2 border-gray-300 dark:border-slate-600">
                           {renderTotalCell(k)}
                         </td>

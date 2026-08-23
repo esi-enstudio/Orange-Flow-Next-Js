@@ -36,8 +36,13 @@ VALID_STATUSES = ("achieved", "on_track", "needs_attention", "behind")
 ROLE_RSO = "rso"
 ROLE_SUPERVISOR = "supervisor"
 
-COUNT_KEYS = ("day_0", "day_1", "day_2", "day_3", "day_4", "day_5", "day_6",
-              "days_no_sales", "inactive_last_month", "reactivated")
+def build_count_keys(days_threshold: int) -> tuple:
+    """Day-bucket keys scale with the configured Active LSO days threshold.
+
+    threshold=7 -> day_0..day_6; threshold=5 -> day_0..day_4
+    """
+    return tuple(f"day_{i}" for i in range(days_threshold)) + \
+        ("days_no_sales", "inactive_last_month", "reactivated")
 
 
 def status_for_pct(pct: float) -> str:
@@ -340,6 +345,7 @@ class ActiveLsoReportService:
         self.active_amount = DEFAULT_ACTIVE_LSO_AMOUNT
         self.prev_active_days = DEFAULT_ACTIVE_LSO_DAYS
         self.prev_active_amount = DEFAULT_ACTIVE_LSO_AMOUNT
+        self.count_keys = build_count_keys(DEFAULT_ACTIVE_LSO_DAYS)
 
     # ------------------------------------------------------------------ #
     async def _load_thresholds(self) -> None:
@@ -353,6 +359,7 @@ class ActiveLsoReportService:
         self.prev_active_days, self.prev_active_amount = await get_active_lso_thresholds(
             self.db, self.house_id, self.prev_month_start
         )
+        self.count_keys = build_count_keys(self.active_days)
 
     # ------------------------------------------------------------------ #
     async def build_dashboard(self) -> dict:
@@ -397,6 +404,7 @@ class ActiveLsoReportService:
         return {
             "success": True,
             "period": self._period_info(),
+            "count_keys": list(self.count_keys),
             "rows": rows,
             "summary": self._aggregate(rows),
             "supervisor_summary": self._supervisor_summary(rows),
@@ -462,7 +470,7 @@ class ActiveLsoReportService:
     # ------------------------------------------------------------------ #
     def _compute_retailer_counts(self, rid_list: Sequence[int], cur_map: Dict[int, Tuple[int, float]],
                                   prev_map: Dict[int, Tuple[int, float]]) -> dict:
-        counts = {k: 0 for k in COUNT_KEYS}
+        counts = {k: 0 for k in self.count_keys}
         counts["active"] = 0
         counts["retailer_count"] = len(rid_list)
         for rid in rid_list:
@@ -472,11 +480,11 @@ class ActiveLsoReportService:
             is_active = cd >= self.active_days and ca >= self.active_amount
             if is_active:
                 counts["active"] += 1
-            elif cd <= 6:
+            elif cd < self.active_days:
+                # Sold on fewer distinct days than the configured threshold.
                 counts[f"day_{cd}"] += 1
             else:
-                # Sold on more than the displayed 6 buckets but did not meet
-                # the configured Active LSO criteria.
+                # Met the day threshold but missed the amount threshold.
                 counts["days_no_sales"] += 1
 
             prev_active = pd >= self.prev_active_days and pa >= self.prev_active_amount
@@ -515,7 +523,7 @@ class ActiveLsoReportService:
             "drr": drr,
             "status": status_for_pct(ach_pct),
             "retailer_count": counts["retailer_count"],
-            "retailer_counts": {k: counts[k] for k in COUNT_KEYS if k != "retailer_count"},
+            "retailer_counts": {k: counts[k] for k in self.count_keys},
         }
 
     # ------------------------------------------------------------------ #
@@ -549,8 +557,7 @@ class ActiveLsoReportService:
             result.append(ag)
         return result
 
-    @staticmethod
-    def _blank_aggregate() -> dict:
+    def _blank_aggregate(self) -> dict:
         return {
             "rso_count": 0,
             "retailer_count": 0,
@@ -562,7 +569,7 @@ class ActiveLsoReportService:
             "projection": 0.0,
             "drr": 0,
             "status": "behind",
-            "retailer_counts": {k: 0 for k in COUNT_KEYS},
+            "retailer_counts": {k: 0 for k in self.count_keys},
         }
 
     def _period_info(self) -> dict:
@@ -584,6 +591,7 @@ class ActiveLsoReportService:
         return {
             "success": True,
             "period": self._period_info(),
+            "count_keys": list(self.count_keys),
             "rows": [],
             "summary": self._blank_aggregate(),
             "supervisor_summary": [],

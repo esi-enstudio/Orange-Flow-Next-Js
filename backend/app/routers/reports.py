@@ -37,6 +37,7 @@ from app.services.Automation.issue_reports_excel import export_scratch_card_exce
 from app.services.target_achievement_service import TargetAchievementService
 from app.services.active_lso_report_service import (
     ActiveLsoReportService,
+    DEFAULT_ACTIVE_LSO_DAYS,
     get_active_lso_filters as _get_active_lso_filters,
     get_active_lso_thresholds,
     get_employee_profile,
@@ -2179,12 +2180,14 @@ async def export_active_lso_report(
     period_label = f"{period['start_date']} to {period['end_date']}"
     filename = f"active_lso_report_{period['start_date']}_to_{period['end_date']}.{format}"
 
+    threshold_days = int(period.get("active_threshold_days") or DEFAULT_ACTIVE_LSO_DAYS)
+    day_headers = [f"{i} Day" for i in range(threshold_days)]
+    count_keys = [f"day_{i}" for i in range(threshold_days)] + \
+        ["days_no_sales", "inactive_last_month", "reactivated"]
+
     headers = ["RSO", "Supervisor", "Target", "Achieved", "Ach %", "Remain",
-               "DRR", "D.Avg", "Projection", "Status", "Retailers",
-               "0 Day", "1 Day", "2 Day", "3 Day", "4 Day", "5 Day", "6 Day",
-               "Days No Sales", "Inactive Last Month", "Reactivated"]
-    count_keys = ["day_0", "day_1", "day_2", "day_3", "day_4", "day_5", "day_6",
-                  "days_no_sales", "inactive_last_month", "reactivated"]
+               "DRR", "D.Avg", "Projection", "Status", "Retailers"] + day_headers + \
+        ["Days No Sales", "Inactive Last Month", "Reactivated"]
 
     def row_values(item, include_name=True):
         base = [item.get("name", "Grand Total"), item.get("supervisor_name") or ""] if include_name else []
@@ -2286,7 +2289,7 @@ async def export_active_lso_report(
             cell = ws.cell(row=sup_start + 2 + i, column=col, value=val)
             cell.border = thin_border
 
-    widths = [26, 22, 10, 10, 9, 9, 9, 9, 10, 14, 10, 8, 8, 8, 8, 8, 8, 8, 14, 16, 14]
+    widths = [26, 22, 10, 10, 9, 9, 9, 9, 10, 14, 10] + [8] * threshold_days + [14, 16, 14]
     for idx, w in enumerate(widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = w
 
