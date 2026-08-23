@@ -5,15 +5,20 @@ at least the configured number of distinct C2S report dates AND a cumulative C2S
 amount of at least the configured amount (per house + month; defaults 7 days /
 500 BDT). Achieved = count of such active retailers per RSO.
 
-Retailer attribution is based solely on `retailers.employee_id` (the RSO the
-retailer is linked to). BP/CC assisted codes are never auto-assigned to RSOs here.
+Retailer attribution: a retailer belongs to an RSO when either
+1. it is linked to the RSO via `retailers.employee_id`, or
+2. it is a BP/CC assisted code (linked to a BP employee) carrying the RSO's
+   iTopUp SR number in `retailers.itop_sr_number` — DMS files put the
+   supervising RSO's SR there. Business decision: these count toward the
+   RSO's retailer base in this report.
+Only ENABLED ('Yes') retailers are counted.
 """
 import logging
 import math
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.active_lso_config import ActiveLsoConfig
@@ -438,13 +443,51 @@ class ActiveLsoReportService:
         return target_map
 
     async def _get_retailer_emp_map(self, emp_ids: Sequence[int]) -> Dict[int, int]:
+        """Map retailer_id -> owning RSO employee_id.
+
+        Includes (only ENABLED, i.e. enabled='Yes', retailers):
+        1. Retailers directly linked to the RSO (employee_type='rso').
+        2. BP/CC assisted codes linked to non-RSO employees whose
+           `itop_sr_number` equals the RSO's itop_number — DMS files place
+           the supervising RSO's SR on those rows.
+        Retailers still linked to some OTHER RSO are never re-attributed here.
+        """
         if not emp_ids:
             return {}
-        q = select(Retailer.id, Retailer.employee_id).where(
-            Retailer.house_id == self.house_id,
-            Retailer.employee_id.in_(list(set(emp_ids))),
+        emp_set = set(emp_ids)
+
+        rso_rows = (
+            await self.db.execute(
+                select(Employee.id, Employee.itop_number).where(Employee.id.in_(emp_set))
+            )
+        ).all()
+        sr_to_rso = {sr: eid for eid, sr in rso_rows if sr}
+
+        sr_conditions = (
+            or_(
+                Retailer.employee_id.in_(emp_set),
+                Retailer.itop_sr_number.in_(list(sr_to_rso)),
+            )
+            if sr_to_rso
+            else Retailer.employee_id.in_(emp_set)
         )
-        return {rid: eid for rid, eid in (await self.db.execute(q)).all()}
+        q = (
+            select(Retailer.id, Retailer.employee_id, Employee.employee_type, Retailer.itop_sr_number)
+            .join(Employee, Employee.id == Retailer.employee_id)
+            .where(
+                Retailer.house_id == self.house_id,
+                Retailer.enabled.ilike("y%"),
+                sr_conditions,
+            )
+        )
+        mapping: Dict[int, int] = {}
+        for rid, eid, etype, sr in (await self.db.execute(q)).all():
+            if eid in emp_set and etype == ROLE_RSO:
+                mapping[rid] = eid
+            elif etype != ROLE_RSO and sr and sr in sr_to_rso:
+                # BP/CC assisted code under this RSO's SR
+                mapping[rid] = sr_to_rso[sr]
+        return mapping
 
     async def _get_c2s_map(self, retailer_ids: Sequence[int], start: date, end: date) -> Dict[int, Tuple[int, float]]:
         if not retailer_ids:
