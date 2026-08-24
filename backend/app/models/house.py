@@ -45,6 +45,10 @@ class House(Base):
     wa_last_error = Column(String(500), nullable=True)
     wa_last_connected_at = Column(DateTime, nullable=True)
 
+    # Telegram report delivery (shared bots, manual chat linking)
+    telegram_chat_id = Column(String(64), nullable=True)
+    telegram_chat_name = Column(String(200), nullable=True)
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 

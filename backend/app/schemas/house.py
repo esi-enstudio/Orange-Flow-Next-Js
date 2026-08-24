@@ -23,6 +23,8 @@ class HouseSchema(BaseModel):
     dms_user: Optional[str]
     dms_pass: Optional[str]
     dms_house_id: Optional[str]
+    telegram_chat_id: Optional[str] = None
+    telegram_chat_name: Optional[str] = None
     is_active: bool
     class Config: from_attributes = True
 

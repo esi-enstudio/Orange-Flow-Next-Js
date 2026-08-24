@@ -30,12 +30,22 @@ interface WsGroup {
   name: string;
 }
 
+interface TgStatus {
+  success: boolean;
+  state?: string;
+  error?: string;
+  bot?: { id: number; name: string; username?: string | null };
+  chat_id?: string | null;
+  chat_name?: string | null;
+}
+
 interface ScheduleItem {
   id: number;
   house_id: number;
   schedule_type: string;
   schedule_time: string;
   interval_minutes: number | null;
+  channel: string;
   whatsapp_chat_id: string;
   whatsapp_chat_name: string;
   caption: string | null;
@@ -50,6 +60,7 @@ const emptyForm = {
   schedule_type: "interval",
   schedule_time: "18:00",
   interval_minutes: "5",
+  channel: "whatsapp" as "whatsapp" | "telegram",
   whatsapp_chat_id: "",
   whatsapp_chat_name: "",
   caption: "",
@@ -57,6 +68,7 @@ const emptyForm = {
 
 export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props) {
   const [status, setStatus] = useState<WsStatus | null>(null);
+  const [tgStatus, setTgStatus] = useState<TgStatus | null>(null);
   const [groups, setGroups] = useState<WsGroup[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -68,53 +80,37 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
 
   const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
 
-  const loadAll = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     if (!houseId) return;
-    setLoading(true);
-    try {
-      const hH = { "X-House-ID": String(houseId) };
-      const [statusRes, groupsRes, schedulesRes] = await Promise.all([
-        apiClient.get("/whatsapp/status", { headers: hH }),
-        apiClient.get("/whatsapp/groups", { headers: hH }),
-        apiClient.get("/whatsapp-schedules", { params: { house_id: houseId }, headers: hH }),
-      ]);
-      setStatus(statusRes.data);
-      setGroups(groupsRes.data?.data ?? []);
-      setSchedules(schedulesRes.data?.data ?? []);
-    } catch {
-      setStatus({ connected: false, state: "unreachable", error: "Service unreachable" });
-    } finally {
-      setLoading(false);
-    }
+    const hH = { "X-House-ID": String(houseId) };
+    const [statusRes, groupsRes, schedulesRes, tgRes] = await Promise.allSettled([
+      apiClient.get("/whatsapp/status", { headers: hH }),
+      apiClient.get("/whatsapp/groups", { headers: hH }),
+      apiClient.get("/whatsapp-schedules", { params: { house_id: houseId }, headers: hH }),
+      apiClient.get("/telegram/status", { headers: hH }),
+    ]);
+    if (statusRes.status === "fulfilled") setStatus(statusRes.value.data);
+    else setStatus({ connected: false, state: "unreachable", error: "Service unreachable" });
+    setGroups(groupsRes.status === "fulfilled" ? groupsRes.value.data?.data ?? [] : []);
+    setSchedules(schedulesRes.status === "fulfilled" ? schedulesRes.value.data?.data ?? [] : []);
+    setTgStatus(tgRes.status === "fulfilled" ? tgRes.value.data : null);
   }, [houseId]);
 
   useEffect(() => {
     if (open && houseId) {
-      (async () => {
-        try {
-          const hH = { "X-House-ID": String(houseId) };
-          const [statusRes, groupsRes, schedulesRes] = await Promise.all([
-            apiClient.get("/whatsapp/status", { headers: hH }),
-            apiClient.get("/whatsapp/groups", { headers: hH }),
-            apiClient.get("/whatsapp-schedules", { params: { house_id: houseId }, headers: hH }),
-          ]);
-          setStatus(statusRes.data);
-          setGroups(groupsRes.data?.data ?? []);
-          setSchedules(schedulesRes.data?.data ?? []);
-        } catch {
-          setStatus({ connected: false, state: "unreachable", error: "Service unreachable" });
-        }
-      })();
+      setLoading(true);
+      fetchAll().finally(() => setLoading(false));
       const timer = setInterval(() => {
         const hH = houseId ? { "X-House-ID": String(houseId) } : {};
         apiClient.get("/whatsapp/status", { headers: hH }).then((r) => setStatus(r.data)).catch(() => {});
       }, 5000);
       return () => clearInterval(timer);
     }
-  }, [open, houseId]);
+  }, [open, houseId, fetchAll]);
 
   const closeModal = () => {
     setStatus(null);
+    setTgStatus(null);
     setGroups([]);
     setSchedules([]);
     setEditingId(null);
@@ -133,7 +129,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
 
   const save = async () => {
     if (!houseId) return;
-    if (!form.whatsapp_chat_id) {
+    if (form.channel === "whatsapp" && !form.whatsapp_chat_id) {
       toast.error("Select a WhatsApp group");
       return;
     }
@@ -149,24 +145,27 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
     }
     setLoading(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         schedule_type: form.schedule_type,
         schedule_time: form.schedule_type === "daily" ? form.schedule_time : null,
         interval_minutes: form.schedule_type === "interval" ? parseInt(form.interval_minutes, 10) : null,
-        whatsapp_chat_id: form.whatsapp_chat_id,
-        whatsapp_chat_name: form.whatsapp_chat_name,
+        channel: form.channel,
         caption: form.caption || null,
       };
+      if (form.channel === "whatsapp") {
+        payload.whatsapp_chat_id = form.whatsapp_chat_id;
+        payload.whatsapp_chat_name = form.whatsapp_chat_name;
+      }
       if (editingId) {
         await apiClient.patch(`/whatsapp-schedules/${editingId}`, payload);
         toast.success("Schedule updated");
       } else {
         await apiClient.post("/whatsapp-schedules", payload, { headers: houseHeader });
-        toast.success("Schedule created");
+        toast.success(form.channel === "telegram" ? "Telegram schedule created" : "Schedule created");
       }
       setEditingId(null);
       setForm(emptyForm);
-      loadAll();
+      fetchAll();
     } catch (e) {
       const msg = (e as Error).message || "Save failed";
       toast.error(msg);
@@ -181,6 +180,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
       schedule_type: s.schedule_type,
       schedule_time: s.schedule_time,
       interval_minutes: String(s.interval_minutes ?? 5),
+      channel: (s.channel === "telegram" ? "telegram" : "whatsapp"),
       whatsapp_chat_id: s.whatsapp_chat_id,
       whatsapp_chat_name: s.whatsapp_chat_name,
       caption: s.caption ?? "",
@@ -191,7 +191,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
     setTogglingId(s.id);
     try {
       await apiClient.patch(`/whatsapp-schedules/${s.id}`, { is_active: !s.is_active });
-      loadAll();
+      fetchAll();
     } catch (e) {
       toast.error((e as Error).message || "Toggle failed");
     } finally {
@@ -203,7 +203,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
     if (!window.confirm(`Delete schedule for "${s.whatsapp_chat_name}"?`)) return;
     try {
       await apiClient.delete(`/whatsapp-schedules/${s.id}`);
-      loadAll();
+      fetchAll();
       toast.success("Schedule deleted");
     } catch (e) {
       toast.error((e as Error).message || "Delete failed");
@@ -214,8 +214,8 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
     setSendingId(s.id);
     try {
       await apiClient.post(`/whatsapp-schedules/${s.id}/send-now`);
-      toast.success("Report sent to WhatsApp");
-      loadAll();
+      toast.success(s.channel === "telegram" ? "Report sent to Telegram" : "Report sent to WhatsApp");
+      fetchAll();
     } catch (e) {
       toast.error((e as Error).message || "Send failed");
     } finally {
@@ -292,7 +292,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
                   </p>
                 </div>
                 <button
-                  onClick={loadAll}
+                  onClick={fetchAll}
                   disabled={loading}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 text-sm hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50"
                 >
@@ -318,35 +318,102 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
                   {editingId ? "Edit schedule" : "New schedule"}
                 </p>
 
+                {/* Channel selector */}
                 <div>
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                    WhatsApp Group
+                    Delivery channel
                   </label>
-                  {groups.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
-                      {groups.map((g, gi) => (
-                        <button
-                          key={g.id || g.name || `group-${gi}`}
-                          onClick={() => selectGroup(g.id)}
-                          className={cn(
-                            "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",
-                            form.whatsapp_chat_id === g.id
-                              ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300"
-                              : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
-                          )}
-                        >
-                          <MessageCircle className="w-4 h-4 shrink-0" />
-                          <span className="truncate">{g.name}</span>
-                          {form.whatsapp_chat_id === g.id && <CheckCircle2 className="w-4 h-4 shrink-0 ml-auto" />}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
-                      No groups available{!status?.connected ? " — link WhatsApp first" : ""}.
-                    </p>
-                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, channel: "whatsapp" }))}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm min-h-[44px] transition-colors",
+                        form.channel === "whatsapp"
+                          ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 font-medium"
+                          : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
+                      )}
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      WhatsApp
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, channel: "telegram" }))}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm min-h-[44px] transition-colors",
+                        form.channel === "telegram"
+                          ? "border-sky-400 dark:border-sky-500 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 font-medium"
+                          : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
+                      )}
+                    >
+                      <Send className="w-4 h-4" />
+                      Telegram
+                    </button>
+                  </div>
                 </div>
+
+                {form.channel === "whatsapp" ? (
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                      WhatsApp Group
+                    </label>
+                    {groups.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                        {groups.map((g, gi) => (
+                          <button
+                            key={g.id || g.name || `group-${gi}`}
+                            onClick={() => selectGroup(g.id)}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",
+                              form.whatsapp_chat_id === g.id
+                                ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300"
+                                : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
+                            )}
+                          >
+                            <MessageCircle className="w-4 h-4 shrink-0" />
+                            <span className="truncate">{g.name}</span>
+                            {form.whatsapp_chat_id === g.id && <CheckCircle2 className="w-4 h-4 shrink-0 ml-auto" />}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
+                        No groups available{!status?.connected ? " — link WhatsApp first" : ""}.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className={cn(
+                      "rounded-2xl border p-4",
+                      tgStatus?.success
+                        ? "border-sky-200 dark:border-sky-500/30 bg-sky-50 dark:bg-sky-500/10"
+                        : "border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10"
+                    )}
+                  >
+                    {tgStatus?.success ? (
+                      <>
+                        <p className="text-sm font-medium text-sky-700 dark:text-sky-300 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          Bot @{tgStatus.bot?.username || tgStatus.bot?.name} ready
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
+                          Report goes to the house&apos;s linked group:{" "}
+                          <span className="font-mono">{tgStatus.chat_name || tgStatus.chat_id || "—"}</span>
+                          {!tgStatus.chat_id && " (link it on the Telegram page)"}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-amber-700 dark:text-amber-400 flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                        {tgStatus?.error ?? "Telegram not configured for this house"}
+                        {" — "}
+                        <button onClick={closeModal} className="underline font-medium shrink-0">Open Telegram page</button>
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
@@ -473,7 +540,15 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
                         className="flex items-center gap-3 rounded-xl border border-gray-200 dark:border-slate-700/60 px-3 py-2.5"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm text-gray-800 dark:text-gray-200 truncate">{s.whatsapp_chat_name}</p>
+                          <p className="font-medium text-sm text-gray-800 dark:text-gray-200 truncate flex items-center gap-1.5">
+                            {s.channel === "telegram" && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 text-[10px] font-semibold shrink-0">
+                                <Send className="w-2.5 h-2.5" />
+                                TG
+                              </span>
+                            )}
+                            <span className="truncate">{s.whatsapp_chat_name}</span>
+                          </p>
                           <p className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1 flex-wrap">
                             {s.schedule_type === "interval" ? (
                               <>
@@ -548,7 +623,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
         open={showConnectModal}
         houseId={houseId}
         onClose={() => setShowConnectModal(false)}
-        onConnected={() => { setShowConnectModal(false); loadAll(); }}
+        onConnected={() => { setShowConnectModal(false); fetchAll(); }}
       />
     </>
   );

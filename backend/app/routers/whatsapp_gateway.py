@@ -9,11 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.routers.deps import get_db, has_permission, get_house_context, require_house_context
 from app.models.house import House
 from app.models.user import User
+from app.models.whatsapp_connection import WhatsappConnection, whatsapp_connection_houses
 from app.services.whatsapp_service_client import (
     whatsapp_service_client,
     WhatsAppServiceError,
 )
-from app.services.whatsapp_token import with_house_token
+from app.services.whatsapp_token import with_target_token, resolve_house_wa_target, WaTarget
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
@@ -40,6 +41,36 @@ async def _verify_house_access(current_user: User, house_id: int):
         raise HTTPException(status_code=403, detail="You do not have access to this house")
 
 
+async def _get_bound_connection(db: AsyncSession, house_id: int):
+    """Return the shared connection this house is assigned to, if any."""
+    res = await db.execute(
+        select(WhatsappConnection)
+        .join(
+            whatsapp_connection_houses,
+            WhatsappConnection.id == whatsapp_connection_houses.c.connection_id,
+        )
+        .where(
+            whatsapp_connection_houses.c.house_id == house_id,
+            WhatsappConnection.is_deleted == False,  # noqa: E712
+        )
+        .order_by(WhatsappConnection.id)
+        .limit(1)
+    )
+    return res.scalar_one_or_none()
+
+
+def _reject_shared(house_id: int, conn) -> None:
+    """Block per-house device ops when the house uses a shared connection."""
+    if conn:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This house uses the shared WhatsApp connection "
+                f"'{conn.name}'. Manage it from Shared Connections."
+            ),
+        )
+
+
 # ── Setup (Admin only) ────────────────────────────────────────────
 
 
@@ -54,6 +85,7 @@ async def setup_whatsapp_for_house(
     Admin-only operation.
     """
     house = await _get_house_with_wa(db, house_context)
+    _reject_shared(house_context, await _get_bound_connection(db, house_context))
 
     if house.wa_device_id and house.wa_jwt_token:
         return {
@@ -115,26 +147,46 @@ async def whatsapp_status(
     current_user: User = Depends(has_permission("whatsapp.view")),
     house_context: Optional[int] = Depends(get_house_context),
 ):
-    """Get WhatsApp connection status for the current house."""
+    """Get WhatsApp connection status for the current house.
+
+    Reports which credential source is active: a shared connection
+    (mode="connection") or the house's own device (mode="own").
+    """
     if not house_context:
         raise HTTPException(status_code=400, detail="Select a house first")
 
     await _verify_house_access(current_user, house_context)
     house = await _get_house_with_wa(db, house_context)
 
-    if not house.wa_jwt_token:
+    target = await resolve_house_wa_target(db, house)
+    mode = target.kind if target else "own"
+    connection_info = None
+    holder = target.holder if target else house
+
+    if target and target.kind == "connection":
+        connection_info = {
+            "id": holder.id,
+            "name": holder.name,
+            "phone_number": holder.wa_phone_number,
+            "status": holder.wa_status,
+            "last_error": holder.wa_last_error,
+        }
+
+    if not target or not target.jwt_token:
         return {
             "success": True,
             "connected": False,
             "state": "not_configured",
             "qr": None,
+            "mode": mode,
+            "connection": connection_info,
             "error": "WhatsApp not configured. Run setup first.",
         }
 
     try:
-        status_data = await with_house_token(
+        status_data = await with_target_token(
             db,
-            house,
+            target,
             lambda token: whatsapp_service_client.get_device_status(token),
         )
         connected = status_data.get("connected", status_data.get("is_connected", False))
@@ -146,10 +198,15 @@ async def whatsapp_status(
         state = "connected" if connected else "disconnected"
         qr = status_data.get("qr", None)
 
-        house.wa_status = state
+        # Persist state on the actual credential holder
+        holder.wa_status = state
         if connected:
-            house.wa_last_connected_at = now_naive()
-            house.wa_last_error = None
+            holder.wa_last_connected_at = now_naive()
+            holder.wa_last_error = None
+            if mode == "own":
+                house.wa_status = state
+                house.wa_last_connected_at = now_naive()
+                house.wa_last_error = None
         await db.commit()
 
         return {
@@ -158,20 +215,28 @@ async def whatsapp_status(
             "linked": linked,
             "state": state,
             "qr": qr,
-            "phone_number": house.wa_phone_number,
+            "mode": mode,
+            "connection": connection_info,
+            "phone_number": (
+                holder.wa_phone_number if mode == "connection" else house.wa_phone_number
+            ),
             "last_connected_at": (
-                house.wa_last_connected_at.isoformat() if house.wa_last_connected_at else None
+                holder.wa_last_connected_at.isoformat() if holder.wa_last_connected_at else None
             ),
         }
     except WhatsAppServiceError as e:
-        house.wa_status = "error"
-        house.wa_last_error = e.message
+        holder.wa_status = "error"
+        holder.wa_last_error = e.message
+        if mode == "own":
+            house.wa_status = "error"
         await db.commit()
         return {
             "success": False,
             "connected": False,
             "state": "error",
             "qr": None,
+            "mode": mode,
+            "connection": connection_info,
             "error": e.message,
         }
 
@@ -193,6 +258,7 @@ async def connect_whatsapp(
     """Start QR login flow for the current house's WhatsApp device."""
     await _verify_house_access(current_user, house_context)
     house = await _get_house_with_wa(db, house_context)
+    _reject_shared(house_context, await _get_bound_connection(db, house_context))
 
     if not house.wa_jwt_token:
         raise HTTPException(status_code=400, detail="Run WhatsApp setup first")
@@ -201,9 +267,9 @@ async def connect_whatsapp(
     await db.commit()
 
     try:
-        qr_data = await with_house_token(
+        qr_data = await with_target_token(
             db,
-            house,
+            await resolve_house_wa_target(db, house),
             lambda token: whatsapp_service_client.login_qr(token),
         )
         return {"success": True, "data": qr_data}
@@ -225,6 +291,7 @@ async def connect_whatsapp_pairing(
     """Login with phone number pairing code (alternative to QR)."""
     await _verify_house_access(current_user, house_context)
     house = await _get_house_with_wa(db, house_context)
+    _reject_shared(house_context, await _get_bound_connection(db, house_context))
 
     if not house.wa_jwt_token:
         raise HTTPException(status_code=400, detail="Run WhatsApp setup first")
@@ -233,9 +300,9 @@ async def connect_whatsapp_pairing(
     await db.commit()
 
     try:
-        result = await with_house_token(
+        result = await with_target_token(
             db,
-            house,
+            await resolve_house_wa_target(db, house),
             lambda token: whatsapp_service_client.login_pairing_code(
                 token, payload.phone_number
             ),
@@ -268,9 +335,9 @@ async def whatsapp_groups(
         return {"success": True, "data": []}
 
     try:
-        groups = await with_house_token(
+        groups = await with_target_token(
             db,
-            house,
+            await resolve_house_wa_target(db, house),
             lambda token: whatsapp_service_client.get_groups(token),
         )
         return {"success": True, "data": groups}
@@ -291,14 +358,15 @@ async def disconnect_whatsapp(
     """Disconnect WhatsApp for the current house."""
     await _verify_house_access(current_user, house_context)
     house = await _get_house_with_wa(db, house_context)
+    _reject_shared(house_context, await _get_bound_connection(db, house_context))
 
     if not house.wa_jwt_token:
         raise HTTPException(status_code=400, detail="WhatsApp not configured")
 
     try:
-        await with_house_token(
+        await with_target_token(
             db,
-            house,
+            await resolve_house_wa_target(db, house),
             lambda token: whatsapp_service_client.disconnect_device(token),
         )
     except WhatsAppServiceError:
@@ -354,7 +422,9 @@ async def reconnect_whatsapp(
         await whatsapp_service_client.reconnect_device(token)
 
     try:
-        await with_house_token(db, house, _reconnect)
+        house_wa = await resolve_house_wa_target(db, house)
+        if house_wa:
+            await with_target_token(db, house_wa, _reconnect)
         house.wa_status = "connecting"
         await db.commit()
         return {"success": True, "data": {"status": "connecting"}}
@@ -375,6 +445,7 @@ async def reset_whatsapp(
     """Reset WhatsApp: disconnect, delete device, and re-run setup."""
     await _verify_house_access(current_user, house_context)
     house = await _get_house_with_wa(db, house_context)
+    _reject_shared(house_context, await _get_bound_connection(db, house_context))
 
     if house.wa_device_id:
         try:

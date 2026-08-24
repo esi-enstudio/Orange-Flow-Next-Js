@@ -23,8 +23,8 @@ from app.services.ga_report_builder_service import (
 )
 from app.services.whatsapp_service_client import (
     whatsapp_service_client,
-    WhatsAppServiceError,
 )
+from app.services.whatsapp_token import resolve_house_wa_target
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
@@ -820,12 +820,15 @@ async def whatsapp_send(
     cfg = await _config_from_payload(db, current_user, payload)
     service = GaReportBuilderService(db, cfg)
 
-    # Resolve house for JWT token
+    # Resolve WhatsApp credentials: shared connection first, then own device
     house_res = await db.execute(select(House).where(House.id == cfg.house_id))
     house = house_res.scalar_one_or_none()
-    if not house or not house.wa_jwt_token:
+    if not house:
+        raise HTTPException(status_code=400, detail="House not found.")
+    wa_target = await resolve_house_wa_target(db, house)
+    if not wa_target or not wa_target.jwt_token:
         raise HTTPException(status_code=400, detail="WhatsApp not configured for this house. Run setup first.")
-    jwt_token = house.wa_jwt_token
+    jwt_token = wa_target.jwt_token
 
     try:
         if payload.format == "image":

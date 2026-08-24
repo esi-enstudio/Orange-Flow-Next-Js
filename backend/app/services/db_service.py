@@ -353,6 +353,35 @@ async def _migrate_house_whatsapp_columns():
     except Exception as e:
         logger.warning(f"Migration warning (houses WhatsApp columns): {e}")
 
+async def _migrate_telegram_columns():
+    """Add Telegram columns to houses and whatsapp_schedules tables."""
+    try:
+        async with engine.begin() as conn:
+            house_columns = [
+                ("telegram_chat_id", "VARCHAR(64)"),
+                ("telegram_chat_name", "VARCHAR(200)"),
+            ]
+            for col_name, col_def in house_columns:
+                result = await conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='houses' AND column_name='{col_name}'"
+                ))
+                if result.scalar():
+                    continue
+                await conn.execute(text(f"ALTER TABLE houses ADD COLUMN {col_name} {col_def}"))
+                logger.info(f"Migration: added houses.{col_name}")
+
+            schedule_exists = await conn.execute(text(
+                "SELECT to_regclass('public.whatsapp_schedules') IS NOT NULL AS exists"
+            ))
+            if schedule_exists.scalar():
+                await conn.execute(text(
+                    "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS channel VARCHAR(16) NOT NULL DEFAULT 'whatsapp'"
+                ))
+                logger.info("Migration: added whatsapp_schedules.channel")
+    except Exception as e:
+        logger.warning(f"Migration warning (telegram columns): {e}")
+
 async def init_db():
     try:
         async with engine.begin() as conn:
@@ -371,6 +400,7 @@ async def init_db():
         await _migrate_whatsapp_schedule_columns()
         await _migrate_ga_report_events_config()
         await _migrate_house_whatsapp_columns()
+        await _migrate_telegram_columns()
         from app.models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func
         async with async_session() as session:

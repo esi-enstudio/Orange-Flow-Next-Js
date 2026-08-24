@@ -29,6 +29,7 @@ import {
   Warehouse,
   BadgeDollarSign,
   MessageCircle,
+  Send,
 } from "lucide-react";
 
 export interface NavItem {
@@ -246,5 +247,13 @@ export const navItems: NavItem[] = [
     icon: MessageCircle,
     color: "text-green-500",
     permission: "whatsapp.view",
+  },
+  {
+    title: "Telegram",
+    translationKey: "nav.telegram",
+    href: "/telegram",
+    icon: Send,
+    color: "text-sky-500",
+    permission: "telegram.view",
   },
 ];

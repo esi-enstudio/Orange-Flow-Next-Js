@@ -28,6 +28,7 @@ from app.models.role import Role
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.services.whatsapp_service_client import whatsapp_service_client, WhatsAppServiceError
+from app.services.whatsapp_token import resolve_house_wa_target
 from app.utils.activation_rules import get_excluded_codes, exclude_clause
 from app.services.Automation.activation_excel import export_activations_excel
 from app.services.Automation.dms_report_excel import export_itopup_details_excel
@@ -1477,7 +1478,10 @@ async def send_activation_dashboard_whatsapp(
 
     house_res = await db.execute(select(House).where(House.id == target_house_id))
     house = house_res.scalar_one_or_none()
-    if not house or not house.wa_jwt_token:
+    if not house:
+        raise HTTPException(status_code=400, detail="House not found.")
+    wa_target = await resolve_house_wa_target(db, house)
+    if not wa_target or not wa_target.jwt_token:
         raise HTTPException(status_code=400, detail="WhatsApp not configured for this house. Run setup first.")
 
     chat_name = payload.whatsapp_chat_name or payload.whatsapp_chat_id
@@ -1513,7 +1517,7 @@ async def send_activation_dashboard_whatsapp(
 
         try:
             for chunk in chunks:
-                await whatsapp_service_client.send_text(house.wa_jwt_token, payload.whatsapp_chat_id, chunk)
+                await whatsapp_service_client.send_text(wa_target.jwt_token, payload.whatsapp_chat_id, chunk)
         except WhatsAppServiceError as e:
             await _log("whatsapp_send_failed", 502, {"error": f"{e.code}: {e.message}"})
             raise HTTPException(status_code=502, detail=f"{e.code}: {e.message}")
@@ -1536,7 +1540,7 @@ async def send_activation_dashboard_whatsapp(
 
     try:
         await whatsapp_service_client.send_image(
-            jwt_token=house.wa_jwt_token,
+            jwt_token=wa_target.jwt_token,
             chat_jid=payload.whatsapp_chat_id,
             filename=f"activation_report_{payload.year}_{payload.month:02d}.png",
             image_bytes=image_bytes,

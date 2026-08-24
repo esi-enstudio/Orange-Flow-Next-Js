@@ -16,6 +16,7 @@ from app.services.whatsapp_service_client import (
     WhatsAppServiceError,
 )
 from app.services.whatsapp_schedule_service import send_schedule_report
+from app.services.whatsapp_token import resolve_house_wa_target
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
@@ -31,8 +32,9 @@ class ScheduleCreate(BaseModel):
     schedule_type: str = "daily"  # daily | interval
     schedule_time: Optional[str] = None  # required when schedule_type == daily
     interval_minutes: Optional[int] = None  # required when schedule_type == interval
-    whatsapp_chat_id: str
-    whatsapp_chat_name: str
+    channel: str = "whatsapp"  # whatsapp | telegram
+    whatsapp_chat_id: Optional[str] = None  # required for whatsapp channel
+    whatsapp_chat_name: Optional[str] = None
     caption: Optional[str] = None
 
     @field_validator("schedule_type")
@@ -40,6 +42,13 @@ class ScheduleCreate(BaseModel):
     def _validate_type(cls, v: str) -> str:
         if v not in ("daily", "interval"):
             raise ValueError("schedule_type must be 'daily' or 'interval'")
+        return v
+
+    @field_validator("channel")
+    @classmethod
+    def _validate_channel(cls, v: str) -> str:
+        if v not in ("whatsapp", "telegram"):
+            raise ValueError("channel must be 'whatsapp' or 'telegram'")
         return v
 
     @field_validator("schedule_time")
@@ -58,16 +67,17 @@ class ScheduleCreate(BaseModel):
 
     @field_validator("whatsapp_chat_id")
     @classmethod
-    def _validate_chat(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("whatsapp_chat_id is required")
-        return v.strip()
+    def _validate_chat(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            v = v.strip()
+        return v or None
 
 
 class ScheduleUpdate(BaseModel):
     schedule_type: Optional[str] = None
     schedule_time: Optional[str] = None
     interval_minutes: Optional[int] = None
+    channel: Optional[str] = None
     whatsapp_chat_id: Optional[str] = None
     whatsapp_chat_name: Optional[str] = None
     caption: Optional[str] = None
@@ -78,6 +88,13 @@ class ScheduleUpdate(BaseModel):
     def _validate_type(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in ("daily", "interval"):
             raise ValueError("schedule_type must be 'daily' or 'interval'")
+        return v
+
+    @field_validator("channel")
+    @classmethod
+    def _validate_channel(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("whatsapp", "telegram"):
+            raise ValueError("channel must be 'whatsapp' or 'telegram'")
         return v
 
     @field_validator("schedule_time")
@@ -154,6 +171,7 @@ async def list_schedules(
                 "schedule_type": s.schedule_type,
                 "schedule_time": s.schedule_time,
                 "interval_minutes": s.interval_minutes,
+                "channel": getattr(s, "channel", "whatsapp") or "whatsapp",
                 "whatsapp_chat_id": s.whatsapp_chat_id,
                 "whatsapp_chat_name": s.whatsapp_chat_name,
                 "caption": s.caption,
@@ -185,13 +203,31 @@ async def create_schedule(
     if schedule_type == "daily" and not data.schedule_time:
         raise HTTPException(status_code=400, detail="schedule_time is required for daily schedules")
 
+    channel = data.channel or "whatsapp"
+
+    # Resolve chat target snapshot for the schedule record
+    chat_id = (data.whatsapp_chat_id or "").strip()
+    chat_name = (data.whatsapp_chat_name or "").strip()
+    if channel == "whatsapp":
+        if not chat_id:
+            raise HTTPException(status_code=400, detail="whatsapp_chat_id is required for whatsapp channel")
+        chat_name = chat_name or chat_id
+    else:
+        # Telegram: delivery resolves the house's linked group at send time;
+        # store a display snapshot now.
+        house_res = await db.execute(select(House).where(House.id == house_context))
+        house_row = house_res.scalar_one_or_none()
+        chat_id = chat_id or (house_row.telegram_chat_id if house_row else "") or ""
+        chat_name = chat_name or (house_row.telegram_chat_name if house_row else "") or "Telegram"
+
     schedule = WhatsAppSchedule(
         house_id=house_context,
         schedule_type=schedule_type,
         schedule_time=data.schedule_time or "00:00",
         interval_minutes=data.interval_minutes,
-        whatsapp_chat_id=data.whatsapp_chat_id,
-        whatsapp_chat_name=data.whatsapp_chat_name or data.whatsapp_chat_id,
+        channel=channel,
+        whatsapp_chat_id=chat_id or "-",
+        whatsapp_chat_name=chat_name or "-",
         caption=data.caption,
         is_active=True,
         created_by=current_user.id,
@@ -237,6 +273,7 @@ async def update_schedule(
         "schedule_type": schedule.schedule_type,
         "schedule_time": schedule.schedule_time,
         "interval_minutes": schedule.interval_minutes,
+        "channel": getattr(schedule, "channel", "whatsapp") or "whatsapp",
         "whatsapp_chat_name": schedule.whatsapp_chat_name,
         "whatsapp_chat_id": schedule.whatsapp_chat_id,
         "caption": schedule.caption,
@@ -253,9 +290,9 @@ async def update_schedule(
     if data.interval_minutes is not None:
         schedule.interval_minutes = data.interval_minutes
         new_values["interval_minutes"] = data.interval_minutes
-    if data.whatsapp_chat_id is not None:
-        schedule.whatsapp_chat_id = data.whatsapp_chat_id
-        new_values["whatsapp_chat_id"] = data.whatsapp_chat_id
+    if data.channel is not None:
+        schedule.channel = data.channel
+        new_values["channel"] = data.channel
     if data.whatsapp_chat_name is not None:
         schedule.whatsapp_chat_name = data.whatsapp_chat_name
         new_values["whatsapp_chat_name"] = data.whatsapp_chat_name
@@ -364,7 +401,17 @@ async def whatsapp_status(
         }
     result = await db.execute(select(House).where(House.id == house_context))
     house = result.scalar_one_or_none()
-    if not house or not house.wa_jwt_token:
+    if not house:
+        return {
+            "success": False,
+            "enabled": False,
+            "connected": False,
+            "state": "not_configured",
+            "error": "House not found",
+            "qr": None,
+        }
+    wa_target = await resolve_house_wa_target(db, house)
+    if not wa_target or not wa_target.jwt_token:
         return {
             "success": False,
             "enabled": False,
@@ -374,7 +421,7 @@ async def whatsapp_status(
             "qr": None,
         }
     try:
-        status = await whatsapp_service_client.get_device_status(house.wa_jwt_token)
+        status = await whatsapp_service_client.get_device_status(wa_target.jwt_token)
         return {"success": True, "enabled": True, **status}
     except WhatsAppServiceError as e:
         return {
@@ -397,10 +444,13 @@ async def whatsapp_groups(
         return {"success": True, "data": []}
     result = await db.execute(select(House).where(House.id == house_context))
     house = result.scalar_one_or_none()
-    if not house or not house.wa_jwt_token:
+    if not house:
+        return {"success": True, "data": []}
+    wa_target = await resolve_house_wa_target(db, house)
+    if not wa_target or not wa_target.jwt_token:
         return {"success": True, "data": []}
     try:
-        groups = await whatsapp_service_client.get_groups(house.wa_jwt_token)
+        groups = await whatsapp_service_client.get_groups(wa_target.jwt_token)
         return {"success": True, "data": groups}
     except WhatsAppServiceError as e:
         raise HTTPException(status_code=503, detail=f"{e.code}: {e.message}")

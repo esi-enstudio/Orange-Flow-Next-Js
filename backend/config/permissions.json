@@ -43,7 +43,8 @@
         "active_lso": { "display_name": "Active LSO Report", "permissions": ["active_lso.view", "active_lso.export", "active_lso.print", "active_lso.config"] },
         "transactions": { "display_name": "Transactions", "permissions": ["transactions.view", "transactions.export"] },
         "ga_report_builder": { "display_name": "GA Report Builder", "permissions": ["ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.delete.permanent", "ga_report_builder.export", "ga_report_builder.send"] },
-        "whatsapp": { "display_name": "WhatsApp Gateway", "permissions": ["whatsapp.view", "whatsapp.connect", "whatsapp.disconnect", "whatsapp.setup"] }
+        "whatsapp": { "display_name": "WhatsApp Gateway", "permissions": ["whatsapp.view", "whatsapp.connect", "whatsapp.disconnect", "whatsapp.setup", "whatsapp.manage"] },
+        "telegram": { "display_name": "Telegram Bots", "permissions": ["telegram.view", "telegram.manage"] }
     },
     "default_roles": [
         {

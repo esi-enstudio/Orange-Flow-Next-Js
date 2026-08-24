@@ -1,8 +1,8 @@
 "use client";
 
 import React from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { AlertTriangle, Trash2, X, AlertCircle, Info } from "lucide-react";
+import { motion } from "framer-motion";
+import { AlertTriangle, Trash2, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 
@@ -13,11 +13,12 @@ interface ConfirmationModalProps {
   onClose: () => void;
   onConfirm: () => void;
   title: string;
-  message: string;
+  message?: string;
   confirmText?: string;
   cancelText?: string;
   type?: ConfirmType;
   loading?: boolean;
+  children?: React.ReactNode;
 }
 
 export function ConfirmationModal({
@@ -30,6 +31,7 @@ export function ConfirmationModal({
   cancelText,
   type = "warning",
   loading = false,
+  children,
 }: ConfirmationModalProps) {
   const { t } = useLanguage();
   const resolvedConfirm = confirmText || t('common.confirm');
@@ -80,9 +82,12 @@ export function ConfirmationModal({
           <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             {title}
           </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-            {message}
-          </p>
+          {message && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+              {message}
+            </p>
+          )}
+          {children}
         </div>
 
         <div className="p-6 pt-0 flex flex-col gap-3">
