@@ -160,7 +160,7 @@ const statusColors: Record<string, string> = {
   behind: "bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/30",
 };
 
-const A_COL_KEYS = ["target", "achieved", "ach_pct", "remaining", "drr", "daily_avg", "projection", "status"] as const;
+const A_COL_KEYS = ["target", "achieved", "ach_pct", "remaining", "drr", "daily_avg", "projection", "proj_pct", "status"] as const;
 const B_TAIL_KEYS = ["days_no_sales", "inactive_last_month", "reactivated"] as const;
 const DEFAULT_ACTIVE_DAYS = 7;
 
@@ -633,6 +633,7 @@ export default function ActiveLsoReportPage() {
       case "drr": return formatNumber(row.drr);
       case "daily_avg": return formatNumber(row.daily_avg);
       case "projection": return <span className="font-semibold">{formatNumber(Math.round(row.projection))}</span>;
+      case "proj_pct": return <span className="font-semibold">{row.target > 0 ? Math.round((row.projection / row.target) * 100) : 0}%</span>;
       case "status": return <StatusBadge status={row.status} />;
     }
   };
