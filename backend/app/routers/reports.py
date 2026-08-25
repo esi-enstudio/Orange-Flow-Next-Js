@@ -655,9 +655,14 @@ async def truncate_live_activations(
 
 @router.delete("/activations/truncate")
 async def truncate_activations(
+    house_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("activations.import")),
 ):
+    if house_id:
+        await db.execute(Activation.__table__.delete().where(Activation.house_id == house_id))
+        await db.commit()
+        return {"message": f"Activations deleted for house {house_id}"}
     await db.execute(Activation.__table__.delete())
     await db.commit()
     return {"message": "All activations deleted successfully"}

@@ -54,7 +54,7 @@ def resilient_read_excel(file_path):
         
     return df
 
-async def process_activation_excel(file_path, house_id, progress_callback):
+async def process_activation_excel(file_path, house_id=None, progress_callback=None):
     """Advanced bulk processing logic (optimized for 9,500+ data) ✅"""
     try:
         # 1. Data load (Resilient)
@@ -83,6 +83,25 @@ async def process_activation_excel(file_path, house_id, progress_callback):
             return v if v else None
 
         async with async_session() as session:
+            # Auto-detect house from file if not provided
+            if not house_id:
+                house_code_col = None
+                for col in ['HOUSE_CODE', 'DISTRIBUTOR_CODE', 'DISTRIBUTORCODE', 'DD_CODE']:
+                    if col in df.columns:
+                        house_code_col = col
+                        break
+                if house_code_col:
+                    sample_codes = df[house_code_col].dropna().unique()[:5]
+                    house_res = await session.execute(select(House.code, House.id))
+                    house_map = {h.code: h.id for h in house_res.all() if h.code}
+                    for code in sample_codes:
+                        code_clean = clean(code)
+                        if code_clean and code_clean in house_map:
+                            house_id = house_map[code_clean]
+                            break
+                if not house_id:
+                    return 0, "Could not determine house from file. Please select a house or include HOUSE_CODE/DISTRIBUTOR_CODE column."
+
             # Find house code
             house_res = await session.execute(select(House.code).where(House.id == house_id))
             house_code = house_res.scalar() or str(house_id)

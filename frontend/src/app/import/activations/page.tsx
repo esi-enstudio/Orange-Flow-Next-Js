@@ -1,50 +1,72 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2, Trash2, SlidersHorizontal, CloudDownload } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import {
+  Search, Upload, Download, ChevronLeft, ChevronRight, ChevronDown,
+  Loader2, Database, X, CheckCircle2, Calendar, Filter, RotateCcw,
+  SlidersHorizontal, Building2, Trash2, CloudDownload,
+} from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
-import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
-import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import ActivationsFilter, { ActivationsFilters, defaultActivationsFilters } from "@/components/activations/ActivationsFilter";
-import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface Activation {
-  id: number;
-  sim_no: string;
-  activation_date: string;
-  activation_time: string;
-  retailer_code: string;
-  retailer_name: string;
-  bts_code: string;
-  thana: string;
-  promotion: string;
-  product_code: string;
-  product_name: string;
-  msisdn: string;
-  selling_price: string;
-  bp_flag: string;
-  bp_number: string;
-  fc_bts_code: string;
-  bio_bts_code: string;
-  dh_lifting_date: string;
-  issue_date: string;
-  subscription_type: string;
-  service_class: string;
-  customer_second_contact: string;
-  rso_name: string | null;
-  rso_employee_id: number | null;
-  rso_dms_code: string | null;
-  rso_itop_number: string | null;
+  id: number; sim_no: string; activation_date: string; activation_time: string;
+  retailer_code: string; retailer_name: string; bts_code: string; thana: string;
+  promotion: string; product_code: string; product_name: string; msisdn: string;
+  selling_price: string; bp_flag: string; bp_number: string;
+  fc_bts_code: string; bio_bts_code: string; dh_lifting_date: string; issue_date: string;
+  subscription_type: string; service_class: string; customer_second_contact: string;
+  rso_name: string | null; rso_employee_id: number | null;
+  rso_dms_code: string | null; rso_itop_number: string | null;
   house_id: number;
   house?: { id: number; name: string; code: string };
 }
 
-const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+interface Pagination {
+  page: number; per_page: number; total: number;
+  total_pages: number; has_next: boolean; has_prev: boolean;
+}
 
+interface Filters {
+  search: string; house_id: string;
+  activation_date_from: string; activation_date_to: string;
+  retailer_code: string; bts_code: string; thana: string;
+}
+
+interface HouseOption {
+  id: number; name: string; code: string; display_name: string;
+}
+
+const defaultFilters: Filters = {
+  search: "", house_id: "",
+  activation_date_from: "", activation_date_to: "",
+  retailer_code: "", bts_code: "", thana: "",
+};
+
+function FilterSection({ title, icon: Icon, children, defaultOpen = true }: { title: string; icon: any; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border-b dark:border-slate-800 last:border-b-0">
+      <button type="button" onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-[11px] font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+        <div className="flex items-center gap-2">
+          <Icon className="w-3.5 h-3.5" />
+          <span>{title}</span>
+        </div>
+        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-300", open && "rotate-180")} />
+      </button>
+      <div className={cn("transition-all duration-300 ease-in-out", open ? "max-h-[500px] overflow-visible" : "max-h-0 overflow-hidden")}>
+        <div className="px-4 pb-3 space-y-2.5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function formatDate(dateStr: string): string {
   if (!dateStr) return "-";
   try {
@@ -58,77 +80,113 @@ export default function ImportActivationsPage() {
   const { t } = useLanguage();
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const [data, setData] = useState<Activation[]>([]);
-  const [filters, setFilters] = useState<ActivationsFilters>({ ...defaultActivationsFilters });
-  const [showFilters, setShowFilters] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [pageLoading, setPageLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [page, setPage] = useState(0);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
   const [importProgress, setImportProgress] = useState<{percent: number; message: string} | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{message: string; count: number} | null>(null);
   const [summaryType, setSummaryType] = useState<"success" | "error">("success");
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [exportStartDate, setExportStartDate] = useState("");
-  const [exportEndDate, setExportEndDate] = useState("");
-  const [exporting, setExporting] = useState(false);
-  const [showTruncateConfirm, setShowTruncateConfirm] = useState(false);
-  const [truncating, setTruncating] = useState(false);
-  const limit = 5;
-  const totalPages = Math.ceil(totalRecords / limit);
+  const [showFilter, setShowFilter] = useState(false);
+  const [filters, setFilters] = useState<Filters>({ ...defaultFilters });
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [houses, setHouses] = useState<HouseOption[]>([]);
+  const [searchInput, setSearchInput] = useState("");
+  const [retailerSearchInput, setRetailerSearchInput] = useState("");
+  const [btsSearchInput, setBtsSearchInput] = useState("");
+  const [thanaSearchInput, setThanaSearchInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const perPage = 20;
 
-  const fetchData = useCallback(async (isPageChange: boolean) => {
-    if (isPageChange) { setPageLoading(true); }
-    else { setInitialLoading(true); }
+  const hasActiveFilters = Object.values(filters).some(v => v !== "");
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
-      const params: Record<string, any> = { skip: page * limit, limit };
-      const f = filters;
-      if (f.search) params.search = f.search;
-      if (f.activation_date_from) params.activation_date_from = f.activation_date_from;
-      if (f.activation_date_to) params.activation_date_to = f.activation_date_to;
-      if (f.activation_time) params.activation_time = f.activation_time;
-      if (f.retailer_code) params.retailer_code = f.retailer_code;
-      if (f.retailer_name) params.retailer_name = f.retailer_name;
-      if (f.bts_code) params.bts_code = f.bts_code;
-      if (f.thana) params.thana = f.thana;
-      if (f.promotion) params.promotion = f.promotion;
-      if (f.product_code) params.product_code = f.product_code;
-      if (f.product_codes) {
-        const codes = f.product_codes.split(",").filter(Boolean);
-        if (codes.length > 0) params.product_codes = codes.join(",");
-      }
-      if (f.product_name) params.product_name = f.product_name;
-      if (f.sim_no) params.sim_no = f.sim_no;
-      if (f.msisdn) params.msisdn = f.msisdn;
-      if (f.selling_price_min) params.selling_price_min = f.selling_price_min;
-      if (f.selling_price_max) params.selling_price_max = f.selling_price_max;
-      if (f.bp_flag) params.bp_flag = f.bp_flag;
-      if (f.bp_number) params.bp_number = f.bp_number;
-      if (f.fc_bts_code) params.fc_bts_code = f.fc_bts_code;
-      if (f.bio_bts_code) params.bio_bts_code = f.bio_bts_code;
-      if (f.dh_lifting_date) params.dh_lifting_date = f.dh_lifting_date;
-      if (f.issue_date) params.issue_date = f.issue_date;
-      if (f.subscription_type) params.subscription_type = f.subscription_type;
-      if (f.service_class) params.service_class = f.service_class;
-      if (f.customer_second_contact) params.customer_second_contact = f.customer_second_contact;
-      if (f.rso_employee_id) params.employee_id = parseInt(f.rso_employee_id);
-      if (f.house_id) params.house_id = parseInt(f.house_id);
-      const res = await axios.get("/activations", { params });
+      const params: Record<string, any> = {
+        skip: (page - 1) * perPage, limit: perPage,
+      };
+      const headers: Record<string, string> = {};
+      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
+      if (filters.search) params.search = filters.search;
+      if (filters.house_id) params.house_id = filters.house_id;
+      if (filters.activation_date_from) params.activation_date_from = filters.activation_date_from;
+      if (filters.activation_date_to) params.activation_date_to = filters.activation_date_to;
+      if (filters.retailer_code) params.retailer_code = filters.retailer_code;
+      if (filters.bts_code) params.bts_code = filters.bts_code;
+      if (filters.thana) params.thana = filters.thana;
+      const res = await axios.get("/activations", { params, headers });
       setData(res.data.data || []);
-      setTotalRecords(res.data.total || 0);
-    } catch { toast.error("Failed to load data"); }
-    finally { setInitialLoading(false); setPageLoading(false); }
-  }, [filters, page]);
+      const total = res.data.total || 0;
+      const totalPages = Math.ceil(total / perPage);
+      setPagination({
+        page, per_page: perPage, total, total_pages: totalPages,
+        has_next: page < totalPages, has_prev: page > 1,
+      });
+    } catch {
+      toast.error("Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, filters, selectedHouse?.id]);
 
-  useEffect(() => { fetchData(false); }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  const loading = initialLoading || (pageLoading && data.length === 0);
+  useEffect(() => {
+    axios.get("/houses/accessible").then(r => setHouses(r.data || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters(prev => ({ ...prev, search: searchInput }));
+      if (searchInput !== filters.search) setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters(prev => ({ ...prev, retailer_code: retailerSearchInput }));
+      if (retailerSearchInput !== filters.retailer_code) setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [retailerSearchInput]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters(prev => ({ ...prev, bts_code: btsSearchInput }));
+      if (btsSearchInput !== filters.bts_code) setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [btsSearchInput]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters(prev => ({ ...prev, thana: thanaSearchInput }));
+      if (thanaSearchInput !== filters.thana) setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [thanaSearchInput]);
+
+  const handleClearFilters = () => {
+    setSearchInput("");
+    setRetailerSearchInput("");
+    setBtsSearchInput("");
+    setThanaSearchInput("");
+    setFilters({ ...defaultFilters });
+    setPage(1);
+  };
+
+  const updateFilter = (key: keyof Filters, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
 
   const handlePageChange = (newPage: number) => {
-    if (newPage === page) return;
+    if (newPage === page || !pagination) return;
     setPage(newPage);
+    setExpandedId(null);
   };
 
   const readSSEStream = async (response: Response) => {
@@ -136,35 +194,33 @@ export default function ImportActivationsPage() {
     const decoder = new TextDecoder();
     let buffer = "";
     let result: any = null;
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
-
       for (const line of lines) {
         if (line.startsWith("data: ")) {
           try {
-            const data = JSON.parse(line.slice(6));
-            if (data.type === "progress") {
-              const msg = data.message || "";
+            const d = JSON.parse(line.slice(6));
+            if (d.type === "progress") {
+              const msg = d.message || "";
               const pctMatch = msg.match(/(\d+)%/);
               const pct = pctMatch ? parseInt(pctMatch[1]) : 0;
               setImportProgress({ percent: pct, message: msg });
-            } else if (data.type === "complete") {
-              result = data;
-              setSummaryData({ message: data.message, count: data.count });
+            } else if (d.type === "complete") {
+              result = d;
+              setSummaryData({ message: d.message, count: d.count });
               setSummaryType("success");
               setShowSummary(true);
               setTimeout(() => setShowSummary(false), 6000);
-            } else if (data.type === "error") {
-              setSummaryData({ message: data.message, count: 0 });
+            } else if (d.type === "error") {
+              setSummaryData({ message: d.message, count: 0 });
               setSummaryType("error");
               setShowSummary(true);
               setTimeout(() => setShowSummary(false), 6000);
-              throw new Error(data.message);
+              throw new Error(d.message);
             }
           } catch (e: any) {
             if (e.message !== "Unexpected end of JSON input") throw e;
@@ -175,36 +231,34 @@ export default function ImportActivationsPage() {
     return result;
   };
 
+  const effectiveHouseId = filters.house_id || (selectedHouse?.id ? String(selectedHouse.id) : "");
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImporting(true);
     setImportProgress({ percent: 0, message: "Uploading file..." });
-
     try {
       const form = new FormData();
       form.append("file", file);
-
       const token = Cookies.get("token");
       const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      if (effectiveHouseId) headers["X-House-ID"] = effectiveHouseId;
       const response = await fetch(`${baseURL}/activations/import`, {
-        method: "POST",
-        body: form,
-        headers: token ? { "Authorization": `Bearer ${token}` } : {},
+        method: "POST", body: form, headers,
       });
-
       if (!response.ok) {
         const errText = await response.text();
         let errMsg = "Import failed";
         try { const errJson = JSON.parse(errText); errMsg = errJson.detail || errMsg; } catch {}
         throw new Error(errMsg);
       }
-
       const result = await readSSEStream(response);
-
       if (result) {
         toast.success(result.message);
-        fetchData(false);
+        fetchData();
       }
     } catch (err: any) {
       const msg = err?.message || "Import failed";
@@ -216,44 +270,6 @@ export default function ImportActivationsPage() {
     }
   };
 
-  const closeDatePicker = () => { setShowDatePicker(false); setExportStartDate(""); setExportEndDate(""); };
-
-  const confirmExport = async () => {
-    if (!exportStartDate || !exportEndDate) { toast.error("Please select both start and end date"); return; }
-    if (exportStartDate > exportEndDate) { toast.error("Start date cannot be after end date"); return; }
-    setExporting(true);
-    setShowDatePicker(false);
-    try {
-      const params: Record<string, string> = {};
-      if (exportStartDate) params.start_date = exportStartDate;
-      if (exportEndDate) params.end_date = exportEndDate;
-      const res = await axios.get("/activations/export", { params, responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a");
-      a.href = url; a.download = `activations_${exportStartDate}_to_${exportEndDate}.xlsx`; a.click();
-      window.URL.revokeObjectURL(url);
-      toast.success("Exported successfully");
-    } catch { toast.error("Export failed"); }
-    finally { setExporting(false); closeDatePicker(); }
-  };
-
-  const handleTruncate = async () => {
-    setTruncating(true);
-    try {
-      await axios.delete("/activations/truncate");
-      toast.success("All activations deleted");
-      setData([]);
-      setTotalRecords(0);
-      setShowTruncateConfirm(false);
-    } catch {
-      toast.error("Failed to delete");
-    } finally {
-      setTruncating(false);
-    }
-  };
-
-  const [syncing, setSyncing] = useState(false);
-
   const handleSyncFromDMS = async () => {
     setSyncing(true);
     setImportProgress({ percent: 0, message: "Starting sync..." });
@@ -262,17 +278,16 @@ export default function ImportActivationsPage() {
       const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
+      if (effectiveHouseId) headers["X-House-ID"] = effectiveHouseId;
       const response = await fetch(`${baseURL}/sync/activation`, {
-        method: "POST",
-        headers,
+        method: "POST", headers,
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData?.detail || errData?.message || `Request failed (${response.status})`);
       }
       await readSSEStream(response);
-      fetchData(false);
+      fetchData();
     } catch (err: any) {
       toast.error(err?.message || "Sync failed");
     } finally {
@@ -281,7 +296,73 @@ export default function ImportActivationsPage() {
     }
   };
 
+  const [showTruncateConfirm, setShowTruncateConfirm] = useState(false);
+  const [truncating, setTruncating] = useState(false);
+  const [truncateHouseId, setTruncateHouseId] = useState("");
+
+  const handleTruncate = async () => {
+    setTruncating(true);
+    try {
+      const params: Record<string, string> = {};
+      if (truncateHouseId) params.house_id = truncateHouseId;
+      await axios.delete("/activations/truncate", { params });
+      const msg = truncateHouseId
+        ? `Activations deleted for ${houses.find(h => String(h.id) === truncateHouseId)?.name || "selected house"}`
+        : "All activations deleted";
+      toast.success(msg);
+      setData([]);
+      setPagination(null);
+      setShowTruncateConfirm(false);
+      setTruncateHouseId("");
+    } catch {
+      toast.error("Failed to delete");
+    } finally {
+      setTruncating(false);
+    }
+  };
+
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState("");
+  const [exportEndDate, setExportEndDate] = useState("");
+  const [exporting, setExporting] = useState(false);
   const todayStr = new Date().toISOString().split("T")[0];
+
+  const handleExport = async () => {
+    if (!exportStartDate || !exportEndDate) { toast.error("Please select both dates"); return; }
+    if (exportStartDate > exportEndDate) { toast.error("Start date cannot be after end date"); return; }
+    setExporting(true);
+    setShowDatePicker(false);
+    try {
+      const params: Record<string, string> = {};
+      const headers: Record<string, string> = {};
+      if (effectiveHouseId) headers["X-House-ID"] = effectiveHouseId;
+      if (filters.house_id) params.house_id = filters.house_id;
+      params.start_date = exportStartDate;
+      params.end_date = exportEndDate;
+      const res = await axios.get("/activations/export", { params, headers, responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a"); a.href = url; a.download = `activations_${exportStartDate}_to_${exportEndDate}.xlsx`; a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success("Exported successfully");
+    } catch { toast.error("Export failed"); }
+    finally { setExporting(false); closeDatePicker(); }
+  };
+
+  const closeDatePicker = () => { setShowDatePicker(false); setExportStartDate(""); setExportEndDate(""); };
+
+  const activeChipList: { label: string; onRemove: () => void }[] = [];
+  if (filters.search) activeChipList.push({ label: `Search: ${filters.search}`, onRemove: () => { setSearchInput(""); updateFilter("search", ""); setPage(1); } });
+  if (filters.house_id) {
+    const h = houses.find(hh => String(hh.id) === filters.house_id);
+    if (h) activeChipList.push({ label: `House: ${h.name}`, onRemove: () => { updateFilter("house_id", ""); setPage(1); } });
+  }
+  if (filters.activation_date_from) activeChipList.push({ label: `From: ${filters.activation_date_from}`, onRemove: () => { updateFilter("activation_date_from", ""); setPage(1); } });
+  if (filters.activation_date_to) activeChipList.push({ label: `To: ${filters.activation_date_to}`, onRemove: () => { updateFilter("activation_date_to", ""); setPage(1); } });
+  if (filters.retailer_code) activeChipList.push({ label: `Retailer: ${filters.retailer_code}`, onRemove: () => { setRetailerSearchInput(""); updateFilter("retailer_code", ""); setPage(1); } });
+  if (filters.bts_code) activeChipList.push({ label: `BTS: ${filters.bts_code}`, onRemove: () => { setBtsSearchInput(""); updateFilter("bts_code", ""); setPage(1); } });
+  if (filters.thana) activeChipList.push({ label: `Thana: ${filters.thana}`, onRemove: () => { setThanaSearchInput(""); updateFilter("thana", ""); setPage(1); } });
+
+  const totalPages = pagination?.total_pages || 1;
 
   if (!authLoading && !hasPermission("activations.import")) { return <AccessDenied />; }
 
@@ -289,9 +370,7 @@ export default function ImportActivationsPage() {
     <div className="p-6 space-y-6">
       <style>{`
         @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-100%); opacity: 0; } }
         .animate-slide-down { animation: slideDown 0.35s ease-out; }
-        .animate-slide-up { animation: slideUp 0.35s ease-out forwards; }
       `}</style>
 
       {showDatePicker && (
@@ -318,9 +397,9 @@ export default function ImportActivationsPage() {
                 className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
                 Cancel
               </button>
-              <button onClick={confirmExport}
-                className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
-                Export
+              <button onClick={handleExport} disabled={exporting}
+                className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50">
+                {exporting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Export"}
               </button>
             </div>
           </div>
@@ -329,18 +408,18 @@ export default function ImportActivationsPage() {
 
       {showSummary && summaryData && (
         <div className="fixed top-0 left-0 right-0 z-[9999] pointer-events-none">
-          <div className={`mx-auto max-w-md mt-4 pointer-events-auto ${showSummary ? 'animate-slide-down' : ''}`}>
-            <div className={`rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border p-5 ${
+          <div className="mx-auto max-w-md mt-4 pointer-events-auto animate-slide-down">
+            <div className={cn("rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border p-5",
               summaryType === "success"
                 ? "bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700"
                 : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800"
-            }`}>
+            )}>
               <div className="flex items-start gap-4">
-                <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+                <div className={cn("flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center",
                   summaryType === "success"
                     ? "bg-emerald-100 dark:bg-emerald-500/20"
                     : "bg-red-100 dark:bg-red-500/20"
-                }`}>
+                )}>
                   {summaryType === "success"
                     ? <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                     : <X className="w-5 h-5 text-red-600" />
@@ -367,7 +446,7 @@ export default function ImportActivationsPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-primary-100 dark:bg-primary-500/20 rounded-xl">
             <Database className="w-5 h-5 text-primary-600" />
@@ -380,23 +459,23 @@ export default function ImportActivationsPage() {
         <div className="flex items-center gap-3">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx,.xls" />
           <button onClick={() => fileInputRef.current?.click()} disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-lg shadow-primary-200 dark:shadow-primary-900/30">
-            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            className="group flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-lg shadow-primary-200 dark:shadow-primary-900/30">
+            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4 group-hover:scale-110 transition-transform" />}
             {importing ? "Importing..." : "Import Excel"}
           </button>
           <button onClick={() => setShowDatePicker(true)} disabled={exporting}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            className="group flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 group-hover:text-primary-600 transition-colors" />}
             {exporting ? "Exporting..." : "Export"}
           </button>
           <button onClick={handleSyncFromDMS} disabled={syncing || importing}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
-            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4" />}
+            className="group flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4 group-hover:scale-110 transition-transform" />}
             {syncing ? "Syncing..." : "Sync from DMS"}
           </button>
-          {totalRecords > 0 && (
+          {pagination && pagination.total > 0 && (
             <button onClick={() => setShowTruncateConfirm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/50 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+              className="group flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/50 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
               <Trash2 className="w-4 h-4" /> Clear All
             </button>
           )}
@@ -419,133 +498,380 @@ export default function ImportActivationsPage() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={cn(
-              "p-2 rounded-xl border transition-all active:scale-95 shrink-0",
-              showFilters
-                ? "bg-primary-500 text-white border-primary-500 shadow-sm"
-                : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
+      <div className="flex gap-6">
+        <div className={cn(
+          "w-72 shrink-0 transition-all duration-300 ease-in-out",
+          showFilter ? "opacity-100 max-w-[288px]" : "opacity-0 max-w-0 overflow-hidden"
+        )}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border dark:border-slate-800 shadow-sm overflow-hidden sticky top-6">
+            <div className="px-4 py-3 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-primary-500" />
+                <span className="text-sm font-bold dark:text-gray-100">Filters</span>
+                {activeChipList.length > 0 && (
+                  <span className="text-[10px] font-bold bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full">
+                    {activeChipList.length}
+                  </span>
+                )}
+              </div>
+              {activeChipList.length > 0 && (
+                <button type="button" onClick={handleClearFilters}
+                  className="text-[11px] font-bold text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors">
+                  <RotateCcw className="w-3 h-3" /> Clear
+                </button>
+              )}
+            </div>
+
+            {activeChipList.length > 0 && (
+              <div className="px-4 py-2 border-b dark:border-slate-800 flex flex-wrap gap-1.5">
+                {activeChipList.map((chip, i) => (
+                  <span key={i}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 rounded-full text-[10px] font-bold">
+                    {chip.label}
+                    <button type="button" onClick={chip.onRemove} className="hover:text-red-500 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
             )}
-            title="Toggle filters"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
-          <div className="relative flex-1 group max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-            <input type="text" placeholder="Search by SIM, retailer, MSISDN..." value={filters.search}
-              onChange={e => { setFilters(f => ({ ...f, search: e.target.value })); setPage(0); }}
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-gray-100 transition-all" />
+
+            <div className="divide-y dark:divide-slate-800">
+              <div className="px-4 py-2.5">
+                <div className="relative group">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+                  <input type="text" placeholder="Search SIM, MSISDN, retailer..."
+                    value={searchInput}
+                    onChange={e => setSearchInput(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+                </div>
+              </div>
+
+              <FilterSection title="House" icon={Building2}>
+                <select value={filters.house_id}
+                  onChange={e => { updateFilter("house_id", e.target.value); setPage(1); }}
+                  className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
+                  <option value="">All houses</option>
+                  {houses.map(h => <option key={h.id} value={h.id}>{h.display_name}</option>)}
+                </select>
+              </FilterSection>
+
+              <FilterSection title="Date Range" icon={Calendar}>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">From</label>
+                    <input type="date" value={filters.activation_date_from}
+                      onChange={e => { updateFilter("activation_date_from", e.target.value); setPage(1); }}
+                      className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">To</label>
+                    <input type="date" value={filters.activation_date_to}
+                      onChange={e => { updateFilter("activation_date_to", e.target.value); setPage(1); }}
+                      className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+                  </div>
+                </div>
+              </FilterSection>
+
+              <FilterSection title="Retailer Code" icon={Building2} defaultOpen={false}>
+                <div className="relative group">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+                  <input type="text" placeholder="Search by retailer code..."
+                    value={retailerSearchInput}
+                    onChange={e => setRetailerSearchInput(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+                </div>
+              </FilterSection>
+
+              <FilterSection title="BTS Code" icon={Database} defaultOpen={false}>
+                <div className="relative group">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+                  <input type="text" placeholder="Search BTS code..."
+                    value={btsSearchInput}
+                    onChange={e => setBtsSearchInput(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+                </div>
+              </FilterSection>
+
+              <FilterSection title="Thana" icon={Database} defaultOpen={false}>
+                <div className="relative group">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+                  <input type="text" placeholder="Search thana..."
+                    value={thanaSearchInput}
+                    onChange={e => setThanaSearchInput(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+                </div>
+              </FilterSection>
+            </div>
           </div>
         </div>
 
-        <AnimatePresence>
-          {showFilters && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="overflow-hidden border-b dark:border-slate-800"
-            >
-              <div className="p-4">
-                <ActivationsFilter
-                  filters={filters}
-                  onChange={(f) => { setFilters(f); setPage(0); }}
-                  onClear={() => { setFilters({ ...defaultActivationsFilters }); setPage(0); }}
-                />
+        <div className="flex-1 min-w-0">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+            <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 flex-1">
+                <button onClick={() => setShowFilter(!showFilter)}
+                  className={cn("group p-2 rounded-xl border transition-all",
+                    showFilter
+                      ? "bg-primary-50 dark:bg-primary-500/10 border-primary-200 dark:border-primary-700 text-primary-600"
+                      : "border-gray-200 dark:border-slate-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  )}>
+                  <SlidersHorizontal className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                </button>
+                {pagination && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {pagination.total} {pagination.total === 1 ? "record" : "records"}
+                  </span>
+                )}
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm whitespace-nowrap">
-            <thead>
-              <tr className="border-b border-gray-100 dark:border-slate-800">
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">SIM / MSISDN</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">Date / Time</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">RSO</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">Retailer</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">Product / Price</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">BTS / Thana</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">BP</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">Sub / Class</th>
-              </tr>
-            </thead>
-            <tbody>
-              {initialLoading && data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
-              ) : data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No records found</td></tr>
-              ) : data.map((r) => (
-                <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="font-mono text-xs text-gray-900 dark:text-gray-100">{r.sim_no}</div>
-                    <div className="font-mono text-[11px] text-gray-400">{r.msisdn || ""}</div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="text-gray-900 dark:text-gray-100 text-xs">{formatDate(r.activation_date)}</div>
-                    <div className="text-[11px] text-gray-400">{r.activation_time || ""}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900 dark:text-gray-100 text-xs">{r.rso_name || "-"}</div>
-                    <div className="text-[11px] text-gray-400">{r.rso_dms_code || ""}{r.rso_itop_number ? ` | ${r.rso_itop_number}` : ""}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.retailer_name || "-"}</div>
-                    <div className="text-xs text-gray-400">{r.retailer_code || ""}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-gray-900 dark:text-gray-100 text-xs">{r.product_name || "-"}</div>
-                    <div className="text-[11px] text-gray-400">{r.product_code ? `${r.product_code}` : ""}{r.selling_price ? ` / $${r.selling_price}` : ""}</div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="text-gray-900 dark:text-gray-100 text-xs">{r.bts_code || "-"}</div>
-                    <div className="text-[11px] text-gray-400">{r.thana || ""}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-gray-900 dark:text-gray-100 text-xs">{r.bp_flag || "-"}</div>
-                    <div className="text-[11px] text-gray-400">{r.bp_number || ""}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-gray-900 dark:text-gray-100 text-xs">{r.subscription_type || "-"}</div>
-                    <div className="text-[11px] text-gray-400">{r.service_class || ""}</div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            </div>
+
+            {loading ? (
+              <div>
+                <div className="hidden lg:block">
+                  <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                    {Array.from({ length: 10 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-4 px-4 py-3 animate-pulse">
+                        <div className="w-[130px] shrink-0 space-y-1">
+                          <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                        </div>
+                        <div className="w-[110px] shrink-0">
+                          <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                        </div>
+                        <div className="w-[120px] shrink-0 space-y-1">
+                          <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="h-2.5 w-20 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                        </div>
+                        <div className="w-[120px] shrink-0 space-y-1">
+                          <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="h-2.5 w-12 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="lg:hidden space-y-3 p-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="bg-gray-50 dark:bg-slate-800 rounded-xl animate-pulse overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                          <div className="space-y-2">
+                            <div className="h-3 w-36 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                            <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                          </div>
+                        </div>
+                        <div className="w-4 h-4 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : data.length === 0 ? (
+              <div className="py-20 text-center">
+                <Database className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+                <p className="text-gray-500 dark:text-gray-400 font-medium">No records found</p>
+              </div>
+            ) : (
+              <>
+                <div className="hidden lg:block overflow-x-auto scrollbar-custom">
+                  <table className="w-full text-left whitespace-nowrap">
+                    <thead>
+                      <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
+                        <th className="px-2 py-1">SIM / MSISDN</th>
+                        <th className="px-2 py-1">Date / Time</th>
+                        <th className="px-2 py-1">RSO</th>
+                        <th className="px-2 py-1">Retailer</th>
+                        <th className="px-2 py-1">Product / Price</th>
+                        <th className="px-2 py-1">BTS / Thana</th>
+                        <th className="px-2 py-1">BP</th>
+                        <th className="px-2 py-1">Sub / Class</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
+                      {data.map((r) => (
+                        <tr key={r.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
+                          <td className="px-2 py-1">
+                            <div className="font-mono text-xs text-gray-900 dark:text-gray-100">{r.sim_no}</div>
+                            <div className="font-mono text-[11px] text-gray-400">{r.msisdn || ""}</div>
+                          </td>
+                          <td className="px-2 py-1 whitespace-nowrap">
+                            <div className="text-gray-900 dark:text-gray-100 text-xs">{formatDate(r.activation_date)}</div>
+                            <div className="text-[11px] text-gray-400">{r.activation_time || ""}</div>
+                          </td>
+                          <td className="px-2 py-1">
+                            <div className="font-medium text-gray-900 dark:text-gray-100 text-xs">{r.rso_name || "-"}</div>
+                            <div className="text-[11px] text-gray-400">{r.rso_dms_code || ""}{r.rso_itop_number ? ` | ${r.rso_itop_number}` : ""}</div>
+                          </td>
+                          <td className="px-2 py-1">
+                            <div className="font-medium text-gray-900 dark:text-gray-100 text-xs">{r.retailer_name || "-"}</div>
+                            <div className="text-[11px] text-gray-400">{r.retailer_code || ""}</div>
+                          </td>
+                          <td className="px-2 py-1">
+                            <div className="text-gray-900 dark:text-gray-100 text-xs">{r.product_name || "-"}</div>
+                            <div className="text-[11px] text-gray-400">{r.product_code ? `${r.product_code}` : ""}{r.selling_price ? ` / $${r.selling_price}` : ""}</div>
+                          </td>
+                          <td className="px-2 py-1 whitespace-nowrap">
+                            <div className="text-gray-900 dark:text-gray-100 text-xs">{r.bts_code || "-"}</div>
+                            <div className="text-[11px] text-gray-400">{r.thana || ""}</div>
+                          </td>
+                          <td className="px-2 py-1">
+                            <div className="text-gray-900 dark:text-gray-100 text-xs">{r.bp_flag || "-"}</div>
+                            <div className="text-[11px] text-gray-400">{r.bp_number || ""}</div>
+                          </td>
+                          <td className="px-2 py-1">
+                            <div className="text-gray-900 dark:text-gray-100 text-xs">{r.subscription_type || "-"}</div>
+                            <div className="text-[11px] text-gray-400">{r.service_class || ""}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+                  {data.map((r) => (
+                    <div key={r.id}>
+                      <button onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm shrink-0">
+                            <span className="text-[10px]">{r.sim_no?.slice(-3) || "?"}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{r.retailer_name || "-"}</p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{r.sim_no}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">{formatDate(r.activation_date)}</span>
+                          <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-300", expandedId === r.id && "rotate-180")} />
+                        </div>
+                      </button>
+                      {expandedId === r.id && (
+                        <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                          <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">SIM</p>
+                              <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{r.sim_no}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">MSISDN</p>
+                              <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{r.msisdn || "-"}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Date / Time</p>
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{formatDate(r.activation_date)}</p>
+                              {r.activation_time && <p className="text-[11px] text-gray-500">{r.activation_time}</p>}
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Retailer</p>
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.retailer_name || "-"}</p>
+                              <p className="text-[11px] text-gray-500">{r.retailer_code || ""}</p>
+                            </div>
+                            <div className="col-span-2">
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">RSO</p>
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.rso_name || "-"}</p>
+                              {(r.rso_dms_code || r.rso_itop_number) && (
+                                <p className="text-[11px] text-gray-500">{r.rso_dms_code}{r.rso_itop_number ? ` | ${r.rso_itop_number}` : ""}</p>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Product</p>
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.product_name || "-"}</p>
+                              <p className="text-[11px] text-gray-500">{r.product_code || ""}{r.selling_price ? ` / $${r.selling_price}` : ""}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">BTS / Thana</p>
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.bts_code || "-"}</p>
+                              <p className="text-[11px] text-gray-500">{r.thana || ""}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">BP</p>
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.bp_flag || "-"}</p>
+                              <p className="text-[11px] text-gray-500">{r.bp_number || ""}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Sub / Class</p>
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.subscription_type || "-"}</p>
+                              <p className="text-[11px] text-gray-500">{r.service_class || ""}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {pagination && (
+                  <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Showing {(pagination.page - 1) * pagination.per_page + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handlePageChange(page - 1)} disabled={!pagination.has_prev}
+                        className="p-2 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                        <ChevronLeft className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                      </button>
+                      <span className="text-xs font-bold text-gray-500 dark:text-gray-400 px-2 min-w-[40px] text-center">
+                        {pagination.page} / {pagination.total_pages}
+                      </span>
+                      <button onClick={() => handlePageChange(page + 1)} disabled={!pagination.has_next}
+                        className="p-2 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                        <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
-        {totalRecords > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-slate-800">
-            <span className="text-xs text-gray-400">
-              Showing {page * limit + 1} to {Math.min((page + 1) * limit, totalRecords)} of {totalRecords} results
-            </span>
-            <div className="flex items-center gap-2">
-              <button onClick={() => handlePageChange(page - 1)} disabled={page === 0}
-                className="p-2 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
-                <ChevronLeft className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+      </div>
+
+      {showTruncateConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
+            <div className="p-8 flex flex-col items-center text-center">
+              <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-red-100 dark:bg-red-500/20">
+                <Trash2 className="w-10 h-10 text-red-600 dark:text-red-400" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Delete Data</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-5">
+                {truncateHouseId
+                  ? `Are you sure you want to delete all activation data for "${houses.find(h => String(h.id) === truncateHouseId)?.name || "selected house"}"?`
+                  : "Are you sure you want to delete ALL activation records for all houses?"}
+              </p>
+              <select
+                value={truncateHouseId}
+                onChange={e => setTruncateHouseId(e.target.value)}
+                className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm dark:text-gray-200 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all appearance-none"
+              >
+                <option value="">All Houses</option>
+                {houses.map(h => (
+                  <option key={h.id} value={h.id}>{h.display_name || h.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="p-6 pt-0 flex flex-col gap-3">
+              <button onClick={handleTruncate} disabled={truncating}
+                className="w-full py-4 rounded-2xl text-white font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-50 bg-red-600 hover:bg-red-700">
+                {truncating ? "Deleting..." : "Delete"}
               </button>
-              <button onClick={() => handlePageChange(page + 1)} disabled={page >= totalPages - 1}
-                className="p-2 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
-                <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+              <button onClick={() => { setShowTruncateConfirm(false); setTruncateHouseId(""); }} disabled={truncating}
+                className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">
+                Cancel
               </button>
             </div>
           </div>
-        )}
-      </div>
-      <ConfirmationModal
-        isOpen={showTruncateConfirm}
-        onClose={() => setShowTruncateConfirm(false)}
-        onConfirm={handleTruncate}
-        title="Delete All Data"
-        message="Are you sure you want to delete ALL activation records? This action cannot be undone."
-        confirmText={truncating ? "Deleting..." : "Delete All"}
-        type="danger"
-        loading={truncating}
-      />
+        </div>
+      )}
     </div>
   );
 }

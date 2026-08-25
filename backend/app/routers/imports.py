@@ -4,7 +4,7 @@ import asyncio
 import shutil
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, UploadFile, Form, Query
+from fastapi import APIRouter, Depends, File, UploadFile, Form, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,8 +66,11 @@ async def _import_file_stream(file: UploadFile, processor, permission: str, curr
 
 @router.post("/activations/import")
 async def import_activations(file: UploadFile = File(...), current_user: User = Depends(has_permission("activations.import")), house_id: Optional[int] = Depends(get_house_context)):
-    effective_house = house_id or 1
-    return StreamingResponse(_import_file_stream(file, process_activation_excel, "activations.import", current_user, house_id=effective_house), media_type="text/event-stream")
+    if not house_id:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            house_id = user_house_ids[0]
+    return StreamingResponse(_import_file_stream(file, process_activation_excel, "activations.import", current_user, house_id=house_id), media_type="text/event-stream")
 
 @router.post("/itopup-details/import")
 async def import_itopup_details(file: UploadFile = File(...), report_type: str = Form("C2C"), current_user: User = Depends(has_permission("itopup.import")), house_id: Optional[int] = Depends(get_house_context)):

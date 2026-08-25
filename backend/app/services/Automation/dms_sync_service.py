@@ -429,6 +429,9 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
             if "No data found" in str(err): return "no_data"
             logger.error(f"❌ [{house_label}] Processing error: {err}")
             return "error"
+        elif count == 0:
+            logger.warning(f"⚠️ [{house_label}] {url_key} processed 0 records. Marking as no_data to allow retry.")
+            return "no_data"
         else: 
             logger.info(f"✅ [{house_label}] {url_key} success. Total: {count}")
             return "success"

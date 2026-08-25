@@ -632,7 +632,10 @@ export default function ActivationDashboardPage() {
   const { t, language } = useLanguage();
 
   const today = new Date();
-  const [selectedHouseId, setSelectedHouseId] = useState<string>("");
+  const [selectedHouseId, setSelectedHouseId] = useState<string>(
+    selectedHouse?.id ? String(selectedHouse.id) : ""
+  );
+  const [houseInitialized, setHouseInitialized] = useState(false);
   const [houses, setHouses] = useState<{ id: number; name: string; code: string; display_name: string }[]>([]);
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [year, setYear] = useState(today.getFullYear());
@@ -724,6 +727,13 @@ export default function ActivationDashboardPage() {
       return () => clearTimeout(timer);
     }
   }, [authLoading, hasPermission, router]);
+
+  useEffect(() => {
+    if (!authLoading && selectedHouse?.id && !houseInitialized) {
+      setSelectedHouseId(String(selectedHouse.id));
+      setHouseInitialized(true);
+    }
+  }, [authLoading, selectedHouse, houseInitialized]);
 
   const fetchDashboard = useCallback(async () => {
     if (!selectedHouseId) {
@@ -871,7 +881,7 @@ export default function ActivationDashboardPage() {
     if (!authLoading && hasPermission("reports.view")) {
       fetchDashboard();
     }
-  }, [authLoading, hasPermission, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, supervisorExcludeTags, supervisorExcludeCodes]);
+  }, [authLoading, hasPermission, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
 
   const handleExport = async () => {
     if (!data) return;
