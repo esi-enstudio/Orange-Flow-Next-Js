@@ -2160,6 +2160,265 @@ async def upsert_active_lso_report_config(
     }
 
 
+@router.get("/reports/active-lso/retailers/export")
+async def export_inactive_retailers(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_lso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+    from datetime import datetime
+
+    resolved_house = house_id or house_ctx
+    start_date, end_date = _resolve_active_lso_period(start_date, end_date)
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+
+    service = ActiveLsoReportService(db, resolved_house, start_date, end_date)
+    groups = await service.get_all_inactive_retailers_grouped()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Inactive Retailers"
+
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font_white = Font(bold=True, size=11, color="FFFFFF")
+    group_font = Font(bold=True, size=11, color="1F4E79")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    col_headers = [
+        "House", "Retailer Code", "Retailer Name", "iTopUp No",
+        "Days Sold", "Sales (BDT)", "Req Days", "Req Sales (BDT)", "Prev Month Inactive",
+    ]
+    col_widths = [15, 30, 15, 12, 10, 15, 10, 15, 18]
+
+    today_str = datetime.now().strftime("%d %b %Y")
+    current_row = 1
+
+    for grp in groups:
+        left_text = f"{today_str}  |  RSO: {grp['rso_name']} ({grp['dms_code']} - {grp['itop_number']})  |  Supervisor: {grp['supervisor_name']}"
+        last_col = len(col_headers)
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=last_col - 1)
+        cell = ws.cell(row=current_row, column=1, value=left_text)
+        cell.font = group_font
+        cell.alignment = Alignment(horizontal="left")
+        title_cell = ws.cell(row=current_row, column=last_col, value="Active LSO Report")
+        title_cell.font = group_font
+        title_cell.alignment = Alignment(horizontal="right")
+        current_row += 1
+
+        for ci, h in enumerate(col_headers, 1):
+            cell = ws.cell(row=current_row, column=ci, value=h)
+            cell.font = header_font_white
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal="center")
+        current_row += 1
+
+        for r in grp["retailers"]:
+            remaining_sales = max(0, r["required_sales_amount"] - r["sales_amount"])
+            remaining_days = max(0, r["required_selling_days"] - r["days_sold"])
+
+            row_data = [
+                r["house_code"], r["retailer_code"],
+                r["name"], r["itop_number"],
+                r["days_sold"],
+                r["sales_amount"],
+                f'{remaining_days}/{r["required_selling_days"]}',
+                f'{format(round(remaining_sales), ",")}/{format(round(r["required_sales_amount"]), ",")}',
+                r["inactive_last_month"] or "",
+            ]
+            for ci, val in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=ci, value=val)
+                cell.border = thin_border
+                if ci in (5, 6, 7, 8):
+                    cell.alignment = Alignment(horizontal="right")
+            current_row += 1
+
+        current_row += 1
+
+    for ci, w in enumerate(col_widths, 1):
+        from openpyxl.utils import get_column_letter
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=inactive_retailers_{today_str.replace(' ', '_')}.xlsx"
+        },
+    )
+
+
+@router.get("/reports/active-lso/retailers/{employee_id}/export")
+async def export_inactive_retailers_single(
+    employee_id: int,
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_lso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+    from openpyxl.utils import get_column_letter
+    from datetime import datetime
+
+    resolved_house = house_id or house_ctx
+    start_date, end_date = _resolve_active_lso_period(start_date, end_date)
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+
+    service = ActiveLsoReportService(db, resolved_house, start_date, end_date)
+    retailers = await service.get_inactive_retailers(employee_id)
+
+    emp = (await db.execute(select(Employee).where(Employee.id == employee_id))).scalars().first()
+    rso_name = ""
+    dms_code = ""
+    itop_number = ""
+    supervisor_name = ""
+    if emp:
+        from app.services.active_lso_report_service import employee_name_map, supervisor_map
+        nm = await employee_name_map(db, [emp.id])
+        rso_name = nm.get(emp.id, "")
+        dms_code = emp.dms_code or ""
+        itop_number = emp.itop_number or ""
+        target_date = date(start_date.year, start_date.month, 1)
+        sup_map = await supervisor_map(db, [emp.id], target_date)
+        sup_id = sup_map.get(emp.id)
+        if sup_id:
+            sup_nm = await employee_name_map(db, [sup_id])
+            supervisor_name = sup_nm.get(sup_id, "")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Inactive Retailers"
+
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font_white = Font(bold=True, size=11, color="FFFFFF")
+    group_font = Font(bold=True, size=11, color="1F4E79")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    col_headers = [
+        "House", "Retailer Code", "Retailer Name", "iTopUp No",
+        "Days Sold", "Sales (BDT)", "Req Days", "Req Sales (BDT)", "Prev Month Inactive",
+    ]
+    col_widths = [15, 30, 15, 12, 10, 15, 10, 15, 18]
+
+    today_str = datetime.now().strftime("%d %b %Y")
+    current_row = 1
+
+    left_text = f"{today_str}  |  RSO: {rso_name} ({dms_code} - {itop_number})  |  Supervisor: {supervisor_name}"
+    last_col = len(col_headers)
+    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=last_col - 1)
+    cell = ws.cell(row=current_row, column=1, value=left_text)
+    cell.font = group_font
+    cell.alignment = Alignment(horizontal="left")
+    title_cell = ws.cell(row=current_row, column=last_col, value="Active LSO Report")
+    title_cell.font = group_font
+    title_cell.alignment = Alignment(horizontal="right")
+    current_row += 1
+
+    for ci, h in enumerate(col_headers, 1):
+        cell = ws.cell(row=current_row, column=ci, value=h)
+        cell.font = header_font_white
+        cell.fill = header_fill
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center")
+    current_row += 1
+
+    for r in retailers:
+        remaining_sales = max(0, r["required_sales_amount"] - r["sales_amount"])
+        remaining_days = max(0, r["required_selling_days"] - r["days_sold"])
+        row_data = [
+            r["house_code"], r["retailer_code"], r["name"], r["itop_number"],
+            r["days_sold"], r["sales_amount"],
+            f'{remaining_days}/{r["required_selling_days"]}',
+            f'{format(round(remaining_sales), ",")}/{format(round(r["required_sales_amount"]), ",")}',
+            r["inactive_last_month"] or "",
+        ]
+        for ci, val in enumerate(row_data, 1):
+            cell = ws.cell(row=current_row, column=ci, value=val)
+            cell.border = thin_border
+            if ci in (5, 6, 7, 8):
+                cell.alignment = Alignment(horizontal="right")
+        current_row += 1
+
+    for ci, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=inactive_retailers_{dms_code}_{today_str.replace(' ', '_')}.xlsx"
+        },
+    )
+
+
+@router.get("/reports/active-lso/retailers/{employee_id}")
+async def get_active_lso_inactive_retailers(
+    employee_id: int,
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_lso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    resolved_house = house_id or house_ctx
+    start_date, end_date = _resolve_active_lso_period(start_date, end_date)
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+    service = ActiveLsoReportService(db, resolved_house, start_date, end_date)
+    retailers = await service.get_inactive_retailers(employee_id)
+    return {"success": True, "data": retailers}
+
+
 @router.get("/reports/active-lso/export")
 async def export_active_lso_report(
     format: str = Query("xlsx", pattern="^(xlsx|csv)$"),

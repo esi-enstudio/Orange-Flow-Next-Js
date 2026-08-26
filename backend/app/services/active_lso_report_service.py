@@ -630,6 +630,182 @@ class ActiveLsoReportService:
             "active_threshold_amount": self.active_amount,
         }
 
+    # ------------------------------------------------------------------ #
+    async def get_inactive_retailers(self, employee_id: int) -> List[dict]:
+        """Return detailed inactive retailer list for a specific RSO.
+
+        Only includes retailers who could still realistically become active
+        before the month ends. If remaining days < threshold, retailers with
+        too few days already sold are excluded (they can never reach the
+        threshold even selling every remaining day).
+        """
+        await self._load_thresholds()
+
+        emp = (await self.db.execute(
+            select(Employee).where(Employee.id == employee_id)
+        )).scalars().first()
+        if not emp:
+            return []
+
+        retailer_map = await self._get_retailer_emp_map([emp.id])
+        rids = [rid for rid, eid in retailer_map.items() if eid == emp.id]
+        if not rids:
+            return []
+
+        cur_map = await self._get_c2s_map(rids, self.start_date, self.end_date)
+        prev_map = await self._get_c2s_map(rids, self.prev_month_start, self.prev_month_end)
+
+        retailer_info = {}
+        q = (
+            select(
+                Retailer.id, Retailer.retailer_code, Retailer.name,
+                Retailer.itop_number,
+                House.code.label("house_code"),
+            )
+            .join(House, House.id == Retailer.house_id)
+            .where(Retailer.id.in_(rids))
+        )
+        for r in (await self.db.execute(q)).all():
+            retailer_info[r[0]] = {
+                "retailer_code": r[1],
+                "name": r[2],
+                "itop_number": r[3] or "",
+                "house_code": r[4],
+            }
+
+        rso_itop = emp.itop_number or ""
+
+        # Minimum days a retailer must already have to still have a chance
+        # of becoming active before the month ends.
+        # Today is still a selling day, so we add 1 to days_remaining.
+        # e.g. threshold=7, 7 selling days left (incl today) -> need 0 already
+        #      threshold=7, 6 selling days left (incl today) -> need 1 already
+        #      threshold=7, 0 selling days left (month over) -> need 7 (nobody qualifies)
+        selling_days_left = self.days_remaining + 1
+        min_days_needed = max(0, self.active_days - selling_days_left)
+
+        result = []
+        for rid in rids:
+            cd, ca = cur_map.get(rid, (0, 0.0))
+            pd, pa = prev_map.get(rid, (0, 0.0))
+            is_active = cd >= self.active_days and ca >= self.active_amount
+            if is_active:
+                continue
+
+            # Dynamic filter: skip retailers who can no longer become active
+            if cd < min_days_needed:
+                continue
+
+            prev_active = pd >= self.prev_active_days and pa >= self.prev_active_amount
+            info = retailer_info.get(rid, {})
+            result.append({
+                "retailer_code": info.get("retailer_code", ""),
+                "name": info.get("name", ""),
+                "itop_number": info.get("itop_number", ""),
+                "house_code": info.get("house_code", ""),
+                "rso_number": rso_itop,
+                "days_sold": cd,
+                "sales_amount": round(ca, 0),
+                "required_sales_amount": round(self.active_amount, 0),
+                "required_selling_days": self.active_days,
+                "inactive_last_month": "" if prev_active else "Y",
+            })
+
+        result.sort(key=lambda x: (x["days_sold"], x["sales_amount"]))
+        return result
+
+    # ------------------------------------------------------------------ #
+    async def get_all_inactive_retailers_grouped(self) -> List[dict]:
+        """Return all inactive retailers grouped by RSO for export."""
+        await self._load_thresholds()
+        emps = await self._get_rso_employees()
+        if not emps:
+            return []
+
+        emp_ids = [e.id for e in emps]
+        target_date = date(self.start_date.year, self.start_date.month, 1)
+        target_map = await self._get_target_map(emp_ids, target_date)
+        sup_map = await supervisor_map(self.db, emp_ids, target_date)
+
+        if self.supervisor_id:
+            emp_ids = [eid for eid in emp_ids if sup_map.get(eid) == self.supervisor_id]
+            if not emp_ids:
+                return []
+            emps = [e for e in emps if e.id in set(emp_ids)]
+
+        name_map = await employee_name_map(self.db, emp_ids)
+        sup_ids = list({sid for sid in sup_map.values() if sid})
+        sup_names = await employee_name_map(self.db, sup_ids)
+
+        retailer_map = await self._get_retailer_emp_map(emp_ids)
+        all_retailer_ids = list(retailer_map.keys())
+        cur_map = await self._get_c2s_map(all_retailer_ids, self.start_date, self.end_date)
+        prev_map = await self._get_c2s_map(all_retailer_ids, self.prev_month_start, self.prev_month_end)
+
+        # Fetch all retailer info in bulk
+        all_rids = list(retailer_map.keys())
+        retailer_info = {}
+        if all_rids:
+            q = (
+                select(
+                    Retailer.id, Retailer.retailer_code, Retailer.name,
+                    Retailer.itop_number,
+                    House.code.label("house_code"),
+                )
+                .join(House, House.id == Retailer.house_id)
+                .where(Retailer.id.in_(all_rids))
+            )
+            for r in (await self.db.execute(q)).all():
+                retailer_info[r[0]] = {
+                    "retailer_code": r[1], "name": r[2],
+                    "itop_number": r[3] or "", "house_code": r[4],
+                }
+
+        selling_days_left = self.days_remaining + 1
+        min_days_needed = max(0, self.active_days - selling_days_left)
+
+        groups = []
+        for emp in emps:
+            rso_itop = emp.itop_number or ""
+            rso_name = name_map.get(emp.id, f"EMP-{emp.id}")
+            sup_id = sup_map.get(emp.id)
+            sup_name = sup_names.get(sup_id) if sup_id else ""
+
+            rids = [rid for rid, eid in retailer_map.items() if eid == emp.id]
+            rows = []
+            for rid in rids:
+                cd, ca = cur_map.get(rid, (0, 0.0))
+                pd, pa = prev_map.get(rid, (0, 0.0))
+                is_active = cd >= self.active_days and ca >= self.active_amount
+                if is_active:
+                    continue
+                if cd < min_days_needed:
+                    continue
+                prev_active = pd >= self.prev_active_days and pa >= self.prev_active_amount
+                info = retailer_info.get(rid, {})
+                rows.append({
+                    "retailer_code": info.get("retailer_code", ""),
+                    "name": info.get("name", ""),
+                    "itop_number": info.get("itop_number", ""),
+                    "house_code": info.get("house_code", ""),
+                    "rso_number": rso_itop,
+                    "days_sold": cd,
+                    "sales_amount": round(ca, 0),
+                    "required_sales_amount": round(self.active_amount, 0),
+                    "required_selling_days": self.active_days,
+                    "inactive_last_month": "" if prev_active else "Y",
+                })
+            rows.sort(key=lambda x: (x["days_sold"], x["sales_amount"]))
+            if rows:
+                groups.append({
+                    "rso_name": rso_name,
+                    "dms_code": emp.dms_code or "",
+                    "itop_number": emp.itop_number or "",
+                    "supervisor_name": sup_name,
+                    "retailers": rows,
+                })
+        return groups
+
     def _empty_result(self) -> dict:
         return {
             "success": True,

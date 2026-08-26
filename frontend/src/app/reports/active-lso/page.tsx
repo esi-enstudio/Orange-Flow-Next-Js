@@ -28,6 +28,7 @@ import {
   Activity,
   Zap,
   Trophy,
+  Download,
   Sparkles,
   Medal,
   PieChart as PieChartIcon,
@@ -97,6 +98,19 @@ interface Summary {
 interface SupSummary extends Summary {
   supervisor_id: number | null;
   supervisor_name: string;
+}
+
+interface InactiveRetailer {
+  retailer_code: string;
+  name: string;
+  itop_number: string;
+  house_code: string;
+  rso_number: string;
+  days_sold: number;
+  sales_amount: number;
+  required_sales_amount: number;
+  required_selling_days: number;
+  inactive_last_month: string;
 }
 
 interface ReportData {
@@ -371,6 +385,7 @@ export default function ActiveLsoReportPage() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [configIsCustom, setConfigIsCustom] = useState(false);
   const [configForm, setConfigForm] = useState({ days: "7", amount: "500" });
+  const [inactiveRetailerModal, setInactiveRetailerModal] = useState<{open: boolean; employeeId: number; rsoName: string; rsoCode: string; loading: boolean; data: InactiveRetailer[];}>({open: false, employeeId: 0, rsoName: "", rsoCode: "", loading: false, data: []});
 
   const initializedRef = useRef(false);
   const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -511,6 +526,65 @@ export default function ActiveLsoReportPage() {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleShowInactiveRetailers = async (row: RsoRow) => {
+    setInactiveRetailerModal({ open: true, employeeId: row.employee_id, rsoName: row.name, rsoCode: row.employee_code || row.dms_code || "", loading: true, data: [] });
+    try {
+      const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
+      if (filters.houseId) params.house_id = filters.houseId;
+      const res = await apiClient.get(`reports/active-lso/retailers/${row.employee_id}`, { params });
+      setInactiveRetailerModal((prev) => ({ ...prev, loading: false, data: res.data?.data || [] }));
+    } catch {
+      toast.error(t("active_lso_report.messages.export_failed"));
+      setInactiveRetailerModal((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleExportInactiveRetailers = async () => {
+    try {
+      const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
+      if (filters.houseId) params.house_id = filters.houseId;
+      const res = await apiClient.get("reports/active-lso/retailers/export", {
+        params,
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `inactive_retailers_all_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(t("active_lso_report.messages.export_success"));
+    } catch {
+      toast.error(t("active_lso_report.messages.export_failed"));
+    }
+  };
+
+  const handleExportSingleRsoInactive = async (employeeId: number, rsoName: string) => {
+    try {
+      const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
+      if (filters.houseId) params.house_id = filters.houseId;
+      const res = await apiClient.get(`reports/active-lso/retailers/${employeeId}/export`, {
+        params,
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `inactive_${rsoName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(t("active_lso_report.messages.export_success"));
+    } catch {
+      toast.error(t("active_lso_report.messages.export_failed"));
+    }
   };
 
   const openConfig = async () => {
@@ -1081,9 +1155,20 @@ export default function ActiveLsoReportPage() {
                   {t("active_lso_report.section_a")} · {t("active_lso_report.section_b")}
                 </h2>
               </div>
-              <span className="text-xs text-gray-400 dark:text-gray-500">
-                {formatNumber(summary?.rso_count ?? 0)} {t("active_lso_report.summary.rso_count")} · {formatNumber(summary?.retailer_count ?? 0)} {t("active_lso_report.summary.retailer_count")}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  {formatNumber(summary?.rso_count ?? 0)} {t("active_lso_report.summary.rso_count")} · {formatNumber(summary?.retailer_count ?? 0)} {t("active_lso_report.summary.retailer_count")}
+                </span>
+                {rows.length > 0 && (
+                  <button
+                    onClick={handleExportInactiveRetailers}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    {t("active_lso_report.modal.export")}
+                  </button>
+                )}
+              </div>
             </div>
 
             {rows.length === 0 ? (
@@ -1126,14 +1211,25 @@ export default function ActiveLsoReportPage() {
                     {rows.map((row, idx) => (
                       <tr key={row.employee_id} className={idx % 2 === 1 ? "bg-gray-50/50 dark:bg-slate-800/30" : ""}>
                         <td className="sticky left-0 z-10 px-3 py-1.5 font-medium text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
-                          <p className="font-medium text-xs">{row.name}</p>
-                          <p className="text-[11px] text-gray-400 dark:text-gray-500">
-                            {row.dms_code || "—"}
-                            {(row.dms_code || "—") && row.itop_number && (
-                              <span className="text-gray-300 dark:text-gray-600"> · </span>
-                            )}
-                            {row.itop_number || ""}
-                          </p>
+                          <div className="flex items-start justify-between gap-1">
+                            <div>
+                              <p className="font-medium text-xs">{row.name}</p>
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                                {row.dms_code || "—"}
+                                {(row.dms_code || "—") && row.itop_number && (
+                                  <span className="text-gray-300 dark:text-gray-600"> · </span>
+                                )}
+                                {row.itop_number || ""}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleShowInactiveRetailers(row)}
+                              title={t("active_lso_report.actions.view_inactive_retailers")}
+                              className="shrink-0 mt-0.5 p-1 rounded-md hover:bg-amber-50 dark:hover:bg-amber-500/10 text-amber-500 dark:text-amber-400 transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" /></svg>
+                            </button>
+                          </div>
                         </td>
                         <td className="px-3 py-1.5 border-b border-r border-gray-100 dark:border-slate-800">
                           <p className="font-medium">{row.supervisor_name || "—"}</p>
@@ -1311,6 +1407,126 @@ export default function ActiveLsoReportPage() {
                   </button>
                 </div>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Inactive Retailers Modal */}
+      {inactiveRetailerModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setInactiveRetailerModal((prev) => ({ ...prev, open: false }))}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-50 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                  <Users className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">
+                    {t("active_lso_report.modal.inactive_retailers")}
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {inactiveRetailerModal.rsoName}
+                    {inactiveRetailerModal.rsoCode && ` · ${inactiveRetailerModal.rsoCode}`}
+                    {` · ${inactiveRetailerModal.data.length} ${t("active_lso_report.modal.retailers_found")}`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {inactiveRetailerModal.data.length > 0 && (
+                  <button
+                    onClick={() => handleExportSingleRsoInactive(inactiveRetailerModal.employeeId, inactiveRetailerModal.rsoName)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    {t("active_lso_report.modal.export")}
+                  </button>
+                )}
+                <button
+                  onClick={() => setInactiveRetailerModal((prev) => ({ ...prev, open: false }))}
+                  className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+                >
+                  <XIcon className="w-4 h-4 text-gray-400" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto flex-1 min-h-0">
+              {inactiveRetailerModal.loading ? (
+                <div className="p-6 space-y-3">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 animate-pulse">
+                      <div className="w-20 h-3 bg-gray-200 dark:bg-slate-700 rounded" />
+                      <div className="w-32 h-3 bg-gray-200 dark:bg-slate-700 rounded" />
+                      <div className="flex-1 h-3 bg-gray-100 dark:bg-slate-800 rounded" />
+                      <div className="w-16 h-3 bg-gray-200 dark:bg-slate-700 rounded" />
+                    </div>
+                  ))}
+                </div>
+              ) : inactiveRetailerModal.data.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+                  <Inbox className="w-10 h-10 mb-3 opacity-50" />
+                  <p className="text-sm">{t("active_lso_report.messages.no_data")}</p>
+                </div>
+              ) : (
+                <table className="w-full text-xs border-separate border-spacing-0">
+                  <thead className="sticky top-0 z-10">
+                    <tr>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">#</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_house")}</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_ret_code")}</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_ret_name")}</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_ret_number")}</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_rso_number")}</th>
+                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_days_sold")}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_sales_amount")}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_required_sales")}</th>
+                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_required_days")}</th>
+                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_no_lso_last_month")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inactiveRetailerModal.data.map((r, i) => (
+                      <tr key={r.retailer_code} className={i % 2 === 1 ? "bg-gray-50/50 dark:bg-slate-800/30" : ""}>
+                        <td className="px-3 py-2 text-gray-500 dark:text-gray-400 border-b border-r border-gray-100 dark:border-slate-800">{i + 1}</td>
+                        <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800">{r.house_code}</td>
+                        <td className="px-3 py-2 font-mono text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800">{r.retailer_code}</td>
+                        <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800">{r.name}</td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-r border-gray-100 dark:border-slate-800 font-mono">{r.itop_number || "\u2014"}</td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-r border-gray-100 dark:border-slate-800 font-mono">{r.rso_number || "\u2014"}</td>
+                        <td className="px-3 py-2 text-center border-b border-r border-gray-100 dark:border-slate-800">
+                          <span className={cn("inline-flex items-center justify-center min-w-[24px] px-1.5 py-0.5 rounded-full text-[11px] font-semibold",
+                            r.days_sold >= r.required_selling_days ? "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400"
+                          )}>{r.days_sold}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right border-b border-r border-gray-100 dark:border-slate-800">
+                          <span className={cn("font-semibold",
+                            r.sales_amount >= r.required_sales_amount ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                          )}>{formatNumber(Math.round(r.sales_amount))}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right text-gray-500 dark:text-gray-400 border-b border-r border-gray-100 dark:border-slate-800">
+                          {Math.max(0, Math.round(r.required_sales_amount - r.sales_amount))}/{formatNumber(Math.round(r.required_sales_amount))}
+                        </td>
+                        <td className="px-3 py-2 text-center text-gray-500 dark:text-gray-400 border-b border-r border-gray-100 dark:border-slate-800">
+                          {Math.max(0, r.required_selling_days - r.days_sold)}/{r.required_selling_days}
+                        </td>
+                        <td className="px-3 py-2 text-center border-b border-gray-100 dark:border-slate-800">
+                          {r.inactive_last_month === "Y" ? (
+                            <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold">
+                              <AlertTriangle className="w-3 h-3" /> Y
+                            </span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {inactiveRetailerModal.data.length > 0 && (
+              <div className="px-5 py-3 border-t border-gray-100 dark:border-slate-800 shrink-0 bg-gray-50/50 dark:bg-slate-800/30 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>{inactiveRetailerModal.data.length} {t("active_lso_report.modal.total_inactive")}</span>
+                <span>{t("active_lso_report.modal.threshold")}: {inactiveRetailerModal.data[0]?.required_selling_days} {t("active_lso_report.modal.days")} / {formatNumber(Math.round(inactiveRetailerModal.data[0]?.required_sales_amount || 0))} BDT</span>
+              </div>
             )}
           </div>
         </div>
