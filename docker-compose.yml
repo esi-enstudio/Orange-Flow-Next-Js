@@ -88,6 +88,7 @@ services:
   #   git clone https://github.com/gdbrns/go-whatsapp-multi-session-rest-api
   #   docker build -t ghiovanidebrians/go-whatsapp-multi-session-rest-api:pgx-fixed .
   whatsapp-gateway:
+    profiles: ["whatsapp"]
     image: ghiovanidebrians/go-whatsapp-multi-session-rest-api:pgx-fixed
     container_name: orange_flow_wa_gateway
     restart: always
@@ -121,8 +122,35 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
-      - NODE_ENV=development
+      - NODE_ENV=production
     command: sh -c "npm install && npm run build && npm start"
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # Dev frontend with hot reload: docker compose --profile dev up frontend-dev
+  frontend-dev:
+    profiles: ["dev"]
+    image: node:20-slim
+    container_name: orange_flow_frontend_dev
+    restart: always
+    stdin_open: true
+    tty: true
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+    command: sh -c "npm install && npm run dev -- -H 0.0.0.0"
     depends_on:
       - backend
     deploy:
