@@ -13,7 +13,7 @@ from app.services.whatsapp_service_client import (
 )
 from app.services import telegram_service
 from app.services.telegram_service import TelegramError
-from app.services.ga_live_whatsapp_image import build_ga_live_report_image
+from app.services.report_builders import get_report_builder
 from app.services.whatsapp_token import resolve_house_wa_target, with_target_token
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
@@ -66,9 +66,17 @@ async def send_schedule_report(db: AsyncSession, schedule: WhatsAppSchedule) -> 
 
 
 async def _send_telegram_report(db: AsyncSession, schedule: WhatsAppSchedule) -> bool:
-    """Post the GA Live report image to the house's linked Telegram group."""
+    """Post the report image to the house's linked Telegram group."""
+    report_type = getattr(schedule, "report_type", None) or "ga_live"
     try:
-        image_bytes = await build_ga_live_report_image(db, schedule.house_id)
+        builder = get_report_builder(report_type)
+        image_bytes = await builder(db, schedule.house_id)
+    except ValueError as e:
+        schedule.last_status = "failed"
+        schedule.last_error = f"Unknown report type: {report_type}"
+        await db.commit()
+        await _log_schedule_action(db, schedule, "telegram_send_failed", status_code=500, error=str(e))
+        return False
     except Exception as e:
         schedule.last_status = "failed"
         schedule.last_error = f"Report build failed: {str(e)}"
@@ -149,9 +157,17 @@ async def _send_telegram_report(db: AsyncSession, schedule: WhatsAppSchedule) ->
 
 
 async def _send_whatsapp_report(db: AsyncSession, schedule: WhatsAppSchedule) -> bool:
-    """Generate the house's live report and post it as a PNG image to the WhatsApp chat."""
+    """Generate the report image and post it to the WhatsApp chat."""
+    report_type = getattr(schedule, "report_type", None) or "ga_live"
     try:
-        image_bytes = await build_ga_live_report_image(db, schedule.house_id)
+        builder = get_report_builder(report_type)
+        image_bytes = await builder(db, schedule.house_id)
+    except ValueError as e:
+        schedule.last_status = "failed"
+        schedule.last_error = f"Unknown report type: {report_type}"
+        await db.commit()
+        await _log_schedule_action(db, schedule, "whatsapp_send_failed", status_code=500, error=str(e))
+        return False
     except Exception as e:
         schedule.last_status = "failed"
         schedule.last_error = f"Report build failed: {str(e)}"
@@ -188,7 +204,7 @@ async def _send_whatsapp_report(db: AsyncSession, schedule: WhatsAppSchedule) ->
             lambda token: whatsapp_service_client.send_image(
                 jwt_token=token,
                 chat_jid=schedule.whatsapp_chat_id,
-                filename="ga_live_report.png",
+                filename=f"{report_type}_report.png",
                 image_bytes=image_bytes,
                 caption=caption,
             ),

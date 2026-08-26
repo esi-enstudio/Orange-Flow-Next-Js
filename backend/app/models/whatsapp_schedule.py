@@ -17,6 +17,7 @@ class WhatsAppSchedule(Base):
     whatsapp_chat_id = Column(String(64), nullable=False)  # serialized chat id (e.g. ...@g.us); telegram chat id for channel=telegram
     whatsapp_chat_name = Column(String(200), nullable=False)
     caption = Column(Text, nullable=True)
+    report_type = Column(String(50), nullable=False, default="ga_live", server_default="ga_live")  # ga_live | active_lso | active_sso | ...
 
     is_active = Column(Boolean, default=True, nullable=False)
     last_run_date = Column(Date, nullable=True)

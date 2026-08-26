@@ -7,7 +7,6 @@ import { useAuth } from "@/context/AuthContext";
 import {
   RefreshCw,
   FileSpreadsheet,
-  FileText,
   Printer,
   Building2,
   Calendar,
@@ -19,14 +18,13 @@ import {
   Users,
   UserCog,
   UserRound,
-  Target as TargetIcon,
+  Zap,
   AlertTriangle,
   Inbox,
   TrendingUp,
   Award,
   BarChart3,
   Activity,
-  Zap,
   Trophy,
   Download,
   Share2,
@@ -41,7 +39,6 @@ import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
-import { exportActiveLsoReport } from "@/lib/export-active-lso";
 import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 
 // ------------------------------------------------------------------ types
@@ -55,8 +52,7 @@ interface PeriodInfo {
   target_month: string;
   prev_month_start: string;
   prev_month_end: string;
-  active_threshold_days: number;
-  active_threshold_amount: number;
+  activations_threshold: number;
 }
 
 interface RetailerCounts {
@@ -107,11 +103,8 @@ interface InactiveRetailer {
   name: string;
   itop_number: string;
   house_code: string;
-  rso_number: string;
-  days_sold: number;
-  sales_amount: number;
-  required_sales_amount: number;
-  required_selling_days: number;
+  activations_done: number;
+  required_activations: number;
   inactive_last_month: string;
 }
 
@@ -177,11 +170,11 @@ const statusColors: Record<string, string> = {
 };
 
 const A_COL_KEYS = ["target", "achieved", "ach_pct", "remaining", "drr", "daily_avg", "projection", "proj_pct", "status"] as const;
-const B_TAIL_KEYS = ["days_no_sales", "inactive_last_month", "reactivated"] as const;
-const DEFAULT_ACTIVE_DAYS = 7;
+const B_TAIL_KEYS = ["inactive_last_month", "reactivated"] as const;
+const DEFAULT_ACTIVATIONS_THRESHOLD = 2;
 
-function buildBColKeys(thresholdDays: number): string[] {
-  const days = Math.min(31, Math.max(1, thresholdDays));
+function buildBColKeys(threshold: number): string[] {
+  const days = Math.min(31, Math.max(1, threshold));
   return [
     "retailers",
     ...Array.from({ length: days }, (_, i) => `day_${i}`),
@@ -198,7 +191,7 @@ function StatusBadge({ status }: { status: string }) {
         statusColors[status] || statusColors.behind
       )}
     >
-      {t(`active_lso_report.status.${status}`)}
+      {t(`active_sso_report.status.${status}`)}
     </span>
   );
 }
@@ -283,7 +276,7 @@ function LeaderboardCard({ data, title, icon: Icon, color, t, subtitleKey }: {
         <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{title}</h3>
       </div>
       {data.length === 0 ? (
-        <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-4">{t("active_lso_report.messages.no_data")}</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-4">{t("active_sso_report.messages.no_data")}</p>
       ) : (
         <div className="space-y-2">
           {data.map((emp, idx) => (
@@ -358,7 +351,7 @@ function SkeletonKpiCard() {
 }
 
 // ------------------------------------------------------------------ page
-export default function ActiveLsoReportPage() {
+export default function ActiveSsoReportPage() {
   const { hasPermission, loading: authLoading } = useAuth();
   const router = useRouter();
   const { t, language } = useLanguage();
@@ -381,23 +374,23 @@ export default function ActiveLsoReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [exporting, setExporting] = useState<"xlsx" | "csv" | null>(null);
+  const [exporting, setExporting] = useState<"xlsx" | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
   const [configIsCustom, setConfigIsCustom] = useState(false);
-  const [configForm, setConfigForm] = useState({ days: "7", amount: "500" });
+  const [configForm, setConfigForm] = useState({ threshold: "2" });
   const [inactiveRetailerModal, setInactiveRetailerModal] = useState<{open: boolean; employeeId: number; rsoName: string; rsoCode: string; loading: boolean; data: InactiveRetailer[];}>({open: false, employeeId: 0, rsoName: "", rsoCode: "", loading: false, data: []});
   const [wsModalOpen, setWsModalOpen] = useState(false);
 
   const initializedRef = useRef(false);
   const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const permissionOk = !authLoading && hasPermission("active_lso.view");
+  const permissionOk = !authLoading && hasPermission("active_sso.view");
 
   // Redirect if no permission
   useEffect(() => {
-    if (!authLoading && !hasPermission("active_lso.view")) {
+    if (!authLoading && !hasPermission("active_sso.view")) {
       const timer = setTimeout(() => router.push("/"), 5000);
       return () => clearTimeout(timer);
     }
@@ -418,7 +411,7 @@ export default function ActiveLsoReportPage() {
       if (!silent) setLoading(true);
       setError(false);
       try {
-        const res = await apiClient.get("reports/active-lso", { params: buildParams(f) });
+        const res = await apiClient.get("reports/active-sso", { params: buildParams(f) });
         setData(res.data);
         setLastUpdated(new Date());
       } catch {
@@ -432,9 +425,9 @@ export default function ActiveLsoReportPage() {
 
   // Load filter options once
   useEffect(() => {
-    if (!authLoading && hasPermission("active_lso.view")) {
+    if (!authLoading && hasPermission("active_sso.view")) {
       apiClient
-        .get("reports/active-lso/filters")
+        .get("reports/active-sso/filters")
         .then((res) => {
           const opts = res.data as FilterOptions;
           setFilterOptions(opts);
@@ -507,21 +500,32 @@ export default function ActiveLsoReportPage() {
     }));
   };
 
-  const handleExport = async (format: "xlsx" | "csv") => {
+  const handleExport = async () => {
     if (!data) return;
-    setExporting(format);
+    setExporting("xlsx");
     try {
-      await exportActiveLsoReport(format, {
-        start_date: filters.startDate,
-        end_date: filters.endDate,
-        house_id: filters.houseId ? Number(filters.houseId) : null,
-        manager_id: filters.managerId ? Number(filters.managerId) : null,
-        supervisor_id: filters.supervisorId ? Number(filters.supervisorId) : null,
-        rso_id: filters.rsoId ? Number(filters.rsoId) : null,
-        status: filters.status || null,
+      const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
+      if (filters.houseId) params.house_id = filters.houseId;
+      if (filters.managerId) params.manager_id = filters.managerId;
+      if (filters.supervisorId) params.supervisor_id = filters.supervisorId;
+      if (filters.rsoId) params.rso_id = filters.rsoId;
+      if (filters.status) params.status = filters.status;
+      const res = await apiClient.get("reports/active-sso/export", {
+        params,
+        responseType: "blob",
       });
+      const blob = new Blob([res.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `active_sso_report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(t("active_sso_report.messages.export_success"));
     } catch {
-      toast.error(t("active_lso_report.messages.export_failed"));
+      toast.error(t("active_sso_report.messages.export_failed"));
     } finally {
       setExporting(null);
     }
@@ -536,10 +540,10 @@ export default function ActiveLsoReportPage() {
     try {
       const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
       if (filters.houseId) params.house_id = filters.houseId;
-      const res = await apiClient.get(`reports/active-lso/retailers/${row.employee_id}`, { params });
+      const res = await apiClient.get(`reports/active-sso/retailers/${row.employee_id}`, { params });
       setInactiveRetailerModal((prev) => ({ ...prev, loading: false, data: res.data?.data || [] }));
     } catch {
-      toast.error(t("active_lso_report.messages.export_failed"));
+      toast.error(t("active_sso_report.messages.export_failed"));
       setInactiveRetailerModal((prev) => ({ ...prev, loading: false }));
     }
   };
@@ -548,7 +552,7 @@ export default function ActiveLsoReportPage() {
     try {
       const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
       if (filters.houseId) params.house_id = filters.houseId;
-      const res = await apiClient.get("reports/active-lso/retailers/export", {
+      const res = await apiClient.get("reports/active-sso/retailers/export", {
         params,
         responseType: "blob",
       });
@@ -561,9 +565,9 @@ export default function ActiveLsoReportPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success(t("active_lso_report.messages.export_success"));
+      toast.success(t("active_sso_report.messages.export_success"));
     } catch {
-      toast.error(t("active_lso_report.messages.export_failed"));
+      toast.error(t("active_sso_report.messages.export_failed"));
     }
   };
 
@@ -571,7 +575,7 @@ export default function ActiveLsoReportPage() {
     try {
       const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
       if (filters.houseId) params.house_id = filters.houseId;
-      const res = await apiClient.get(`reports/active-lso/retailers/${employeeId}/export`, {
+      const res = await apiClient.get(`reports/active-sso/retailers/${employeeId}/export`, {
         params,
         responseType: "blob",
       });
@@ -584,9 +588,9 @@ export default function ActiveLsoReportPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success(t("active_lso_report.messages.export_success"));
+      toast.success(t("active_sso_report.messages.export_success"));
     } catch {
-      toast.error(t("active_lso_report.messages.export_failed"));
+      toast.error(t("active_sso_report.messages.export_failed"));
     }
   };
 
@@ -596,7 +600,6 @@ export default function ActiveLsoReportPage() {
     try {
       const { toPng } = await import("html-to-image");
       const r = (c: string) => c.replace(/"/g, "&quot;");
-      const fmt = (n: number) => Number(n).toLocaleString();
       const rows = data.map((d, i) =>
         `<tr style="background:${i % 2 === 1 ? "#f9fafb" : "#fff"}">
           <td style="padding:6px 10px;border:1px solid #e5e7eb;color:#6b7280;text-align:center">${i + 1}</td>
@@ -604,17 +607,14 @@ export default function ActiveLsoReportPage() {
           <td style="padding:6px 10px;border:1px solid #e5e7eb;font-family:monospace">${r(d.retailer_code)}</td>
           <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:500">${r(d.name)}</td>
           <td style="padding:6px 10px;border:1px solid #e5e7eb;font-family:monospace">${r(d.itop_number || "\u2014")}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;font-family:monospace">${r(d.rso_number || "\u2014")}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:${d.days_sold >= d.required_selling_days ? "#059669" : "#dc2626"}">${d.days_sold}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right;font-weight:600;color:${d.sales_amount >= d.required_sales_amount ? "#059669" : "#dc2626"}">${fmt(Math.round(d.sales_amount))}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right;color:#6b7280">${Math.max(0, Math.round(d.required_sales_amount - d.sales_amount))}/${fmt(Math.round(d.required_sales_amount))}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;color:#6b7280">${Math.max(0, d.required_selling_days - d.days_sold)}/${d.required_selling_days}</td>
+          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:${d.activations_done >= d.required_activations ? "#059669" : "#dc2626"}">${d.activations_done}</td>
+          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">${d.required_activations}</td>
           <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:${d.inactive_last_month === "Y" ? "#dc2626" : "#6b7280"}">${d.inactive_last_month === "Y" ? "Y" : ""}</td>
         </tr>`
       ).join("");
-      const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#fff;padding:24px;width:1000px">
+      const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#fff;padding:24px;width:800px">
         <div style="margin-bottom:16px">
-          <h2 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#111827">Inactive Retailers \u2014 LSO</h2>
+          <h2 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#111827">Inactive Retailers \u2014 SSO</h2>
           <p style="margin:0 0 2px;font-size:13px;color:#6b7280">${r(inactiveRetailerModal.rsoName)}${inactiveRetailerModal.rsoCode ? " (" + r(inactiveRetailerModal.rsoCode) + ")" : ""}</p>
           <p style="margin:0;font-size:12px;color:#9ca3af">${inactiveRetailerModal.data.length} retailers</p>
         </div>
@@ -625,11 +625,8 @@ export default function ActiveLsoReportPage() {
             <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">Ret Code</th>
             <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">Ret Name</th>
             <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">iTopUp No</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">RSO No</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:#374151">Days Sold</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right;font-weight:600;color:#374151">Sales</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right;font-weight:600;color:#374151">Req. Sales</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:#374151">Req. Days</th>
+            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:#374151">Activations</th>
+            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:#374151">Req.</th>
             <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:#374151">Prev Month</th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -646,33 +643,33 @@ export default function ActiveLsoReportPage() {
 
       const res = await fetch(imgDataUrl);
       const blob = await res.blob();
-      const file = new File([blob], "inactive_lso_retailers.png", { type: "image/png" });
+      const file = new File([blob], "inactive_sso_retailers.png", { type: "image/png" });
 
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: `Inactive LSO \u2014 ${inactiveRetailerModal.rsoName}` });
-        toast.success(t("active_lso_report.messages.share_success"));
+        await navigator.share({ files: [file], title: `Inactive SSO \u2014 ${inactiveRetailerModal.rsoName}` });
+        toast.success(t("active_sso_report.messages.share_success"));
         return;
       }
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `inactive_lso_${inactiveRetailerModal.rsoName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.png`;
+      a.download = `inactive_sso_${inactiveRetailerModal.rsoName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.png`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      const caption = `Inactive LSO \u2014 ${inactiveRetailerModal.rsoName} (${inactiveRetailerModal.rsoCode})\nTotal: ${inactiveRetailerModal.data.length} retailers`;
+      const caption = `Inactive SSO \u2014 ${inactiveRetailerModal.rsoName} (${inactiveRetailerModal.rsoCode})\nTotal: ${inactiveRetailerModal.data.length} retailers`;
       if (platform === "whatsapp") {
         window.open(`https://wa.me/?text=${encodeURIComponent(caption)}`, "_blank");
       } else {
         window.open(`https://t.me/share/url?url=&text=${encodeURIComponent(caption)}`, "_blank");
       }
-      toast.success(t("active_lso_report.messages.share_success"));
+      toast.success(t("active_sso_report.messages.share_success"));
     } catch (err) {
       console.error("Share image error:", err);
-      toast.error(t("active_lso_report.messages.share_failed"));
+      toast.error(t("active_sso_report.messages.share_failed"));
     }
   };
 
@@ -682,44 +679,38 @@ export default function ActiveLsoReportPage() {
     try {
       const params: Record<string, string> = { month: String(filters.month), year: String(filters.year) };
       if (filters.houseId) params.house_id = filters.houseId;
-      const res = await apiClient.get("reports/active-lso/config", { params });
+      const res = await apiClient.get("reports/active-sso/config", { params });
       const d = res.data?.data;
       if (d) {
-        setConfigForm({ days: String(d.days_threshold), amount: String(d.amount_threshold) });
+        setConfigForm({ threshold: String(d.activations_threshold) });
         setConfigIsCustom(!!d.is_custom);
       }
     } catch {
-      toast.error(t("active_lso_report.config.load_failed"));
+      toast.error(t("active_sso_report.config.load_failed"));
     } finally {
       setConfigLoading(false);
     }
   };
 
   const saveConfig = async () => {
-    const days = parseInt(configForm.days, 10);
-    const amount = parseFloat(configForm.amount);
-    if (!Number.isFinite(days) || days < 1 || days > 31) {
-      toast.error(t("active_lso_report.config.invalid_days"));
-      return;
-    }
-    if (!Number.isFinite(amount) || amount < 0) {
-      toast.error(t("active_lso_report.config.invalid_amount"));
+    const threshold = parseInt(configForm.threshold, 10);
+    if (!Number.isFinite(threshold) || threshold < 1) {
+      toast.error(t("active_sso_report.config.invalid_threshold"));
       return;
     }
     setSavingConfig(true);
     try {
-      await apiClient.put("reports/active-lso/config", {
+      await apiClient.put("reports/active-sso/config", {
         house_id: filters.houseId ? Number(filters.houseId) : undefined,
         month: filters.month,
         year: filters.year,
-        days_threshold: days,
-        amount_threshold: amount,
+        activations_threshold: threshold,
       });
-      toast.success(t("active_lso_report.config.save_success"));
+      toast.success(t("active_sso_report.config.save_success"));
       setShowConfig(false);
       fetchData(filters);
     } catch {
-      toast.error(t("active_lso_report.config.save_failed"));
+      toast.error(t("active_sso_report.config.save_failed"));
     } finally {
       setSavingConfig(false);
     }
@@ -734,7 +725,7 @@ export default function ActiveLsoReportPage() {
     );
   }
 
-  if (!hasPermission("active_lso.view")) {
+  if (!hasPermission("active_sso.view")) {
     return <AccessDenied />;
   }
 
@@ -767,17 +758,17 @@ export default function ActiveLsoReportPage() {
 
   const bColKeys = data?.count_keys?.length
     ? ["retailers", ...data.count_keys]
-    : buildBColKeys(period?.active_threshold_days ?? DEFAULT_ACTIVE_DAYS);
+    : buildBColKeys(period?.activations_threshold ?? DEFAULT_ACTIVATIONS_THRESHOLD);
 
   const bnDigits = (n: number) => String(n).replace(/[0-9]/g, (d) => "০১২৩৪৫৬৭৮৯"[Number(d)]);
 
   const colLabel = (key: string): string => {
     if (key.startsWith("day_")) {
       const n = Number(key.slice(4));
-      return language === "bn" ? `${bnDigits(n)} দিন` : `${n} Day`;
+      return language === "bn" ? `${bnDigits(n)} অ্যাকটিভেশন` : `${n} Activation`;
     }
     if ((B_TAIL_KEYS as readonly string[]).includes(key)) {
-      return t(`active_lso_report.columns.${key}`);
+      return t(`active_sso_report.columns.${key}`);
     }
     return key;
   };
@@ -816,56 +807,46 @@ export default function ActiveLsoReportPage() {
       <div className="flex flex-wrap items-start justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2.5">
-            <TargetIcon className="w-6 h-6 text-primary-600 dark:text-primary-400" />
-            {t("active_lso_report.title")}
+            <Zap className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+            {t("active_sso_report.title")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("active_lso_report.subtitle")}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("active_sso_report.subtitle")}</p>
           {period && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">
-              {t("active_lso_report.period", { start: period.start_date, end: period.end_date })}
+              {t("active_sso_report.period", { start: period.start_date, end: period.end_date })}
               {" · "}
-              {t("active_lso_report.days_elapsed")}: {period.days_elapsed}/{period.total_days}
+              {t("active_sso_report.days_elapsed")}: {period.days_elapsed}/{period.total_days}
               {" · "}
-              {t("active_lso_report.days_remaining")}: {period.days_remaining}
+              {t("active_sso_report.days_remaining")}: {period.days_remaining}
             </p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {hasPermission("active_lso.export") && (
-            <>
-              <button
-                onClick={() => handleExport("xlsx")}
-                disabled={exporting !== null || !data}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                {exporting === "xlsx" ? "..." : t("active_lso_report.actions.export_excel")}
-              </button>
-              <button
-                onClick={() => handleExport("csv")}
-                disabled={exporting !== null || !data}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
-              >
-                <FileText className="w-4 h-4" />
-                {exporting === "csv" ? "..." : t("active_lso_report.actions.export_csv")}
-              </button>
-            </>
+          {hasPermission("active_sso.export") && (
+            <button
+              onClick={handleExport}
+              disabled={exporting !== null || !data}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              {exporting === "xlsx" ? "..." : t("active_sso_report.actions.export_excel")}
+            </button>
           )}
-          {hasPermission("active_lso.print") && (
+          {hasPermission("active_sso.print") && (
             <button
               onClick={handlePrint}
               disabled={!data}
               className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50"
-              title={t("active_lso_report.actions.print")}
+              title={t("active_sso_report.actions.print")}
             >
               <Printer className="w-4 h-4" />
             </button>
           )}
-          {hasPermission("active_lso.config") && (
+          {hasPermission("active_sso.config") && (
             <button
               onClick={openConfig}
               className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
-              title={t("active_lso_report.config.title")}
+              title={t("active_sso_report.config.title")}
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -874,7 +855,7 @@ export default function ActiveLsoReportPage() {
             onClick={() => fetchData(filters)}
             disabled={loading}
             className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50"
-            title={t("active_lso_report.actions.refresh")}
+            title={t("active_sso_report.actions.refresh")}
           >
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
           </button>
@@ -885,16 +866,16 @@ export default function ActiveLsoReportPage() {
       <div className="print:hidden bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 p-4 shadow-sm">
         <div className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
           <Filter className="w-3.5 h-3.5" />
-          {t("active_lso_report.filters.apply")}
+          {t("active_sso_report.filters.apply")}
         </div>
         <div className="flex flex-wrap items-end gap-3">
           {filterOptions && filterOptions.houses.length > 1 && !lockedHouse && (
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.house")}</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.house")}</label>
               <div className="relative">
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <select value={filters.houseId} onChange={(e) => updateFilter({ houseId: e.target.value })} className={selectClass}>
-                  <option value="">{t("active_lso_report.filters.all")}</option>
+                  <option value="">{t("active_sso_report.filters.all")}</option>
                   {filterOptions.houses.map((h) => (
                     <option key={h.id} value={h.id}>{h.name}</option>
                   ))}
@@ -904,11 +885,11 @@ export default function ActiveLsoReportPage() {
           )}
           {showManager && (
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.manager")}</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.manager")}</label>
               <div className="relative">
                 <UserCog className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <select value={filters.managerId} onChange={(e) => handleManagerChange(e.target.value)} className={selectClass}>
-                  <option value="">{t("active_lso_report.filters.all")}</option>
+                  <option value="">{t("active_sso_report.filters.all")}</option>
                   {filterOptions?.managers.map((m) => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
@@ -918,7 +899,7 @@ export default function ActiveLsoReportPage() {
           )}
           {filterOptions && filterOptions.supervisors.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.supervisor")}</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.supervisor")}</label>
               <div className="relative">
                 <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <select
@@ -927,7 +908,7 @@ export default function ActiveLsoReportPage() {
                   disabled={lockedSupervisor}
                   className={selectClass}
                 >
-                  <option value="">{t("active_lso_report.filters.all")}</option>
+                  <option value="">{t("active_sso_report.filters.all")}</option>
                   {filterOptions.supervisors.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
@@ -937,7 +918,7 @@ export default function ActiveLsoReportPage() {
           )}
           {filterOptions && filterOptions.rsos.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.rso")}</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.rso")}</label>
               <div className="relative">
                 <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <select
@@ -946,7 +927,7 @@ export default function ActiveLsoReportPage() {
                   disabled={lockedRso}
                   className={selectClass}
                 >
-                  <option value="">{t("active_lso_report.filters.all")}</option>
+                  <option value="">{t("active_sso_report.filters.all")}</option>
                   {filterOptions.rsos.map((r) => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
@@ -956,20 +937,20 @@ export default function ActiveLsoReportPage() {
           )}
           {filterOptions && filterOptions.statuses.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.status")}</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.status")}</label>
               <div className="relative">
                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <select value={filters.status} onChange={(e) => updateFilter({ status: e.target.value })} className={selectClass}>
-                  <option value="">{t("active_lso_report.filters.all")}</option>
+                  <option value="">{t("active_sso_report.filters.all")}</option>
                   {filterOptions.statuses.map((s) => (
-                    <option key={s} value={s}>{t(`active_lso_report.status.${s}`)}</option>
+                    <option key={s} value={s}>{t(`active_sso_report.status.${s}`)}</option>
                   ))}
                 </select>
               </div>
             </div>
           )}
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.month")}</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.month")}</label>
             <div className="relative">
               <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <select
@@ -984,7 +965,7 @@ export default function ActiveLsoReportPage() {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.year")}</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.year")}</label>
             <select
               value={filters.year}
               onChange={(e) => updateFilter({ year: Number(e.target.value) })}
@@ -996,7 +977,7 @@ export default function ActiveLsoReportPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.start_date")}</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.start_date")}</label>
             <input
               type="date"
               value={filters.startDate}
@@ -1005,7 +986,7 @@ export default function ActiveLsoReportPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_lso_report.filters.end_date")}</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.end_date")}</label>
             <input
               type="date"
               value={filters.endDate}
@@ -1019,27 +1000,26 @@ export default function ActiveLsoReportPage() {
               className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
             >
               <Filter className="w-4 h-4" />
-              {t("active_lso_report.filters.apply")}
+              {t("active_sso_report.filters.apply")}
             </button>
             <button
               onClick={handleReset}
               className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold shadow-sm transition-colors"
             >
               <RotateCcw className="w-4 h-4" />
-              {t("active_lso_report.filters.reset")}
+              {t("active_sso_report.filters.reset")}
             </button>
           </div>
         </div>
         {period && (
           <p className="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
-            {t("active_lso_report.threshold_note", {
-              days: period.active_threshold_days,
-              amount: period.active_threshold_amount.toLocaleString(),
+            {t("active_sso_report.threshold_note", {
+              threshold: period.activations_threshold,
             })}
             {lastUpdated && (
               <>
                 {" · "}
-                {t("active_lso_report.messages.last_updated", {
+                {t("active_sso_report.messages.last_updated", {
                   time: lastUpdated.toLocaleTimeString(language === "bn" ? "bn-BD" : "en-US", { hour: "2-digit", minute: "2-digit" }),
                 })}
               </>
@@ -1052,7 +1032,7 @@ export default function ActiveLsoReportPage() {
       {error && !loading && (
         <div className="flex items-center gap-3 p-4 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-xl text-sm text-rose-700 dark:text-rose-400">
           <AlertTriangle className="w-5 h-5 shrink-0" />
-          {t("active_lso_report.messages.error")}
+          {t("active_sso_report.messages.error")}
         </div>
       )}
 
@@ -1078,22 +1058,22 @@ export default function ActiveLsoReportPage() {
               {/* Summary KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <KpiCard
-                  icon={TargetIcon}
-                  label={t("active_lso_report.cards.monthly_target")}
+                  icon={Zap}
+                  label={t("active_sso_report.cards.monthly_target")}
                   value={formatNumber(summary.target)}
                   valueColor="text-gray-900 dark:text-gray-100"
-                  subtitle={`${formatNumber(summary.rso_count)} ${t("active_lso_report.summary.rso_count")}`}
+                  subtitle={`${formatNumber(summary.rso_count)} ${t("active_sso_report.summary.rso_count")}`}
                 />
                 <KpiCard
                   icon={TrendingUp}
-                  label={t("active_lso_report.cards.achievement")}
+                  label={t("active_sso_report.cards.achievement")}
                   value={formatNumber(summary.achieved)}
                   valueColor="text-emerald-600 dark:text-emerald-400"
-                  subtitle={`${formatNumber(summary.retailer_count)} ${t("active_lso_report.summary.retailer_count")}`}
+                  subtitle={`${formatNumber(summary.retailer_count)} ${t("active_sso_report.summary.retailer_count")}`}
                 />
                 <KpiCard
                   icon={Award}
-                  label={t("active_lso_report.cards.achievement_pct")}
+                  label={t("active_sso_report.cards.achievement_pct")}
                   value={`${summary.ach_pct}%`}
                   valueColor={
                     summary.ach_pct >= 100 ? "text-emerald-600 dark:text-emerald-400" :
@@ -1105,35 +1085,35 @@ export default function ActiveLsoReportPage() {
                 />
                 <KpiCard
                   icon={BarChart3}
-                  label={t("active_lso_report.cards.remaining")}
+                  label={t("active_sso_report.cards.remaining")}
                   value={formatNumber(summary.remaining)}
                   valueColor="text-amber-600 dark:text-amber-400"
-                  subtitle={t("active_lso_report.days_remaining") + ": " + period.days_remaining}
+                  subtitle={t("active_sso_report.days_remaining") + ": " + period.days_remaining}
                 />
                 <KpiCard
                   icon={Activity}
-                  label={t("active_lso_report.cards.daily_average")}
+                  label={t("active_sso_report.cards.daily_average")}
                   value={formatNumber(summary.daily_avg)}
                   valueColor="text-blue-600 dark:text-blue-400"
-                  subtitle={t("active_lso_report.days_elapsed") + ": " + period.days_elapsed}
+                  subtitle={t("active_sso_report.days_elapsed") + ": " + period.days_elapsed}
                 />
                 <KpiCard
                   icon={Zap}
-                  label={t("active_lso_report.cards.daily_required")}
+                  label={t("active_sso_report.cards.daily_required")}
                   value={formatNumber(summary.drr)}
                   valueColor="text-purple-600 dark:text-purple-400"
-                  subtitle={t("active_lso_report.cards.per_day")}
+                  subtitle={t("active_sso_report.cards.per_day")}
                 />
                 <KpiCard
                   icon={Trophy}
-                  label={t("active_lso_report.cards.projection")}
+                  label={t("active_sso_report.cards.projection")}
                   value={formatNumber(Math.round(summary.projection))}
                   valueColor="text-amber-600 dark:text-amber-400"
-                  subtitle={t("active_lso_report.cards.expected_pct") + ": " + (summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0) + "%"}
+                  subtitle={t("active_sso_report.cards.expected_pct") + ": " + (summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0) + "%"}
                 />
                 <KpiCard
                   icon={Sparkles}
-                  label={t("active_lso_report.cards.expected_pct")}
+                  label={t("active_sso_report.cards.expected_pct")}
                   value={(summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0) + "%"}
                   valueColor="text-amber-600 dark:text-amber-400"
                   subtitle={`${formatNumber(Math.round(summary.projection))} / ${formatNumber(summary.target)}`}
@@ -1144,19 +1124,19 @@ export default function ActiveLsoReportPage() {
               <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
                 <h2 className="font-bold text-base flex items-center gap-2 dark:text-gray-100 mb-4">
                   <PieChartIcon className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-                  {t("active_lso_report.cards.target_vs_achievement")}
+                  {t("active_sso_report.cards.target_vs_achievement")}
                 </h2>
                 <div className="space-y-6">
                   <div className="text-center">
                     <p className="text-4xl font-black text-gray-900 dark:text-gray-100">{summary.ach_pct}%</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t("active_lso_report.cards.achievement_pct")}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t("active_sso_report.cards.achievement_pct")}</p>
                     {(() => {
                       const st = projectionStatus(summary.ach_pct, summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0);
                       const statusText: Record<string, string> = {
-                        achieved: t("active_lso_report.status.achieved"),
-                        on_track: t("active_lso_report.status.on_track"),
-                        needs_attention: t("active_lso_report.status.needs_attention"),
-                        behind: t("active_lso_report.status.behind"),
+                        achieved: t("active_sso_report.status.achieved"),
+                        on_track: t("active_sso_report.status.on_track"),
+                        needs_attention: t("active_sso_report.status.needs_attention"),
+                        behind: t("active_sso_report.status.behind"),
                       };
                       const statusTxtColor: Record<string, string> = {
                         achieved: "text-emerald-600 dark:text-emerald-400",
@@ -1177,7 +1157,7 @@ export default function ActiveLsoReportPage() {
                             <p className={`text-lg font-black mt-1 ${statusTxtColor[st]}`}>{statusText[st]}</p>
                           </div>
                           <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-3 text-center">
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{t("active_lso_report.cards.eta_days")}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{t("active_sso_report.cards.eta_days")}</p>
                             <Clock className="w-6 h-6 mx-auto mt-1 text-rose-600 dark:text-rose-400" />
                             <p className="text-lg font-black text-rose-600 dark:text-rose-400">{period.days_remaining}</p>
                           </div>
@@ -1188,7 +1168,7 @@ export default function ActiveLsoReportPage() {
                   <div className="space-y-3">
                     <div>
                       <div className="flex justify-between text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        <span>{t("active_lso_report.cards.achievement")}</span>
+                        <span>{t("active_sso_report.cards.achievement")}</span>
                         <span>{formatNumber(summary.achieved)} / {formatNumber(summary.target)}</span>
                       </div>
                       <div className="h-3 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -1214,15 +1194,15 @@ export default function ActiveLsoReportPage() {
                 const topSup = [...supSummary].sort((a, b) => b.ach_pct - a.ach_pct).slice(0, 5)
                   .map((s) => ({ name: s.supervisor_name, achieved: s.achieved, target: s.target, ach_pct: s.ach_pct }));
                 const cards = [
-                  topRso.length > 0 ? { data: topRso, title: t("active_lso_report.cards.rso_performance"), icon: Users, color: "bg-blue-500" } : null,
-                  topSup.length > 0 ? { data: topSup, title: t("active_lso_report.cards.supervisor_performance"), icon: UserRound, color: "bg-purple-500" } : null,
+                  topRso.length > 0 ? { data: topRso, title: t("active_sso_report.cards.rso_performance"), icon: Users, color: "bg-blue-500" } : null,
+                  topSup.length > 0 ? { data: topSup, title: t("active_sso_report.cards.supervisor_performance"), icon: UserRound, color: "bg-purple-500" } : null,
                 ].filter(Boolean) as Array<{ data: Array<{ name: string; achieved: number; target: number; ach_pct: number }>; title: string; icon: LucideIcon; color: string }>;
                 if (cards.length === 0) return null;
                 return (
                   <div>
                     <h2 className="font-bold text-base flex items-center gap-2 dark:text-gray-100 mb-4">
                       <Medal className="w-5 h-5 text-amber-500" />
-                      {t("active_lso_report.cards.top_performers")}
+                      {t("active_sso_report.cards.top_performers")}
                     </h2>
                     <div className={`grid grid-cols-1 ${cards.length === 2 ? "md:grid-cols-1 lg:grid-cols-2" : ""} gap-4`}>
                       {cards.map((c) => (
@@ -1239,14 +1219,14 @@ export default function ActiveLsoReportPage() {
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <TargetIcon className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                <Zap className="w-4 h-4 text-primary-600 dark:text-primary-400" />
                 <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                  {t("active_lso_report.section_a")} · {t("active_lso_report.section_b")}
+                  {t("active_sso_report.section_a")} · {t("active_sso_report.section_b")}
                 </h2>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-400 dark:text-gray-500">
-                  {formatNumber(summary?.rso_count ?? 0)} {t("active_lso_report.summary.rso_count")} · {formatNumber(summary?.retailer_count ?? 0)} {t("active_lso_report.summary.retailer_count")}
+                  {formatNumber(summary?.rso_count ?? 0)} {t("active_sso_report.summary.rso_count")} · {formatNumber(summary?.retailer_count ?? 0)} {t("active_sso_report.summary.retailer_count")}
                 </span>
                 {rows.length > 0 && (
                   <button
@@ -1254,7 +1234,7 @@ export default function ActiveLsoReportPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    {t("active_lso_report.modal.export")}
+                    {t("active_sso_report.modal.export")}
                   </button>
                 )}
               </div>
@@ -1263,7 +1243,7 @@ export default function ActiveLsoReportPage() {
             {rows.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <Inbox className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
-                <p className="text-sm text-gray-500 dark:text-gray-400">{t("active_lso_report.messages.no_data")}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t("active_sso_report.messages.no_data")}</p>
               </div>
             ) : (
               <div className="overflow-auto max-h-[70vh] border-t border-gray-100 dark:border-slate-800">
@@ -1271,22 +1251,22 @@ export default function ActiveLsoReportPage() {
                   <thead>
                     <tr>
                       <th rowSpan={2} className="sticky top-0 left-0 z-40 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-left font-bold text-gray-600 dark:text-gray-300 border-b border-r border-gray-200 dark:border-slate-700">
-                        {t("active_lso_report.columns.rso")}
+                        {t("active_sso_report.columns.rso")}
                       </th>
                       <th rowSpan={2} className="sticky top-0 z-30 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-left font-bold text-gray-600 dark:text-gray-300 border-b border-r border-gray-200 dark:border-slate-700">
-                        {t("active_lso_report.columns.supervisor")}
+                        {t("active_sso_report.columns.supervisor")}
                       </th>
                       <th colSpan={A_COL_KEYS.length} className="sticky top-0 z-30 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-center font-bold text-gray-600 dark:text-gray-300 border-b border-r border-gray-200 dark:border-slate-700">
-                        {t("active_lso_report.section_a")}
+                        {t("active_sso_report.section_a")}
                       </th>
                       <th colSpan={bColKeys.length} className="sticky top-0 z-30 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-center font-bold text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-slate-700">
-                        {t("active_lso_report.section_b")}
+                        {t("active_sso_report.section_b")}
                       </th>
                     </tr>
                     <tr>
                       {A_COL_KEYS.map((k) => (
                         <th key={k} className="sticky top-9 z-20 h-9 px-2 bg-slate-100 dark:bg-slate-800 text-center font-semibold text-gray-500 dark:text-gray-400 border-b border-r border-gray-200 dark:border-slate-700">
-                          {t(`active_lso_report.columns.${k}`)}
+                          {t(`active_sso_report.columns.${k}`)}
                         </th>
                       ))}
                       {bColKeys.map((k) => (
@@ -1304,8 +1284,8 @@ export default function ActiveLsoReportPage() {
                             <div>
                               <p className="font-medium text-xs">{row.name}</p>
                               <p className="text-[11px] text-gray-400 dark:text-gray-500">
-                                {row.dms_code || "—"}
-                                {(row.dms_code || "—") && row.itop_number && (
+                                {row.dms_code || "\u2014"}
+                                {(row.dms_code || "\u2014") && row.itop_number && (
                                   <span className="text-gray-300 dark:text-gray-600"> · </span>
                                 )}
                                 {row.itop_number || ""}
@@ -1313,7 +1293,7 @@ export default function ActiveLsoReportPage() {
                             </div>
                             <button
                               onClick={() => handleShowInactiveRetailers(row)}
-                              title={t("active_lso_report.actions.view_inactive_retailers")}
+                              title={t("active_sso_report.actions.view_inactive_retailers")}
                               className="shrink-0 mt-0.5 p-1 rounded-md hover:bg-amber-50 dark:hover:bg-amber-500/10 text-amber-500 dark:text-amber-400 transition-colors"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" /></svg>
@@ -1321,7 +1301,7 @@ export default function ActiveLsoReportPage() {
                           </div>
                         </td>
                         <td className="px-3 py-1.5 border-b border-r border-gray-100 dark:border-slate-800">
-                          <p className="font-medium">{row.supervisor_name || "—"}</p>
+                          <p className="font-medium">{row.supervisor_name || "\u2014"}</p>
                           <p className="text-[11px] text-gray-400 dark:text-gray-500">{formatNumber(row.retailer_count)}</p>
                         </td>
                         {A_COL_KEYS.map((k) => (
@@ -1330,7 +1310,7 @@ export default function ActiveLsoReportPage() {
                           </td>
                         ))}
                         {bColKeys.map((k) => (
-                          <td key={k} className={cn("px-2 py-1.5 text-center border-b border-gray-100 dark:border-slate-800", k === "days_no_sales" || k === "inactive_last_month" || k === "reactivated" ? "bg-amber-50/40 dark:bg-amber-500/5" : "")}>
+                          <td key={k} className={cn("px-2 py-1.5 text-center border-b border-gray-100 dark:border-slate-800", k === "inactive_last_month" || k === "reactivated" ? "bg-amber-50/40 dark:bg-amber-500/5" : "")}>
                             {renderCountCell(row.retailer_counts, k, row.retailer_count)}
                           </td>
                         ))}
@@ -1339,10 +1319,10 @@ export default function ActiveLsoReportPage() {
                     {/* Grand total */}
                     <tr className="bg-slate-100 dark:bg-slate-800">
                       <td className="sticky left-0 z-10 px-3 py-2 font-bold text-gray-900 dark:text-gray-100 bg-slate-100 dark:bg-slate-800 border-t-2 border-gray-300 dark:border-slate-600 border-r">
-                        {t("active_lso_report.summary.grand_total")}
+                        {t("active_sso_report.summary.grand_total")}
                       </td>
                       <td className="px-3 py-2 font-bold text-gray-900 dark:text-gray-100 border-t-2 border-gray-300 dark:border-slate-600 border-r">
-                        {formatNumber(summary?.rso_count ?? 0)} {t("active_lso_report.summary.rso_count")}
+                        {formatNumber(summary?.rso_count ?? 0)} {t("active_sso_report.summary.rso_count")}
                       </td>
                       {A_COL_KEYS.map((k) => (
                         <td key={k} className="px-2 py-2 text-center font-bold text-gray-900 dark:text-gray-100 border-t-2 border-gray-300 dark:border-slate-600 border-r">
@@ -1365,12 +1345,12 @@ export default function ActiveLsoReportPage() {
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100 dark:border-slate-800">
               <Users className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-              <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("active_lso_report.section_c")}</h2>
+              <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("active_sso_report.section_c")}</h2>
             </div>
             {supSummary.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <Inbox className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
-                <p className="text-sm text-gray-500 dark:text-gray-400">{t("active_lso_report.messages.no_data")}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t("active_sso_report.messages.no_data")}</p>
               </div>
             ) : (
               <div className="overflow-auto max-h-[60vh]">
@@ -1378,17 +1358,17 @@ export default function ActiveLsoReportPage() {
                   <thead>
                     <tr>
                       <th className="sticky top-0 z-20 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-left font-bold text-gray-600 dark:text-gray-300 border-b border-r border-gray-200 dark:border-slate-700">
-                        {t("active_lso_report.summary.supervisor_name")}
+                        {t("active_sso_report.summary.supervisor_name")}
                       </th>
                       <th className="sticky top-0 z-20 h-9 px-2 bg-slate-100 dark:bg-slate-800 text-center font-semibold text-gray-500 dark:text-gray-400 border-b border-r border-gray-200 dark:border-slate-700">
-                        {t("active_lso_report.summary.rso_count")}
+                        {t("active_sso_report.summary.rso_count")}
                       </th>
                       <th className="sticky top-0 z-20 h-9 px-2 bg-slate-100 dark:bg-slate-800 text-center font-semibold text-gray-500 dark:text-gray-400 border-b border-r border-gray-200 dark:border-slate-700">
-                        {t("active_lso_report.summary.retailer_count")}
+                        {t("active_sso_report.summary.retailer_count")}
                       </th>
                       {A_COL_KEYS.map((k) => (
                         <th key={k} className="sticky top-0 z-20 h-9 px-2 bg-slate-100 dark:bg-slate-800 text-center font-semibold text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                          {t(`active_lso_report.columns.${k}`)}
+                          {t(`active_sso_report.columns.${k}`)}
                         </th>
                       ))}
                     </tr>
@@ -1414,7 +1394,7 @@ export default function ActiveLsoReportPage() {
         </>
       )}
 
-      {/* Active LSO Config Modal */}
+      {/* Active SSO Config Modal */}
       {showConfig && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowConfig(false)}>
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
@@ -1424,7 +1404,7 @@ export default function ActiveLsoReportPage() {
                   <Settings className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{t("active_lso_report.config.title")}</h3>
+                  <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{t("active_sso_report.config.title")}</h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {getMonthName(filters.month)} {filters.year}
                     {filters.houseId && filterOptions ? ` · ${filterOptions.houses.find((h) => String(h.id) === filters.houseId)?.name ?? ""}` : ""}
@@ -1443,39 +1423,25 @@ export default function ActiveLsoReportPage() {
               <div className="p-5 space-y-4 animate-pulse">
                 <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
                 <div className="h-11 w-full bg-gray-200 dark:bg-slate-700 rounded-lg" />
-                <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                <div className="h-11 w-full bg-gray-200 dark:bg-slate-700 rounded-lg" />
               </div>
             ) : (
               <>
                 <div className="p-5 space-y-4">
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">{t("active_lso_report.config.desc")}</p>
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">{t("active_sso_report.config.desc")}</p>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      {t("active_lso_report.config.days")}
+                      {t("active_sso_report.config.threshold")}
                       {!configIsCustom && (
                         <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500 font-medium">
-                          {t("active_lso_report.config.default_badge")}
+                          {t("active_sso_report.config.default_badge")}
                         </span>
                       )}
                     </label>
                     <input
                       type="number"
                       min={1}
-                      max={31}
-                      value={configForm.days}
-                      onChange={(e) => setConfigForm((f) => ({ ...f, days: e.target.value }))}
-                      className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{t("active_lso_report.config.amount")}</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={configForm.amount}
-                      onChange={(e) => setConfigForm((f) => ({ ...f, amount: e.target.value }))}
+                      value={configForm.threshold}
+                      onChange={(e) => setConfigForm((f) => ({ ...f, threshold: e.target.value }))}
                       className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
                     />
                   </div>
@@ -1492,7 +1458,7 @@ export default function ActiveLsoReportPage() {
                     disabled={savingConfig}
                     className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
                   >
-                    {savingConfig ? t("active_lso_report.config.saving") : t("active_lso_report.config.save")}
+                    {savingConfig ? t("active_sso_report.config.saving") : t("active_sso_report.config.save")}
                   </button>
                 </div>
               </>
@@ -1512,12 +1478,12 @@ export default function ActiveLsoReportPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">
-                    {t("active_lso_report.modal.inactive_retailers")}
+                    {t("active_sso_report.modal.inactive_retailers")}
                   </h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {inactiveRetailerModal.rsoName}
                     {inactiveRetailerModal.rsoCode && ` · ${inactiveRetailerModal.rsoCode}`}
-                    {` · ${inactiveRetailerModal.data.length} ${t("active_lso_report.modal.retailers_found")}`}
+                    {` · ${inactiveRetailerModal.data.length} ${t("active_sso_report.modal.retailers_found")}`}
                   </p>
                 </div>
               </div>
@@ -1529,14 +1495,14 @@ export default function ActiveLsoReportPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      {t("active_lso_report.modal.export")}
+                      {t("active_sso_report.modal.export")}
                     </button>
                     <div className="relative group">
                       <button
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
                       >
                         <Share2 className="w-3.5 h-3.5" />
-                        {t("active_lso_report.modal.share")}
+                        {t("active_sso_report.modal.share")}
                       </button>
                       <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl shadow-xl py-1.5 w-44 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
                         <button
@@ -1544,14 +1510,14 @@ export default function ActiveLsoReportPage() {
                           className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-green-50 dark:hover:bg-green-500/10 transition-colors"
                         >
                           <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-[10px] font-bold">W</span>
-                          {t("active_lso_report.modal.share_whatsapp")}
+                          {t("active_sso_report.modal.share_whatsapp")}
                         </button>
                         <button
                           onClick={() => handleShareImage("telegram")}
                           className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"
                         >
                           <span className="w-5 h-5 rounded-full bg-sky-500 flex items-center justify-center text-white text-[10px] font-bold">T</span>
-                          {t("active_lso_report.modal.share_telegram")}
+                          {t("active_sso_report.modal.share_telegram")}
                         </button>
                       </div>
                     </div>
@@ -1560,7 +1526,7 @@ export default function ActiveLsoReportPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors"
                     >
                       <Clock className="w-3.5 h-3.5" />
-                      {t("active_lso_report.modal.schedule")}
+                      {t("active_sso_report.modal.schedule")}
                     </button>
                   </>
                 )}
@@ -1587,23 +1553,20 @@ export default function ActiveLsoReportPage() {
               ) : inactiveRetailerModal.data.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
                   <Inbox className="w-10 h-10 mb-3 opacity-50" />
-                  <p className="text-sm">{t("active_lso_report.messages.no_data")}</p>
+                  <p className="text-sm">{t("active_sso_report.messages.no_data")}</p>
                 </div>
               ) : (
                 <table className="w-full text-xs border-separate border-spacing-0">
                   <thead className="sticky top-0 z-10">
                     <tr>
                       <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">#</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_house")}</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_ret_code")}</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_ret_name")}</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_ret_number")}</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_rso_number")}</th>
-                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_days_sold")}</th>
-                      <th className="px-3 py-2.5 text-right font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_sales_amount")}</th>
-                      <th className="px-3 py-2.5 text-right font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_required_sales")}</th>
-                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_required_days")}</th>
-                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">{t("active_lso_report.modal.col_no_lso_last_month")}</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_sso_report.modal.col_house")}</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_sso_report.modal.col_ret_code")}</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_sso_report.modal.col_ret_name")}</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_sso_report.modal.col_itop_number")}</th>
+                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_sso_report.modal.col_activations_done")}</th>
+                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-r border-gray-200 dark:border-slate-700">{t("active_sso_report.modal.col_required_activations")}</th>
+                      <th className="px-3 py-2.5 text-center font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">{t("active_sso_report.modal.col_no_sso_last_month")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1614,22 +1577,13 @@ export default function ActiveLsoReportPage() {
                         <td className="px-3 py-2 font-mono text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800">{r.retailer_code}</td>
                         <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800">{r.name}</td>
                         <td className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-r border-gray-100 dark:border-slate-800 font-mono">{r.itop_number || "\u2014"}</td>
-                        <td className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-r border-gray-100 dark:border-slate-800 font-mono">{r.rso_number || "\u2014"}</td>
                         <td className="px-3 py-2 text-center border-b border-r border-gray-100 dark:border-slate-800">
                           <span className={cn("inline-flex items-center justify-center min-w-[24px] px-1.5 py-0.5 rounded-full text-[11px] font-semibold",
-                            r.days_sold >= r.required_selling_days ? "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400"
-                          )}>{r.days_sold}</span>
-                        </td>
-                        <td className="px-3 py-2 text-right border-b border-r border-gray-100 dark:border-slate-800">
-                          <span className={cn("font-semibold",
-                            r.sales_amount >= r.required_sales_amount ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                          )}>{formatNumber(Math.round(r.sales_amount))}</span>
-                        </td>
-                        <td className="px-3 py-2 text-right text-gray-500 dark:text-gray-400 border-b border-r border-gray-100 dark:border-slate-800">
-                          {Math.max(0, Math.round(r.required_sales_amount - r.sales_amount))}/{formatNumber(Math.round(r.required_sales_amount))}
+                            r.activations_done >= r.required_activations ? "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400"
+                          )}>{r.activations_done}</span>
                         </td>
                         <td className="px-3 py-2 text-center text-gray-500 dark:text-gray-400 border-b border-r border-gray-100 dark:border-slate-800">
-                          {Math.max(0, r.required_selling_days - r.days_sold)}/{r.required_selling_days}
+                          {r.required_activations}
                         </td>
                         <td className="px-3 py-2 text-center border-b border-gray-100 dark:border-slate-800">
                           {r.inactive_last_month === "Y" ? (
@@ -1646,8 +1600,8 @@ export default function ActiveLsoReportPage() {
             </div>
             {inactiveRetailerModal.data.length > 0 && (
               <div className="px-5 py-3 border-t border-gray-100 dark:border-slate-800 shrink-0 bg-gray-50/50 dark:bg-slate-800/30 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                <span>{inactiveRetailerModal.data.length} {t("active_lso_report.modal.total_inactive")}</span>
-                <span>{t("active_lso_report.modal.threshold")}: {inactiveRetailerModal.data[0]?.required_selling_days} {t("active_lso_report.modal.days")} / {formatNumber(Math.round(inactiveRetailerModal.data[0]?.required_sales_amount || 0))} BDT</span>
+                <span>{inactiveRetailerModal.data.length} {t("active_sso_report.modal.total_inactive")}</span>
+                <span>{t("active_sso_report.modal.threshold")}: {inactiveRetailerModal.data[0]?.required_activations} {t("active_sso_report.modal.activations")}</span>
               </div>
             )}
           </div>
@@ -1658,9 +1612,9 @@ export default function ActiveLsoReportPage() {
       <WhatsAppReportDeliveryModal
         open={wsModalOpen}
         houseId={filters.houseId ? Number(filters.houseId) : null}
-        reportType="active_lso"
-        title="Active LSO Report Delivery"
-        subtitle="Auto-send the Active LSO Report daily at a fixed time"
+        reportType="active_sso"
+        title="Active SSO Report Delivery"
+        subtitle="Auto-send the Active SSO Report daily at a fixed time"
         onClose={() => setWsModalOpen(false)}
       />
     </div>

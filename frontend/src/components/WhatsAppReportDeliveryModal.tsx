@@ -15,6 +15,9 @@ import WhatsAppConnectModal from "@/components/WhatsAppConnectModal";
 interface Props {
   open: boolean;
   houseId: number | null;
+  reportType: string;
+  title?: string;
+  subtitle?: string;
   onClose: () => void;
 }
 
@@ -46,6 +49,7 @@ interface ScheduleItem {
   schedule_time: string;
   interval_minutes: number | null;
   channel: string;
+  report_type: string;
   whatsapp_chat_id: string;
   whatsapp_chat_name: string;
   caption: string | null;
@@ -66,7 +70,14 @@ const emptyForm = {
   caption: "",
 };
 
-export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props) {
+export default function WhatsAppReportDeliveryModal({
+  open,
+  houseId,
+  reportType,
+  title = "WhatsApp Report Delivery",
+  subtitle = "Auto-send the report daily at a fixed time",
+  onClose,
+}: Props) {
   const [status, setStatus] = useState<WsStatus | null>(null);
   const [tgStatus, setTgStatus] = useState<TgStatus | null>(null);
   const [groups, setGroups] = useState<WsGroup[]>([]);
@@ -86,7 +97,10 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
     const [statusRes, groupsRes, schedulesRes, tgRes] = await Promise.allSettled([
       apiClient.get("/whatsapp/status", { headers: hH }),
       apiClient.get("/whatsapp/groups", { headers: hH }),
-      apiClient.get("/whatsapp-schedules", { params: { house_id: houseId }, headers: hH }),
+      apiClient.get("/whatsapp-schedules", {
+        params: { house_id: houseId, report_type: reportType },
+        headers: hH,
+      }),
       apiClient.get("/telegram/status", { headers: hH }),
     ]);
     if (statusRes.status === "fulfilled") setStatus(statusRes.value.data);
@@ -94,7 +108,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
     setGroups(groupsRes.status === "fulfilled" ? groupsRes.value.data?.data ?? [] : []);
     setSchedules(schedulesRes.status === "fulfilled" ? schedulesRes.value.data?.data ?? [] : []);
     setTgStatus(tgRes.status === "fulfilled" ? tgRes.value.data : null);
-  }, [houseId]);
+  }, [houseId, reportType]);
 
   useEffect(() => {
     if (open && houseId) {
@@ -150,6 +164,7 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
         schedule_time: form.schedule_type === "daily" ? form.schedule_time : null,
         interval_minutes: form.schedule_type === "interval" ? parseInt(form.interval_minutes, 10) : null,
         channel: form.channel,
+        report_type: reportType,
         caption: form.caption || null,
       };
       if (form.channel === "whatsapp") {
@@ -248,8 +263,8 @@ export default function WhatsAppScheduleModal({ open, houseId, onClose }: Props)
                 <MessageCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-gray-900 dark:text-gray-100">WhatsApp Report Delivery</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Auto-send the house GA Live Report daily at a fixed time</p>
+                <h3 className="font-bold text-gray-900 dark:text-gray-100">{title}</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
               </div>
               <button
                 onClick={closeModal}

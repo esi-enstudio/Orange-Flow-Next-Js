@@ -17,7 +17,7 @@ import {
 
 import SectionConfigModal from "./SectionConfigModal";
 import LiveActivationDetailModal from "./LiveActivationDetailModal";
-import WhatsAppScheduleModal from "./WhatsAppScheduleModal";
+import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 import { exportLiveReport } from "@/lib/export-ga-live-report";
 import {
   PieChart, Pie, Cell,
@@ -1708,9 +1708,12 @@ export default function GaLiveReportPage() {
       />
 
       {/* ────── WhatsApp Report Delivery Modal ────── */}
-      <WhatsAppScheduleModal
+      <WhatsAppReportDeliveryModal
         open={wsModalOpen}
         houseId={effectiveHouseId}
+        reportType="ga_live"
+        title="WhatsApp Report Delivery"
+        subtitle="Auto-send the house GA Live Report daily at a fixed time"
         onClose={() => setWsModalOpen(false)}
       />
     </div>

@@ -46,6 +46,12 @@ const reportItems = [
     permission: "active_lso.view",
   },
   {
+    key: "report_active_sso",
+    href: "/reports/active-sso",
+    icon: Zap,
+    permission: "active_sso.view",
+  },
+  {
     key: "report_itopup",
     href: "/reports/itopup-details",
     icon: FileSpreadsheet,

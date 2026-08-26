@@ -22,6 +22,7 @@ import app.models.house_target
 import app.models.supervisor_target
 import app.models.rso_target
 import app.models.active_lso_config
+import app.models.active_sso_config
 import app.models.bp_target
 import app.models.activity_log
 import app.models.product_exclusion
@@ -293,6 +294,22 @@ async def _migrate_retailer_employee_link():
     except Exception as e:
         logger.warning(f"Migration warning (retailer employee link): {e}")
 
+async def _migrate_whatsapp_schedule_report_type():
+    """Add report_type column to whatsapp_schedules."""
+    try:
+        async with engine.begin() as conn:
+            schedule_exists = await conn.execute(text(
+                "SELECT to_regclass('public.whatsapp_schedules') IS NOT NULL AS exists"
+            ))
+            if not schedule_exists.scalar():
+                return
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS report_type VARCHAR(50) NOT NULL DEFAULT 'ga_live'"
+            ))
+            logger.info("Migration: added whatsapp_schedules.report_type")
+    except Exception as e:
+        logger.warning(f"Migration warning (whatsapp_schedules.report_type): {e}")
+
 async def _migrate_whatsapp_schedule_columns():
     try:
         async with engine.begin() as conn:
@@ -398,6 +415,7 @@ async def init_db():
         await _migrate_lifting_stock_added()
         await _migrate_indexes()
         await _migrate_whatsapp_schedule_columns()
+        await _migrate_whatsapp_schedule_report_type()
         await _migrate_ga_report_events_config()
         await _migrate_house_whatsapp_columns()
         await _migrate_telegram_columns()

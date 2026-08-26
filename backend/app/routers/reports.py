@@ -23,6 +23,7 @@ from app.models.ga_filter import RetailerFilter, FilterTag, RetailerFilter as Re
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.active_lso_config import ActiveLsoConfig
+from app.models.active_sso_config import ActiveSsoConfig
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.role import Role
 from app.utils.access_control import is_admin_user
@@ -2569,3 +2570,415 @@ async def export_active_lso_report(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# =====================================================================
+#  ACTIVE SSO REPORT
+# =====================================================================
+from app.services.active_sso_report_service import (
+    ActiveSsoReportService,
+    get_active_sso_filters,
+    get_active_sso_thresholds,
+)
+
+
+def _resolve_active_sso_period(start_date: Optional[date], end_date: Optional[date]) -> tuple:
+    today = date.today()
+    if start_date and end_date:
+        return start_date, end_date
+    return date(today.year, today.month, 1), today
+
+
+@router.get("/reports/active-sso/filters")
+async def active_sso_filters(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_sso.view")),
+):
+    result = await get_active_sso_filters(db, current_user)
+    if not result:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return result
+
+
+@router.get("/reports/active-sso/config")
+async def get_active_sso_config(
+    house_id: Optional[int] = Query(None),
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020, le=2100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_sso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    resolved_house = house_id or house_ctx
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+
+    month_start = date(year, month, 1)
+    threshold = await get_active_sso_thresholds(db, resolved_house, month_start)
+
+    res = await db.execute(
+        select(ActiveSsoConfig).where(
+            ActiveSsoConfig.house_id == resolved_house,
+            ActiveSsoConfig.target_month == month_start,
+        )
+    )
+    config = res.scalars().first()
+
+    return {
+        "success": True,
+        "data": {
+            "house_id": resolved_house,
+            "month": month,
+            "year": year,
+            "activations_threshold": threshold,
+            "is_custom": config is not None,
+        },
+    }
+
+
+class ActiveSsoConfigPayload(BaseModel):
+    house_id: Optional[int] = None
+    month: int = Field(..., ge=1, le=12)
+    year: int = Field(..., ge=2020, le=2100)
+    activations_threshold: int = Field(..., ge=1, le=100)
+
+
+@router.put("/reports/active-sso/config")
+async def update_active_sso_config(
+    payload: ActiveSsoConfigPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_sso.config")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    resolved_house = payload.house_id or house_ctx
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+
+    month_start = date(payload.year, payload.month, 1)
+
+    res = await db.execute(
+        select(ActiveSsoConfig).where(
+            ActiveSsoConfig.house_id == resolved_house,
+            ActiveSsoConfig.target_month == month_start,
+        )
+    )
+    config = res.scalars().first()
+
+    if config:
+        config.activations_threshold = payload.activations_threshold
+        config.updated_by = current_user.id
+    else:
+        config = ActiveSsoConfig(
+            house_id=resolved_house,
+            target_month=month_start,
+            activations_threshold=payload.activations_threshold,
+            created_by=current_user.id,
+            updated_by=current_user.id,
+        )
+        db.add(config)
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "Active SSO config updated successfully",
+        "data": {
+            "house_id": resolved_house,
+            "month": payload.month,
+            "year": payload.year,
+            "activations_threshold": payload.activations_threshold,
+            "is_custom": True,
+        },
+    }
+
+
+@router.get("/reports/active-sso")
+async def active_sso_report(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    supervisor_id: Optional[int] = Query(None),
+    rso_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_sso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    resolved_house = house_id or house_ctx
+    start_date, end_date = _resolve_active_sso_period(start_date, end_date)
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+
+    service = ActiveSsoReportService(
+        db, resolved_house, start_date, end_date,
+        supervisor_id=supervisor_id, rso_id=rso_id, status_filter=status,
+    )
+    return await service.build_dashboard()
+
+
+@router.get("/reports/active-sso/retailers/export")
+async def export_inactive_sso_retailers(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_sso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+    from openpyxl.utils import get_column_letter
+    from datetime import datetime
+
+    resolved_house = house_id or house_ctx
+    start_date, end_date = _resolve_active_sso_period(start_date, end_date)
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+
+    service = ActiveSsoReportService(db, resolved_house, start_date, end_date)
+    groups = await service.get_all_inactive_retailers_grouped()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Inactive SSO Retailers"
+
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font_white = Font(bold=True, size=11, color="FFFFFF")
+    group_font = Font(bold=True, size=11, color="1F4E79")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    col_headers = [
+        "House", "Retailer Code", "Retailer Name", "iTopUp No",
+        "Activations Done", "Req. Activations", "Prev Month Inactive",
+    ]
+    col_widths = [12, 15, 30, 15, 15, 15, 18]
+
+    today_str = datetime.now().strftime("%d %b %Y")
+    current_row = 1
+    last_col = len(col_headers)
+
+    for grp in groups:
+        left_text = f"{today_str}  |  RSO: {grp['rso_name']} ({grp['dms_code']} - {grp['itop_number']})  |  Supervisor: {grp['supervisor_name']}"
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=last_col - 1)
+        cell = ws.cell(row=current_row, column=1, value=left_text)
+        cell.font = group_font
+        cell.alignment = Alignment(horizontal="left")
+        title_cell = ws.cell(row=current_row, column=last_col, value="Active SSO Report")
+        title_cell.font = group_font
+        title_cell.alignment = Alignment(horizontal="right")
+        current_row += 1
+
+        for ci, h in enumerate(col_headers, 1):
+            cell = ws.cell(row=current_row, column=ci, value=h)
+            cell.font = header_font_white
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal="center")
+        current_row += 1
+
+        for r in grp["retailers"]:
+            row_data = [
+                r["house_code"], r["retailer_code"], r["name"], r["itop_number"],
+                r["activations_done"], r["required_activations"],
+                r["inactive_last_month"] or "",
+            ]
+            for ci, val in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=ci, value=val)
+                cell.border = thin_border
+                if ci in (5, 6):
+                    cell.alignment = Alignment(horizontal="right")
+            current_row += 1
+
+        current_row += 1
+
+    for ci, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=inactive_sso_retailers_{today_str.replace(' ', '_')}.xlsx"
+        },
+    )
+
+
+@router.get("/reports/active-sso/retailers/{employee_id}/export")
+async def export_inactive_sso_retailers_single(
+    employee_id: int,
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_sso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+    from openpyxl.utils import get_column_letter
+    from datetime import datetime
+
+    resolved_house = house_id or house_ctx
+    start_date, end_date = _resolve_active_sso_period(start_date, end_date)
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+
+    service = ActiveSsoReportService(db, resolved_house, start_date, end_date)
+    retailers = await service.get_inactive_retailers(employee_id)
+
+    emp = (await db.execute(select(Employee).where(Employee.id == employee_id))).scalars().first()
+    rso_name = ""
+    dms_code = ""
+    itop_number = ""
+    supervisor_name = ""
+    if emp:
+        from app.services.active_lso_report_service import employee_name_map, supervisor_map
+        nm = await employee_name_map(db, [emp.id])
+        rso_name = nm.get(emp.id, "")
+        dms_code = emp.dms_code or ""
+        itop_number = emp.itop_number or ""
+        target_date = date(start_date.year, start_date.month, 1)
+        sup_map = await supervisor_map(db, [emp.id], target_date)
+        sup_id = sup_map.get(emp.id)
+        if sup_id:
+            sup_nm = await employee_name_map(db, [sup_id])
+            supervisor_name = sup_nm.get(sup_id, "")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Inactive SSO Retailers"
+
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font_white = Font(bold=True, size=11, color="FFFFFF")
+    group_font = Font(bold=True, size=11, color="1F4E79")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    col_headers = [
+        "House", "Retailer Code", "Retailer Name", "iTopUp No",
+        "Activations Done", "Req. Activations", "Prev Month Inactive",
+    ]
+    col_widths = [12, 15, 30, 15, 15, 15, 18]
+
+    today_str = datetime.now().strftime("%d %b %Y")
+    current_row = 1
+    last_col = len(col_headers)
+
+    left_text = f"{today_str}  |  RSO: {rso_name} ({dms_code} - {itop_number})  |  Supervisor: {supervisor_name}"
+    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=last_col - 1)
+    cell = ws.cell(row=current_row, column=1, value=left_text)
+    cell.font = group_font
+    cell.alignment = Alignment(horizontal="left")
+    title_cell = ws.cell(row=current_row, column=last_col, value="Active SSO Report")
+    title_cell.font = group_font
+    title_cell.alignment = Alignment(horizontal="right")
+    current_row += 1
+
+    for ci, h in enumerate(col_headers, 1):
+        cell = ws.cell(row=current_row, column=ci, value=h)
+        cell.font = header_font_white
+        cell.fill = header_fill
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center")
+    current_row += 1
+
+    for r in retailers:
+        row_data = [
+            r["house_code"], r["retailer_code"], r["name"], r["itop_number"],
+            r["activations_done"], r["required_activations"],
+            r["inactive_last_month"] or "",
+        ]
+        for ci, val in enumerate(row_data, 1):
+            cell = ws.cell(row=current_row, column=ci, value=val)
+            cell.border = thin_border
+            if ci in (5, 6):
+                cell.alignment = Alignment(horizontal="right")
+        current_row += 1
+
+    for ci, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=inactive_sso_{dms_code}_{today_str.replace(' ', '_')}.xlsx"
+        },
+    )
+
+
+@router.get("/reports/active-sso/retailers/{employee_id}")
+async def get_active_sso_inactive_retailers(
+    employee_id: int,
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_sso.view")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    resolved_house = house_id or house_ctx
+    start_date, end_date = _resolve_active_sso_period(start_date, end_date)
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+    service = ActiveSsoReportService(db, resolved_house, start_date, end_date)
+    retailers = await service.get_inactive_retailers(employee_id)
+    return {"success": True, "data": retailers}

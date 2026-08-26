@@ -33,6 +33,7 @@ class ScheduleCreate(BaseModel):
     schedule_time: Optional[str] = None  # required when schedule_type == daily
     interval_minutes: Optional[int] = None  # required when schedule_type == interval
     channel: str = "whatsapp"  # whatsapp | telegram
+    report_type: str = "ga_live"  # ga_live | active_lso | active_sso | ...
     whatsapp_chat_id: Optional[str] = None  # required for whatsapp channel
     whatsapp_chat_name: Optional[str] = None
     caption: Optional[str] = None
@@ -49,6 +50,14 @@ class ScheduleCreate(BaseModel):
     def _validate_channel(cls, v: str) -> str:
         if v not in ("whatsapp", "telegram"):
             raise ValueError("channel must be 'whatsapp' or 'telegram'")
+        return v
+
+    @field_validator("report_type")
+    @classmethod
+    def _validate_report_type(cls, v: str) -> str:
+        allowed = ("ga_live", "active_lso", "active_sso")
+        if v not in allowed:
+            raise ValueError(f"report_type must be one of {allowed}")
         return v
 
     @field_validator("schedule_time")
@@ -78,6 +87,7 @@ class ScheduleUpdate(BaseModel):
     schedule_time: Optional[str] = None
     interval_minutes: Optional[int] = None
     channel: Optional[str] = None
+    report_type: Optional[str] = None
     whatsapp_chat_id: Optional[str] = None
     whatsapp_chat_name: Optional[str] = None
     caption: Optional[str] = None
@@ -95,6 +105,15 @@ class ScheduleUpdate(BaseModel):
     def _validate_channel(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in ("whatsapp", "telegram"):
             raise ValueError("channel must be 'whatsapp' or 'telegram'")
+        return v
+
+    @field_validator("report_type")
+    @classmethod
+    def _validate_report_type(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            allowed = ("ga_live", "active_lso", "active_sso")
+            if v not in allowed:
+                raise ValueError(f"report_type must be one of {allowed}")
         return v
 
     @field_validator("schedule_time")
@@ -138,6 +157,7 @@ async def _get_owned_schedule(db: AsyncSession, current_user: User, schedule_id:
 @router.get("/whatsapp-schedules")
 async def list_schedules(
     house_id: Optional[int] = Query(None),
+    report_type: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("live_activations.schedule")),
 ):
@@ -158,6 +178,8 @@ async def list_schedules(
     )
     if house_id:
         query = query.where(WhatsAppSchedule.house_id == house_id)
+    if report_type:
+        query = query.where(WhatsAppSchedule.report_type == report_type)
     query = query.order_by(WhatsAppSchedule.schedule_time.asc())
 
     result = await db.execute(query)
@@ -172,6 +194,7 @@ async def list_schedules(
                 "schedule_time": s.schedule_time,
                 "interval_minutes": s.interval_minutes,
                 "channel": getattr(s, "channel", "whatsapp") or "whatsapp",
+                "report_type": getattr(s, "report_type", "ga_live") or "ga_live",
                 "whatsapp_chat_id": s.whatsapp_chat_id,
                 "whatsapp_chat_name": s.whatsapp_chat_name,
                 "caption": s.caption,
@@ -226,6 +249,7 @@ async def create_schedule(
         schedule_time=data.schedule_time or "00:00",
         interval_minutes=data.interval_minutes,
         channel=channel,
+        report_type=data.report_type or "ga_live",
         whatsapp_chat_id=chat_id or "-",
         whatsapp_chat_name=chat_name or "-",
         caption=data.caption,
@@ -274,6 +298,7 @@ async def update_schedule(
         "schedule_time": schedule.schedule_time,
         "interval_minutes": schedule.interval_minutes,
         "channel": getattr(schedule, "channel", "whatsapp") or "whatsapp",
+        "report_type": getattr(schedule, "report_type", "ga_live") or "ga_live",
         "whatsapp_chat_name": schedule.whatsapp_chat_name,
         "whatsapp_chat_id": schedule.whatsapp_chat_id,
         "caption": schedule.caption,
@@ -293,6 +318,9 @@ async def update_schedule(
     if data.channel is not None:
         schedule.channel = data.channel
         new_values["channel"] = data.channel
+    if data.report_type is not None:
+        schedule.report_type = data.report_type
+        new_values["report_type"] = data.report_type
     if data.whatsapp_chat_name is not None:
         schedule.whatsapp_chat_name = data.whatsapp_chat_name
         new_values["whatsapp_chat_name"] = data.whatsapp_chat_name

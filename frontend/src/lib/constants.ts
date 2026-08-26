@@ -158,6 +158,7 @@ export const navItems: NavItem[] = [
       { title: "Recharge", translationKey: "nav.report_recharge", href: "/reports/recharge", permission: "reports.view" },
       { title: "Transactions", translationKey: "nav.report_transactions", href: "/reports/transactions", permission: "transactions.view" },
       { title: "Active LSO", translationKey: "nav.report_active_lso", href: "/reports/active-lso", permission: "active_lso.view" },
+      { title: "Active SSO", translationKey: "nav.report_active_sso", href: "/reports/active-sso", permission: "active_sso.view" },
 
       { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permission: "reports.view" },
       { title: "GA Report Builder", translationKey: "nav.report_ga_builder", href: "/reports/ga-report-builder", permission: "ga_report_builder.view" },
