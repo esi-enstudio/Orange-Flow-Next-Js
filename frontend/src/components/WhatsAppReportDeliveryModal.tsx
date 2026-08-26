@@ -99,6 +99,7 @@ export default function WhatsAppReportDeliveryModal({
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [waTargetTab, setWaTargetTab] = useState<"groups" | "contacts">("groups");
   const [contactSearch, setContactSearch] = useState("");
+  const [groupSearch, setGroupSearch] = useState("");
 
   const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
 
@@ -145,6 +146,7 @@ export default function WhatsAppReportDeliveryModal({
     setForm(emptyForm);
     setWaTargetTab("groups");
     setContactSearch("");
+    setGroupSearch("");
     onClose();
   };
 
@@ -163,6 +165,12 @@ export default function WhatsAppReportDeliveryModal({
       })
       .slice(0, 100);
   }, [contacts, contactSearch]);
+
+  const filteredGroups = useMemo(() => {
+    if (!groupSearch.trim()) return groups;
+    const q = groupSearch.toLowerCase();
+    return groups.filter((g) => g.name.toLowerCase().includes(q) || g.id.toLowerCase().includes(q));
+  }, [groups, groupSearch]);
 
   const selectGroup = (id: string) => {
     const g = groups.find((x) => x.id === id);
@@ -432,30 +440,42 @@ export default function WhatsAppReportDeliveryModal({
                     </div>
 
                     {waTargetTab === "groups" ? (
-                      groups.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
-                          {groups.map((g, gi) => (
-                            <button
-                              key={g.id || g.name || `group-${gi}`}
-                              onClick={() => selectGroup(g.id)}
-                              className={cn(
-                                "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",
-                                form.whatsapp_chat_id === g.id
-                                  ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300"
-                                  : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
-                              )}
-                            >
-                              <MessageCircle className="w-4 h-4 shrink-0" />
-                              <span className="truncate">{g.name}</span>
-                              {form.whatsapp_chat_id === g.id && <CheckCircle2 className="w-4 h-4 shrink-0 ml-auto" />}
-                            </button>
-                          ))}
+                      <div>
+                        <div className="relative mb-2">
+                          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            type="text"
+                            value={groupSearch}
+                            onChange={(e) => setGroupSearch(e.target.value)}
+                            placeholder="Search groups by name..."
+                            className="w-full min-h-[40px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                          />
                         </div>
-                      ) : (
-                        <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
-                          No groups available{!status?.connected ? " — link WhatsApp first" : ""}.
-                        </p>
-                      )
+                        {filteredGroups.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                            {filteredGroups.map((g, gi) => (
+                              <button
+                                key={g.id || g.name || `group-${gi}`}
+                                onClick={() => selectGroup(g.id)}
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",
+                                  form.whatsapp_chat_id === g.id
+                                    ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300"
+                                    : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
+                                )}
+                              >
+                                <MessageCircle className="w-4 h-4 shrink-0" />
+                                <span className="truncate">{g.name}</span>
+                                {form.whatsapp_chat_id === g.id && <CheckCircle2 className="w-4 h-4 shrink-0 ml-auto" />}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
+                            {groupSearch ? "No groups match your search" : !status?.connected ? "No groups available — link WhatsApp first" : "No groups available"}.
+                          </p>
+                        )}
+                      </div>
                     ) : (
                       <div>
                         <div className="relative mb-2">
