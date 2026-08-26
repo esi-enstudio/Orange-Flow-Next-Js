@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, Send, Clock, MessageCircle, Loader2, RefreshCw,
   Plus, Trash2, Power, CalendarCheck, AlertCircle, Smartphone,
-  Pencil, CheckCircle2,
+  Pencil, CheckCircle2, User, Search,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,14 @@ interface WsStatus {
 interface WsGroup {
   id: string;
   name: string;
+}
+
+interface WsContact {
+  jid: string;
+  push_name: string;
+  full_name: string;
+  first_name: string;
+  business_name: string;
 }
 
 interface TgStatus {
@@ -81,6 +89,7 @@ export default function WhatsAppReportDeliveryModal({
   const [status, setStatus] = useState<WsStatus | null>(null);
   const [tgStatus, setTgStatus] = useState<TgStatus | null>(null);
   const [groups, setGroups] = useState<WsGroup[]>([]);
+  const [contacts, setContacts] = useState<WsContact[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [sendingId, setSendingId] = useState<number | null>(null);
@@ -88,15 +97,18 @@ export default function WhatsAppReportDeliveryModal({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [waTargetTab, setWaTargetTab] = useState<"groups" | "contacts">("groups");
+  const [contactSearch, setContactSearch] = useState("");
 
   const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
 
   const fetchAll = useCallback(async () => {
     if (!houseId) return;
     const hH = { "X-House-ID": String(houseId) };
-    const [statusRes, groupsRes, schedulesRes, tgRes] = await Promise.allSettled([
+    const [statusRes, groupsRes, contactsRes, schedulesRes, tgRes] = await Promise.allSettled([
       apiClient.get("/whatsapp/status", { headers: hH }),
       apiClient.get("/whatsapp/groups", { headers: hH }),
+      apiClient.get("/whatsapp/contacts", { headers: hH }),
       apiClient.get("/whatsapp-schedules", {
         params: { house_id: houseId, report_type: reportType },
         headers: hH,
@@ -106,6 +118,7 @@ export default function WhatsAppReportDeliveryModal({
     if (statusRes.status === "fulfilled") setStatus(statusRes.value.data);
     else setStatus({ connected: false, state: "unreachable", error: "Service unreachable" });
     setGroups(groupsRes.status === "fulfilled" ? groupsRes.value.data?.data ?? [] : []);
+    setContacts(contactsRes.status === "fulfilled" ? contactsRes.value.data?.data ?? [] : []);
     setSchedules(schedulesRes.status === "fulfilled" ? schedulesRes.value.data?.data ?? [] : []);
     setTgStatus(tgRes.status === "fulfilled" ? tgRes.value.data : null);
   }, [houseId, reportType]);
@@ -126,11 +139,30 @@ export default function WhatsAppReportDeliveryModal({
     setStatus(null);
     setTgStatus(null);
     setGroups([]);
+    setContacts([]);
     setSchedules([]);
     setEditingId(null);
     setForm(emptyForm);
+    setWaTargetTab("groups");
+    setContactSearch("");
     onClose();
   };
+
+  const contactDisplayName = (c: WsContact): string => {
+    return c.push_name || c.full_name || c.business_name || c.first_name || c.jid.split("@")[0];
+  };
+
+  const filteredContacts = useMemo(() => {
+    if (!contactSearch.trim()) return contacts.slice(0, 100);
+    const q = contactSearch.toLowerCase();
+    return contacts
+      .filter((c) => {
+        const name = contactDisplayName(c).toLowerCase();
+        const jid = c.jid.toLowerCase();
+        return name.includes(q) || jid.includes(q);
+      })
+      .slice(0, 100);
+  }, [contacts, contactSearch]);
 
   const selectGroup = (id: string) => {
     const g = groups.find((x) => x.id === id);
@@ -144,7 +176,7 @@ export default function WhatsAppReportDeliveryModal({
   const save = async () => {
     if (!houseId) return;
     if (form.channel === "whatsapp" && !form.whatsapp_chat_id) {
-      toast.error("Select a WhatsApp group");
+      toast.error("Select a WhatsApp group or contact");
       return;
     }
     if (form.schedule_type === "interval") {
@@ -370,32 +402,117 @@ export default function WhatsAppReportDeliveryModal({
 
                 {form.channel === "whatsapp" ? (
                   <div>
-                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                      WhatsApp Group
-                    </label>
-                    {groups.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
-                        {groups.map((g, gi) => (
-                          <button
-                            key={g.id || g.name || `group-${gi}`}
-                            onClick={() => selectGroup(g.id)}
-                            className={cn(
-                              "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",
-                              form.whatsapp_chat_id === g.id
-                                ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300"
-                                : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
-                            )}
-                          >
-                            <MessageCircle className="w-4 h-4 shrink-0" />
-                            <span className="truncate">{g.name}</span>
-                            {form.whatsapp_chat_id === g.id && <CheckCircle2 className="w-4 h-4 shrink-0 ml-auto" />}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="flex items-center gap-1 mb-3 bg-gray-100 dark:bg-slate-800 rounded-xl p-1">
+                      <button
+                        type="button"
+                        onClick={() => setWaTargetTab("groups")}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
+                          waTargetTab === "groups"
+                            ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 shadow-sm"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                        )}
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        Groups ({groups.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setWaTargetTab("contacts")}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
+                          waTargetTab === "contacts"
+                            ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 shadow-sm"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                        )}
+                      >
+                        <User className="w-3.5 h-3.5" />
+                        Contacts ({contacts.length})
+                      </button>
+                    </div>
+
+                    {waTargetTab === "groups" ? (
+                      groups.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                          {groups.map((g, gi) => (
+                            <button
+                              key={g.id || g.name || `group-${gi}`}
+                              onClick={() => selectGroup(g.id)}
+                              className={cn(
+                                "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",
+                                form.whatsapp_chat_id === g.id
+                                  ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300"
+                                  : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
+                              )}
+                            >
+                              <MessageCircle className="w-4 h-4 shrink-0" />
+                              <span className="truncate">{g.name}</span>
+                              {form.whatsapp_chat_id === g.id && <CheckCircle2 className="w-4 h-4 shrink-0 ml-auto" />}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
+                          No groups available{!status?.connected ? " — link WhatsApp first" : ""}.
+                        </p>
+                      )
                     ) : (
-                      <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
-                        No groups available{!status?.connected ? " — link WhatsApp first" : ""}.
-                      </p>
+                      <div>
+                        <div className="relative mb-2">
+                          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            type="text"
+                            value={contactSearch}
+                            onChange={(e) => setContactSearch(e.target.value)}
+                            placeholder="Search contacts by name or number..."
+                            className="w-full min-h-[40px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                          />
+                        </div>
+                        {filteredContacts.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                            {filteredContacts.map((c) => (
+                              <button
+                                key={c.jid}
+                                onClick={() => {
+                                  setForm((f) => ({
+                                    ...f,
+                                    whatsapp_chat_id: c.jid,
+                                    whatsapp_chat_name: contactDisplayName(c),
+                                  }));
+                                }}
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",
+                                  form.whatsapp_chat_id === c.jid
+                                    ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300"
+                                    : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
+                                )}
+                              >
+                                <User className="w-4 h-4 shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <span className="truncate block">{contactDisplayName(c)}</span>
+                                  {c.jid.includes("@s.whatsapp.net") && (
+                                    <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate block">
+                                      {c.jid.replace("@s.whatsapp.net", "")}
+                                    </span>
+                                  )}
+                                </div>
+                                {form.whatsapp_chat_id === c.jid && <CheckCircle2 className="w-4 h-4 shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
+                            {contactSearch ? "No contacts match your search" : "No contacts available"}.
+                          </p>
+                        )}
+                        {contacts.length > 0 && (
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                            {contactSearch
+                              ? `${filteredContacts.length} of ${contacts.length} contacts shown`
+                              : `Showing ${Math.min(contacts.length, 100)} of ${contacts.length} contacts — type to search`}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 ) : (

@@ -273,6 +273,46 @@ class WhatsAppServiceClient:
             logger.error(f"WA gateway groups fetch failed: {e}")
             raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
 
+    async def get_contacts(self, jwt_token: str) -> list[dict]:
+        """Get all WhatsApp contacts for this device."""
+        self._check_enabled()
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    f"{self.base_url}/users/me/contacts",
+                    headers={"Authorization": f"Bearer {jwt_token}"},
+                )
+                self._raise(resp)
+                body = resp.json()
+                if not body.get("status"):
+                    raise WhatsAppServiceError(
+                        code="WA_CONTACTS_FAILED",
+                        message=body.get("message", "Failed to fetch contacts"),
+                    )
+                raw_contacts = body.get("data", [])
+
+                def _pick(d: dict, *keys: str) -> str:
+                    for k in keys:
+                        v = d.get(k)
+                        if v:
+                            return str(v)
+                    return ""
+
+                return [
+                    {
+                        "jid": _pick(c, "jid", "JID", "id"),
+                        "push_name": _pick(c, "push_name", "PushName", "pushName"),
+                        "full_name": _pick(c, "full_name", "FullName", "fullName"),
+                        "first_name": _pick(c, "first_name", "FirstName", "firstName"),
+                        "business_name": _pick(c, "business_name", "BusinessName", "businessName"),
+                    }
+                    for c in raw_contacts
+                    if isinstance(c, dict) and c.get("jid") or c.get("JID") or c.get("id")
+                ]
+        except httpx.HTTPError as e:
+            logger.error(f"WA gateway contacts fetch failed: {e}")
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+
     async def send_text(self, jwt_token: str, chat_jid: str, text: str, retries: int = 2) -> dict:
         """Send text message to a chat_jid (e.g. 120363...@g.us)."""
         self._check_enabled()

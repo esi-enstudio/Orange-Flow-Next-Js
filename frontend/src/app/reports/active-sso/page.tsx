@@ -594,85 +594,6 @@ export default function ActiveSsoReportPage() {
     }
   };
 
-  const handleShareImage = async (platform: "whatsapp" | "telegram") => {
-    const data = inactiveRetailerModal.data;
-    if (!data.length) return;
-    try {
-      const { toPng } = await import("html-to-image");
-      const r = (c: string) => c.replace(/"/g, "&quot;");
-      const rows = data.map((d, i) =>
-        `<tr style="background:${i % 2 === 1 ? "#f9fafb" : "#fff"}">
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;color:#6b7280;text-align:center">${i + 1}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:600">${r(d.house_code)}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;font-family:monospace">${r(d.retailer_code)}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:500">${r(d.name)}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;font-family:monospace">${r(d.itop_number || "\u2014")}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:${d.activations_done >= d.required_activations ? "#059669" : "#dc2626"}">${d.activations_done}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">${d.required_activations}</td>
-          <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:${d.inactive_last_month === "Y" ? "#dc2626" : "#6b7280"}">${d.inactive_last_month === "Y" ? "Y" : ""}</td>
-        </tr>`
-      ).join("");
-      const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#fff;padding:24px;width:800px">
-        <div style="margin-bottom:16px">
-          <h2 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#111827">Inactive Retailers \u2014 SSO</h2>
-          <p style="margin:0 0 2px;font-size:13px;color:#6b7280">${r(inactiveRetailerModal.rsoName)}${inactiveRetailerModal.rsoCode ? " (" + r(inactiveRetailerModal.rsoCode) + ")" : ""}</p>
-          <p style="margin:0;font-size:12px;color:#9ca3af">${inactiveRetailerModal.data.length} retailers</p>
-        </div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="background:#f3f4f6">
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">#</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">House</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">Ret Code</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">Ret Name</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left;font-weight:600;color:#374151">iTopUp No</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:#374151">Activations</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:#374151">Req.</th>
-            <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:600;color:#374151">Prev Month</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-
-      const container = document.createElement("div");
-      container.style.cssText = "position:fixed;left:-9999px;top:0;z-index:-1;pointer-events:none";
-      container.innerHTML = html;
-      document.body.appendChild(container);
-      await new Promise((r) => setTimeout(r, 100));
-      const imgDataUrl = await toPng(container.firstElementChild as HTMLElement, { pixelRatio: 2 });
-      document.body.removeChild(container);
-
-      const res = await fetch(imgDataUrl);
-      const blob = await res.blob();
-      const file = new File([blob], "inactive_sso_retailers.png", { type: "image/png" });
-
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: `Inactive SSO \u2014 ${inactiveRetailerModal.rsoName}` });
-        toast.success(t("active_sso_report.messages.share_success"));
-        return;
-      }
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `inactive_sso_${inactiveRetailerModal.rsoName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      const caption = `Inactive SSO \u2014 ${inactiveRetailerModal.rsoName} (${inactiveRetailerModal.rsoCode})\nTotal: ${inactiveRetailerModal.data.length} retailers`;
-      if (platform === "whatsapp") {
-        window.open(`https://wa.me/?text=${encodeURIComponent(caption)}`, "_blank");
-      } else {
-        window.open(`https://t.me/share/url?url=&text=${encodeURIComponent(caption)}`, "_blank");
-      }
-      toast.success(t("active_sso_report.messages.share_success"));
-    } catch (err) {
-      console.error("Share image error:", err);
-      toast.error(t("active_sso_report.messages.share_failed"));
-    }
-  };
-
   const openConfig = async () => {
     setShowConfig(true);
     setConfigLoading(true);
@@ -1497,36 +1418,12 @@ export default function ActiveSsoReportPage() {
                       <Download className="w-3.5 h-3.5" />
                       {t("active_sso_report.modal.export")}
                     </button>
-                    <div className="relative group">
-                      <button
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        {t("active_sso_report.modal.share")}
-                      </button>
-                      <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl shadow-xl py-1.5 w-44 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                        <button
-                          onClick={() => handleShareImage("whatsapp")}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-green-50 dark:hover:bg-green-500/10 transition-colors"
-                        >
-                          <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white text-[10px] font-bold">W</span>
-                          {t("active_sso_report.modal.share_whatsapp")}
-                        </button>
-                        <button
-                          onClick={() => handleShareImage("telegram")}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"
-                        >
-                          <span className="w-5 h-5 rounded-full bg-sky-500 flex items-center justify-center text-white text-[10px] font-bold">T</span>
-                          {t("active_sso_report.modal.share_telegram")}
-                        </button>
-                      </div>
-                    </div>
                     <button
                       onClick={() => setWsModalOpen(true)}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors"
                     >
-                      <Clock className="w-3.5 h-3.5" />
-                      {t("active_sso_report.modal.schedule")}
+                      <Share2 className="w-3.5 h-3.5" />
+                      {t("active_sso_report.modal.share")}
                     </button>
                   </>
                 )}

@@ -977,9 +977,6 @@ export const translations = {
         col_required_days: "Req. Days",
         col_no_lso_last_month: "No LSO Last Month",
         share: "Share",
-        share_whatsapp: "WhatsApp",
-        share_telegram: "Telegram",
-        schedule: "Schedule",
       },
       messages: {
         loading: "Loading report...",
@@ -1096,9 +1093,6 @@ export const translations = {
         col_required_activations: "Req. Activations",
         col_no_sso_last_month: "No SSO Last Month",
         share: "Share",
-        share_whatsapp: "WhatsApp",
-        share_telegram: "Telegram",
-        schedule: "Schedule",
       },
       messages: {
         loading: "Loading report...",
@@ -3435,9 +3429,6 @@ export const translations = {
         col_required_days: "প্রয়োজনীয় দিন",
         col_no_lso_last_month: "গত মাসে এলএসও নেই",
         share: "শেয়ার",
-        share_whatsapp: "WhatsApp",
-        share_telegram: "Telegram",
-        schedule: "শিডিউল",
       },
       messages: {
         loading: "রিপোর্ট লোড হচ্ছে...",
@@ -3554,9 +3545,6 @@ export const translations = {
         col_required_activations: "প্রয়োজনীয় অ্যাকটিভেশন",
         col_no_sso_last_month: "গত মাসে এসএসও নেই",
         share: "শেয়ার",
-        share_whatsapp: "WhatsApp",
-        share_telegram: "Telegram",
-        schedule: "শিডিউল",
       },
       messages: {
         loading: "রিপোর্ট লোড হচ্ছে...",
