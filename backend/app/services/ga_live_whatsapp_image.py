@@ -335,7 +335,7 @@ def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
     height, content_w = _measure_sections(sections, fonts)
     width = max(content_w, 500) + MARGIN * 2
 
-    img = Image.new("RGB", (width, height), BG)
+    img = Image.new("RGB", (int(width), int(height)), BG)
     draw = ImageDraw.Draw(img)
     x = MARGIN
     x_right = width - MARGIN

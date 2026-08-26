@@ -187,7 +187,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict) -> bytes:
     total_h += MARGIN
 
     width = max(max_w, 500) + MARGIN * 2
-    img = Image.new("RGB", (width, total_h), BG)
+    img = Image.new("RGB", (int(width), int(total_h)), BG)
     draw = ImageDraw.Draw(img)
     x = MARGIN
     y = MARGIN

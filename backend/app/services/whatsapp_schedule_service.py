@@ -13,7 +13,7 @@ from app.services.whatsapp_service_client import (
 )
 from app.services import telegram_service
 from app.services.telegram_service import TelegramError
-from app.services.report_builders import get_report_builder
+from app.services.report_builders import get_report_builder, get_report_title
 from app.services.whatsapp_token import resolve_house_wa_target, with_target_token
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 
 def _today_bst() -> datetime:
     return now_naive()
+
+
+def _build_caption(report_type: str, custom_caption: str | None) -> str:
+    """Build the final caption for a report image.
+
+    - No custom caption: "<Report Title> - <date>, <time>"
+    - Custom caption:    "<custom caption> - <date>, <time>"
+    """
+    title = get_report_title(report_type)
+    timestamp = _today_bst().strftime("%d %B %Y, %I:%M %p")
+    base = custom_caption.strip() if custom_caption and custom_caption.strip() else title
+    return f"{base} - {timestamp}"
 
 
 async def _log_schedule_action(
@@ -65,6 +77,124 @@ async def send_schedule_report(db: AsyncSession, schedule: WhatsAppSchedule) -> 
     return await _send_whatsapp_report(db, schedule)
 
 
+async def send_direct_report(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    user_name: str,
+    house_id: int,
+    report_type: str,
+    channel: str = "whatsapp",
+    whatsapp_chat_id: str | None = None,
+    whatsapp_chat_name: str | None = None,
+    caption: str | None = None,
+) -> tuple[bool, str | None]:
+    """Send a report image immediately without creating a schedule.
+
+    Returns (success, error_message).
+    """
+    title = get_report_title(report_type)
+
+    # 1. Build the report image
+    try:
+        builder = get_report_builder(report_type)
+        image_bytes = await builder(db, house_id)
+    except ValueError as e:
+        return False, f"Unknown report type: {report_type}"
+    except Exception as e:
+        logger.error(f"Direct report build failed: {e}")
+        return False, f"Report build failed: {str(e)}"
+
+    final_caption = _build_caption(report_type, caption)
+
+    # 2. Resolve the house
+    house_res = await db.execute(select(House).where(House.id == house_id))
+    house = house_res.scalar_one_or_none()
+    if not house:
+        return False, "House not found"
+
+    # 3. Send via the requested channel
+    if channel == "telegram":
+        if not house.telegram_chat_id:
+            return False, "No Telegram group linked for this house"
+        bot = await telegram_service.resolve_house_tg_bot(db, house)
+        if not bot:
+            return False, "No Telegram bot assigned to this house"
+        try:
+            await telegram_service.send_photo(
+                token=bot.bot_token,
+                chat_id=house.telegram_chat_id,
+                image_bytes=image_bytes,
+                caption=final_caption,
+            )
+        except TelegramError as e:
+            await log_activity(
+                db,
+                user_id=user_id,
+                user_name=user_name,
+                module="live_activations",
+                action="report.direct_send_failed",
+                record_identifier=f"{title} → {house.telegram_chat_name or house.telegram_chat_id}",
+                new_values={"error": e.description, "channel": "telegram"},
+                status_code=502,
+            )
+            return False, e.description
+        sent_to = house.telegram_chat_name or house.telegram_chat_id
+        log_channel = "telegram_send"
+    else:
+        if not whatsapp_chat_id or not whatsapp_chat_id.strip():
+            return False, "WhatsApp chat is required"
+        target = await resolve_house_wa_target(db, house)
+        if not target or not target.jwt_token:
+            return False, "WhatsApp not configured for this house"
+        try:
+            await with_target_token(
+                db,
+                target,
+                lambda token: whatsapp_service_client.send_image(
+                    jwt_token=token,
+                    chat_jid=whatsapp_chat_id.strip(),
+                    filename=f"{report_type}_report.png",
+                    image_bytes=image_bytes,
+                    caption=final_caption,
+                ),
+            )
+        except WhatsAppServiceError as e:
+            await log_activity(
+                db,
+                user_id=user_id,
+                user_name=user_name,
+                module="live_activations",
+                action="report.direct_send_failed",
+                record_identifier=f"{title} → {whatsapp_chat_name or whatsapp_chat_id}",
+                new_values={"error": f"{e.code}: {e.message}", "channel": "whatsapp"},
+                status_code=502,
+            )
+            return False, f"{e.code}: {e.message}"
+        sent_to = whatsapp_chat_name or whatsapp_chat_id
+        log_channel = "whatsapp_send"
+
+    # 4. Log success
+    await log_activity(
+        db,
+        user_id=user_id,
+        user_name=user_name,
+        module="live_activations",
+        action=log_channel,
+        record_identifier=f"{title} → {sent_to}",
+        new_values={
+            "house_id": house_id,
+            "report_type": report_type,
+            "chat": sent_to,
+            "mode": "direct",
+            "format": "image",
+        },
+        status_code=200,
+    )
+    logger.info(f"Direct report sent: house={house_id} type={report_type} to={sent_to}")
+    return True, None
+
+
 async def _send_telegram_report(db: AsyncSession, schedule: WhatsAppSchedule) -> bool:
     """Post the report image to the house's linked Telegram group."""
     report_type = getattr(schedule, "report_type", None) or "ga_live"
@@ -84,7 +214,7 @@ async def _send_telegram_report(db: AsyncSession, schedule: WhatsAppSchedule) ->
         await _log_schedule_action(db, schedule, "telegram_send_failed", status_code=500, error=str(e))
         return False
 
-    caption = schedule.caption or f"GA Live Report - {_today_bst().strftime('%d %B %Y')}"
+    caption = _build_caption(report_type, schedule.caption)
 
     house_res = await db.execute(select(House).where(House.id == schedule.house_id))
     house = house_res.scalar_one_or_none()
@@ -175,7 +305,7 @@ async def _send_whatsapp_report(db: AsyncSession, schedule: WhatsAppSchedule) ->
         await _log_schedule_action(db, schedule, "whatsapp_send_failed", status_code=500, error=str(e))
         return False
 
-    caption = schedule.caption or f"GA Live Report - {_today_bst().strftime('%d %B %Y')}"
+    caption = _build_caption(report_type, schedule.caption)
 
     # Resolve WhatsApp credentials: shared connection first, then own device
     house_res = await db.execute(select(House).where(House.id == schedule.house_id))

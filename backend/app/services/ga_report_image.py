@@ -125,7 +125,7 @@ def build_report_image(
 
     height = MARGIN + TITLE_FONT_SIZE + BLOCK_GAP + SUB_FONT_SIZE + BLOCK_GAP + row_h * (len(all_rows) + 1) + MARGIN
 
-    img = Image.new("RGB", (width, height), BG)
+    img = Image.new("RGB", (int(width), int(height)), BG)
     draw = ImageDraw.Draw(img)
     x = MARGIN
     y = MARGIN

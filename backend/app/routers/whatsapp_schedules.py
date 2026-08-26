@@ -15,7 +15,7 @@ from app.services.whatsapp_service_client import (
     whatsapp_service_client,
     WhatsAppServiceError,
 )
-from app.services.whatsapp_schedule_service import send_schedule_report
+from app.services.whatsapp_schedule_service import send_schedule_report, send_direct_report
 from app.services.whatsapp_token import resolve_house_wa_target
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
@@ -128,6 +128,30 @@ class ScheduleUpdate(BaseModel):
     def _validate_interval(cls, v: Optional[int]) -> Optional[int]:
         if v is not None and (v < 1 or v > 1440):
             raise ValueError("interval_minutes must be between 1 and 1440")
+        return v
+
+
+class DirectSendPayload(BaseModel):
+    """Payload for sending a report immediately without creating a schedule."""
+    channel: str = "whatsapp"  # whatsapp | telegram
+    report_type: str = "ga_live"
+    whatsapp_chat_id: Optional[str] = None  # required for whatsapp channel
+    whatsapp_chat_name: Optional[str] = None
+    caption: Optional[str] = None
+
+    @field_validator("channel")
+    @classmethod
+    def _validate_channel(cls, v: str) -> str:
+        if v not in ("whatsapp", "telegram"):
+            raise ValueError("channel must be 'whatsapp' or 'telegram'")
+        return v
+
+    @field_validator("report_type")
+    @classmethod
+    def _validate_report_type(cls, v: str) -> str:
+        allowed = ("ga_live", "active_lso", "active_sso")
+        if v not in allowed:
+            raise ValueError(f"report_type must be one of {allowed}")
         return v
 
 
@@ -410,6 +434,58 @@ async def send_now(
             "last_run_at": schedule.last_run_at.isoformat() if schedule.last_run_at else None,
         },
     }
+
+
+@router.post("/whatsapp-schedules/send-direct")
+async def send_direct(
+    data: DirectSendPayload,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_activations.schedule")),
+    house_context: int = Depends(require_house_context),
+):
+    """Send a report image immediately to a chat without creating a schedule."""
+    await _verify_house_access(current_user, house_context)
+
+    if data.channel == "whatsapp" and not (data.whatsapp_chat_id or "").strip():
+        raise HTTPException(status_code=400, detail="whatsapp_chat_id is required for whatsapp channel")
+
+    try:
+        ok, error = await send_direct_report(
+            db,
+            user_id=current_user.id,
+            user_name=current_user.name,
+            house_id=house_context,
+            report_type=data.report_type,
+            channel=data.channel,
+            whatsapp_chat_id=data.whatsapp_chat_id,
+            whatsapp_chat_name=data.whatsapp_chat_name,
+            caption=data.caption,
+        )
+    except WhatsAppServiceError as e:
+        raise HTTPException(status_code=503, detail=f"{e.code}: {e.message}")
+
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Send failed: {error}")
+
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="live_activations",
+        action="report.direct_send",
+        record_identifier=f"{data.report_type} → {data.whatsapp_chat_name or 'Telegram'}",
+        new_values={
+            "house_id": house_context,
+            "report_type": data.report_type,
+            "channel": data.channel,
+            "mode": "direct",
+        },
+        request=request,
+        status_code=200,
+    )
+
+    return {"success": True, "data": {"sent": True}}
 
 
 @router.get("/whatsapp/status")

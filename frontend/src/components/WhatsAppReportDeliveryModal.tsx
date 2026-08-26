@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   X, Send, Clock, MessageCircle, Loader2, RefreshCw,
   Plus, Trash2, Power, CalendarCheck, AlertCircle, Smartphone,
-  Pencil, CheckCircle2, User, Search,
+  Pencil, CheckCircle2, User, Search, Zap,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -92,9 +92,12 @@ export default function WhatsAppReportDeliveryModal({
   const [contacts, setContacts] = useState<WsContact[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [directSending, setDirectSending] = useState(false);
   const [sendingId, setSendingId] = useState<number | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ScheduleItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [waTargetTab, setWaTargetTab] = useState<"groups" | "contacts">("groups");
@@ -229,6 +232,38 @@ export default function WhatsAppReportDeliveryModal({
     }
   };
 
+  const sendDirect = async () => {
+    if (!houseId) return;
+    if (form.channel === "whatsapp" && !form.whatsapp_chat_id) {
+      toast.error("Select a WhatsApp group or contact");
+      return;
+    }
+    setDirectSending(true);
+    try {
+      const payload: Record<string, unknown> = {
+        channel: form.channel,
+        report_type: reportType,
+        caption: form.caption || null,
+      };
+      if (form.channel === "whatsapp") {
+        payload.whatsapp_chat_id = form.whatsapp_chat_id;
+        payload.whatsapp_chat_name = form.whatsapp_chat_name;
+      }
+      await apiClient.post("/whatsapp-schedules/send-direct", payload, { headers: houseHeader });
+      toast.success(
+        form.channel === "telegram"
+          ? "Report sent to Telegram"
+          : `Report sent to ${form.whatsapp_chat_name || "WhatsApp"}`
+      );
+    } catch (e) {
+      const axiosErr = e as { response?: { data?: { detail?: string } } };
+      const msg = axiosErr.response?.data?.detail || (e as Error).message || "Send failed";
+      toast.error(msg);
+    } finally {
+      setDirectSending(false);
+    }
+  };
+
   const startEdit = (s: ScheduleItem) => {
     setEditingId(s.id);
     setForm({
@@ -255,13 +290,16 @@ export default function WhatsAppReportDeliveryModal({
   };
 
   const remove = async (s: ScheduleItem) => {
-    if (!window.confirm(`Delete schedule for "${s.whatsapp_chat_name}"?`)) return;
+    setDeleting(true);
     try {
       await apiClient.delete(`/whatsapp-schedules/${s.id}`);
       fetchAll();
       toast.success("Schedule deleted");
+      setDeleteTarget(null);
     } catch (e) {
       toast.error((e as Error).message || "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -663,9 +701,19 @@ export default function WhatsAppReportDeliveryModal({
                       Cancel
                     </button>
                   )}
+                  {!editingId && (
+                    <button
+                      onClick={sendDirect}
+                      disabled={directSending || loading}
+                      className="flex items-center gap-2 px-4 min-h-[44px] rounded-xl border border-green-300 dark:border-green-500/40 bg-white dark:bg-slate-800 text-green-700 dark:text-green-400 text-sm font-medium hover:bg-green-50 dark:hover:bg-green-500/10 disabled:opacity-50"
+                    >
+                      {directSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                      Send Now
+                    </button>
+                  )}
                   <button
                     onClick={save}
-                    disabled={loading}
+                    disabled={loading || directSending}
                     className="flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50"
                   >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -755,7 +803,7 @@ export default function WhatsAppReportDeliveryModal({
                           {togglingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />}
                         </button>
                         <button
-                          onClick={() => remove(s)}
+                          onClick={() => setDeleteTarget(s)}
                           className="p-2 rounded-lg border border-red-200 dark:border-red-500/40 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 min-h-[36px]"
                           title="Delete"
                         >
@@ -770,6 +818,75 @@ export default function WhatsAppReportDeliveryModal({
           </motion.div>
         </motion.div>
       )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => !deleting && setDeleteTarget(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.94, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.94, y: 12, opacity: 0 }}
+              transition={{ type: "spring", damping: 26, stiffness: 320 }}
+              className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-gray-900 dark:text-gray-100">Delete schedule?</h4>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 break-words">
+                    The report schedule for{" "}
+                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                      {deleteTarget.whatsapp_chat_name}
+                    </span>{" "}
+                    will be permanently removed. This action cannot be undone.
+                  </p>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+                    {deleteTarget.channel === "telegram" ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 font-semibold">
+                        <Send className="w-2.5 h-2.5" /> Telegram
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 font-semibold">
+                        <MessageCircle className="w-2.5 h-2.5" /> WhatsApp
+                      </span>
+                    )}
+                    <span className="inline-flex items-center gap-1">
+                      {deleteTarget.schedule_type === "interval"
+                        ? <><RefreshCw className="w-3 h-3" /> every {deleteTarget.interval_minutes} min</>
+                        : <><Clock className="w-3 h-3" /> daily {deleteTarget.schedule_time}</>}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 mt-5">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                  className="px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => remove(deleteTarget)}
+                  disabled={deleting}
+                  className="flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
       <WhatsAppConnectModal
         open={showConnectModal}
