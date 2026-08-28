@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, Send, Clock, MessageCircle, Loader2, RefreshCw,
@@ -163,6 +164,7 @@ export default function WhatsAppReportDeliveryModal({
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [historyOpen, setHistoryOpen] = useState(false);
+  const router = useRouter();
 
   const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
 
@@ -886,6 +888,21 @@ export default function WhatsAppReportDeliveryModal({
     );
   };
 
+  const renderCaptionField = () => (
+    <div>
+      <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+        Caption (optional)
+      </label>
+      <input
+        type="text"
+        value={form.caption}
+        onChange={(e) => setForm((f) => ({ ...f, caption: e.target.value }))}
+        placeholder={REPORT_DEFAULT_CAPTIONS[reportType] || `Daily ${reportTitle}`}
+        className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+      />
+    </div>
+  );
+
   const renderSummary = () => (
     <div className={cn(
       "rounded-2xl border p-4 space-y-2",
@@ -1184,8 +1201,40 @@ export default function WhatsAppReportDeliveryModal({
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-              {/* Connection status */}
-              {renderStatusBanner()}
+              {/* Channel selector */}
+              <div className="rounded-2xl border border-gray-200 dark:border-slate-700/60 p-4">
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                  Delivery channel
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, channel: "whatsapp" }))}
+                    className={cn(
+                      "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm min-h-[44px] transition-colors",
+                      form.channel === "whatsapp"
+                        ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 font-medium"
+                        : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
+                    )}
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, channel: "telegram" }))}
+                    className={cn(
+                      "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm min-h-[44px] transition-colors",
+                      form.channel === "telegram"
+                        ? "border-sky-400 dark:border-sky-500 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 font-medium"
+                        : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
+                    )}
+                  >
+                    <Send className="w-4 h-4" />
+                    Telegram
+                  </button>
+                </div>
+              </div>
 
               {status?.qr && (
                 <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/40 p-4">
@@ -1205,77 +1254,57 @@ export default function WhatsAppReportDeliveryModal({
                   {editingId ? "Edit schedule" : "New schedule"}
                 </p>
 
-                {formLocked && renderLockBanner()}
+                {formLocked && form.channel !== "telegram" && renderLockBanner()}
+
+                {/* Connection status — always interactive, never dimmed */}
+                {form.channel === "whatsapp" ? (
+                  renderStatusBanner()
+                ) : (
+                  <div
+                    className={cn(
+                      "rounded-2xl border p-4",
+                      tgStatus?.success
+                        ? "border-sky-200 dark:border-sky-500/30 bg-sky-50 dark:bg-sky-500/10"
+                        : "border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10"
+                    )}
+                  >
+                    {tgStatus?.success ? (
+                      <>
+                        <p className="text-sm font-medium text-sky-700 dark:text-sky-300 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          Bot @{tgStatus.bot?.username || tgStatus.bot?.name} ready
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
+                          Report goes to the house&apos;s linked group:{" "}
+                          <span className="font-mono">{tgStatus.chat_name || tgStatus.chat_id || "—"}</span>
+                          {!tgStatus.chat_id && " (link it on the Telegram page)"}
+                        </p>
+                      </>
+                    ) : (
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                            {tgStatus?.error ?? "No Telegram bot assigned to this house"}
+                          </p>
+                          <p className="text-xs text-amber-600/80 dark:text-amber-400/80 mt-0.5">
+                            Link a Telegram group for this house to schedule report delivery.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => router.push("/telegram")}
+                          className="flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 shrink-0"
+                        >
+                          <Pencil className="w-4 h-4" />
+                          Open Telegram page
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className={cn("space-y-4", formLocked && "opacity-50 pointer-events-none select-none")}>
-                  {/* Channel selector */}
-                  <div>
-                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                      Delivery channel
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, channel: "whatsapp" }))}
-                        className={cn(
-                          "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm min-h-[44px] transition-colors",
-                          form.channel === "whatsapp"
-                            ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 font-medium"
-                            : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
-                        )}
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                        WhatsApp
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, channel: "telegram" }))}
-                        className={cn(
-                          "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm min-h-[44px] transition-colors",
-                          form.channel === "telegram"
-                            ? "border-sky-400 dark:border-sky-500 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 font-medium"
-                            : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
-                        )}
-                      >
-                        <Send className="w-4 h-4" />
-                        Telegram
-                      </button>
-                    </div>
-                  </div>
-
-                  {form.channel === "whatsapp" ? (
-                    renderRecipientPicker()
-                  ) : (
-                    <div
-                      className={cn(
-                        "rounded-2xl border p-4",
-                        tgStatus?.success
-                          ? "border-sky-200 dark:border-sky-500/30 bg-sky-50 dark:bg-sky-500/10"
-                          : "border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10"
-                      )}
-                    >
-                      {tgStatus?.success ? (
-                        <>
-                          <p className="text-sm font-medium text-sky-700 dark:text-sky-300 flex items-center gap-2">
-                            <CheckCircle2 className="w-4 h-4 shrink-0" />
-                            Bot @{tgStatus.bot?.username || tgStatus.bot?.name} ready
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
-                            Report goes to the house&apos;s linked group:{" "}
-                            <span className="font-mono">{tgStatus.chat_name || tgStatus.chat_id || "—"}</span>
-                            {!tgStatus.chat_id && " (link it on the Telegram page)"}
-                          </p>
-                        </>
-                      ) : (
-                        <p className="text-sm text-amber-700 dark:text-amber-400 flex items-start gap-2">
-                          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                          {tgStatus?.error ?? "Telegram not configured for this house"}
-                          {" — "}
-                          <button onClick={closeModal} className="underline font-medium shrink-0">Open Telegram page</button>
-                        </p>
-                      )}
-                    </div>
-                  )}
+                  {form.channel === "whatsapp" && renderRecipientPicker()}
 
                   {/* Frequency */}
                   <div>
@@ -1402,39 +1431,31 @@ export default function WhatsAppReportDeliveryModal({
                         </div>
                       </>
                     ) : (
-                      <div>
-                        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                          Delivery time
-                        </label>
-                        <div className="relative">
-                          <Clock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                          <input
-                            type="time"
-                            value={form.schedule_time}
-                            onChange={(e) => setForm((f) => ({ ...f, schedule_time: e.target.value }))}
-                            className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                          />
+                      <>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                            Delivery time
+                          </label>
+                          <div className="relative">
+                            <Clock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="time"
+                              value={form.schedule_time}
+                              onChange={(e) => setForm((f) => ({ ...f, schedule_time: e.target.value }))}
+                              className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                            />
+                          </div>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                            Timezone: <span className="font-medium">Asia/Dhaka (UTC+6)</span>
+                          </p>
                         </div>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
-                          Timezone: <span className="font-medium">Asia/Dhaka (UTC+6)</span>
-                        </p>
-                      </div>
+                        {renderCaptionField()}
+                      </>
                     )}
                   </div>
 
-                  {/* Caption */}
-                  <div>
-                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                      Caption (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={form.caption}
-                      onChange={(e) => setForm((f) => ({ ...f, caption: e.target.value }))}
-                      placeholder={REPORT_DEFAULT_CAPTIONS[reportType] || `Daily ${reportTitle}`}
-                      className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                    />
-                  </div>
+                  {/* Caption (interval mode uses full width below) */}
+                  {form.schedule_type === "interval" && renderCaptionField()}
                 </div>
 
                 {/* Schedule summary preview */}
