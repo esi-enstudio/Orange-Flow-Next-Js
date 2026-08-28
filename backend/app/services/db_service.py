@@ -328,6 +328,34 @@ async def _migrate_whatsapp_schedule_columns():
     except Exception as e:
         logger.warning(f"Migration warning (whatsapp schedule columns): {e}")
 
+async def _migrate_whatsapp_schedule_delivery_columns():
+    """Add multi-recipient / duration / timezone columns to whatsapp_schedules."""
+    try:
+        async with engine.begin() as conn:
+            exists = await conn.execute(text(
+                "SELECT to_regclass('public.whatsapp_schedules') IS NOT NULL AS exists"
+            ))
+            if not exists.scalar():
+                return
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS target_ids TEXT"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS target_names TEXT"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS starts_on DATE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS ends_on DATE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS timezone_name VARCHAR(50) DEFAULT 'Asia/Dhaka'"
+            ))
+            logger.info("Migration complete: whatsapp_schedules delivery columns ensured")
+    except Exception as e:
+        logger.warning(f"Migration warning (whatsapp schedule delivery columns): {e}")
+
 async def _migrate_ga_report_events_config():
     try:
         async with engine.begin() as conn:
@@ -416,6 +444,7 @@ async def init_db():
         await _migrate_indexes()
         await _migrate_whatsapp_schedule_columns()
         await _migrate_whatsapp_schedule_report_type()
+        await _migrate_whatsapp_schedule_delivery_columns()
         await _migrate_ga_report_events_config()
         await _migrate_house_whatsapp_columns()
         await _migrate_telegram_columns()

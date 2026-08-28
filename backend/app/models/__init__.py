@@ -53,5 +53,6 @@ from app.models.stock import (
 from app.models.itopup_balance import ITopUpBalance, ITopUpBalanceLedger, ITopUpTransfer
 from app.models.sales import SalesRecord
 from app.models.whatsapp_schedule import WhatsAppSchedule
+from app.models.whatsapp_delivery_log import WhatsAppDeliveryLog
 from app.models.whatsapp_connection import WhatsappConnection, whatsapp_connection_houses
 from app.models.telegram_bot import TelegramBot, telegram_bot_houses

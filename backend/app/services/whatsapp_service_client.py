@@ -7,6 +7,15 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# Stable, actionable message used when the gateway cannot be reached.
+# The raw exception detail (DNS, connection refused, ...) is never leaked to
+# clients — it is only kept in server logs.
+WA_GATEWAY_UNREACHABLE_MSG = (
+    "WhatsApp gateway is unreachable. Make sure the whatsapp-gateway service "
+    "is running (docker compose --profile whatsapp up -d whatsapp-gateway) "
+    "and that WA_GATEWAY_URL points to it."
+)
+
 
 class WhatsAppServiceClient:
     """Client for go-whatsapp-multi-session-rest-api (per-device JWT auth).
@@ -29,13 +38,28 @@ class WhatsAppServiceClient:
 
     @staticmethod
     def _raise(resp: httpx.Response) -> None:
-        """Raise structured errors; 401 on a device JWT => WA_TOKEN_EXPIRED."""
+        """Raise structured errors; 401 on a device JWT => WA_TOKEN_EXPIRED.
+
+        Non-2xx gateway responses carry a JSON body with 'message'/'error'.
+        Surface that message with code=WA_GATEWAY_ERROR instead of treating it
+        as a transport failure (WA_SERVICE_UNREACHABLE) — only DNS/connection
+        errors are unreachable.
+        """
         if resp.status_code == 401:
             raise WhatsAppServiceError(
                 code="WA_TOKEN_EXPIRED",
-                message="Device token has been revoked or expired",
+                message="Device token has been revoked or expired. Re-run WhatsApp setup.",
             )
-        resp.raise_for_status()
+        if not resp.is_success:
+            message = f"Gateway error (HTTP {resp.status_code})"
+            try:
+                body = resp.json()
+                raw = body.get("message") or body.get("error")
+                if isinstance(raw, str) and raw.strip():
+                    message = raw.strip()
+            except Exception:
+                pass
+            raise WhatsAppServiceError(code="WA_GATEWAY_ERROR", message=message)
 
     # ── Admin APIs (one-time setup) ──────────────────────────────────
 
@@ -65,7 +89,7 @@ class WhatsAppServiceClient:
                         "rate_limit_per_hour": 1000,
                     },
                 )
-                resp.raise_for_status()
+                self._raise(resp)
                 body = resp.json()
                 if not body.get("status"):
                     raise WhatsAppServiceError(
@@ -75,7 +99,7 @@ class WhatsAppServiceClient:
                 return body["data"]["api_key"]
         except httpx.HTTPError as e:
             logger.error(f"WA gateway create API key failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def create_device(self, api_key: str, device_name: str) -> dict:
         """Create a device for a house. Returns {device_id, device_secret, token}."""
@@ -87,7 +111,7 @@ class WhatsAppServiceClient:
                     headers={"X-API-Key": api_key, "Content-Type": "application/json"},
                     json={"device_name": device_name},
                 )
-                resp.raise_for_status()
+                self._raise(resp)
                 body = resp.json()
                 if not body.get("status"):
                     raise WhatsAppServiceError(
@@ -97,7 +121,7 @@ class WhatsAppServiceClient:
                 return body["data"]
         except httpx.HTTPError as e:
             logger.error(f"WA gateway create device failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def regenerate_token(self, device_id: str, device_secret: str) -> str:
         """Regenerate JWT token for a device. Returns new token."""
@@ -119,7 +143,7 @@ class WhatsAppServiceClient:
                 return body["data"]["token"]
         except httpx.HTTPError as e:
             logger.error(f"WA gateway regenerate token failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def delete_device(self, device_id: str) -> dict:
         """Delete a device (admin only)."""
@@ -134,7 +158,7 @@ class WhatsAppServiceClient:
                 return resp.json()
         except httpx.HTTPError as e:
             logger.error(f"WA gateway delete device failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     # ── Device APIs (per-house, JWT auth) ────────────────────────────
 
@@ -157,7 +181,7 @@ class WhatsAppServiceClient:
                 return body.get("data", body)
         except httpx.HTTPError as e:
             logger.error(f"WA gateway device status failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def login_qr(self, jwt_token: str) -> dict:
         """Generate QR code for device login. Returns {qr_data_url, ...}."""
@@ -179,7 +203,7 @@ class WhatsAppServiceClient:
                 return body.get("data", body)
         except httpx.HTTPError as e:
             logger.error(f"WA gateway login QR failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def login_pairing_code(self, jwt_token: str, phone_number: str) -> dict:
         """Login with pairing code (alternative to QR)."""
@@ -201,7 +225,7 @@ class WhatsAppServiceClient:
                 return body.get("data", body)
         except httpx.HTTPError as e:
             logger.error(f"WA gateway pairing code failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def reconnect_device(self, jwt_token: str) -> dict:
         """Reconnect a disconnected device."""
@@ -217,7 +241,7 @@ class WhatsAppServiceClient:
                 return body.get("data", body)
         except httpx.HTTPError as e:
             logger.error(f"WA gateway reconnect failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def disconnect_device(self, jwt_token: str) -> dict:
         """Logout/disconnect device."""
@@ -233,7 +257,7 @@ class WhatsAppServiceClient:
                 return body.get("data", body)
         except httpx.HTTPError as e:
             logger.error(f"WA gateway disconnect failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def get_groups(self, jwt_token: str) -> list[dict]:
         """Get all WhatsApp groups for this device."""
@@ -271,7 +295,7 @@ class WhatsAppServiceClient:
                 ]
         except httpx.HTTPError as e:
             logger.error(f"WA gateway groups fetch failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def get_contacts(self, jwt_token: str) -> list[dict]:
         """Get all WhatsApp contacts for this device."""
@@ -311,7 +335,7 @@ class WhatsAppServiceClient:
                 ]
         except httpx.HTTPError as e:
             logger.error(f"WA gateway contacts fetch failed: {e}")
-            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=str(e)) from e
+            raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
     async def send_text(self, jwt_token: str, chat_jid: str, text: str, retries: int = 2) -> dict:
         """Send text message to a chat_jid (e.g. 120363...@g.us)."""
@@ -336,7 +360,7 @@ class WhatsAppServiceClient:
             except httpx.HTTPError as e:
                 detail = str(e)
                 logger.warning(f"WA text send attempt {attempt + 1} failed to {chat_jid}: {detail}")
-                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=detail)
+                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG)
                 if attempt < retries:
                     import asyncio
                     await asyncio.sleep(3 * (attempt + 1))
@@ -376,7 +400,7 @@ class WhatsAppServiceClient:
             except httpx.HTTPError as e:
                 detail = str(e)
                 logger.warning(f"WA file send attempt {attempt + 1} failed to {chat_jid}: {detail}")
-                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=detail)
+                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG)
                 if attempt < retries:
                     import asyncio
                     await asyncio.sleep(3 * (attempt + 1))
@@ -415,7 +439,7 @@ class WhatsAppServiceClient:
             except httpx.HTTPError as e:
                 detail = str(e)
                 logger.warning(f"WA image send attempt {attempt + 1} failed to {chat_jid}: {detail}")
-                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=detail)
+                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG)
                 if attempt < retries:
                     import asyncio
                     await asyncio.sleep(3 * (attempt + 1))

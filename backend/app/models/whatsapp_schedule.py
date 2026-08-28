@@ -11,11 +11,18 @@ class WhatsAppSchedule(Base):
     house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
 
     schedule_type = Column(String(20), nullable=False, default="daily")  # daily | interval
-    schedule_time = Column(String(5), nullable=False)  # "HH:MM" in Asia/Dhaka (daily mode)
+    schedule_time = Column(String(5), nullable=False)  # "HH:MM" in timezone_name (daily mode)
     interval_minutes = Column(Integer, nullable=True)  # repeat every N minutes (interval mode)
     channel = Column(String(16), nullable=False, default="whatsapp", server_default="whatsapp")  # whatsapp | telegram
-    whatsapp_chat_id = Column(String(64), nullable=False)  # serialized chat id (e.g. ...@g.us); telegram chat id for channel=telegram
+    whatsapp_chat_id = Column(String(64), nullable=False)  # primary chat id (e.g. ...@g.us); telegram chat id for channel=telegram
     whatsapp_chat_name = Column(String(200), nullable=False)
+    # Multi-recipient support (whatsapp channel): only the first entry is mirrored
+    # into whatsapp_chat_id/whatsapp_chat_name for backwards compatibility.
+    target_ids = Column(Text, nullable=True)  # JSON array of chat ids
+    target_names = Column(Text, nullable=True)  # JSON array of display names (parallel to target_ids)
+    starts_on = Column(Date, nullable=True)  # schedule is inactive before this date
+    ends_on = Column(Date, nullable=True)  # schedule is inactive after this date (null = never expires)
+    timezone_name = Column(String(50), nullable=True, default="Asia/Dhaka")  # schedule_time is interpreted in this zone
     caption = Column(Text, nullable=True)
     report_type = Column(String(50), nullable=False, default="ga_live", server_default="ga_live")  # ga_live | active_lso | active_sso | ...
 
