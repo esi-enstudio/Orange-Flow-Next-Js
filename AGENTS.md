@@ -1658,6 +1658,38 @@ Frontend translation file:
 - [ ] Both locales tested: `/en/...` and `/bn/...`
 - [ ] RTL (Right-to-Left) layout check — বাংলা текстаের জন্য কোনো RTL adjustment প্রয়োজন কিনা নিশ্চিত করা হয়েছে
 
+# Page Guide (Reusable Page Instructions) Module
+
+## Objective
+
+Every page must have a bilingual (বাংলা/English) **Guide** button that opens a modal explaining the page to newcomers — what it does, each option, common workflows, and important notes.
+
+## Implementation
+
+- **Reusable component:** `frontend/src/components/PageGuideModal.tsx`
+  ```tsx
+  <PageGuideModal pageKey="scratch_card_serials" />
+  ```
+  `pageKey` is the page's translation namespace. The component renders both the trigger button and the modal (portal + body scroll lock + framer-motion).
+
+- **Content** authored in `frontend/src/i18n/translations.ts` under each page's namespace:
+  - `guide.title` — modal heading
+  - `guide.overview` — 1–2 sentence page summary (component renders nothing if this key is missing)
+  - `guide.features_title` / `guide.steps_title` / `guide.notes_title` — section labels
+  - `guide.features.f1.title` / `.desc`, `f2`, ... — each page option/button/filter
+  - `guide.steps.s1.title` / `.desc`, `s2`, ... — step-by-step workflows
+  - `guide.notes.n1.title` / `.desc`, `n2`, ... — tips/warnings
+
+- Both `en` and `bn` translations **must** be authored together.
+
+## Rules
+
+1. Every page must include `<PageGuideModal pageKey="<namespace>" />` in its header button group
+2. Every page must have complete `guide.*` content in `translations.ts` (en + bn)
+3. Minimum keys per page: `title`, `overview`, plus at least `features_title` and one `features.f1`
+4. If `guide.overview` is missing, the component safely renders nothing — no breakage
+5. Guide buttons are informational (no extra permission required beyond the page's view permission)
+
 ## Status Calculation Rules (Time-Based)
 
 Employee performance status is determined by a **time-based comparison**, not raw percentage alone.

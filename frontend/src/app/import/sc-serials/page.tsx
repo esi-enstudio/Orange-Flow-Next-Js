@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useLanguage } from "@/i18n/useLanguage";
+import PageGuideModal from "@/components/PageGuideModal";
 
 interface SerialRecord {
   id: number; house_id: number; house_name: string | null; house_code: string | null;
@@ -40,6 +41,8 @@ interface Product {
 export default function SCSerialsPage() {
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const { t } = useLanguage();
+
+  const plural = (n: number) => (n === 1 ? "one" : "many");
 
   // list state
   const [data, setData] = useState<SerialRecord[]>([]);
@@ -146,7 +149,7 @@ export default function SCSerialsPage() {
       const res = await apiClient.get("/v1/scratch-card-serials", { params, headers: houseHeaders });
       setData(res.data.data || []);
       setTotalRecords(res.data.pagination?.total || 0);
-    } catch { toast.error("Failed to load serials"); }
+    } catch { toast.error(t('scratch_card_serials.toast_load_failed')); }
     finally { setLoading(false); }
   }, [page, search, filterProductId, filterStatus, selectedHouse?.id]);
 
@@ -169,7 +172,7 @@ export default function SCSerialsPage() {
         headers: houseHeaders,
       });
       setDetailData(res.data.data || null);
-    } catch { toast.error("Failed to load house details"); }
+    } catch { toast.error(t('scratch_card_serials.toast_house_details_failed')); }
     finally { setDetailLoading(false); }
   };
 
@@ -201,8 +204,8 @@ export default function SCSerialsPage() {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a"); a.href = url; a.download = `scratch_card_serials_${houseCode}.xlsx`; a.click();
       window.URL.revokeObjectURL(url);
-      toast.success("Exported successfully");
-    } catch { toast.error("Export failed"); }
+      toast.success(t('scratch_card_serials.toast_export_success'));
+    } catch { toast.error(t('scratch_card_serials.toast_export_failed')); }
   };
 
   const handleDelete = async (id: number) => {
@@ -211,7 +214,7 @@ export default function SCSerialsPage() {
       toast.success(t('scratch_card_serials.toast_delete_success'));
       fetchData();
       fetchSummary();
-    } catch (e: any) { toast.error(e?.message || "Delete failed"); }
+    } catch (e: any) { toast.error(e?.message || t('scratch_card_serials.toast_delete_failed')); }
     finally { setDeletingId(null); }
   };
 
@@ -221,7 +224,7 @@ export default function SCSerialsPage() {
       toast.success(t('scratch_card_serials.toast_permanent_delete_success'));
       fetchData();
       fetchSummary();
-    } catch (e: any) { toast.error(e?.message || "Permanent delete failed"); }
+    } catch (e: any) { toast.error(e?.message || t('scratch_card_serials.toast_permanent_delete_failed')); }
     finally { setPermanentDeleteId(null); }
   };
 
@@ -229,17 +232,17 @@ export default function SCSerialsPage() {
     if (selectedIds.length === 0) return;
     try {
       await apiClient.post("/v1/scratch-card-serials/bulk-permanent-delete", selectedIds, { headers: houseHeaders });
-      toast.success(`${selectedIds.length} used serials permanently deleted`);
+      toast.success(t('scratch_card_serials.toast_bulk_perm_delete_success', { count: selectedIds.length }));
       setSelectedIds([]);
       fetchData();
       fetchSummary();
-    } catch (e: any) { toast.error(e?.message || "Bulk permanent delete failed"); }
+    } catch (e: any) { toast.error(e?.message || t('scratch_card_serials.toast_bulk_perm_delete_failed')); }
     finally { setShowBulkDeleteConfirm(false); }
   };
 
   const handleBulkUpdate = async () => {
     if (selectedIds.length === 0) return;
-    if (!bulkExitOrderNo && !bulkRfNo) { toast.error("Enter at least one field"); return; }
+    if (!bulkExitOrderNo && !bulkRfNo) { toast.error(t('scratch_card_serials.toast_bulk_field_required')); return; }
     setIsBulkUpdating(true);
     try {
       await apiClient.put("/v1/scratch-card-serials/bulk/update", {
@@ -247,13 +250,13 @@ export default function SCSerialsPage() {
         exit_order_no: bulkExitOrderNo || null,
         rf_no: bulkRfNo || null,
       }, { headers: houseHeaders });
-      toast.success(`${selectedIds.length} serials updated`);
+      toast.success(t('scratch_card_serials.toast_bulk_update_success', { count: selectedIds.length }));
       setBulkExitOrderNo("");
       setBulkRfNo("");
       setSelectedIds([]);
       fetchData();
       fetchSummary();
-    } catch (e: any) { toast.error(e?.message || "Bulk update failed"); }
+    } catch (e: any) { toast.error(e?.message || t('scratch_card_serials.toast_bulk_update_failed')); }
     finally { setIsBulkUpdating(false); }
   };
 
@@ -262,11 +265,11 @@ export default function SCSerialsPage() {
     if (selectedIds.length === 0) return;
     try {
       await apiClient.post("/v1/scratch-card-serials/bulk-delete", selectedIds, { headers: houseHeaders });
-      toast.success(`${selectedIds.length} serials deleted`);
+      toast.success(t('scratch_card_serials.toast_bulk_delete_success', { count: selectedIds.length }));
       setSelectedIds([]);
       fetchData();
       fetchSummary();
-    } catch (e: any) { toast.error(e?.message || "Bulk delete failed"); }
+    } catch (e: any) { toast.error(e?.message || t('scratch_card_serials.toast_bulk_delete_failed')); }
     finally { setShowBulkDelete(false); }
   };
 
@@ -298,10 +301,10 @@ export default function SCSerialsPage() {
       params.date_to = dateTo;
       const res = await apiClient.post("/v1/scratch-card-serials/select-all", null, { params, headers: houseHeaders });
       const allIds = res.data.data?.ids || [];
-      if (allIds.length === 0) { toast.error("No matching serials found"); return; }
+      if (allIds.length === 0) { toast.error(t('scratch_card_serials.toast_no_matching')); return; }
       setSelectedIds(allIds);
-      toast.success(`${allIds.length} matching serials selected`);
-    } catch { toast.error("Failed to fetch matching serials"); }
+      toast.success(t('scratch_card_serials.toast_matching_selected', { count: allIds.length }));
+    } catch { toast.error(t('scratch_card_serials.toast_fetch_matching_failed')); }
     finally { setSelectingAll(false); }
   };
 
@@ -324,7 +327,7 @@ export default function SCSerialsPage() {
   };
 
   const handleInvoiceImport = async () => {
-    if (!modalHouseId) { toast.error("Select a house"); return; }
+    if (!modalHouseId) { toast.error(t('scratch_card_serials.toast_select_house')); return; }
 
     const productMap = new Map<number, { product: Product; serials: string[]; len: number }>();
     for (const row of invoiceRows) {
@@ -333,12 +336,12 @@ export default function SCSerialsPage() {
       const e = BigInt(row.endSerial);
       if (e < s) {
         const p = products.find(x => x.id === row.productId);
-        toast.error(`Invalid range for ${p?.product_code || row.productId}: start > end`);
+        toast.error(t('scratch_card_serials.toast_invalid_range', { code: p?.product_code || row.productId }));
         return;
       }
       if (e - s > BigInt(100000)) {
         const p = products.find(x => x.id === row.productId);
-        toast.error(`Range too large for ${p?.product_code || row.productId} (max 100,000)`);
+        toast.error(t('scratch_card_serials.toast_range_too_large', { code: p?.product_code || row.productId }));
         return;
       }
       const len = row.startSerial.length;
@@ -353,7 +356,7 @@ export default function SCSerialsPage() {
       }
     }
 
-    if (!productMap.size) { toast.error("No valid rows entered"); return; }
+    if (!productMap.size) { toast.error(t('scratch_card_serials.toast_no_valid_rows')); return; }
 
     setImporting(true);
     const headers: Record<string, string> = { "X-House-ID": String(modalHouseId) };
@@ -383,27 +386,29 @@ export default function SCSerialsPage() {
       fetchSummary();
       if (totalSkipped > 0) {
         toast.error(
-          `${totalSkipped} duplicate serial${totalSkipped === 1 ? "" : "s"} skipped (already exist)`
+          t(`scratch_card_serials.toast_dup_skip_${plural(totalSkipped)}`, { count: totalSkipped })
         );
         return;
       }
-      toast.success(`${totalInserted} serials imported (${productMap.size} product${productMap.size > 1 ? "s" : ""})`);
+      toast.success(
+        `${t(`scratch_card_serials.toast_imported_${plural(totalInserted)}`, { count: totalInserted })} ${t(`scratch_card_serials.toast_import_product_${plural(productMap.size)}`, { count: productMap.size })}`
+      );
       setShowImport(false);
       setImportBatch("");
       setModalHouseId("");
       setImportResult(null);
       setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }]);
-    } catch (e: any) { toast.error(e?.message || "Import failed"); }
+    } catch (e: any) { toast.error(e?.message || t('scratch_card_serials.toast_import_failed')); }
     finally { setImporting(false); }
   };
 
   const handleFindSerials = async () => {
     if (!allocAmount || Number(allocAmount) < 1) {
-      toast.error("Enter a valid amount");
+      toast.error(t('scratch_card_serials.toast_invalid_amount'));
       return;
     }
     if (!allocHouseId) {
-      toast.error("Select a house");
+      toast.error(t('scratch_card_serials.toast_select_house'));
       return;
     }
     setAllocating(true);
@@ -417,7 +422,7 @@ export default function SCSerialsPage() {
       );
       setAllocResult(res.data.data);
     } catch (e: any) {
-      const msg = e?.response?.data?.error?.message || e?.response?.data?.detail || e?.message || "Failed to allocate";
+      const msg = e?.response?.data?.error?.message || e?.response?.data?.detail || e?.message || t('scratch_card_serials.toast_alloc_failed');
       setAllocError(msg);
     }
     finally { setAllocating(false); }
@@ -436,14 +441,14 @@ export default function SCSerialsPage() {
         },
         { headers: confirmHeaders }
       );
-      toast.success(res.data.message || "Allocation confirmed");
+      toast.success(res.data.message || t('scratch_card_serials.toast_alloc_confirmed'));
       setAllocResult(null);
       setAllocAmount("");
       setAllocNotes("");
       fetchData();
       fetchSummary();
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || e?.message || "Confirmation failed");
+      toast.error(e?.response?.data?.detail || e?.message || t('scratch_card_serials.toast_alloc_confirm_failed'));
     }
     finally { setConfirming(false); }
   };
@@ -456,12 +461,12 @@ export default function SCSerialsPage() {
   const timeAgo = (d: Date) => {
     const diff = Date.now() - d.getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
+    if (mins < 1) return t('scratch_card_serials.time_just_now');
+    if (mins < 60) return t('scratch_card_serials.time_min_ago', { m: mins });
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
+    if (hrs < 24) return t('scratch_card_serials.time_hour_ago', { h: hrs });
     const days = Math.floor(hrs / 24);
-    if (days < 30) return `${days}d ago`;
+    if (days < 30) return t('scratch_card_serials.time_day_ago', { d: days });
     return formatDate(d);
   };
 
@@ -476,8 +481,8 @@ export default function SCSerialsPage() {
             <Database className="w-5 h-5 text-primary-600" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">SC Serials</h1>
-            <p className="text-sm text-gray-500">Manage scratch card serial numbers</p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.title')}</h1>
+            <p className="text-sm text-gray-500">{t('scratch_card_serials.description')}</p>
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
@@ -492,22 +497,23 @@ export default function SCSerialsPage() {
                 } catch { setImportBatch(generateBatchId()); }
               }}
               className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
-              <Plus className="w-4 h-4" /> Add Serials
+              <Plus className="w-4 h-4" /> {t('scratch_card_serials.btn_add_serials')}
             </button>
           )}
           <div className="flex flex-1 sm:flex-none gap-2">
             {hasPermission("scratch_card_serials.export") && (
               <button onClick={() => { setExportHouseId(""); setShowExportHouse(true); }}
                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-                <Download className="w-4 h-4" /> Export
+                <Download className="w-4 h-4" /> {t('scratch_card_serials.btn_export')}
               </button>
             )}
             {hasPermission("scratch_card_serials.view") && (
               <button onClick={() => { setShowAllocate(true); setAllocAmount(""); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-                <Database className="w-4 h-4" /> Allocate
+                <Database className="w-4 h-4" /> {t('scratch_card_serials.btn_allocate')}
               </button>
             )}
+            <PageGuideModal pageKey="scratch_card_serials" />
           </div>
         </div>
       </div>
@@ -524,7 +530,7 @@ export default function SCSerialsPage() {
             </div>
           ))
         ) : stockSummary.length === 0 ? (
-          <div className="col-span-full text-center py-8 text-gray-400 text-sm">No stock data available</div>
+          <div className="col-span-full text-center py-8 text-gray-400 text-sm">{t('scratch_card_serials.no_stock_data')}</div>
         ) : (
           stockSummary.map(s => (
             <div key={s.house_id} className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 p-5 relative overflow-hidden group">
@@ -547,11 +553,11 @@ export default function SCSerialsPage() {
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Total Serials</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{t('scratch_card_serials.total_serials')}</span>
                   <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{s.total_serials.toLocaleString('en-US')}</span>
                 </div>
                 <div className="border-t border-gray-100 dark:border-slate-800 pt-2 flex items-center justify-between">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Total Value</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{t('scratch_card_serials.total_value')}</span>
                   <span className="text-lg font-bold text-emerald-600 dark:text-emerald-500">
                     ৳ {s.total_value.toLocaleString('en-US')}
                   </span>
@@ -567,7 +573,7 @@ export default function SCSerialsPage() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
-            placeholder="Search serial, batch, exit order, RF no..."
+            placeholder={t('scratch_card_serials.search_placeholder_search')}
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
@@ -575,17 +581,17 @@ export default function SCSerialsPage() {
         </div>
         <select value={filterProductId} onChange={e => setFilterProductId(e.target.value)}
           className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
-          <option value="">All Products</option>
+          <option value="">{t('scratch_card_serials.filter_all')}</option>
           {products.map(p => (
             <option key={p.id} value={p.id}>{p.product_code} - {p.product_name}</option>
           ))}
         </select>
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
           className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
-          <option value="">All Status</option>
-          <option value="available">Available</option>
-          <option value="used">Used</option>
-          <option value="allocated">Allocated</option>
+          <option value="">{t('scratch_card_serials.filter_all_status')}</option>
+          <option value="available">{t('scratch_card_serials.filter_available')}</option>
+          <option value="used">{t('scratch_card_serials.filter_used')}</option>
+          <option value="allocated">{t('scratch_card_serials.filter_allocated')}</option>
         </select>
       </div>
 
@@ -597,7 +603,7 @@ export default function SCSerialsPage() {
           className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-500/10 border border-primary-200 dark:border-primary-500/20 rounded-xl hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-colors disabled:opacity-50"
         >
           {selectingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-          Select All Matching
+          {t('scratch_card_serials.select_all_matching')}
         </button>
       </div>
 
@@ -605,16 +611,16 @@ export default function SCSerialsPage() {
       {selectedIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-2xl px-4 py-3">
           <span className="text-sm font-medium text-orange-700 dark:text-orange-300 whitespace-nowrap">
-            {selectedIds.length} selected
+            {t('scratch_card_serials.n_selected', { count: selectedIds.length })}
           </span>
           <input
-            placeholder="New Exit Order No."
+            placeholder={t('scratch_card_serials.bulk_exit_order_placeholder')}
             value={bulkExitOrderNo}
             onChange={e => setBulkExitOrderNo(e.target.value)}
             className="flex-1 min-w-[160px] px-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
           />
           <input
-            placeholder="New RF No."
+            placeholder={t('scratch_card_serials.bulk_rf_placeholder')}
             value={bulkRfNo}
             onChange={e => setBulkRfNo(e.target.value)}
             className="flex-1 min-w-[160px] px-3 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
@@ -625,21 +631,21 @@ export default function SCSerialsPage() {
             className="flex items-center gap-1.5 px-4 py-1.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
           >
             {isBulkUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-            Update
+            {t('scratch_card_serials.btn_update')}
           </button>
           {hasPermission("scratch_card_serials.delete") && (
             <button
               onClick={() => setShowBulkDelete(true)}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-orange-600 text-white rounded-xl text-sm font-medium hover:bg-orange-700 transition-colors"
             >
-              <Trash2 className="w-4 h-4" /> Delete
+              <Trash2 className="w-4 h-4" /> {t('scratch_card_serials.btn_delete')}
             </button>
           )}
           <button
             onClick={() => { setSelectedIds([]); setBulkExitOrderNo(""); setBulkRfNo(""); }}
             className="ml-auto text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
           >
-            Clear selection
+            {t('scratch_card_serials.clear_selection')}
           </button>
         </div>
       )}
@@ -659,16 +665,16 @@ export default function SCSerialsPage() {
                     />
                   )}
                 </th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Serial #</th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">House</th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Product</th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Batch</th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Order / RF</th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used At</th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Used By</th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Created</th>
-                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Updated</th>
-                <th className="text-right px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Actions</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_serial')}</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_house')}</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_product')}</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_batch')}</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_order_rf')}</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_used_at')}</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_used_by')}</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_created')}</th>
+                <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_updated')}</th>
+                <th className="text-right px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.table_actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -681,7 +687,7 @@ export default function SCSerialsPage() {
                   </tr>
                 ))
               ) : data.length === 0 ? (
-                <tr><td colSpan={11} className="text-center py-12 text-gray-400">No serials found</td></tr>
+                <tr><td colSpan={11} className="text-center py-12 text-gray-400">{t('scratch_card_serials.no_data')}</td></tr>
               ) : data.map(r => (
                 <tr key={r.id} className={`border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${selectedIds.includes(r.id) ? 'bg-orange-50 dark:bg-orange-500/5' : ''}`}>
                   <td className="px-2 py-1">
@@ -702,11 +708,11 @@ export default function SCSerialsPage() {
                     </div>
                   </td>
                   <td className="px-2 py-1">
-                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.house_name || `House #${r.house_id}`}</p>
+                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.house_name || t('scratch_card_serials.house_hash', { id: r.house_id })}</p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.house_code || ""}</p>
                   </td>
                   <td className="px-2 py-1">
-                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.product_name || `Product #${r.product_id}`}</p>
+                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{r.product_name || t('scratch_card_serials.product_hash', { id: r.product_id })}</p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.product_code || ""}</p>
                   </td>
                   <td className="px-2 py-1 text-gray-500 dark:text-gray-400 text-[11px]">{r.batch_id || "-"}</td>
@@ -760,7 +766,7 @@ export default function SCSerialsPage() {
                         r.status === "used" ? (
                           <button
                             onClick={() => setPermanentDeleteId(r.id)}
-                            title="Permanently delete used serial"
+                            title={t('scratch_card_serials.perm_delete_tooltip')}
                             className="p-1.5 text-orange-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
                           >
                             <AlertTriangle className="w-4 h-4" />
@@ -795,7 +801,7 @@ export default function SCSerialsPage() {
               </div>
             ))
           ) : data.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">No serials found</div>
+            <div className="text-center py-12 text-gray-400">{t('scratch_card_serials.no_data')}</div>
           ) : (
             <MobileRow
               data={data}
@@ -813,16 +819,20 @@ export default function SCSerialsPage() {
         {totalRecords > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-slate-800">
             <span className="text-xs text-gray-400">
-              Showing {(page - 1) * perPage + 1} to {Math.min(page * perPage, totalRecords)} of {totalRecords}
+              {t('scratch_card_serials.showing_results', {
+                start: (page - 1) * perPage + 1,
+                end: Math.min(page * perPage, totalRecords),
+                total: totalRecords,
+              })}
             </span>
             <div className="flex items-center gap-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
-                <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                <ChevronLeft className="w-3.5 h-3.5" /> {t('scratch_card_serials.prev')}
               </button>
               <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
-                Next <ChevronRight className="w-3.5 h-3.5" />
+                {t('scratch_card_serials.next')} <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -833,16 +843,16 @@ export default function SCSerialsPage() {
       {deletingId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Delete Serial</h3>
-            <p className="text-sm text-gray-500 mb-6">Are you sure you want to delete this serial? This cannot be undone.</p>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">{t('scratch_card_serials.delete_title')}</h3>
+            <p className="text-sm text-gray-500 mb-6">{t('scratch_card_serials.delete_message')}</p>
             <div className="flex items-center gap-3 justify-end">
               <button onClick={() => setDeletingId(null)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button onClick={() => handleDelete(deletingId)}
                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors flex items-center gap-2">
-                <Trash2 className="w-4 h-4" /> Delete
+                <Trash2 className="w-4 h-4" /> {t('scratch_card_serials.delete_confirm')}
               </button>
             </div>
           </div>
@@ -853,16 +863,16 @@ export default function SCSerialsPage() {
       {permanentDeleteId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Permanently Delete Used Serial</h3>
-            <p className="text-sm text-gray-500 mb-6">This serial is marked as used. Permanently delete it? This cannot be undone.</p>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">{t('scratch_card_serials.permanent_delete_title')}</h3>
+            <p className="text-sm text-gray-500 mb-6">{t('scratch_card_serials.permanent_delete_message')}</p>
             <div className="flex items-center gap-3 justify-end">
               <button onClick={() => setPermanentDeleteId(null)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button onClick={() => handlePermanentDelete(permanentDeleteId)}
                 className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-xl hover:bg-orange-700 transition-colors flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" /> Delete Permanently
+                <AlertTriangle className="w-4 h-4" /> {t('scratch_card_serials.permanent_delete_confirm')}
               </button>
             </div>
           </div>
@@ -873,16 +883,16 @@ export default function SCSerialsPage() {
       {showBulkDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Permanently Delete {selectedIds.length} Serials?</h3>
-            <p className="text-sm text-gray-500 mb-6">These serials are marked as used. Permanently delete them? This cannot be undone.</p>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">{t('scratch_card_serials.bulk_perm_delete_title', { count: selectedIds.length })}</h3>
+            <p className="text-sm text-gray-500 mb-6">{t('scratch_card_serials.bulk_perm_delete_message')}</p>
             <div className="flex items-center gap-3 justify-end">
               <button onClick={() => setShowBulkDeleteConfirm(false)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button onClick={handleBulkPermanentDelete}
                 className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-xl hover:bg-orange-700 transition-colors flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" /> Delete All
+                <AlertTriangle className="w-4 h-4" /> {t('scratch_card_serials.delete_all')}
               </button>
             </div>
           </div>
@@ -893,16 +903,16 @@ export default function SCSerialsPage() {
       {showBulkDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Delete {selectedIds.length} Serials?</h3>
-            <p className="text-sm text-gray-500 mb-6">Are you sure you want to delete these serials? This cannot be undone.</p>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">{t('scratch_card_serials.bulk_delete_title', { count: selectedIds.length })}</h3>
+            <p className="text-sm text-gray-500 mb-6">{t('scratch_card_serials.bulk_delete_message')}</p>
             <div className="flex items-center gap-3 justify-end">
               <button onClick={() => setShowBulkDelete(false)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button onClick={handleBulkDelete}
                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors flex items-center gap-2">
-                <Trash2 className="w-4 h-4" /> Delete All
+                <Trash2 className="w-4 h-4" /> {t('scratch_card_serials.delete_all')}
               </button>
             </div>
           </div>
@@ -914,7 +924,7 @@ export default function SCSerialsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Import SC Serials</h3>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.modal_import_title')}</h3>
               <button onClick={() => {
                 setShowImport(false);
                 setImportBatch("");
@@ -929,17 +939,17 @@ export default function SCSerialsPage() {
             {/* House + Batch ID (common) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">House</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('scratch_card_serials.field_house')}</label>
                 <select value={modalHouseId} onChange={e => setModalHouseId(e.target.value ? Number(e.target.value) : "")}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
-                  <option value="">Select house</option>
+                  <option value="">{t('common.select_house')}</option>
                   {houses.map(h => (
                     <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Batch ID</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('scratch_card_serials.field_batch_id')}</label>
                 <input value={importBatch} readOnly
                   className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-500 dark:text-gray-400 font-mono cursor-not-allowed"
                 />
@@ -948,7 +958,7 @@ export default function SCSerialsPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Exit Order No.</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('scratch_card_serials.field_exit_order_no')}</label>
                 <input value={invoiceRows[0]?.exitOrderNo || ""} onChange={e => {
                   const rows = [...invoiceRows];
                   rows.forEach(r => r.exitOrderNo = e.target.value);
@@ -958,12 +968,12 @@ export default function SCSerialsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">RF No.</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('scratch_card_serials.field_rf_no')}</label>
                 <input value={invoiceRows[0]?.rfNo || ""} onChange={e => {
                   const rows = [...invoiceRows];
                   rows.forEach(r => r.rfNo = e.target.value);
                   setInvoiceRows(rows);
-                }} placeholder="RF number"
+                }} placeholder={t('scratch_card_serials.field_rf_no_placeholder')}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                 />
               </div>
@@ -974,10 +984,10 @@ export default function SCSerialsPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100 dark:border-slate-800">
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase w-28">Product</th>
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Start Serial</th>
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">End Serial</th>
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase w-28">Qty</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase w-28">{t('scratch_card_serials.field_product')}</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.field_start_serial')}</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.field_end_serial')}</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase w-28">{t('scratch_card_serials.field_qty')}</th>
                         <th className="w-10" />
                       </tr>
                     </thead>
@@ -992,7 +1002,7 @@ export default function SCSerialsPage() {
                                 setInvoiceRows(rows);
                               }}
                                 className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
-                                <option value="">Select</option>
+                                <option value="">{t('scratch_card_serials.modal_select')}</option>
                                 {products.map(p => (
                                   <option key={p.id} value={p.id}>{p.product_code} - {p.product_name} ({p.mrp}tk)</option>
                                 ))}
@@ -1058,7 +1068,7 @@ export default function SCSerialsPage() {
                 </div>
                 <button onClick={() => setInvoiceRows(rows => [...rows, { productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }])}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors cursor-pointer">
-                  <Plus className="w-4 h-4" /> Add Row
+                  <Plus className="w-4 h-4" /> {t('scratch_card_serials.add_row')}
                 </button>
                 {importResult && (
                   <div className={`rounded-xl border p-4 mt-3 ${importResult.skipped > 0
@@ -1066,25 +1076,26 @@ export default function SCSerialsPage() {
                     : "border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10"}`}>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
-                        {importResult.skipped > 0 ? "Import finished with duplicates" : "Import successful"}
+                        {importResult.skipped > 0 ? t('scratch_card_serials.import_finished_duplicates') : t('scratch_card_serials.import_successful')}
                       </span>
                       {importResult.skipped > 0 && (
                         <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-400 font-semibold">
-                          {importResult.skipped} skipped
+                          {t('scratch_card_serials.n_skipped', { count: importResult.skipped })}
                         </span>
                       )}
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                      {importResult.inserted} serial{importResult.inserted === 1 ? "" : "s"} imported
+                      {t(`scratch_card_serials.import_inserted_${plural(importResult.inserted)}`, { count: importResult.inserted })}
                       {importResult.skipped > 0
-                        ? ` · ${importResult.skipped} duplicate serial${importResult.skipped === 1 ? "" : "s"} skipped (already exist)`
+                        ? ` · ${t(`scratch_card_serials.import_dup_skip_${plural(importResult.skipped)}`, { count: importResult.skipped })}`
                         : ""}
                     </p>
                     {importResult.skipped > 0 && importResult.skippedSerials.length > 0 && (
                       <div className="mt-2">
                         <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
-                          Skipped serials ({importResult.skippedSerials.length}
-                          {importResult.skipped > importResult.skippedSerials.length ? "+" : ""}):
+                          {t('scratch_card_serials.skipped_serials_list', {
+                            count: `${importResult.skippedSerials.length}${importResult.skipped > importResult.skippedSerials.length ? "+" : ""}`,
+                          })}
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {importResult.skippedSerials.map((sn, i) => (
@@ -1098,19 +1109,19 @@ export default function SCSerialsPage() {
                   </div>
                 )}
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Total: <strong className="text-gray-900 dark:text-gray-100">{calcInvoiceTotal().toLocaleString()}</strong> serials</span>
+                  <span className="text-gray-500">{t('scratch_card_serials.import_total_label')} <strong className="text-gray-900 dark:text-gray-100">{calcInvoiceTotal().toLocaleString()}</strong> {t('scratch_card_serials.import_serials_word')}</span>
                   <div className="flex gap-2">
                     <button onClick={() => {
                       setShowImport(false);
                       setImportResult(null);
                       setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }]);
                     }} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
-                      Cancel
+                      {t('common.cancel')}
                     </button>
                     <button onClick={handleInvoiceImport} disabled={importing}
                       className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors">
                       {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                      {importing ? "Importing..." : `Import ${calcInvoiceTotal().toLocaleString()} Serials`}
+                      {importing ? t('scratch_card_serials.importing') : t('scratch_card_serials.import_n_serials', { count: calcInvoiceTotal().toLocaleString() })}
                     </button>
                   </div>
                 </div>
@@ -1124,7 +1135,7 @@ export default function SCSerialsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Allocate Serials</h3>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.allocate')}</h3>
               <button onClick={() => { setShowAllocate(false); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
                 className="p-1 text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
@@ -1133,10 +1144,10 @@ export default function SCSerialsPage() {
 
             {/* House Select */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">House</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('scratch_card_serials.field_house')}</label>
               <select value={allocHouseId} onChange={e => setAllocHouseId(e.target.value ? Number(e.target.value) : "")}
                 className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
-                <option value="">Select house</option>
+                <option value="">{t('common.select_house')}</option>
                 {houses.map(h => (
                   <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
                 ))}
@@ -1146,20 +1157,20 @@ export default function SCSerialsPage() {
             {/* Amount Input */}
             <div className="flex items-end gap-3 mb-4">
               <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Request Amount (BDT)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('scratch_card_serials.request_amount')}</label>
                 <input
                   type="number"
                   min="1"
                   value={allocAmount}
                   onChange={e => setAllocAmount(e.target.value)}
-                  placeholder="e.g. 10000"
+                  placeholder={t('scratch_card_serials.alloc_amount_placeholder')}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                 />
               </div>
               <button onClick={handleFindSerials} disabled={allocating}
                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors">
                 {allocating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                {allocating ? "Searching..." : "Find Available Serials"}
+                {allocating ? t('scratch_card_serials.searching') : t('scratch_card_serials.allocate_btn')}
               </button>
             </div>
 
@@ -1175,18 +1186,18 @@ export default function SCSerialsPage() {
               <>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-4 text-sm">
-                    <span className="text-gray-500">Requested: <strong className="text-gray-900 dark:text-gray-100">{allocResult.requested_amount} Taka</strong></span>
-                    <span className="text-emerald-600 font-medium">Fulfilled: {allocResult.fulfilled_amount} Taka</span>
+                    <span className="text-gray-500">{t('scratch_card_serials.alloc_requested_label')} <strong className="text-gray-900 dark:text-gray-100">{allocResult.requested_amount} {t('scratch_card_serials.taka')}</strong></span>
+                    <span className="text-emerald-600 font-medium">{t('scratch_card_serials.alloc_fulfilled')} {allocResult.fulfilled_amount} {t('scratch_card_serials.taka')}</span>
                   </div>
                   <button onClick={() => {
                     const text = allocResult.ranges.map((r: any) =>
                       `${r.product_name || r.product_code || `Product #${r.product_id}`}: ${r.start_serial} - ${r.end_serial} (${r.count} pcs, ${r.total_value}tk)`
                     ).join("\n");
                     navigator.clipboard.writeText(text);
-                    toast.success("Copied to clipboard");
+                    toast.success(t('scratch_card_serials.copied_to_clipboard'));
                   }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-slate-800 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
-                    <Copy className="w-3.5 h-3.5" /> Copy All
+                    <Copy className="w-3.5 h-3.5" /> {t('scratch_card_serials.copy_all')}
                   </button>
                 </div>
 
@@ -1194,12 +1205,12 @@ export default function SCSerialsPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100 dark:border-slate-800">
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Product</th>
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Amount</th>
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Start Serial</th>
-                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">End Serial</th>
-                        <th className="text-center px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Count</th>
-                        <th className="text-right px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Total</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.field_product')}</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.amount')}</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.field_start_serial')}</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.field_end_serial')}</th>
+                        <th className="text-center px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('scratch_card_serials.count')}</th>
+                        <th className="text-right px-2 py-2 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('common.total')}</th>
                         <th className="w-10 px-2 py-2" />
                       </tr>
                     </thead>
@@ -1207,7 +1218,7 @@ export default function SCSerialsPage() {
                       {allocResult.ranges.map((r: any, i: number) => (
                         <tr key={i} className="border-b border-gray-50 dark:border-slate-800/50">
                           <td className="px-2 py-1.5">
-                            <p className="font-medium text-gray-900 dark:text-gray-100">{r.product_name || `Product #${r.product_id}`}</p>
+                            <p className="font-medium text-gray-900 dark:text-gray-100">{r.product_name || t('scratch_card_serials.product_hash', { id: r.product_id })}</p>
                             <p className="text-[11px] text-gray-500">{r.product_code}</p>
                           </td>
                           <td className="px-2 py-1.5 text-gray-700 dark:text-gray-300">{r.amount}tk</td>
@@ -1219,10 +1230,10 @@ export default function SCSerialsPage() {
                             <button onClick={() => {
                               const txt = `${r.start_serial} - ${r.end_serial}`;
                               navigator.clipboard.writeText(txt);
-                              toast.success("Copied");
+                              toast.success(t('scratch_card_serials.copied'));
                             }}
                               className="p-1 text-gray-400 hover:text-primary-600 rounded transition-colors"
-                              title="Copy range">
+                              title={t('scratch_card_serials.copy_range')}>
                               <Copy className="w-3.5 h-3.5" />
                             </button>
                           </td>
@@ -1233,11 +1244,11 @@ export default function SCSerialsPage() {
                 </div>
 
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notes (optional)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('scratch_card_serials.field_notes')}</label>
                   <textarea
                     value={allocNotes}
                     onChange={e => setAllocNotes(e.target.value)}
-                    placeholder="e.g. Allocated for House X monthly demand"
+                    placeholder={t('scratch_card_serials.alloc_notes_placeholder')}
                     rows={2}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-none"
                   />
@@ -1246,12 +1257,12 @@ export default function SCSerialsPage() {
                 <div className="flex items-center justify-end gap-2">
                   <button onClick={() => { setShowAllocate(false); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
                     className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button onClick={handleConfirmAllocation} disabled={confirming}
                     className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors">
                     {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    {confirming ? "Confirming..." : "Confirm & Mark Used"}
+                    {confirming ? t('scratch_card_serials.confirming') : t('scratch_card_serials.confirm_allocation')}
                   </button>
                 </div>
               </>
@@ -1265,16 +1276,16 @@ export default function SCSerialsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Export Serials</h3>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.export_title')}</h3>
               <button onClick={() => setShowExportHouse(false)} className="p-1 text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Select House</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('common.select_house')}</label>
               <select value={exportHouseId} onChange={e => setExportHouseId(e.target.value ? Number(e.target.value) : "")}
                 className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
-                <option value="">Select house</option>
+                <option value="">{t('common.select_house')}</option>
                 {houses.map(h => (
                   <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
                 ))}
@@ -1283,15 +1294,15 @@ export default function SCSerialsPage() {
             <div className="flex items-center justify-end gap-2">
               <button onClick={() => setShowExportHouse(false)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button onClick={async () => {
-                if (!exportHouseId) { toast.error("Select a house"); return; }
+                if (!exportHouseId) { toast.error(t('scratch_card_serials.toast_select_house')); return; }
                 setShowExportHouse(false);
                 await handleExport(Number(exportHouseId));
               }}
                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
-                <Download className="w-4 h-4" /> Export
+                <Download className="w-4 h-4" /> {t('scratch_card_serials.btn_export')}
               </button>
             </div>
           </div>
@@ -1304,7 +1315,7 @@ export default function SCSerialsPage() {
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                {detailData ? `${detailData.house_name} (${detailData.house_code})` : "House Details"}
+                {detailData ? `${detailData.house_name} (${detailData.house_code})` : t('scratch_card_serials.house_details')}
               </h3>
               <button onClick={() => { setShowDetailModal(false); setDetailData(null); }} className="p-1 text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
@@ -1319,7 +1330,7 @@ export default function SCSerialsPage() {
             ) : detailData ? (
               <div className="space-y-2">
                 {detailData.products.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-6">No products found</p>
+                  <p className="text-sm text-gray-400 text-center py-6">{t('scratch_card_serials.no_products')}</p>
                 ) : (
                   detailData.products.map((p: any) => (
                     <div key={p.product_id} className="p-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
@@ -1331,13 +1342,13 @@ export default function SCSerialsPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="bg-white dark:bg-slate-900 rounded-lg p-2.5 border border-emerald-100 dark:border-emerald-900/30">
-                          <p className="text-[11px] text-gray-400 mb-0.5">Available</p>
-                          <p className="text-sm font-bold text-emerald-600">Qty: {p.available_qty.toLocaleString('en-US')}</p>
+                          <p className="text-[11px] text-gray-400 mb-0.5">{t('scratch_card_serials.filter_available')}</p>
+                          <p className="text-sm font-bold text-emerald-600">{t('scratch_card_serials.qty_label')} {p.available_qty.toLocaleString('en-US')}</p>
                           <p className="text-xs font-semibold text-emerald-500">৳ {p.available_amount.toLocaleString('en-US')}</p>
                         </div>
                         <div className="bg-white dark:bg-slate-900 rounded-lg p-2.5 border border-gray-100 dark:border-slate-700">
-                          <p className="text-[11px] text-gray-400 mb-0.5">Used</p>
-                          <p className="text-sm font-bold text-gray-600 dark:text-gray-300">Qty: {p.used_qty.toLocaleString('en-US')}</p>
+                          <p className="text-[11px] text-gray-400 mb-0.5">{t('scratch_card_serials.filter_used')}</p>
+                          <p className="text-sm font-bold text-gray-600 dark:text-gray-300">{t('scratch_card_serials.qty_label')} {p.used_qty.toLocaleString('en-US')}</p>
                           <p className="text-xs font-semibold text-gray-500">৳ {p.used_amount.toLocaleString('en-US')}</p>
                         </div>
                       </div>
@@ -1346,7 +1357,7 @@ export default function SCSerialsPage() {
                 )}
               </div>
             ) : (
-              <p className="text-sm text-gray-400 text-center py-6">Failed to load data</p>
+              <p className="text-sm text-gray-400 text-center py-6">{t('scratch_card_serials.load_failed')}</p>
             )}
           </div>
         </div>
@@ -1360,6 +1371,7 @@ function MobileRow({ data, selectedIds, toggleSelect, hasDelete, formatDate, tim
   hasDelete: boolean; formatDate: (d: Date) => string; timeAgo: (d: Date) => string;
   setPermanentDeleteId: (id: number) => void; setDeletingId: (id: number) => void;
 }) {
+  const { t } = useLanguage();
   const [expandedId, setExpandedId] = useState<number | null>(null);
   return (
     <>
@@ -1382,32 +1394,32 @@ function MobileRow({ data, selectedIds, toggleSelect, hasDelete, formatDate, tim
                 </span>
                 {r.status === "used" && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
               </div>
-              <p className="text-[11px] text-gray-500 mt-0.5">{r.product_name || `Product #${r.product_id}`}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">{r.product_name || t('scratch_card_serials.product_hash', { id: r.product_id })}</p>
             </div>
             {expandedId === r.id ? <ChevronUp className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />}
           </div>
           {expandedId === r.id && (
             <div className="mt-3 ml-2 space-y-2 text-sm text-gray-600 dark:text-gray-400">
               <div className="grid grid-cols-2 gap-2">
-                <div><span className="text-[11px] text-gray-500">Batch:</span> <span className="font-medium">{r.batch_id || "-"}</span></div>
+                <div><span className="text-[11px] text-gray-500">{t('scratch_card_serials.table_batch')}:</span> <span className="font-medium">{r.batch_id || "-"}</span></div>
                 <div className="col-span-2">
-                  <span className="text-[11px] text-gray-500">Order / RF:</span>
+                  <span className="text-[11px] text-gray-500">{t('scratch_card_serials.table_order_rf')}:</span>
                   <p className="font-medium text-xs mt-0.5">{r.exit_order_no || "-"} {r.rf_no ? <span className="text-gray-400 font-normal">/ {r.rf_no}</span> : ""}</p>
                 </div>
-                <div><span className="text-[11px] text-gray-500">Used At:</span> <span className="font-medium">{r.used_at ? formatDate(new Date(r.used_at)) : "-"}</span></div>
-                <div><span className="text-[11px] text-gray-500">Used By:</span> <span className="font-medium">{r.used_by_name || "-"}</span></div>
-                <div><span className="text-[11px] text-gray-500">Created:</span> <span className="font-medium">{r.created_at ? formatDate(new Date(r.created_at)) : "-"}</span></div>
-                <div><span className="text-[11px] text-gray-500">Updated:</span> <span className="font-medium">{r.updated_at ? formatDate(new Date(r.updated_at)) : "-"}</span></div>
+                <div><span className="text-[11px] text-gray-500">{t('scratch_card_serials.table_used_at')}:</span> <span className="font-medium">{r.used_at ? formatDate(new Date(r.used_at)) : "-"}</span></div>
+                <div><span className="text-[11px] text-gray-500">{t('scratch_card_serials.table_used_by')}:</span> <span className="font-medium">{r.used_by_name || "-"}</span></div>
+                <div><span className="text-[11px] text-gray-500">{t('scratch_card_serials.table_created')}:</span> <span className="font-medium">{r.created_at ? formatDate(new Date(r.created_at)) : "-"}</span></div>
+                <div><span className="text-[11px] text-gray-500">{t('scratch_card_serials.table_updated')}:</span> <span className="font-medium">{r.updated_at ? formatDate(new Date(r.updated_at)) : "-"}</span></div>
               </div>
               {hasDelete && (
                 <div className="flex gap-2 pt-1">
                   {r.status === "used" ? (
                     <button onClick={() => setPermanentDeleteId(r.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 rounded-lg hover:bg-orange-200 cursor-pointer">
-                      <AlertTriangle className="w-3 h-3" /> Permanent Delete
+                      <AlertTriangle className="w-3 h-3" /> {t('scratch_card_serials.btn_permanent_delete')}
                     </button>
                   ) : (
                     <button onClick={() => setDeletingId(r.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 cursor-pointer">
-                      <Trash2 className="w-3 h-3" /> Delete
+                      <Trash2 className="w-3 h-3" /> {t('scratch_card_serials.btn_delete')}
                     </button>
                   )}
                 </div>
