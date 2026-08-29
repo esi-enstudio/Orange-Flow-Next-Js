@@ -291,9 +291,12 @@ async def batch_create_serials(
 
     inserted = 0
     skipped = 0
+    skipped_serials: list[str] = []
     for sn in serials:
         if sn in existing_set:
             skipped += 1
+            if len(skipped_serials) < 500:
+                skipped_serials.append(sn)
             continue
         record = ScratchCardSerial(
             house_id=target_house_id,
@@ -321,6 +324,9 @@ async def batch_create_serials(
     return {
         "success": True,
         "message": f"{inserted} serials inserted, {skipped} skipped (duplicates)",
+        "inserted": inserted,
+        "skipped": skipped,
+        "skipped_serials": skipped_serials,
     }
 
 

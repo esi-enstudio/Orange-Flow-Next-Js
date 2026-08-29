@@ -73,6 +73,7 @@ export default function SCSerialsPage() {
   const [invoiceRows, setInvoiceRows] = useState<InvoiceRow[]>([
     { productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" },
   ]);
+  const [importResult, setImportResult] = useState<{ inserted: number; skipped: number; skippedSerials: string[] } | null>(null);
 
   // products for dropdown
   const [products, setProducts] = useState<Product[]>([]);
@@ -359,6 +360,8 @@ export default function SCSerialsPage() {
     const commonExitOrderNo = invoiceRows[0]?.exitOrderNo || null;
     const commonRfNo = invoiceRows[0]?.rfNo || null;
     let totalInserted = 0;
+    let totalSkipped = 0;
+    const skippedSerials: string[] = [];
     try {
       for (const [, entry] of productMap) {
         const res = await apiClient.post("/v1/scratch-card-serials/batch", {
@@ -368,15 +371,28 @@ export default function SCSerialsPage() {
           exit_order_no: commonExitOrderNo,
           rf_no: commonRfNo,
         }, { headers });
-        totalInserted += entry.serials.length;
+        const d = res.data ?? {};
+        totalInserted += Number(d.inserted ?? 0);
+        totalSkipped += Number(d.skipped ?? 0);
+        for (const sn of (d.skipped_serials ?? []) as string[]) {
+          if (skippedSerials.length < 200) skippedSerials.push(sn);
+        }
       }
-      toast.success(`${totalInserted} serials imported (${productMap.size} product${productMap.size > 1 ? 's' : ''})`);
+      setImportResult({ inserted: totalInserted, skipped: totalSkipped, skippedSerials });
+      fetchData();
+      fetchSummary();
+      if (totalSkipped > 0) {
+        toast.error(
+          `${totalSkipped} duplicate serial${totalSkipped === 1 ? "" : "s"} skipped (already exist)`
+        );
+        return;
+      }
+      toast.success(`${totalInserted} serials imported (${productMap.size} product${productMap.size > 1 ? "s" : ""})`);
       setShowImport(false);
       setImportBatch("");
       setModalHouseId("");
+      setImportResult(null);
       setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }]);
-      fetchData();
-      fetchSummary();
     } catch (e: any) { toast.error(e?.message || "Import failed"); }
     finally { setImporting(false); }
   };
@@ -469,6 +485,7 @@ export default function SCSerialsPage() {
               <button onClick={async () => {
                 setShowImport(true);
                 setModalHouseId("");
+                setImportResult(null);
                 try {
                   const res = await apiClient.get("/v1/scratch-card-serials/batch-id/generate");
                   setImportBatch(res.data.data?.batch_id || generateBatchId());
@@ -902,6 +919,7 @@ export default function SCSerialsPage() {
                 setShowImport(false);
                 setImportBatch("");
                 setModalHouseId("");
+                setImportResult(null);
                 setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }]);
               }} className="p-1 text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
@@ -1042,11 +1060,49 @@ export default function SCSerialsPage() {
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors cursor-pointer">
                   <Plus className="w-4 h-4" /> Add Row
                 </button>
+                {importResult && (
+                  <div className={`rounded-xl border p-4 mt-3 ${importResult.skipped > 0
+                    ? "border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10"
+                    : "border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10"}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+                        {importResult.skipped > 0 ? "Import finished with duplicates" : "Import successful"}
+                      </span>
+                      {importResult.skipped > 0 && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-400 font-semibold">
+                          {importResult.skipped} skipped
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                      {importResult.inserted} serial{importResult.inserted === 1 ? "" : "s"} imported
+                      {importResult.skipped > 0
+                        ? ` · ${importResult.skipped} duplicate serial${importResult.skipped === 1 ? "" : "s"} skipped (already exist)`
+                        : ""}
+                    </p>
+                    {importResult.skipped > 0 && importResult.skippedSerials.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          Skipped serials ({importResult.skippedSerials.length}
+                          {importResult.skipped > importResult.skippedSerials.length ? "+" : ""}):
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {importResult.skippedSerials.map((sn, i) => (
+                            <span key={i} className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-500/25 text-[11px] font-mono text-gray-700 dark:text-gray-300">
+                              {sn}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-500">Total: <strong className="text-gray-900 dark:text-gray-100">{calcInvoiceTotal().toLocaleString()}</strong> serials</span>
                   <div className="flex gap-2">
                     <button onClick={() => {
                       setShowImport(false);
+                      setImportResult(null);
                       setInvoiceRows([{ productId: "", startSerial: "", endSerial: "", qty: "", exitOrderNo: "", rfNo: "" }]);
                     }} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
                       Cancel
