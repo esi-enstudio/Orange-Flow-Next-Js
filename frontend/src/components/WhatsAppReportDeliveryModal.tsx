@@ -117,8 +117,18 @@ const REPORT_DEFAULT_CAPTIONS: Record<string, string> = {
   active_sso: "Daily Active SSO Report",
 };
 
-const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const BST_MS = 6 * 3600 * 1000;
+
+// Normalize a raw time value into "HH:MM" (24h). Returns "" for anything
+// that isn't a valid time so no garbage (e.g. "11:undefined") can render.
+const normalizeTime = (v: string): string => {
+  const raw = (v ?? "").trim();
+  if (!raw) return "";
+  const m = /^(?:(?:[01]?\d|2[0-3])):([0-5]\d)(?::[0-5]\d)?$/.exec(raw);
+  if (!m) return "";
+  return `${raw.split(":")[0].padStart(2, "0")}:${m[1]}`;
+};
 
 const emptyForm: FormState = {
   schedule_type: "daily",
@@ -316,7 +326,7 @@ export default function WhatsAppReportDeliveryModal({
 
   const toAmPm = useCallback((hhmm: string): string => {
     const m = TIME_RE.exec(hhmm || "");
-    if (!m) return hhmm;
+    if (!m) return "";
     let h = parseInt(m[1], 10);
     const mm = m[2];
     const suffix = h >= 12 ? "PM" : "AM";
@@ -355,20 +365,24 @@ export default function WhatsAppReportDeliveryModal({
     const today = bstNow().toISOString().slice(0, 10);
     const nowTime = bstNow().toISOString().slice(11, 16);
     if (form.starts_on && form.starts_on > today) {
-      return form.schedule_type === "daily"
-        ? `Starts ${fmtMedDate(form.starts_on)} at ${toAmPm(form.schedule_time)}`
-        : form.schedule_time
-          ? `Starts ${fmtMedDate(form.starts_on)} at ${toAmPm(form.schedule_time)} · every ${intervalValid ? intervalMinutes : "…"} min`
+      if (form.schedule_type === "daily") {
+        return dailyTimeValid
+          ? `Starts ${fmtMedDate(form.starts_on)} at ${toAmPm(form.schedule_time)}`
           : `Starts ${fmtMedDate(form.starts_on)}`;
+      }
+      return dailyTimeValid
+        ? `Starts ${fmtMedDate(form.starts_on)} at ${toAmPm(form.schedule_time)} · every ${intervalValid ? intervalMinutes : "…"} min`
+        : `Starts ${fmtMedDate(form.starts_on)}`;
     }
     if (form.schedule_type === "interval") {
-      if (!form.schedule_time) return `Every ${intervalValid ? intervalMinutes : "…"} minutes — starts immediately`;
+      if (!dailyTimeValid) return `Every ${intervalValid ? intervalMinutes : "…"} minutes — starts immediately`;
       const day = nowTime < form.schedule_time ? "Today" : "Tomorrow";
       return `First run ${day} at ${toAmPm(form.schedule_time)} · every ${intervalValid ? intervalMinutes : "…"} min`;
     }
+    if (!dailyTimeValid) return "";
     const day = nowTime < form.schedule_time ? "Today" : "Tomorrow";
     return `Next delivery ${day} at ${toAmPm(form.schedule_time)}`;
-  }, [form, bstNow, toAmPm, fmtMedDate, intervalValid, intervalMinutes]);
+  }, [form, bstNow, toAmPm, fmtMedDate, intervalValid, intervalMinutes, dailyTimeValid]);
 
   // ── Recipient selection ──────────────────────────────────────────
 
@@ -599,7 +613,8 @@ export default function WhatsAppReportDeliveryModal({
 
   const scheduleDesc = (s: ScheduleItem): string => {
     if (s.schedule_type === "interval") return `Every ${s.interval_minutes} min`;
-    return `Daily at ${toAmPm(s.schedule_time)}`;
+    const t = toAmPm(s.schedule_time);
+    return t ? `Daily at ${t}` : "Daily";
   };
 
   const scheduleRecipientsLabel = (s: ScheduleItem): string => {
@@ -939,8 +954,10 @@ export default function WhatsAppReportDeliveryModal({
           <dt className="text-gray-500 dark:text-gray-400">Frequency</dt>
           <dd className="font-medium text-gray-800 dark:text-gray-200 text-right">
             {form.schedule_type === "interval"
-              ? `Every ${intervalValid ? intervalMinutes : "…"} minutes${form.schedule_time ? ` · first at ${toAmPm(form.schedule_time)}` : ""}`
-              : `Daily at ${toAmPm(form.schedule_time)}`}
+              ? `Every ${intervalValid ? intervalMinutes : "…"} minutes${dailyTimeValid ? ` · first at ${toAmPm(form.schedule_time)}` : ""}`
+              : dailyTimeValid
+                ? `Daily at ${toAmPm(form.schedule_time)}`
+                : ""}
           </dd>
         </div>
         <div className="flex justify-between gap-2">
@@ -1405,7 +1422,7 @@ export default function WhatsAppReportDeliveryModal({
                             <input
                               type="time"
                               value={form.schedule_time || ""}
-                              onChange={(e) => setForm((f) => ({ ...f, schedule_time: e.target.value }))}
+                              onChange={(e) => setForm((f) => ({ ...f, schedule_time: normalizeTime(e.target.value) }))}
                               className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
                             />
                           </div>
@@ -1441,7 +1458,7 @@ export default function WhatsAppReportDeliveryModal({
                             <input
                               type="time"
                               value={form.schedule_time}
-                              onChange={(e) => setForm((f) => ({ ...f, schedule_time: e.target.value }))}
+                              onChange={(e) => setForm((f) => ({ ...f, schedule_time: normalizeTime(e.target.value) }))}
                               className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
                             />
                           </div>
