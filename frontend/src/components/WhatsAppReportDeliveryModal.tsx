@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -239,6 +240,20 @@ export default function WhatsAppReportDeliveryModal({
   };
 
   // ── Derived values ───────────────────────────────────────────────
+
+  const overlayRoot = typeof document !== "undefined" ? document.body : null;
+  const anyOverlayOpen = open || !!deleteTarget || !!sendNowTarget || showDirectConfirm;
+
+  // Lock background scroll while any overlay is open so the page never
+  // shifts/jumps behind the fixed backdrops during open/close animations.
+  useEffect(() => {
+    if (!anyOverlayOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [anyOverlayOpen]);
 
   const whatsappReady = status?.connected === true;
   const telegramReady = tgStatus?.success === true;
@@ -1182,6 +1197,7 @@ export default function WhatsAppReportDeliveryModal({
 
   return (
     <>
+      {overlayRoot && createPortal(
       <AnimatePresence>
         {open && (
           <motion.div
@@ -1526,8 +1542,10 @@ export default function WhatsAppReportDeliveryModal({
         </motion.div>
       )}
       </AnimatePresence>
+      , overlayRoot)}
 
       {/* Delete confirmation */}
+      {overlayRoot && createPortal(
       <AnimatePresence>
         {deleteTarget && (
           <motion.div
@@ -1597,8 +1615,10 @@ export default function WhatsAppReportDeliveryModal({
           </motion.div>
         )}
       </AnimatePresence>
+      , overlayRoot)}
 
       {/* Send-now confirmation */}
+      {overlayRoot && createPortal(
       <AnimatePresence>
         {sendNowTarget && (
           <motion.div
@@ -1652,8 +1672,10 @@ export default function WhatsAppReportDeliveryModal({
           </motion.div>
         )}
       </AnimatePresence>
+      , overlayRoot)}
 
       {/* Direct send confirmation (unsaved form) */}
+      {overlayRoot && createPortal(
       <AnimatePresence>
         {showDirectConfirm && (
           <motion.div
@@ -1709,6 +1731,7 @@ export default function WhatsAppReportDeliveryModal({
           </motion.div>
         )}
       </AnimatePresence>
+      , overlayRoot)}
 
       <WhatsAppConnectModal
         open={showConnectModal}
