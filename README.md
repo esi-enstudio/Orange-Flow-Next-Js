@@ -144,6 +144,29 @@ Terminal 2: cd frontend && npm run dev
 Browser:    http://localhost:3000/setup  →  Wizard complete
 ```
 
+### Step 5: WhatsApp Gateway (রিপোর্ট ডেলিভারির জন্য)
+
+WhatsApp-এ রিপোর্ট (GA Live / Active LSO / Active SSO) পাঠাতে WhatsApp Gateway লাগবে।
+Gateway-এর image Docker Hub-এ নেই (এবং WhatsApp 405 fix-সহ patched code প্রয়োজন),
+তাই project-এর ভেতরেই `wa-gateway/` সোর্স vendor করা আছে। Fresh machine-এ শুধু:
+
+```bash
+docker compose --profile whatsapp up -d --build whatsapp-gateway
+# অথবা helper script দিয়ে:
+./scripts/setup-whatsapp-gateway.sh
+```
+
+Gateway চালু হলে:
+
+1. `http://localhost:7001` — gateway working check
+2. Frontend-এর WhatsApp Report Delivery modal থেকে QR scan করে device pair করুন
+3. Gateway-এর session/creds **PostgreSQL-এ** store হয় (orange_flow_db), তাই
+   container restart হলেও pairing থাকে
+
+> **405 "client outdated" error হলে কোনো কিছু বদলানোর দরকার নেই** — এটি WhatsApp-এর
+> `Platform.WEB` rejection fix, source-এর ভেতরে আগেই patched আছে
+> (দেখুন `wa-gateway/README.md`)। শুধু QR-এ scan দিন।
+
 ### Useful Commands
 
 ```bash
@@ -199,6 +222,8 @@ Orange-Flow-Next-Js/
 │   ├── package.json
 │   └── Dockerfile
 ├── docker-compose.yml          # Orchestration
+├── wa-gateway/                 # Vendored WhatsApp gateway source (patched, no Hub image)
+├── scripts/                    # Setup helpers (e.g. setup-whatsapp-gateway.sh)
 └── .env.example
 ```
 

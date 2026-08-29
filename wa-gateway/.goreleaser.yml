@@ -1,0 +1,129 @@
+# =============================================================================
+# GoReleaser Configuration for WhatsApp Multi-Session REST API
+# =============================================================================
+# Requires Go 1.24+ (as specified in go.mod)
+# Documentation: https://goreleaser.com/customization/
+# =============================================================================
+
+version: 2
+
+project_name: whatsapp-api-multisession
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+    - go mod verify
+
+builds:
+  - main: ./cmd/main/main.go
+    binary: whatsapp-api
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -extldflags '-static'
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # Windows ARM64 is not commonly used
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - formats:
+      - tar.gz
+      - zip
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - .env.example
+      - docs/*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+snapshot:
+  version_template: "{{ .Version }}-next-{{ .ShortCommit }}"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - '^style:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: '🚀 Features'
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: '🐛 Bug Fixes'
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: '⚡ Performance'
+      regexp: "^.*perf[(\\w)]*:+.*$"
+      order: 2
+    - title: '🔒 Security'
+      regexp: "^.*security[(\\w)]*:+.*$"
+      order: 3
+    - title: '📦 Dependencies'
+      regexp: "^.*deps[(\\w)]*:+.*$"
+      order: 4
+    - title: '🔧 Others'
+      order: 999
+
+release:
+  prerelease: auto
+  make_latest: true
+  header: |
+    ## WhatsApp API Multi-Session {{ .Version }}
+
+    Enterprise-grade WhatsApp Multi-Device REST API with 127+ endpoints.
+
+    ### 📦 Installation
+
+    Download the appropriate binary for your platform below, or use Docker:
+
+    ```bash
+    # Docker (recommended)
+    docker pull gdbrns/whatsapp-api-multisession:{{ .Version }}
+
+    # Or use latest
+    docker pull gdbrns/whatsapp-api-multisession:latest
+    ```
+
+    ### 📚 Documentation
+
+    - [API Documentation](https://bump.sh/gdbrns/doc/go-whatsapp-multi-session-rest)
+    - [README](https://github.com/gdbrns/go-whatsapp-multi-session-rest-api#readme)
+  footer: |
+    ---
+
+    **Full Changelog**: https://github.com/gdbrns/go-whatsapp-multi-session-rest-api/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    **Docker Hub**: https://hub.docker.com/r/gdbrns/whatsapp-api-multisession
