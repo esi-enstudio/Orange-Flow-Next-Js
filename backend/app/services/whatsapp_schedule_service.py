@@ -64,6 +64,99 @@ def _parse_json_array(value) -> list[str]:
     return []
 
 
+def _first_run_at(schedule: WhatsAppSchedule, now: datetime) -> datetime | None:
+    """The schedule's configured first-run moment (BST), or None when no
+    first-run time is set (i.e. \"00:00\" -> deliver as soon as the window
+    opens). Ignores the missing first-run day by falling back to today."""
+    first = _parse_schedule_time(schedule.schedule_time)
+    if first is None:
+        return None
+    return datetime.combine(schedule.starts_on or now.date(), first)
+
+
+def _window_bounds(schedule: WhatsAppSchedule) -> tuple[time, time]:
+    """Return the interval schedule's daily delivery window (start, end).
+
+    Invalid/missing values degrade to a full-day window (00:00 - 23:59) so
+    misconfigured rows never silently stop delivering.
+    """
+    st = _parse_schedule_time(getattr(schedule, "start_time", None) or "00:00")
+    en = _parse_schedule_time(getattr(schedule, "end_time", None) or "23:59")
+    st = st or time(0, 0)
+    en = en or time(23, 59)
+    if st > en:
+        # Cross-midnight / invalid window -> treat as unrestricted.
+        return time(0, 0), time(23, 59)
+    return st, en
+
+
+def _in_window(schedule: WhatsAppSchedule, moment: datetime) -> bool:
+    """Whether a delivery moment falls inside the interval daily window.
+
+    Only interval schedules are windowed; daily schedules fire once at their
+    own fixed time and are never restricted.
+    """
+    if schedule.schedule_type != "interval":
+        return True
+    st, en = _window_bounds(schedule)
+    return st <= moment.time() <= en
+
+
+def _clamp_to_window(schedule: WhatsAppSchedule, candidate: datetime, now: datetime) -> datetime:
+    """Push an interval candidate run into the next valid window moment."""
+    if schedule.schedule_type != "interval":
+        return candidate
+    st, en = _window_bounds(schedule)
+
+    if not (st <= candidate.time() <= en):
+        if candidate.time() > en:
+            candidate = datetime.combine(candidate.date() + timedelta(days=1), st)
+        else:
+            candidate = datetime.combine(candidate.date(), st)
+
+    # A candidate in the past is due right now when we're already inside the
+    # window (the runner will fire it on the next tick), otherwise wait for the
+    # next window to open.
+    if candidate < now:
+        if st <= now.time() <= en:
+            candidate = now
+        else:
+            candidate = datetime.combine(now.date() + timedelta(days=1), st)
+    return candidate
+
+
+def _mark_run_status(
+    schedule: WhatsAppSchedule,
+    triggered_by: str,
+    status: str,
+    error: str | None = None,
+    *,
+    run_at: datetime | None = None,
+) -> None:
+    """Update schedule-level run tracking.
+
+    Only schedule-triggered runs mutate ``last_run_*``. A manual \"Send Now\"
+    (test send) must never touch these fields — otherwise a pre-start test
+    send makes a future-dated interval schedule look \"already running\", so
+    the elapsed-time check fires it immediately instead of waiting for its
+    configured first-run time (regression: report delivered from 08:49 AM
+    instead of the set 11:00 AM).
+    """
+    if triggered_by != "schedule":
+        # Manual "Send Now" must not move the schedule's run timeline, but a
+        # failure reason is still worth persisting for troubleshooting.
+        if status == "failed" and error:
+            schedule.last_error = error
+        return
+    schedule.last_status = status
+    schedule.last_error = error
+    if run_at is not None:
+        # Advance the run timeline even on (partial) failure so a persistent
+        # gateway error doesn't turn into a tight retry loop every 30s.
+        schedule.last_run_date = run_at.date()
+        schedule.last_run_at = run_at
+
+
 def get_schedule_targets(schedule: WhatsAppSchedule) -> list[tuple[str, str]]:
     """Return [(chat_id, chat_name)] for a schedule.
 
@@ -347,8 +440,7 @@ async def _send_telegram_report(
         builder = get_report_builder(report_type)
         image_bytes = await builder(db, schedule.house_id)
     except ValueError as e:
-        schedule.last_status = "failed"
-        schedule.last_error = f"Unknown report type: {report_type}"
+        _mark_run_status(schedule, triggered_by, "failed", f"Unknown report type: {report_type}")
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -358,8 +450,7 @@ async def _send_telegram_report(
         await _log_schedule_action(db, schedule, "telegram_send_failed", status_code=500, error=str(e))
         return False
     except Exception as e:
-        schedule.last_status = "failed"
-        schedule.last_error = f"Report build failed: {str(e)}"
+        _mark_run_status(schedule, triggered_by, "failed", f"Report build failed: {str(e)}")
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -374,10 +465,8 @@ async def _send_telegram_report(
     house_res = await db.execute(select(House).where(House.id == schedule.house_id))
     house = house_res.scalar_one_or_none()
     if not house or not house.telegram_chat_id:
-        schedule.last_status = "failed"
-        schedule.last_error = "No Telegram group linked for this house"
-        if not house:
-            schedule.last_error = "House not found for this schedule"
+        _mark_run_status(schedule, triggered_by, "failed",
+                         "No Telegram group linked for this house" if house else "House not found for this schedule")
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -390,8 +479,7 @@ async def _send_telegram_report(
 
     bot = await telegram_service.resolve_house_tg_bot(db, house)
     if not bot:
-        schedule.last_status = "failed"
-        schedule.last_error = "No Telegram bot assigned to this house"
+        _mark_run_status(schedule, triggered_by, "failed", "No Telegram bot assigned to this house")
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -411,8 +499,7 @@ async def _send_telegram_report(
             caption=caption,
         )
     except TelegramError as e:
-        schedule.last_status = "failed"
-        schedule.last_error = e.description
+        _mark_run_status(schedule, triggered_by, "failed", e.description)
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -427,10 +514,7 @@ async def _send_telegram_report(
         return False
 
     now = _today_bst()
-    schedule.last_run_date = now.date()
-    schedule.last_run_at = now
-    schedule.last_status = "success"
-    schedule.last_error = None
+    _mark_run_status(schedule, triggered_by, "success", None, run_at=now)
     await db.commit()
     await _record_delivery(
         db, house_id=schedule.house_id, schedule=schedule,
@@ -472,8 +556,7 @@ async def _send_whatsapp_report(
         builder = get_report_builder(report_type)
         image_bytes = await builder(db, schedule.house_id)
     except ValueError as e:
-        schedule.last_status = "failed"
-        schedule.last_error = f"Unknown report type: {report_type}"
+        _mark_run_status(schedule, triggered_by, "failed", f"Unknown report type: {report_type}")
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -484,8 +567,7 @@ async def _send_whatsapp_report(
         await _log_schedule_action(db, schedule, "whatsapp_send_failed", status_code=500, error=str(e))
         return False
     except Exception as e:
-        schedule.last_status = "failed"
-        schedule.last_error = f"Report build failed: {str(e)}"
+        _mark_run_status(schedule, triggered_by, "failed", f"Report build failed: {str(e)}")
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -502,8 +584,7 @@ async def _send_whatsapp_report(
     house_res = await db.execute(select(House).where(House.id == schedule.house_id))
     house = house_res.scalar_one_or_none()
     if not house:
-        schedule.last_status = "failed"
-        schedule.last_error = "House not found for this schedule"
+        _mark_run_status(schedule, triggered_by, "failed", "House not found for this schedule")
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -517,8 +598,7 @@ async def _send_whatsapp_report(
 
     target = await resolve_house_wa_target(db, house)
     if not target or not target.jwt_token:
-        schedule.last_status = "failed"
-        schedule.last_error = "WhatsApp not configured for this house"
+        _mark_run_status(schedule, triggered_by, "failed", "WhatsApp not configured for this house")
         await db.commit()
         await _record_delivery(
             db, house_id=schedule.house_id, schedule=schedule,
@@ -552,14 +632,10 @@ async def _send_whatsapp_report(
             logger.warning(f"Schedule {schedule.id}: delivery to {chat_name} failed: {e.code}: {e.message}")
 
     now = _today_bst()
-    schedule.last_run_date = now.date()
-    schedule.last_run_at = now
     if delivered == total:
-        schedule.last_status = "success"
-        schedule.last_error = None
+        _mark_run_status(schedule, triggered_by, "success", None, run_at=now)
     else:
-        schedule.last_status = "failed"
-        schedule.last_error = first_error or "Send failed"
+        _mark_run_status(schedule, triggered_by, "failed", first_error or "Send failed", run_at=now)
     await db.commit()
 
     await _record_delivery(
@@ -619,16 +695,33 @@ def compute_next_run(schedule: WhatsAppSchedule, now: datetime | None = None) ->
         if schedule.ends_on and today > schedule.ends_on:
             return None
         if schedule.starts_on and today < schedule.starts_on:
-            return _at(schedule.starts_on, time(0, 0))
-        first = _parse_schedule_time(schedule.schedule_time)
-        if schedule.last_run_at is None:
-            # Optional first-run time; leave empty to start immediately.
+            candidate = _first_run_at(schedule, now) or _at(schedule.starts_on, time(0, 0))
+        else:
+            first = _parse_schedule_time(schedule.schedule_time)
+            first_dt = None
             if first is not None:
                 first_dt = _at(schedule.starts_on or today, first)
-                return first_dt if first_dt > now else now
-            return _at(today, tz_time) if today == now.date() else now
-        nxt = schedule.last_run_at + timedelta(minutes=minutes)
-        return nxt if nxt >= now else now
+            # Fresh until the schedule's configured first-run moment has passed.
+            # A last_run_at from a manual "Send Now" before starts_on must not
+            # count as already started.
+            fresh = schedule.last_run_at is None or (
+                schedule.starts_on is not None
+                and first_dt is not None
+                and schedule.last_run_at < first_dt
+            )
+            if fresh:
+                if first_dt is not None:
+                    candidate = first_dt if first_dt > now else now
+                else:
+                    # Optional first-run time; leave empty/00:00 to start immediately.
+                    candidate = now
+            else:
+                nxt = schedule.last_run_at + timedelta(minutes=minutes)
+                candidate = nxt if nxt >= now else now
+        candidate = _clamp_to_window(schedule, candidate, now)
+        if schedule.ends_on and candidate.date() > schedule.ends_on:
+            return None
+        return candidate
 
     # daily mode
     if schedule.starts_on and today < schedule.starts_on:
@@ -650,11 +743,32 @@ async def _is_due(schedule: WhatsAppSchedule, now: datetime) -> bool:
         return False
     if schedule.schedule_type == "interval":
         minutes = schedule.interval_minutes or 1
-        if schedule.last_run_at is None:
-            first = _parse_schedule_time(schedule.schedule_time)
-            if first is not None:
-                return now.strftime("%H:%M") >= schedule.schedule_time
-            return True
+
+        # Restrict deliveries to the daily window (e.g. 08:00-21:00). Without
+        # this, a 30-minute cadence keeps firing through midnight/1 AM/2 AM.
+        if not _in_window(schedule, now):
+            return False
+
+        first = _parse_schedule_time(schedule.schedule_time)
+        first_dt = None
+        if first is not None:
+            first_dt = datetime.combine(schedule.starts_on or today, first)
+
+        # Fresh until the schedule's configured first-run moment has passed.
+        # A last_run_at from a manual "Send Now" before starts_on must not
+        # make the schedule look already-running.
+        fresh = schedule.last_run_at is None or (
+            schedule.starts_on is not None
+            and first_dt is not None
+            and schedule.last_run_at < first_dt
+        )
+        if fresh:
+            # Never deliver before the configured first-run moment.
+            if first_dt is not None and now < first_dt:
+                return False
+            # Fire exactly once the first-run moment has passed (or
+            # immediately when no first-run time is configured).
+            return first_dt is None or now >= first_dt
         elapsed = (now - schedule.last_run_at).total_seconds() / 60
         return elapsed >= minutes
     # daily mode

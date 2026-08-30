@@ -9,6 +9,7 @@ import {
   Plus, Trash2, Power, CalendarCheck, AlertCircle, Smartphone,
   Pencil, CheckCircle2, User, Search, Copy, History, BellRing,
   Lock, ChevronDown, ChevronUp, CalendarDays, Wifi, WifiOff, ListChecks, Zap,
+  Sunrise, Sunset,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,8 @@ interface ScheduleItem {
   schedule_type: string;
   schedule_time: string;
   interval_minutes: number | null;
+  start_time: string | null;
+  end_time: string | null;
   channel: string;
   report_type: string;
   whatsapp_chat_id: string;
@@ -99,6 +102,8 @@ interface FormState {
   schedule_type: "daily" | "interval";
   schedule_time: string;
   interval_minutes: string;
+  start_time: string;
+  end_time: string;
   channel: "whatsapp" | "telegram";
   caption: string;
   starts_on: string;
@@ -135,6 +140,8 @@ const emptyForm: FormState = {
   schedule_type: "daily",
   schedule_time: "09:00",
   interval_minutes: "30",
+  start_time: "08:00",
+  end_time: "21:00",
   channel: "whatsapp",
   caption: "",
   starts_on: "",
@@ -318,6 +325,9 @@ export default function WhatsAppReportDeliveryModal({
   const intervalValid = !isNaN(intervalMinutes) && intervalMinutes >= 1 && intervalMinutes <= 1440;
   const windowValid =
     !form.starts_on || !form.ends_on || form.starts_on <= form.ends_on || form.ends_never;
+  const timeWindowValid =
+    form.schedule_type !== "interval" ||
+    (!form.start_time || !form.end_time || form.start_time <= form.end_time);
 
   const missingRequirements = useMemo(() => {
     const missing: string[] = [];
@@ -330,8 +340,9 @@ export default function WhatsAppReportDeliveryModal({
     if (form.schedule_type === "interval" && !intervalValid) missing.push("Enter a valid repeat interval (1–1440 min)");
     if (form.schedule_type === "daily" && !dailyTimeValid) missing.push("Enter a valid delivery time");
     if (!windowValid) missing.push("End date cannot be before start date");
+    if (!timeWindowValid) missing.push("Delivery window end time cannot be before start time");
     return missing;
-  }, [form, whatsappReady, telegramReady, totalSelected, intervalValid, dailyTimeValid, windowValid]);
+  }, [form, whatsappReady, telegramReady, totalSelected, intervalValid, dailyTimeValid, windowValid, timeWindowValid]);
 
   const canSave = missingRequirements.length === 0;
 
@@ -379,25 +390,24 @@ export default function WhatsAppReportDeliveryModal({
     if (form.channel === "telegram") return "Sends to the house's linked Telegram group";
     const today = bstNow().toISOString().slice(0, 10);
     const nowTime = bstNow().toISOString().slice(11, 16);
+    const win = timeWindowValid && form.start_time && form.end_time
+      ? ` · daily ${toAmPm(form.start_time)}–${toAmPm(form.end_time)}`
+      : "";
     if (form.starts_on && form.starts_on > today) {
       if (form.schedule_type === "daily") {
         return dailyTimeValid
           ? `Starts ${fmtMedDate(form.starts_on)} at ${toAmPm(form.schedule_time)}`
           : `Starts ${fmtMedDate(form.starts_on)}`;
       }
-      return dailyTimeValid
-        ? `Starts ${fmtMedDate(form.starts_on)} at ${toAmPm(form.schedule_time)} · every ${intervalValid ? intervalMinutes : "…"} min`
-        : `Starts ${fmtMedDate(form.starts_on)}`;
+      return `Starts ${fmtMedDate(form.starts_on)} · every ${intervalValid ? intervalMinutes : "…"} min${win}`;
     }
     if (form.schedule_type === "interval") {
-      if (!dailyTimeValid) return `Every ${intervalValid ? intervalMinutes : "…"} minutes — starts immediately`;
-      const day = nowTime < form.schedule_time ? "Today" : "Tomorrow";
-      return `First run ${day} at ${toAmPm(form.schedule_time)} · every ${intervalValid ? intervalMinutes : "…"} min`;
+      return `Every ${intervalValid ? intervalMinutes : "…"} min — starts on the next tick${win}`;
     }
     if (!dailyTimeValid) return "";
     const day = nowTime < form.schedule_time ? "Today" : "Tomorrow";
     return `Next delivery ${day} at ${toAmPm(form.schedule_time)}`;
-  }, [form, bstNow, toAmPm, fmtMedDate, intervalValid, intervalMinutes, dailyTimeValid]);
+  }, [form, bstNow, toAmPm, fmtMedDate, intervalValid, intervalMinutes, dailyTimeValid, timeWindowValid]);
 
   // ── Recipient selection ──────────────────────────────────────────
 
@@ -471,12 +481,24 @@ export default function WhatsAppReportDeliveryModal({
       toast.error("End date cannot be before start date");
       return;
     }
+    if (!timeWindowValid) {
+      toast.error("Delivery window end time cannot be before start time");
+      return;
+    }
     setLoading(true);
     try {
       const payload: Record<string, unknown> = {
         schedule_type: form.schedule_type,
-        schedule_time: form.schedule_time || "00:00",
+        schedule_time: form.schedule_type === "daily" ? form.schedule_time || "00:00" : "00:00",
         interval_minutes: form.schedule_type === "interval" ? intervalMinutes : null,
+        start_time:
+          form.schedule_type === "interval"
+            ? form.start_time.trim() || "00:00"
+            : "00:00",
+        end_time:
+          form.schedule_type === "interval"
+            ? form.end_time.trim() || "23:59"
+            : "23:59",
         channel: form.channel,
         report_type: reportType,
         caption: form.caption || null,
@@ -554,6 +576,8 @@ export default function WhatsAppReportDeliveryModal({
       schedule_type: s.schedule_type === "interval" ? "interval" : "daily",
       schedule_time: s.schedule_time || "09:00",
       interval_minutes: String(s.interval_minutes ?? 30),
+      start_time: s.start_time || "08:00",
+      end_time: s.end_time || "21:00",
       channel: s.channel === "telegram" ? "telegram" : "whatsapp",
       caption: s.caption ?? "",
       starts_on: s.starts_on ?? "",
@@ -627,7 +651,13 @@ export default function WhatsAppReportDeliveryModal({
   };
 
   const scheduleDesc = (s: ScheduleItem): string => {
-    if (s.schedule_type === "interval") return `Every ${s.interval_minutes} min`;
+    if (s.schedule_type === "interval") {
+      const win =
+        s.start_time && s.end_time
+          ? ` · ${toAmPm(s.start_time)}–${toAmPm(s.end_time)}`
+          : "";
+      return `Every ${s.interval_minutes} min${win}`;
+    }
     const t = toAmPm(s.schedule_time);
     return t ? `Daily at ${t}` : "Daily";
   };
@@ -969,10 +999,20 @@ export default function WhatsAppReportDeliveryModal({
           <dt className="text-gray-500 dark:text-gray-400">Frequency</dt>
           <dd className="font-medium text-gray-800 dark:text-gray-200 text-right">
             {form.schedule_type === "interval"
-              ? `Every ${intervalValid ? intervalMinutes : "…"} minutes${dailyTimeValid ? ` · first at ${toAmPm(form.schedule_time)}` : ""}`
+              ? `Every ${intervalValid ? intervalMinutes : "…"} minutes`
               : dailyTimeValid
                 ? `Daily at ${toAmPm(form.schedule_time)}`
                 : ""}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt className="text-gray-500 dark:text-gray-400">Window</dt>
+          <dd className="font-medium text-gray-800 dark:text-gray-200 text-right">
+            {form.schedule_type === "interval"
+              ? timeWindowValid && form.start_time && form.end_time
+                ? `${toAmPm(form.start_time)} – ${toAmPm(form.end_time)}`
+                : "—"
+              : "Unrestricted"}
           </dd>
         </div>
         <div className="flex justify-between gap-2">
@@ -1377,8 +1417,7 @@ export default function WhatsAppReportDeliveryModal({
                     </div>
                     {form.schedule_type === "interval" && (
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
-                        Report repeatedly posts every N minutes. Set an optional first-run time, or leave
-                        empty to start immediately on save.
+                        Report repeatedly posts every N minutes, only inside the daily delivery window.
                       </p>
                     )}
                   </div>
@@ -1425,70 +1464,100 @@ export default function WhatsAppReportDeliveryModal({
                     </button>
                   </div>
 
-                  {/* Time / interval */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {form.schedule_type === "interval" ? (
-                      <>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                            First run at (optional)
-                          </label>
-                          <div className="relative">
-                            <Clock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input
-                              type="time"
-                              value={form.schedule_time || ""}
-                              onChange={(e) => setForm((f) => ({ ...f, schedule_time: normalizeTime(e.target.value) }))}
-                              className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                            />
-                          </div>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
-                            Leave empty to send immediately on save
-                          </p>
+                  {/* Delivery time (daily mode) */}
+                  {form.schedule_type === "daily" && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                          Delivery time
+                        </label>
+                        <div className="relative">
+                          <Clock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            type="time"
+                            value={form.schedule_time}
+                            onChange={(e) => setForm((f) => ({ ...f, schedule_time: normalizeTime(e.target.value) }))}
+                            className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                          />
                         </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                            Repeat every (minutes)
-                          </label>
-                          <div className="relative">
-                            <RefreshCw className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input
-                              type="number"
-                              min={1}
-                              max={1440}
-                              value={form.interval_minutes}
-                              onChange={(e) => setForm((f) => ({ ...f, interval_minutes: e.target.value }))}
-                              className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                            />
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                            Delivery time
-                          </label>
-                          <div className="relative">
-                            <Clock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input
-                              type="time"
-                              value={form.schedule_time}
-                              onChange={(e) => setForm((f) => ({ ...f, schedule_time: normalizeTime(e.target.value) }))}
-                              className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                            />
-                          </div>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
-                            Timezone: <span className="font-medium">Asia/Dhaka (UTC+6)</span>
-                          </p>
-                        </div>
-                        {renderCaptionField()}
-                      </>
-                    )}
-                  </div>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                          Timezone: <span className="font-medium">Asia/Dhaka (UTC+6)</span>
+                        </p>
+                      </div>
+                      {renderCaptionField()}
+                    </div>
+                  )}
 
-                  {/* Caption (interval mode uses full width below) */}
-                  {form.schedule_type === "interval" && renderCaptionField()}
+                  {/* Daily delivery window (interval only) */}
+                  {form.schedule_type === "interval" && (
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                        Daily delivery window
+                      </p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[11px] text-gray-500 dark:text-gray-400 mb-1 block">
+                            Start time
+                          </label>
+                          <div className="relative">
+                            <Sunrise className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="time"
+                              value={form.start_time || ""}
+                              onChange={(e) => setForm((f) => ({ ...f, start_time: normalizeTime(e.target.value) }))}
+                              className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-gray-500 dark:text-gray-400 mb-1 block">
+                            End time
+                          </label>
+                          <div className="relative">
+                            <Sunset className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="time"
+                              value={form.end_time || ""}
+                              onChange={(e) => setForm((f) => ({ ...f, end_time: normalizeTime(e.target.value) }))}
+                              className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                        Reports only send inside this window daily — so no midnight / early-morning deliveries.
+                      </p>
+                      {!timeWindowValid && (
+                        <p className="text-[11px] text-red-500 mt-1">End time cannot be before start time</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Repeat interval + Caption (interval only, below the window) */}
+                  {form.schedule_type === "interval" && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                          Repeat every (minutes)
+                        </label>
+                        <div className="relative">
+                          <RefreshCw className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            type="number"
+                            min={1}
+                            max={1440}
+                            value={form.interval_minutes}
+                            onChange={(e) => setForm((f) => ({ ...f, interval_minutes: e.target.value }))}
+                            className="w-full min-h-[44px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                          />
+                        </div>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                          First report sends as soon as the daily window opens after saving
+                        </p>
+                      </div>
+                      {renderCaptionField()}
+                    </div>
+                  )}
                 </div>
 
                 {/* Schedule summary preview */}

@@ -356,6 +356,35 @@ async def _migrate_whatsapp_schedule_delivery_columns():
     except Exception as e:
         logger.warning(f"Migration warning (whatsapp schedule delivery columns): {e}")
 
+async def _migrate_whatsapp_schedule_time_window():
+    """Add interval daily delivery-window columns to whatsapp_schedules.
+
+    Defaults to working hours (08:00-21:00) so existing interval schedules
+    no longer push GA live reports overnight (midnight / 1 AM / 2 AM sends).
+    """
+    try:
+        async with engine.begin() as conn:
+            exists = await conn.execute(text(
+                "SELECT to_regclass('public.whatsapp_schedules') IS NOT NULL AS exists"
+            ))
+            if not exists.scalar():
+                return
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS start_time VARCHAR(5) NOT NULL DEFAULT '00:00'"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS end_time VARCHAR(5) NOT NULL DEFAULT '23:59'"
+            ))
+            # Apply the working-hours window to existing interval schedules so the
+            # overnight-send regression is fixed immediately, not only for new rows.
+            await conn.execute(text(
+                "UPDATE whatsapp_schedules SET start_time='08:00', end_time='21:00' "
+                "WHERE schedule_type='interval' AND (start_time='00:00' AND end_time='23:59' OR start_time IS NULL OR end_time IS NULL)"
+            ))
+            logger.info("Migration complete: whatsapp_schedules time window ensured")
+    except Exception as e:
+        logger.warning(f"Migration warning (whatsapp schedule time window): {e}")
+
 async def _migrate_ga_report_events_config():
     try:
         async with engine.begin() as conn:
@@ -445,6 +474,7 @@ async def init_db():
         await _migrate_whatsapp_schedule_columns()
         await _migrate_whatsapp_schedule_report_type()
         await _migrate_whatsapp_schedule_delivery_columns()
+        await _migrate_whatsapp_schedule_time_window()
         await _migrate_ga_report_events_config()
         await _migrate_house_whatsapp_columns()
         await _migrate_telegram_columns()

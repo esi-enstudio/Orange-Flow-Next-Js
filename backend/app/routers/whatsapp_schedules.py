@@ -48,6 +48,8 @@ class ScheduleCreate(BaseModel):
     schedule_type: str = "daily"  # daily | interval
     schedule_time: Optional[str] = None  # daily: fixed time; interval: optional first-run time ("00:00" = start immediately)
     interval_minutes: Optional[int] = None  # required when schedule_type == interval
+    start_time: Optional[str] = None  # interval: daily delivery window start ("HH:MM", inclusive)
+    end_time: Optional[str] = None  # interval: daily delivery window end ("HH:MM", inclusive)
     channel: str = "whatsapp"  # whatsapp | telegram
     report_type: str = "ga_live"  # ga_live | active_lso | active_sso | ...
     whatsapp_chat_id: Optional[str] = None  # legacy single recipient; falls back to target_ids
@@ -86,6 +88,13 @@ class ScheduleCreate(BaseModel):
             raise ValueError("schedule_time must be in HH:MM 24-hour format")
         return v
 
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _validate_window_time(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not TIME_RE.match(v):
+            raise ValueError("start_time/end_time must be in HH:MM 24-hour format")
+        return v
+
     @field_validator("interval_minutes")
     @classmethod
     def _validate_interval(cls, v: Optional[int]) -> Optional[int]:
@@ -105,6 +114,8 @@ class ScheduleUpdate(BaseModel):
     schedule_type: Optional[str] = None
     schedule_time: Optional[str] = None
     interval_minutes: Optional[int] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
     channel: Optional[str] = None
     report_type: Optional[str] = None
     whatsapp_chat_id: Optional[str] = None
@@ -143,6 +154,13 @@ class ScheduleUpdate(BaseModel):
     def _validate_time(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and not TIME_RE.match(v):
             raise ValueError("schedule_time must be in HH:MM 24-hour format")
+        return v
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _validate_window_time(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not TIME_RE.match(v):
+            raise ValueError("start_time/end_time must be in HH:MM 24-hour format")
         return v
 
     @field_validator("interval_minutes")
@@ -209,6 +227,8 @@ def _serialize_schedule(s: WhatsAppSchedule) -> dict:
         "schedule_type": s.schedule_type,
         "schedule_time": s.schedule_time,
         "interval_minutes": s.interval_minutes,
+        "start_time": getattr(s, "start_time", None),
+        "end_time": getattr(s, "end_time", None),
         "channel": getattr(s, "channel", "whatsapp") or "whatsapp",
         "report_type": getattr(s, "report_type", "ga_live") or "ga_live",
         "whatsapp_chat_id": s.whatsapp_chat_id,
@@ -278,6 +298,15 @@ def _validate_window(starts_on: Optional[date], ends_on: Optional[date]) -> None
         raise HTTPException(status_code=400, detail="starts_on must be on or before ends_on")
 
 
+def _validate_time_window(start_time: Optional[str], end_time: Optional[str]) -> tuple[str, str]:
+    """Validate an interval delivery window and return it with shelf defaults."""
+    st = start_time or "00:00"
+    en = end_time or "23:59"
+    if st > en:
+        raise HTTPException(status_code=400, detail="start_time must be on or before end_time")
+    return st, en
+
+
 @router.get("/whatsapp-schedules")
 async def list_schedules(
     house_id: Optional[int] = Query(None),
@@ -331,6 +360,8 @@ async def create_schedule(
     if schedule_type == "daily" and not data.schedule_time:
         raise HTTPException(status_code=400, detail="schedule_time is required for daily schedules")
 
+    start_time, end_time = _validate_time_window(data.start_time, data.end_time)
+
     channel = data.channel or "whatsapp"
 
     # Resolve recipients snapshot for the schedule record
@@ -357,6 +388,8 @@ async def create_schedule(
         schedule_type=schedule_type,
         schedule_time=data.schedule_time or "00:00",
         interval_minutes=data.interval_minutes,
+        start_time=start_time,
+        end_time=end_time,
         channel=channel,
         report_type=data.report_type or "ga_live",
         whatsapp_chat_id=chat_id or "-",
@@ -388,6 +421,8 @@ async def create_schedule(
             "schedule_type": schedule.schedule_type,
             "schedule_time": schedule.schedule_time,
             "interval_minutes": schedule.interval_minutes,
+            "start_time": schedule.start_time,
+            "end_time": schedule.end_time,
             "targets": schedule.whatsapp_chat_name,
         },
         request=request,
@@ -412,6 +447,8 @@ async def update_schedule(
         "schedule_type": schedule.schedule_type,
         "schedule_time": schedule.schedule_time,
         "interval_minutes": schedule.interval_minutes,
+        "start_time": schedule.start_time,
+        "end_time": schedule.end_time,
         "channel": getattr(schedule, "channel", "whatsapp") or "whatsapp",
         "report_type": getattr(schedule, "report_type", "ga_live") or "ga_live",
         "whatsapp_chat_name": schedule.whatsapp_chat_name,
@@ -433,6 +470,12 @@ async def update_schedule(
     if data.interval_minutes is not None:
         schedule.interval_minutes = data.interval_minutes
         new_values["interval_minutes"] = data.interval_minutes
+    if data.start_time is not None:
+        schedule.start_time = data.start_time
+        new_values["start_time"] = data.start_time
+    if data.end_time is not None:
+        schedule.end_time = data.end_time
+        new_values["end_time"] = data.end_time
     if data.channel is not None:
         schedule.channel = data.channel
         new_values["channel"] = data.channel
@@ -483,6 +526,7 @@ async def update_schedule(
         raise HTTPException(status_code=400, detail="interval_minutes is required for interval schedules")
     if schedule.schedule_type == "daily" and not schedule.schedule_time:
         raise HTTPException(status_code=400, detail="schedule_time is required for daily schedules")
+    _validate_time_window(schedule.start_time, schedule.end_time)
     schedule.updated_by = current_user.id
     await db.commit()
 
@@ -553,6 +597,8 @@ async def duplicate_schedule(
         schedule_type=source.schedule_type,
         schedule_time=source.schedule_time,
         interval_minutes=source.interval_minutes,
+        start_time=getattr(source, "start_time", None),
+        end_time=getattr(source, "end_time", None),
         channel=getattr(source, "channel", "whatsapp") or "whatsapp",
         report_type=getattr(source, "report_type", "ga_live") or "ga_live",
         whatsapp_chat_id=first_id,
@@ -600,14 +646,13 @@ async def send_now(
         raise HTTPException(status_code=503, detail=f"{e.code}: {e.message}")
 
     if not ok:
-        raise HTTPException(status_code=502, detail=f"Send failed: {schedule.last_error}")
+        raise HTTPException(status_code=502, detail=f"Send failed: {schedule.last_error or 'unknown error'}")
 
     return {
         "success": True,
         "data": {
             "id": schedule.id,
-            "last_status": schedule.last_status,
-            "last_run_at": schedule.last_run_at.isoformat() if schedule.last_run_at else None,
+            "status": "success",
         },
     }
 

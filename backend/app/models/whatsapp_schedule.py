@@ -13,6 +13,8 @@ class WhatsAppSchedule(Base):
     schedule_type = Column(String(20), nullable=False, default="daily")  # daily | interval
     schedule_time = Column(String(5), nullable=False)  # "HH:MM" in timezone_name (daily mode)
     interval_minutes = Column(Integer, nullable=True)  # repeat every N minutes (interval mode)
+    start_time = Column(String(5), nullable=False, default="00:00", server_default="00:00")  # interval daily delivery window (start, inclusive)
+    end_time = Column(String(5), nullable=False, default="23:59", server_default="23:59")  # interval daily delivery window (end, inclusive)
     channel = Column(String(16), nullable=False, default="whatsapp", server_default="whatsapp")  # whatsapp | telegram
     whatsapp_chat_id = Column(String(64), nullable=False)  # primary chat id (e.g. ...@g.us); telegram chat id for channel=telegram
     whatsapp_chat_name = Column(String(200), nullable=False)
