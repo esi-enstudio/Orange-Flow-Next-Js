@@ -180,6 +180,11 @@ docker exec -it orange_flow_db psql -U postgres -d orange_flow_dev_db
 docker exec -it orange_flow_backend alembic upgrade head
 
 # Containers stop করা
+# NOTE: WhatsApp gateway-টা `whatsapp` profile-এ আছে, তাই plain `down` হলে
+# ওটা চলতে থাকে এবং "Network ... Resource is still in use" warning দেখায়।
+# সব container বন্ধ করতে profile সহ `down` চালাও:
+docker compose --profile "*" down
+# শুধুমাত্র main services বন্ধ করতে (gateway চলতে থাকবে):
 docker compose down
 
 # Rebuild without cache
