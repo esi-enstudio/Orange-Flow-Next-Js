@@ -54,9 +54,6 @@ interface ExportPayload {
 
 const PRIMARY = "7C3AED";
 const PRIMARY_DARK = "5B21B6";
-const HEADER_BG = "1E293B";
-const SUBHEADER_BG = "F1F5F9";
-const ROW_ALT = "F8FAFC";
 const BORDER = "E2E8F0";
 const WHITE = "FFFFFF";
 const TEXT_DARK = "1E293B";
@@ -149,7 +146,6 @@ function addColHeaders(ws: ExcelJS.Worksheet, row: number, headers: string[], co
   headers.forEach((h, i) => {
     const cell = r.getCell(colStart + i);
     cell.value = h;
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SUBHEADER_BG } };
     cell.font = { bold: true, color: { argb: TEXT_DARK }, size: 10, name: "Calibri" };
     cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
     cell.border = fullBorder
@@ -169,7 +165,7 @@ function addColHeaders(ws: ExcelJS.Worksheet, row: number, headers: string[], co
   return row + 1;
 }
 
-function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)[], colStart: number, alt: boolean, statusIdx: number = -1, pctIdx: number = -1, fullBorder: boolean = false): number {
+function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)[], colStart: number, statusIdx: number = -1, pctIdx: number = -1, fullBorder: boolean = false): number {
   const r = ws.getRow(row);
   cells.forEach((val, i) => {
     const cell = r.getCell(colStart + i);
@@ -180,9 +176,6 @@ function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)
       name: "Calibri",
       bold: i === statusIdx || i === pctIdx,
     };
-    cell.fill = alt
-      ? { type: "pattern", pattern: "solid", fgColor: { argb: ROW_ALT } }
-      : { type: "pattern", pattern: "solid", fgColor: { argb: "00000000" } };
     cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
     cell.border = fullBorder
       ? {
@@ -240,7 +233,6 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
     cell.value = h;
     cell.font = { bold: true, color: { argb: TEXT_DARK }, size: 10, name: "Calibri" };
     cell.alignment = { vertical: "middle", horizontal: "center" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SUBHEADER_BG } };
     cell.border = {
       top: { style: "thin", color: { argb: "000000" } },
       bottom: { style: "thin", color: { argb: "000000" } },
@@ -363,7 +355,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
               fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
               projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
             ];
-      addDataRow(ws, r, cells, 1, i % 2 === 1, cells.length - 1, pctIdx, fullBorder);
+      addDataRow(ws, r, cells, 1, cells.length - 1, pctIdx, fullBorder);
       r++;
     });
     // Subtotal row
@@ -417,7 +409,6 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
           size: 10,
           name: "Calibri",
         };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ROW_ALT } };
         cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : "center" };
     cell.border = fullBorder
       ? {
