@@ -115,12 +115,14 @@ const REPORT_TITLES: Record<string, string> = {
   ga_live: "GA Live Report",
   active_lso: "Active LSO Report",
   active_sso: "Active SSO Report",
+  activation: "Activation Report",
 };
 
 const REPORT_DEFAULT_CAPTIONS: Record<string, string> = {
   ga_live: "Daily GA Live Report",
   active_lso: "Daily Active LSO Report",
   active_sso: "Daily Active SSO Report",
+  activation: "Daily Activation Report",
 };
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;

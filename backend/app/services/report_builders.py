@@ -40,6 +40,7 @@ def get_report_title(report_type: str) -> str:
         "ga_live": "GA Live Report",
         "active_lso": "Active LSO Report",
         "active_sso": "Active SSO Report",
+        "activation": "Activation Report",
     }
     return titles.get(report_type, report_type.replace("_", " ").title())
 
@@ -50,10 +51,12 @@ def _register_all():
     from app.services.ga_live_whatsapp_image import build_ga_live_report_image
     from app.services.active_lso_whatsapp_image import build_active_lso_report_image
     from app.services.active_sso_whatsapp_image import build_active_sso_report_image
+    from app.services.activation_whatsapp_image import build_activation_report_image
 
     REPORT_BUILDERS["ga_live"] = build_ga_live_report_image
     REPORT_BUILDERS["active_lso"] = build_active_lso_report_image
     REPORT_BUILDERS["active_sso"] = build_active_sso_report_image
+    REPORT_BUILDERS["activation"] = build_activation_report_image
 
     logger.info(f"Report builders registered: {list(REPORT_BUILDERS.keys())}")
 

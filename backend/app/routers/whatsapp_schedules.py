@@ -36,7 +36,7 @@ router = APIRouter(prefix="/api", tags=["WhatsApp Report Schedules"])
 
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
-ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso")
+ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation")
 
 
 def _validate_report_type_value(v: str) -> None:
