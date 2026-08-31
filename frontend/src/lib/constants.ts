@@ -30,6 +30,10 @@ import {
   BadgeDollarSign,
   MessageCircle,
   Send,
+  CreditCard,
+  Receipt,
+  Crown,
+  LayoutGrid,
 } from "lucide-react";
 
 export interface NavItem {
@@ -39,6 +43,7 @@ export interface NavItem {
   icon: LucideIcon;
   color?: string;
   permission?: string;
+  permissions?: string[];
   children?: {
     title: string;
     translationKey?: string;
@@ -46,12 +51,14 @@ export interface NavItem {
     icon?: LucideIcon;
     color?: string;
     permission?: string;
+    permissions?: string[];
     children?: {
       title: string;
       translationKey?: string;
       href: string;
       icon?: LucideIcon;
       permission?: string;
+      permissions?: string[];
     }[];
   }[];
 }
@@ -70,6 +77,14 @@ export const navItems: NavItem[] = [
     href: "/todos",
     icon: ListTodo,
     color: "text-primary-500",
+  },
+  {
+    title: "Live Monitor",
+    translationKey: "nav.live_monitor",
+    href: "/live-monitor",
+    icon: Activity,
+    color: "text-rose-500",
+    permissions: ["otp.view", "system_logs.view"],
   },
   {
     title: "Data Import",
@@ -239,6 +254,18 @@ export const navItems: NavItem[] = [
       { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
+    ]
+  },
+  {
+    title: "Billing & Subscription",
+    translationKey: "nav.billing_group",
+    icon: CreditCard,
+    color: "text-violet-500",
+    children: [
+      { title: "Pricing", translationKey: "nav.pricing", href: "/pricing", permission: "plans.view" },
+      { title: "My Billing", translationKey: "nav.my_billing", href: "/billing", permissions: ["subscription.view", "billing.view", "billing.pay", "payments.view"] },
+      { title: "Subscriptions", translationKey: "nav.admin_subscriptions", href: "/admin/subscriptions", permissions: ["subscription.manage", "billing.manage"] },
+      { title: "Plans", translationKey: "nav.admin_plans", href: "/admin/plans", permission: "plans.manage" },
     ]
   },
   {

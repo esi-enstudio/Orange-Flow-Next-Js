@@ -57,3 +57,8 @@ from app.models.whatsapp_schedule import WhatsAppSchedule
 from app.models.whatsapp_delivery_log import WhatsAppDeliveryLog
 from app.models.whatsapp_connection import WhatsappConnection, whatsapp_connection_houses
 from app.models.telegram_bot import TelegramBot, telegram_bot_houses
+from app.models.invoice import Invoice
+from app.models.payment import Payment, PaymentAttempt, Refund
+from app.models.payment_method import PaymentMethod
+from app.models.webhook_event import WebhookEvent
+from app.models.subscription_change_log import SubscriptionChangeLog

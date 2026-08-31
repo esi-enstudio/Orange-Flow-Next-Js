@@ -49,6 +49,11 @@ from app.models.zoom_in import (
     ZoomInAllocation, ZoomInEvent,
     ZoomInEventBTS, ZoomInEventRSO, ZoomInEventBP, ZoomInEventRetailer,
 )
+from app.models.invoice import Invoice
+from app.models.payment import Payment, PaymentAttempt, Refund
+from app.models.payment_method import PaymentMethod
+from app.models.webhook_event import WebhookEvent
+from app.models.subscription_change_log import SubscriptionChangeLog
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -30,9 +30,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   // Filter items based on permissions - use memo to prevent mutation of constant
   const filteredNavItems = React.useMemo(() => {
+    const canShow = (item: any): boolean => {
+      if (item.permissions && item.permissions.length > 0) {
+        return item.permissions.some((p: string) => hasPermission(p));
+      }
+      if (item.permission) return hasPermission(item.permission);
+      return true;
+    };
+
     function filterChildren(children: any[]): any[] {
       return children
-        .filter(child => !child.permission || hasPermission(child.permission))
+        .filter(child => canShow(child))
         .map(child => {
           if (child.children) {
             const filtered = filterChildren(child.children);
@@ -46,7 +54,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       .map(item => ({ ...item })) // Shallow clone parent
       .filter(item => {
         // 1. If it has a direct permission, check it
-        if (item.permission && !hasPermission(item.permission)) return false;
+        if (!canShow(item)) return false;
 
         // 2. If it has children, filter recursively
         if (item.children) {

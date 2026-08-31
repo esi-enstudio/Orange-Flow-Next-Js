@@ -72,27 +72,75 @@ async def seed_system_data(session=None):
         packages_data = [
             {
                 "name": "Basic",
+                "slug": "basic",
                 "tier": SubscriptionTier.BASIC,
                 "duration_days": 30,
                 "price": 5000.00,
-"description": "Basic features for small teams",
-"features": "House management, Retailer management, Basic reports"
+                "price_monthly": 5000.00,
+                "price_yearly": 50000.00,
+                "currency": "BDT",
+                "billing_interval": "monthly",
+                "trial_days": 7,
+                "description": "Basic features for small teams",
+                "features": "House management, Retailer management, Basic reports",
+                "feature_flags": ["reports", "retailers", "employees", "import"],
+                "limits": {
+                    "max_users": 5,
+                    "max_retailers": 500,
+                    "max_products": 50,
+                    "max_orders_per_month": 1000,
+                    "max_storage_mb": 1024,
+                },
+                "sort_order": 1,
             },
             {
                 "name": "Standard",
+                "slug": "standard",
                 "tier": SubscriptionTier.STANDARD,
                 "duration_days": 30,
                 "price": 10000.00,
-"description": "Advanced features for mid-sized teams",
-"features": "All Basic + Field force management, Excel import, SMS sync"
+                "price_monthly": 10000.00,
+                "price_yearly": 100000.00,
+                "currency": "BDT",
+                "billing_interval": "monthly",
+                "trial_days": 7,
+                "description": "Advanced features for mid-sized teams",
+                "features": "All Basic + Field force management, Excel import, SMS sync",
+                "feature_flags": ["reports", "retailers", "employees", "import",
+                                  "dms_sync", "live_sync", "whatsapp_reports", "automation"],
+                "limits": {
+                    "max_users": 25,
+                    "max_retailers": 5000,
+                    "max_products": 200,
+                    "max_orders_per_month": 10000,
+                    "max_storage_mb": 5120,
+                },
+                "sort_order": 2,
             },
             {
                 "name": "Premium",
+                "slug": "premium",
                 "tier": SubscriptionTier.PREMIUM,
                 "duration_days": 30,
                 "price": 20000.00,
-"description": "Full features for large teams",
-"features": "All Standard + DMS integration, Automation, Premium support"
+                "price_monthly": 20000.00,
+                "price_yearly": 200000.00,
+                "currency": "BDT",
+                "billing_interval": "monthly",
+                "trial_days": 14,
+                "description": "Full features for large teams",
+                "features": "All Standard + DMS integration, Automation, Premium support",
+                "feature_flags": ["reports", "retailers", "employees", "import",
+                                  "dms_sync", "live_sync", "whatsapp_reports", "automation",
+                                  "telegram_reports", "api_access", "priority_support"],
+                "limits": {
+                    "max_users": 100,
+                    "max_retailers": 20000,
+                    "max_products": 1000,
+                    "max_orders_per_month": 100000,
+                    "max_storage_mb": 20480,
+                },
+                "sort_order": 3,
             },
         ]
 
@@ -104,6 +152,11 @@ async def seed_system_data(session=None):
             if not pkg:
                 pkg = SubscriptionPackage(**pkg_data)
                 session.add(pkg)
+                print(f"➕ Creating subscription package: {pkg_data['name']}")
+            else:
+                # Backfill new billing fields on legacy rows (idempotent)
+                for key, value in pkg_data.items():
+                    setattr(pkg, key, value)
 
         await session.commit()
         print("✅ Subscription packages seeded.")

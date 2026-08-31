@@ -6,6 +6,8 @@ import apiClient from "@/lib/api";
 import { useLanguage } from "@/i18n/useLanguage";
 import PageGuideModal from "@/components/PageGuideModal";
 
+const OTP_EXPIRY_SECONDS = 120; // OTPs older than 2 minutes fade out to show they have expired
+
 interface OTPItem {
   id: number;
   otp_code: string;
@@ -71,6 +73,12 @@ export default function OtpPanel({ houseId }: OtpPanelProps) {
     return `${Math.floor(diff / 3600)}h`;
   };
 
+  const isExpired = (iso: string | null) => {
+    if (!iso) return false;
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    return diff > OTP_EXPIRY_SECONDS;
+  };
+
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm transition-colors duration-300">
       <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between">
@@ -124,49 +132,67 @@ export default function OtpPanel({ houseId }: OtpPanelProps) {
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t("otp.no_data_hint")}</p>
           </div>
         ) : (
-          items.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-bold text-gray-900 dark:text-gray-100 tracking-widest">
-                    {item.otp_code}
-                  </span>
-                  {item.is_used && (
-                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400">
-                      {t("otp.used")}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-                  <span className="text-[11px] font-medium text-primary-600 dark:text-primary-400">
-                    {item.house_name
-                      ? item.house_code
-                        ? `${item.house_name} (${item.house_code})`
-                        : item.house_name
-                      : item.house_code}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {elapsed(item.received_at)} {t("otp.ago")}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => copy(item)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+          items.map((item) => {
+            const expired = isExpired(item.received_at);
+            return (
+              <div
+                key={item.id}
+                className={`flex items-center gap-4 px-6 py-4 transition-all duration-500 ${
+                  expired
+                    ? "opacity-40 grayscale hover:opacity-60"
+                    : "hover:bg-gray-50/50 dark:hover:bg-slate-800/50"
+                }`}
               >
-                {copiedId === item.id ? (
-                  <Check className="w-3.5 h-3.5 text-green-500" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-                {copiedId === item.id ? t("otp.copied") : t("otp.copy")}
-              </button>
-            </div>
-          ))
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className={`text-sm font-bold tracking-widest ${
+                        expired
+                          ? "text-gray-400 dark:text-gray-500"
+                          : "text-gray-900 dark:text-gray-100"
+                      }`}
+                    >
+                      {item.otp_code}
+                    </span>
+                    {item.is_used && (
+                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400">
+                        {t("otp.used")}
+                      </span>
+                    )}
+                    {expired && (
+                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400">
+                        {t("otp.expired")}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                    <span className="text-[11px] font-medium text-primary-600 dark:text-primary-400">
+                      {item.house_name
+                        ? item.house_code
+                          ? `${item.house_name} (${item.house_code})`
+                          : item.house_name
+                        : item.house_code}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {elapsed(item.received_at)} {t("otp.ago")}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => copy(item)}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  {copiedId === item.id ? (
+                    <Check className="w-3.5 h-3.5 text-green-500" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  {copiedId === item.id ? t("otp.copied") : t("otp.copy")}
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
     </div>

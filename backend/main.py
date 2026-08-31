@@ -82,6 +82,12 @@ from app.routers.telegram_bots import router as telegram_bots_router
 from app.routers.transactions import router as transactions_router
 from app.routers.ga_report_builder import router as ga_report_builder_router
 from app.routers.otp import router as otp_router
+from app.routers.system_logs import router as system_logs_router
+from app.routers.plans import router as plans_router
+from app.routers.subscriptions import router as subscriptions_router
+from app.routers.billing import router as billing_router
+from app.routers.admin_billing import router as admin_billing_router
+from app.routers.gateway_webhooks import router as gateway_webhooks_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -141,6 +147,12 @@ app.include_router(telegram_bots_router)
 app.include_router(transactions_router)
 app.include_router(ga_report_builder_router)
 app.include_router(otp_router)
+app.include_router(system_logs_router)
+app.include_router(plans_router)
+app.include_router(subscriptions_router)
+app.include_router(billing_router)
+app.include_router(admin_billing_router)
+app.include_router(gateway_webhooks_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -430,6 +442,10 @@ async def main():
 
         if settings.WA_GATEWAY_ENABLED:
             background_tasks.append(asyncio.create_task(whatsapp_schedule_runner()))
+
+        if settings.BILLING_ENABLED:
+            from app.services.billing_runner import billing_loop
+            background_tasks.append(asyncio.create_task(billing_loop()))
 
         logger.info("OrangeFlow API is Live on port 8000")
 

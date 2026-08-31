@@ -57,6 +57,33 @@ class Settings(BaseSettings):
     WA_GATEWAY_JWT_KEY: str = ""
     WA_GATEWAY_ENABLED: bool = True
 
+    # ---- Subscription & Billing (SSLCommerz gateway) ----
+    # Provider-agnostic; only sslcommerz is implemented. Add another gateway
+    # by implementing app.services.payment.<provider>.py and registering it.
+    PAYMENT_GATEWAY: str = "sslcommerz"
+
+    SSLCOMMERZ_STORE_ID: str = ""
+    SSLCOMMERZ_STORE_PASSWORD: str = ""
+    SSLCOMMERZ_SANDBOX: bool = True
+    SSLCOMMERZ_API_BASE: str = "https://sandbox.sslcommerz.com"  # live: https://securepay.sslcommerz.com
+    SSLCOMMERZ_SESSION_PATH: str = "/gwprocess/v4/api.php"
+    SSLCOMMERZ_VALIDATION_PATH: str = "/validator/api/validationserverAPI.php"
+    SSLCOMMERZ_MERCHANT_VALIDATION_PATH: str = "/validator/api/merchantTransIDvalidationAPI.php"
+    SSLCOMMERZ_REFUND_PATH: str = "/validator/api/merchantValidation/initRefund.php"
+    SSLCOMMERZ_IPN_URL: Optional[str] = None  # public IPN url registered in merchant panel
+    SSLCOMMERZ_SUCCESS_URL: Optional[str] = None
+    SSLCOMMERZ_FAIL_URL: Optional[str] = None
+    SSLCOMMERZ_CANCEL_URL: Optional[str] = None
+
+    # Billing policy
+    BILLING_ENABLED: bool = True
+    BILLING_GRACE_DAYS: int = 7          # past_due -> expired after this many days
+    BILLING_RENEWAL_REMINDER_DAYS: int = 5  # issue renewal invoice N days before period end
+    BILLING_TRIAL_END_REMINDER_DAYS: int = 3
+    BILLING_TAX_PERCENT: int = 0
+    BILLING_INVOICE_DRY_RUN: bool = False  # when True: invoicing works without a real gateway
+    DEFAULT_SUBSCRIPTION_PLAN_SLUG: str = "basic"  # assigned when a house subscribes without explicit plan
+
     @model_validator(mode="after")
     def validate_secret_key(self) -> "Settings":
         insecure_defaults = {"your-secret-key-change-it-in-env", ""}

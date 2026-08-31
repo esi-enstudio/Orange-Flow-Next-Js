@@ -456,6 +456,156 @@ async def _migrate_telegram_columns():
     except Exception as e:
         logger.warning(f"Migration warning (telegram columns): {e}")
 
+async def _migrate_subscription_billing():
+    """Add subscription/billing columns to legacy subscription tables, idempotently."""
+    try:
+        async with engine.begin() as conn:
+            for tbl, columns in (
+                ("subscription_packages", [
+                    ("slug", "VARCHAR(50)"),
+                    ("currency", "VARCHAR(3) DEFAULT 'BDT'"),
+                    ("billing_interval", "VARCHAR(16) DEFAULT 'monthly'"),
+                    ("price_monthly", "NUMERIC(12,2)"),
+                    ("price_yearly", "NUMERIC(12,2)"),
+                    ("trial_days", "INTEGER DEFAULT 0"),
+                    ("feature_flags", "JSON"),
+                    ("limits", "JSON"),
+                    ("sort_order", "INTEGER DEFAULT 0"),
+                    ("is_deleted", "BOOLEAN DEFAULT FALSE"),
+                    ("deleted_at", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("deleted_by", "INTEGER"),
+                ]),
+                ("house_subscriptions", [
+                    ("status", "VARCHAR(20) DEFAULT 'active'"),
+                    ("current_period_start", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("current_period_end", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("trial_start", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("trial_end", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("grace_period_end", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("cancel_at_period_end", "BOOLEAN DEFAULT FALSE"),
+                    ("cancelled_at", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("cancelled_by", "INTEGER"),
+                    ("paused_at", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("resume_at", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("gateway", "VARCHAR(32)"),
+                    ("gateway_customer_id", "VARCHAR(128)"),
+                    ("gateway_reference", "VARCHAR(128)"),
+                    ("billing_interval", "VARCHAR(16) DEFAULT 'monthly'"),
+                    ("currency", "VARCHAR(3) DEFAULT 'BDT'"),
+                    ("is_deleted", "BOOLEAN DEFAULT FALSE"),
+                    ("deleted_at", "TIMESTAMP WITHOUT TIME ZONE"),
+                    ("deleted_by", "INTEGER"),
+                ]),
+            ):
+                for col_name, col_def in columns:
+                    result = await conn.execute(text(
+                        f"SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name='{tbl}' AND column_name='{col_name}'"
+                    ))
+                    if result.scalar():
+                        continue
+                    await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_def}"))
+                    logger.info(f"Migration: added {tbl}.{col_name}")
+
+            # Backfill legacy alias -> price_monthly
+            result = await conn.execute(text(
+                "SELECT COUNT(*) FROM subscription_packages WHERE price_monthly IS NULL"
+            ))
+            if result.scalar():
+                await conn.execute(text(
+                    "UPDATE subscription_packages SET "
+                    "price_monthly = COALESCE(price, 0), "
+                    "price_yearly = COALESCE(price, 0) * 10 "
+                    "WHERE price_monthly IS NULL"
+                ))
+                logger.info("Migration: backfilled subscription_packages.price_monthly/yearly")
+
+            # Backfill slug from tier for legacy rows
+            result = await conn.execute(text(
+                "SELECT COUNT(*) FROM subscription_packages WHERE slug IS NULL"
+            ))
+            if result.scalar():
+                await conn.execute(text(
+                    "UPDATE subscription_packages SET slug = lower(tier::text) "
+                    "WHERE slug IS NULL AND tier IS NOT NULL"
+                ))
+                logger.info("Migration: backfilled subscription_packages.slug")
+
+            # Backfill status / periods on legacy house_subscriptions
+            result = await conn.execute(text(
+                "SELECT COUNT(*) FROM house_subscriptions WHERE current_period_start IS NULL"
+            ))
+            if result.scalar():
+                await conn.execute(text(
+                    "UPDATE house_subscriptions SET "
+                    "current_period_start = start_date, "
+                    "current_period_end = end_date, "
+                    "status = CASE WHEN is_active THEN 'active' ELSE 'expired' END, "
+                    "cancel_at_period_end = NOT auto_renew "
+                    "WHERE current_period_start IS NULL"
+                ))
+                logger.info("Migration: backfilled house_subscriptions periods/status")
+            logger.info("Migration complete: subscription billing columns ensured")
+    except Exception as e:
+        logger.warning(f"Migration warning (subscription billing columns): {e}")
+
+
+async def _migrate_billing_tables_extra():
+    """Idempotently add columns added after the original billing tables were created."""
+    try:
+        async with engine.begin() as conn:
+            for tbl, columns in (
+                ("payments", [
+                    ("subscription_id", "INTEGER"),
+                ]),
+                ("payment_attempts", [
+                    ("subscription_id", "INTEGER"),
+                ]),
+                ("payment_methods", [
+                    ("label", "VARCHAR(120)"),
+                    ("instructions", "VARCHAR(500)"),
+                    ("is_active", "BOOLEAN DEFAULT TRUE"),
+                    ("bank_name", "VARCHAR(120)"),
+                    ("account_name", "VARCHAR(120)"),
+                    ("account_number", "VARCHAR(60)"),
+                    ("routing_number", "VARCHAR(30)"),
+                    ("bkash_number", "VARCHAR(30)"),
+                    ("nagad_number", "VARCHAR(30)"),
+                    ("created_by", "INTEGER"),
+                    ("gateway", "VARCHAR(32) DEFAULT 'sslcommerz'"),
+                    ("is_default", "BOOLEAN DEFAULT FALSE"),
+                    ("is_email_verified", "BOOLEAN DEFAULT FALSE"),
+                    ("added_by", "INTEGER"),
+                    ("brand", "VARCHAR(64)"),
+                    ("last4", "VARCHAR(4)"),
+                    ("token_ref", "VARCHAR(255)"),
+                    ("customer_id", "VARCHAR(128)"),
+                ]),
+                ("webhook_events", [
+                    ("method", "VARCHAR(10)"),
+                    ("status_code", "INTEGER"),
+                    ("duration_ms", "INTEGER"),
+                    ("reason", "VARCHAR(64)"),
+                    ("processing_note", "VARCHAR(500)"),
+                ]),
+                ("house_subscriptions", [
+                    ("trial_reminder_sent_at", "TIMESTAMP WITHOUT TIME ZONE"),
+                ]),
+            ):
+                for col_name, col_def in columns:
+                    result = await conn.execute(text(
+                        f"SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name='{tbl}' AND column_name='{col_name}'"
+                    ))
+                    if result.scalar():
+                        continue
+                    await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_def}"))
+                    logger.info(f"Migration: added {tbl}.{col_name}")
+            logger.info("Migration complete: billing tables extra columns ensured")
+    except Exception as e:
+        logger.warning(f"Migration warning (billing tables extra columns): {e}")
+
+
 async def init_db():
     try:
         async with engine.begin() as conn:
@@ -478,6 +628,8 @@ async def init_db():
         await _migrate_ga_report_events_config()
         await _migrate_house_whatsapp_columns()
         await _migrate_telegram_columns()
+        await _migrate_subscription_billing()
+        await _migrate_billing_tables_extra()
         from app.models.product_exclusion import ExcludedProductCode
         from sqlalchemy import select, func
         async with async_session() as session:

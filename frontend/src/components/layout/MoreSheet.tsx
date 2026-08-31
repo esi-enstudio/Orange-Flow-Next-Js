@@ -57,9 +57,16 @@ export function MoreSheet({ open, onClose }: MoreSheetProps) {
   const filteredItems = navItems.filter(item => {
     const key = item.translationKey?.replace("nav.", "");
     if (mobileNavKeys.includes(key || "")) return false;
-    if (item.permission && !hasPermission(item.permission)) return false;
+    if (item.permissions && item.permissions.length > 0) {
+      if (!item.permissions.some(p => hasPermission(p))) return false;
+    } else if (item.permission && !hasPermission(item.permission)) {
+      return false;
+    }
     if (item.children) {
-      const visible = item.children.filter(c => !c.permission || hasPermission(c.permission));
+      const visible = item.children.filter(c => {
+        if (c.permissions && c.permissions.length > 0) return c.permissions.some(p => hasPermission(p));
+        return !c.permission || hasPermission(c.permission);
+      });
       return visible.length > 0;
     }
     return true;

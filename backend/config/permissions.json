@@ -435,6 +435,57 @@
       "permissions": [
         "otp.view"
       ]
+    },
+    "system_logs": {
+      "display_name": "System Logs",
+      "permissions": [
+        "system_logs.view"
+      ]
+    },
+    "subscription": {
+      "display_name": "Subscription",
+      "permissions": [
+        "subscription.view",
+        "subscription.create",
+        "subscription.edit",
+        "subscription.upgrade",
+        "subscription.renew",
+        "subscription.cancel",
+        "subscription.manage"
+      ]
+    },
+    "billing": {
+      "display_name": "Billing",
+      "permissions": [
+        "billing.view",
+        "billing.pay",
+        "billing.edit",
+        "billing.refund",
+        "billing.manage",
+        "billing.export",
+        "billing.settings"
+      ]
+    },
+    "plans": {
+      "display_name": "Plans",
+      "permissions": [
+        "plans.view",
+        "plans.manage"
+      ]
+    },
+    "payments": {
+      "display_name": "Payments",
+      "permissions": [
+        "payments.view",
+        "payments.manage",
+        "payments.refund"
+      ]
+    },
+    "webhooks": {
+      "display_name": "Webhook Events",
+      "permissions": [
+        "webhooks.view"
+      ]
     }
   },
   "default_roles": [
@@ -493,7 +544,18 @@
         "ga_report_builder.delete",
         "ga_report_builder.export",
         "ga_report_builder.send",
-        "otp.view"
+        "otp.view",
+        "system_logs.view",
+        "subscription.view",
+        "subscription.create",
+        "subscription.upgrade",
+        "subscription.renew",
+        "subscription.cancel",
+        "billing.view",
+        "billing.pay",
+        "plans.view",
+        "payments.view",
+        "billing.edit"
       ]
     },
     {
@@ -540,7 +602,16 @@
         "ga_report_builder.delete",
         "ga_report_builder.export",
         "ga_report_builder.send",
-        "otp.view"
+        "otp.view",
+        "system_logs.view",
+        "subscription.view",
+        "subscription.renew",
+        "subscription.cancel",
+        "billing.view",
+        "billing.pay",
+        "plans.view",
+        "payments.view",
+        "billing.edit"
       ]
     },
     {
