@@ -89,6 +89,7 @@ async def get_activations(
 ):
     effective_house_id = filter_house_id or header_house_id
     query = select(Activation).options(
+        joinedload(Activation.house),
         joinedload(Activation.retailer).joinedload(Retailer.employee).joinedload(Employee.user)
     )
     if effective_house_id: query = query.where(Activation.house_id == effective_house_id)
@@ -190,9 +191,11 @@ async def get_activations(
             "dh_lifting_date": r.dh_lifting_date, "issue_date": r.issue_date,
             "subscription_type": r.subscription_type, "service_class": r.service_class,
             "customer_second_contact": r.customer_second_contact,
-            "house_id": r.house_id, "rso_name": None, "rso_employee_id": None,
+            "house_id": r.house_id, "house": None, "rso_name": None, "rso_employee_id": None,
             "rso_dms_code": None, "rso_itop_number": None,
         }
+        if r.house:
+            item["house"] = {"id": r.house.id, "name": r.house.name, "code": r.house.code}
         if r.retailer and r.retailer.employee:
             emp = r.retailer.employee
             item["rso_name"] = emp.user.name if emp.user else emp.dms_code
