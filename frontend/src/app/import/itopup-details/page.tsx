@@ -4,8 +4,8 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
 import {
   Search, Upload, Download, ChevronLeft, ChevronRight, ChevronDown,
-  Loader2, Database, X, CheckCircle2, Calendar, Filter, RotateCcw,
-  SlidersHorizontal, Store, Building2, User, Trash2,
+  Loader2, Database, X, CheckCircle2, Calendar, RotateCcw,
+  SlidersHorizontal, Store, Building2, Trash2,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
@@ -52,25 +52,6 @@ const defaultFilters: Filters = {
   house_id: "", rso_id: "",
 };
 
-function FilterSection({ title, icon: Icon, children, defaultOpen = true }: { title: string; icon: any; children: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="border-b dark:border-slate-800 last:border-b-0">
-      <button type="button" onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-[11px] font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-        <div className="flex items-center gap-2">
-          <Icon className="w-3.5 h-3.5" />
-          <span>{title}</span>
-        </div>
-        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-300", open && "rotate-180")} />
-      </button>
-      <div className={cn("transition-all duration-300 ease-in-out", open ? "max-h-[500px] overflow-visible" : "max-h-0 overflow-hidden")}>
-        <div className="px-4 pb-3 space-y-2.5">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 export default function ImportItopUpPage() {
   const { t } = useLanguage();
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
@@ -96,7 +77,7 @@ export default function ImportItopUpPage() {
     return `${y}-${m}-${day}`;
   };
 
-  const [showFilter, setShowFilter] = useState(false);
+  const [appliedFilters, setAppliedFilters] = useState<Filters | null>(null);
   const [filters, setFilters] = useState<Filters>({
     ...defaultFilters,
     start_date: fmtDate(firstOfMonth),
@@ -113,8 +94,6 @@ export default function ImportItopUpPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const perPage = 10;
 
-  const hasActiveFilters = Object.values(filters).some(v => v !== "");
-
   const formatDate = (dateStr: string) => {
     if (!dateStr) return "-";
     const d = new Date(dateStr);
@@ -122,20 +101,22 @@ export default function ImportItopUpPage() {
   };
 
   const fetchData = useCallback(async () => {
+    if (!appliedFilters) return;
     setLoading(true);
     try {
+      const f = appliedFilters;
       const params: Record<string, string | number> = {
         page, per_page: perPage, sort_by: "report_date", sort_order: "asc",
       };
       const headers: Record<string, string> = {};
       if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
-      if (filters.search) params.search = filters.search;
-      if (filters.report_type) params.report_type = filters.report_type;
-      if (filters.start_date) params.start_date = filters.start_date;
-      if (filters.end_date) params.end_date = filters.end_date;
-      if (filters.retailer_search) params.retailer_search = filters.retailer_search;
-      if (filters.house_id) params.house_id = filters.house_id;
-      if (filters.rso_id) params.rso_id = filters.rso_id;
+      if (f.search) params.search = f.search;
+      if (f.report_type) params.report_type = f.report_type;
+      if (f.start_date) params.start_date = f.start_date;
+      if (f.end_date) params.end_date = f.end_date;
+      if (f.retailer_search) params.retailer_search = f.retailer_search;
+      if (f.house_id) params.house_id = f.house_id;
+      if (f.rso_id) params.rso_id = f.rso_id;
       const res = await axios.get("/itopup-details", { params, headers });
       setData(res.data.data || []);
       setPagination(res.data.pagination || null);
@@ -144,9 +125,11 @@ export default function ImportItopUpPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, filters, selectedHouse?.id]);
+  }, [page, appliedFilters, selectedHouse]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    if (appliedFilters) fetchData();
+  }, [fetchData, appliedFilters]);
 
   useEffect(() => {
     axios.get("/houses/accessible").then(r => setHouses(r.data || [])).catch(() => {});
@@ -170,22 +153,6 @@ export default function ImportItopUpPage() {
   }, [filters.house_id, rsoSearch, fetchRsos]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setFilters(prev => ({ ...prev, search: searchInput }));
-      if (searchInput !== filters.search) setPage(1);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setFilters(prev => ({ ...prev, retailer_search: retailerSearchInput }));
-      if (retailerSearchInput !== filters.retailer_search) setPage(1);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [retailerSearchInput]);
-
-  useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (rsoRef.current && !rsoRef.current.contains(e.target as Node)) setRsoOpen(false);
     }
@@ -193,12 +160,30 @@ export default function ImportItopUpPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const handleApplyFilters = () => {
+    setAppliedFilters({
+      search: searchInput.trim(),
+      report_type: filters.report_type,
+      start_date: filters.start_date,
+      end_date: filters.end_date,
+      retailer_search: retailerSearchInput.trim(),
+      house_id: filters.house_id,
+      rso_id: filters.rso_id,
+    });
+    setPage(1);
+    setExpandedId(null);
+  };
+
   const handleClearFilters = () => {
     setSearchInput("");
     setRetailerSearchInput("");
     setRsoSearch("");
     setFilters({ ...defaultFilters });
+    setAppliedFilters(null);
+    setData([]);
+    setPagination(null);
     setPage(1);
+    setExpandedId(null);
   };
 
   const updateFilter = (key: keyof Filters, value: string) => {
@@ -335,18 +320,18 @@ export default function ImportItopUpPage() {
   };
 
   const activeChipList: { label: string; onRemove: () => void }[] = [];
-  if (filters.search) activeChipList.push({ label: `Search: ${filters.search}`, onRemove: () => { setSearchInput(""); updateFilter("search", ""); setPage(1); } });
-  if (filters.report_type) activeChipList.push({ label: `Type: ${filters.report_type}`, onRemove: () => { updateFilter("report_type", ""); setPage(1); } });
-  if (filters.start_date) activeChipList.push({ label: `From: ${filters.start_date}`, onRemove: () => { updateFilter("start_date", ""); setPage(1); } });
-  if (filters.end_date) activeChipList.push({ label: `To: ${filters.end_date}`, onRemove: () => { updateFilter("end_date", ""); setPage(1); } });
-  if (filters.retailer_search) activeChipList.push({ label: `Retailer: ${filters.retailer_search}`, onRemove: () => { setRetailerSearchInput(""); updateFilter("retailer_search", ""); setPage(1); } });
-  if (filters.house_id) {
-    const h = houses.find(hh => String(hh.id) === filters.house_id);
-    if (h) activeChipList.push({ label: `House: ${h.name}`, onRemove: () => { updateFilter("house_id", ""); setPage(1); } });
+  if (appliedFilters?.search) activeChipList.push({ label: `Search: ${appliedFilters.search}`, onRemove: () => { setSearchInput(""); setAppliedFilters(a => a ? { ...a, search: "" } : a); } });
+  if (appliedFilters?.report_type) activeChipList.push({ label: `Type: ${appliedFilters.report_type}`, onRemove: () => setAppliedFilters(a => a ? { ...a, report_type: "" } : a) });
+  if (appliedFilters?.start_date) activeChipList.push({ label: `From: ${appliedFilters.start_date}`, onRemove: () => setAppliedFilters(a => a ? { ...a, start_date: "" } : a) });
+  if (appliedFilters?.end_date) activeChipList.push({ label: `To: ${appliedFilters.end_date}`, onRemove: () => setAppliedFilters(a => a ? { ...a, end_date: "" } : a) });
+  if (appliedFilters?.retailer_search) activeChipList.push({ label: `Retailer: ${appliedFilters.retailer_search}`, onRemove: () => { setRetailerSearchInput(""); setAppliedFilters(a => a ? { ...a, retailer_search: "" } : a); } });
+  if (appliedFilters?.house_id) {
+    const h = houses.find(hh => String(hh.id) === appliedFilters?.house_id);
+    if (h) activeChipList.push({ label: `House: ${h.name}`, onRemove: () => setAppliedFilters(a => a ? { ...a, house_id: "" } : a) });
   }
-  if (filters.rso_id) {
-    const r = rsos.find(rr => String(rr.id) === filters.rso_id);
-    if (r) activeChipList.push({ label: `RSO: ${r.name}`, onRemove: () => { updateFilter("rso_id", ""); setPage(1); } });
+  if (appliedFilters?.rso_id) {
+    const r = rsos.find(rr => String(rr.id) === appliedFilters?.rso_id);
+    if (r) activeChipList.push({ label: `RSO: ${r.name}`, onRemove: () => setAppliedFilters(a => a ? { ...a, rso_id: "" } : a) });
   }
 
   const totalPages = pagination?.total_pages || 1;
@@ -486,381 +471,393 @@ export default function ImportItopUpPage() {
         </div>
       )}
 
-      {/* Filter + Table */}
-      <div className="flex gap-6">
-        {/* Filter Sidebar */}
-        <div className={cn(
-          "w-72 shrink-0 transition-all duration-300 ease-in-out",
-          showFilter ? "opacity-100 max-w-[288px]" : "opacity-0 max-w-0 overflow-hidden"
-        )}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border dark:border-slate-800 shadow-sm overflow-hidden sticky top-6">
-            <div className="px-4 py-3 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-primary-500" />
-                <span className="text-sm font-bold dark:text-gray-100">Filters</span>
-                {activeChipList.length > 0 && (
-                  <span className="text-[10px] font-bold bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full">
-                    {activeChipList.length}
-                  </span>
+      {/* Robust Filter Section */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-primary-500" />
+            <span className="text-sm font-bold dark:text-gray-100">Filters</span>
+            {appliedFilters && (
+              <span className="text-[10px] font-bold bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full">
+                Applied
+              </span>
+            )}
+          </div>
+          <button type="button" onClick={handleClearFilters} title="Reset filters"
+            className="flex items-center gap-1 text-[11px] font-bold text-red-500 hover:text-red-600 transition-colors">
+            <RotateCcw className="w-3 h-3" /> Reset
+          </button>
+        </div>
+
+        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {/* Search */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Search</label>
+            <div className="relative group">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+              <input type="text" value={searchInput} onChange={e => { setSearchInput(e.target.value); setPage(1); }}
+                placeholder="Type, date..."
+                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+            </div>
+          </div>
+
+          {/* House */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">House</label>
+            <div className="relative">
+              <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <select value={filters.house_id} onChange={e => { updateFilter("house_id", e.target.value); setPage(1); }}
+                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
+                <option value="">All houses</option>
+                {houses.map(h => <option key={h.id} value={h.id}>{h.display_name || h.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* RSO */}
+          <div className="relative" ref={rsoRef}>
+            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">RSO</label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input type="text" value={rsoSearch} onChange={e => setRsoSearch(e.target.value)} onFocus={() => setRsoOpen(true)}
+                placeholder={filters.rso_id ? (rsos.find(rr => String(rr.id) === filters.rso_id)?.name || "Search RSO...") : "Search RSO..."}
+                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+            </div>
+            {rsoOpen && (
+              <div className="absolute z-50 left-0 right-0 mt-1 max-h-48 overflow-y-auto rso-scrollbar bg-white dark:bg-slate-900 border dark:border-slate-700 rounded-lg shadow-lg">
+                <button type="button" onClick={() => { updateFilter("rso_id", ""); setRsoOpen(false); setRsoSearch(""); }}
+                  className={cn("w-full text-left px-3 py-2 text-xs font-medium transition-colors",
+                    !filters.rso_id ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300" : "hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400")}>
+                  All RSOs
+                </button>
+                {rsos.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-gray-400">No RSOs found</div>
+                ) : (
+                  rsos.map(r => {
+                    const itopLast3 = r.itop_number ? r.itop_number.slice(-3) : "";
+                    return (
+                      <button key={r.id} type="button"
+                        onClick={() => { updateFilter("rso_id", String(r.id)); setRsoOpen(false); setRsoSearch(""); }}
+                        className={cn("w-full text-left px-3 py-2 transition-colors",
+                          filters.rso_id === String(r.id)
+                            ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300"
+                            : "hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300")}>
+                        <p className="text-xs font-medium">{r.name}</p>
+                        <p className="text-[11px] text-gray-400">{r.dms_code}{itopLast3 ? ` | ${itopLast3}` : ""}</p>
+                      </button>
+                    );
+                  })
                 )}
               </div>
-              {activeChipList.length > 0 && (
-                <button type="button" onClick={handleClearFilters}
-                  className="text-[11px] font-bold text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors">
-                  <RotateCcw className="w-3 h-3" /> Clear
-                </button>
-              )}
-            </div>
-
-            {activeChipList.length > 0 && (
-              <div className="px-4 py-2 border-b dark:border-slate-800 flex flex-wrap gap-1.5">
-                {activeChipList.map((chip, i) => (
-                  <span key={i}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 rounded-full text-[10px] font-bold">
-                    {chip.label}
-                    <button type="button" onClick={chip.onRemove} className="hover:text-red-500 transition-colors">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
             )}
+          </div>
 
-            <div className="divide-y dark:divide-slate-800">
-              {/* Search */}
-              <div className="px-4 py-2.5">
-                <div className="relative group">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-                  <input type="text" placeholder="Search type, date..."
-                    value={searchInput}
-                    onChange={e => setSearchInput(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-                </div>
+          {/* Report Type */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Report Type</label>
+            <div className="relative">
+              <Database className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <select value={filters.report_type} onChange={e => { updateFilter("report_type", e.target.value); setPage(1); }}
+                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
+                <option value="">All types</option>
+                {REPORT_TYPES.map(rt => <option key={rt} value={rt}>{rt}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Date Range */}
+          <div className="sm:col-span-2">
+            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Date Range</label>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="relative">
+                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input type="date" value={filters.start_date} onChange={e => { updateFilter("start_date", e.target.value); setPage(1); }}
+                  className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
               </div>
+              <div className="relative">
+                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input type="date" value={filters.end_date} onChange={e => { updateFilter("end_date", e.target.value); setPage(1); }}
+                  className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+              </div>
+            </div>
+          </div>
 
-              {/* House */}
-              <FilterSection title="House" icon={Building2}>
-                <select value={filters.house_id}
-                  onChange={e => { updateFilter("house_id", e.target.value); setPage(1); }}
-                  className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
-                  <option value="">All houses</option>
-                  {houses.map(h => <option key={h.id} value={h.id}>{h.display_name}</option>)}
-                </select>
-              </FilterSection>
-
-              {/* RSO */}
-              <FilterSection title="RSO" icon={User}>
-                <div className="relative" ref={rsoRef}>
-                  <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                    <input type="text" placeholder="Search RSO..."
-                      value={rsoSearch}
-                      onChange={e => setRsoSearch(e.target.value)}
-                      onFocus={() => setRsoOpen(true)}
-                      className="w-full pl-7 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-                  </div>
-                  {rsoOpen && (
-                    <div className="absolute z-50 left-0 right-0 mt-1 max-h-48 overflow-y-auto rso-scrollbar bg-white dark:bg-slate-900 border dark:border-slate-700 rounded-lg shadow-lg">
-                      {rsos.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-gray-400">No RSOs found</div>
-                      ) : (
-                        rsos.map(r => {
-                          const itopLast3 = r.itop_number ? r.itop_number.slice(-3) : "";
-                          return (
-                            <button key={r.id} type="button"
-                              onClick={() => { updateFilter("rso_id", String(r.id)); setRsoOpen(false); setRsoSearch(""); }}
-                              className={cn(
-                                "w-full text-left px-3 py-2 transition-colors",
-                                filters.rso_id === String(r.id)
-                                  ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300"
-                                  : "hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
-                              )}>
-                              <p className="text-xs font-medium">{r.name}</p>
-                              <p className="text-[11px] text-gray-400">
-                                {r.dms_code}{itopLast3 ? ` | ${itopLast3}` : ""}
-                              </p>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-              </FilterSection>
-
-              {/* Report Type */}
-              <FilterSection title="Report Type" icon={Database}>
-                <select value={filters.report_type}
-                  onChange={e => { updateFilter("report_type", e.target.value); setPage(1); }}
-                  className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
-                  <option value="">All types</option>
-                  {REPORT_TYPES.map(rt => <option key={rt} value={rt}>{rt}</option>)}
-                </select>
-              </FilterSection>
-
-              {/* Date Range */}
-              <FilterSection title="Date Range" icon={Calendar}>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">From</label>
-                    <input type="date" value={filters.start_date}
-                      onChange={e => { updateFilter("start_date", e.target.value); setPage(1); }}
-                      className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">To</label>
-                    <input type="date" value={filters.end_date}
-                      onChange={e => { updateFilter("end_date", e.target.value); setPage(1); }}
-                      className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-                  </div>
-                </div>
-              </FilterSection>
-
-              {/* Retailer Search */}
-              <FilterSection title="Retailer" icon={Store} defaultOpen={false}>
-                <div className="relative group">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-                  <input type="text" placeholder="Search by code or name..."
-                    value={retailerSearchInput}
-                    onChange={e => setRetailerSearchInput(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-                </div>
-              </FilterSection>
+          {/* Retailer Search */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Retailer</label>
+            <div className="relative group">
+              <Store className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+              <input type="text" value={retailerSearchInput} onChange={e => { setRetailerSearchInput(e.target.value); setPage(1); }}
+                placeholder="Code or name..."
+                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
             </div>
           </div>
         </div>
 
-        {/* Table Section */}
-        <div className="flex-1 min-w-0">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-            {/* Toolbar */}
-            <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 flex-1">
-                <button onClick={() => setShowFilter(!showFilter)}
-                  className={cn("group p-2 rounded-xl border transition-all",
-                    showFilter
-                      ? "bg-primary-50 dark:bg-primary-500/10 border-primary-200 dark:border-primary-700 text-primary-600"
-                      : "border-gray-200 dark:border-slate-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  )}>
-                  <SlidersHorizontal className="w-4 h-4 group-hover:scale-110 transition-transform" />
+        {activeChipList.length > 0 && (
+          <div className="px-4 pb-3 -mt-1 flex flex-wrap gap-1.5">
+            {activeChipList.map((chip, i) => (
+              <span key={i}
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 rounded-full text-[10px] font-bold">
+                {chip.label}
+                <button type="button" onClick={chip.onRemove} className="hover:text-red-500 transition-colors">
+                  <X className="w-3 h-3" />
                 </button>
-                {pagination && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {pagination.total} {pagination.total === 1 ? "record" : "records"}
-                  </span>
-                )}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="px-4 py-3 border-t dark:border-slate-800 flex items-center justify-between gap-3 bg-gray-50/50 dark:bg-slate-900/50">
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">
+            {appliedFilters
+              ? `Records are filtered. Click Apply to re-run with current filters.`
+              : "No records loaded. Set filters and click Apply to view data."}
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={handleClearFilters}
+              className="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors">
+              Clear
+            </button>
+            <button type="button" onClick={handleApplyFilters}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-primary-900/30">
+              <Search className="w-4 h-4" /> Apply Filters
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Table Section */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+        {/* Toolbar */}
+        <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 flex-1">
+            {appliedFilters ? (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {loading ? "Loading..." : pagination ? `${pagination.total} ${pagination.total === 1 ? "record" : "records"}` : "No records"}
+              </span>
+            ) : (
+              <span className="text-xs text-gray-400 dark:text-gray-500">Apply filters to view iTopUp details</span>
+            )}
+          </div>
+        </div>
+
+        {!appliedFilters ? (
+          <div className="py-24 text-center px-4">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center">
+              <SlidersHorizontal className="w-8 h-8 text-primary-400" />
+            </div>
+            <p className="text-gray-600 dark:text-gray-300 font-semibold text-base">No records loaded</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1 max-w-sm mx-auto">
+              Use the filters above and click <span className="font-semibold text-primary-600 dark:text-primary-400">Apply&nbsp;Filters</span> to load the iTopUp details you need.
+            </p>
+          </div>
+        ) : loading ? (
+          <div>
+            {/* Desktop skeleton — matches table columns */}
+            <div className="hidden lg:block">
+              <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                {Array.from({ length: perPage }).map((_, i) => (
+                  <div key={i} className="flex items-center px-2 py-1 animate-pulse">
+                    <div className="w-[130px] shrink-0 space-y-1">
+                      <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                      <div className="h-2.5 w-12 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                    </div>
+                    <div className="w-[120px] shrink-0">
+                      <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    </div>
+                    <div className="w-[180px] shrink-0 space-y-1">
+                      <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                      <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                      <div className="h-2.5 w-20 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                    </div>
+                    <div className="w-[100px] shrink-0 text-right">
+                      <div className="h-3 w-14 bg-gray-200 dark:bg-slate-700 rounded-md ml-auto" />
+                    </div>
+                    <div className="w-[80px] shrink-0">
+                      <div className="h-5 w-12 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-
-            {/* Loading Skeleton */}
-            {loading ? (
-              <div>
-                {/* Desktop skeleton — matches table columns */}
-                <div className="hidden lg:block">
-                  <div className="divide-y divide-gray-50 dark:divide-slate-800">
-                    {Array.from({ length: perPage }).map((_, i) => (
-                      <div key={i} className="flex items-center px-2 py-1 animate-pulse">
-                        <div className="w-[130px] shrink-0 space-y-1">
-                          <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                          <div className="h-2.5 w-12 bg-gray-100 dark:bg-slate-800 rounded-md" />
-                        </div>
-                        <div className="w-[120px] shrink-0">
-                          <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                        </div>
-                        <div className="w-[180px] shrink-0 space-y-1">
-                          <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                          <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
-                        </div>
-                        <div className="flex-1 space-y-1">
-                          <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                          <div className="h-2.5 w-20 bg-gray-100 dark:bg-slate-800 rounded-md" />
-                        </div>
-                        <div className="w-[100px] shrink-0 text-right">
-                          <div className="h-3 w-14 bg-gray-200 dark:bg-slate-700 rounded-md ml-auto" />
-                        </div>
-                        <div className="w-[80px] shrink-0">
-                          <div className="h-5 w-12 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {/* Mobile skeleton — card accordion style */}
-                <div className="lg:hidden space-y-3 p-4">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="bg-gray-50 dark:bg-slate-800 rounded-xl animate-pulse overflow-hidden">
-                      <div className="flex items-center justify-between px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
-                          <div className="space-y-2">
-                            <div className="h-3 w-36 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                            <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="h-3 w-14 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                          <div className="w-4 h-4 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                        </div>
+            {/* Mobile skeleton — card accordion style */}
+            <div className="lg:hidden space-y-3 p-4">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="bg-gray-50 dark:bg-slate-800 rounded-xl animate-pulse overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                      <div className="space-y-2">
+                        <div className="h-3 w-36 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                        <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
                       </div>
                     </div>
-                  ))}
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-14 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                      <div className="w-4 h-4 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ) : data.length === 0 ? (
-              <div className="py-20 text-center">
-                <Database className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-                <p className="text-gray-500 dark:text-gray-400 font-medium">No records found</p>
-              </div>
-            ) : (
-              <>
-                {/* Desktop Table — lg+ */}
-                <div className="hidden lg:block overflow-x-auto scrollbar-custom">
-                  <table className="w-full text-left whitespace-nowrap">
-                    <thead>
-                      <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
-                        <th className="px-2 py-1">House</th>
-                        <th className="px-2 py-1">Date</th>
-                        <th className="px-2 py-1">RSO</th>
-                        <th className="px-2 py-1">Retailer</th>
-                        <th className="px-2 py-1 text-right">Amount</th>
-                        <th className="px-2 py-1">Type</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
-                      {data.map((r) => {
-                        const rsoName = r.retailer?.employee?.user?.name;
-                        const rsoDms = r.retailer?.employee?.dms_code;
-                        const rsoItop = r.retailer?.employee?.itop_number;
-                        const hasRso = rsoName || rsoDms || rsoItop;
-                        return (
-                        <tr key={r.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors group">
-                          <td className="px-2 py-1">
-                            <p className="text-xs text-gray-700 dark:text-gray-300">{r.house?.name || "-"}</p>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.house?.code || ""}</p>
-                          </td>
-                          <td className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatDate(r.report_date)}</td>
-                          <td className="px-2 py-1">
-                            {hasRso ? (
-                              <>
-                                <p className="text-xs font-medium text-gray-900 dark:text-gray-100">{rsoName}</p>
-                                <p className="text-[11px] text-gray-500 dark:text-gray-400">{rsoDms}{rsoItop ? ` | ${rsoItop}` : ""}</p>
-                              </>
-                            ) : (
-                              <span className="text-xs text-gray-400">-</span>
-                            )}
-                          </td>
-                          <td className="px-2 py-1">
-                            <p className="text-xs font-medium text-gray-900 dark:text-gray-100">{r.retailer?.name || "-"}</p>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                              {[r.retailer?.retailer_code, r.retailer?.itop_number].filter(Boolean).join(" | ") || ""}
-                            </p>
-                          </td>
-                          <td className="px-2 py-1 text-xs font-semibold text-gray-900 dark:text-gray-100 text-right tabular-nums">{r.daily_value.toLocaleString()}</td>
-                          <td className="px-2 py-1">
-                            <span className="px-2 py-0.5 bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 rounded-md text-[10px] font-bold">{r.report_type}</span>
-                          </td>
-                        </tr>
-                      );})}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Mobile Accordion — below lg */}
-                <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+              ))}
+            </div>
+          </div>
+        ) : data.length === 0 ? (
+          <div className="py-20 text-center">
+            <Database className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+            <p className="text-gray-500 dark:text-gray-400 font-medium">No records found for the selected filters</p>
+          </div>
+        ) : (
+          <>
+            {/* Desktop Table — lg+ */}
+            <div className="hidden lg:block overflow-x-auto scrollbar-custom">
+              <table className="w-full text-left whitespace-nowrap">
+                <thead>
+                  <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
+                    <th className="px-2 py-1">House</th>
+                    <th className="px-2 py-1">Date</th>
+                    <th className="px-2 py-1">RSO</th>
+                    <th className="px-2 py-1">Retailer</th>
+                    <th className="px-2 py-1 text-right">Amount</th>
+                    <th className="px-2 py-1">Type</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
                   {data.map((r) => {
                     const rsoName = r.retailer?.employee?.user?.name;
                     const rsoDms = r.retailer?.employee?.dms_code;
                     const rsoItop = r.retailer?.employee?.itop_number;
                     const hasRso = rsoName || rsoDms || rsoItop;
                     return (
-                    <div key={r.id}>
-                      <button onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
-                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm shrink-0">
-                            <Store className="w-4 h-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{r.retailer?.name || "-"}</p>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{formatDate(r.report_date)}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{r.daily_value.toLocaleString()}</span>
-                          <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-300", expandedId === r.id && "rotate-180")} />
-                        </div>
-                      </button>
-                      {expandedId === r.id && (
-                        <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
-                          <div className="h-px bg-gray-100 dark:bg-slate-800" />
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">House</p>
-                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.house?.name || "-"}</p>
-                              {r.house?.code && <p className="text-[11px] text-gray-500">{r.house.code}</p>}
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Date</p>
-                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{formatDate(r.report_date)}</p>
-                            </div>
-                            <div className="col-span-2">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">RSO</p>
-                              {hasRso ? (
-                                <>
-                                  <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{rsoName}</p>
-                                  <p className="text-[11px] text-gray-500">{rsoDms}{rsoItop ? ` | ${rsoItop}` : ""}</p>
-                                </>
-                              ) : (
-                                <p className="text-xs text-gray-400">-</p>
-                              )}
-                            </div>
-                            <div className="col-span-2">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Retailer</p>
-                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.retailer?.name || "-"}</p>
-                              <p className="text-[11px] text-gray-500">
-                                {[r.retailer?.retailer_code, r.retailer?.itop_number].filter(Boolean).join(" | ") || ""}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Amount</p>
-                              <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{r.daily_value.toLocaleString()}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Type</p>
-                              <span className="px-1.5 py-0.5 bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 rounded text-[10px] font-bold">{r.report_type}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                    <tr key={r.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors group">
+                      <td className="px-2 py-1">
+                        <p className="text-xs text-gray-700 dark:text-gray-300">{r.house?.name || "-"}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">{r.house?.code || ""}</p>
+                      </td>
+                      <td className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatDate(r.report_date)}</td>
+                      <td className="px-2 py-1">
+                        {hasRso ? (
+                          <>
+                            <p className="text-xs font-medium text-gray-900 dark:text-gray-100">{rsoName}</p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{rsoDms}{rsoItop ? ` | ${rsoItop}` : ""}</p>
+                          </>
+                        ) : (
+                          <span className="text-xs text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1">
+                        <p className="text-xs font-medium text-gray-900 dark:text-gray-100">{r.retailer?.name || "-"}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          {[r.retailer?.retailer_code, r.retailer?.itop_number].filter(Boolean).join(" | ") || ""}
+                        </p>
+                      </td>
+                      <td className="px-2 py-1 text-xs font-semibold text-gray-900 dark:text-gray-100 text-right tabular-nums">{r.daily_value.toLocaleString()}</td>
+                      <td className="px-2 py-1">
+                        <span className="px-2 py-0.5 bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 rounded-md text-[10px] font-bold">{r.report_type}</span>
+                      </td>
+                    </tr>
                   );})}
-                </div>
+                </tbody>
+              </table>
+            </div>
 
-                {/* Pagination */}
-                {pagination && (
-                  <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Showing {(pagination.page - 1) * pagination.per_page + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handlePageChange(page - 1)} disabled={!pagination.has_prev}
-                        className="p-2 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
-                        <ChevronLeft className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                      </button>
-                      <span className="text-xs font-bold text-gray-500 dark:text-gray-400 px-2 min-w-[40px] text-center">
-                        {pagination.page} / {pagination.total_pages}
-                      </span>
-                      <button onClick={() => handlePageChange(page + 1)} disabled={!pagination.has_next}
-                        className="p-2 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
-                        <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                      </button>
+            {/* Mobile Accordion — below lg */}
+            <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+              {data.map((r) => {
+                const rsoName = r.retailer?.employee?.user?.name;
+                const rsoDms = r.retailer?.employee?.dms_code;
+                const rsoItop = r.retailer?.employee?.itop_number;
+                const hasRso = rsoName || rsoDms || rsoItop;
+                return (
+                <div key={r.id}>
+                  <button onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm shrink-0">
+                        <Store className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{r.retailer?.name || "-"}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{formatDate(r.report_date)}</p>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{r.daily_value.toLocaleString()}</span>
+                      <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-300", expandedId === r.id && "rotate-180")} />
+                    </div>
+                  </button>
+                  {expandedId === r.id && (
+                    <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                      <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">House</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.house?.name || "-"}</p>
+                          {r.house?.code && <p className="text-[11px] text-gray-500">{r.house.code}</p>}
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Date</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{formatDate(r.report_date)}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">RSO</p>
+                          {hasRso ? (
+                            <>
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{rsoName}</p>
+                              <p className="text-[11px] text-gray-500">{rsoDms}{rsoItop ? ` | ${rsoItop}` : ""}</p>
+                            </>
+                          ) : (
+                            <p className="text-xs text-gray-400">-</p>
+                          )}
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Retailer</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.retailer?.name || "-"}</p>
+                          <p className="text-[11px] text-gray-500">
+                            {[r.retailer?.retailer_code, r.retailer?.itop_number].filter(Boolean).join(" | ") || ""}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Amount</p>
+                          <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{r.daily_value.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Type</p>
+                          <span className="px-1.5 py-0.5 bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 rounded text-[10px] font-bold">{r.report_type}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );})}
+            </div>
+
+            {/* Pagination */}
+            {pagination && (
+              <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Showing {(pagination.page - 1) * pagination.per_page + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handlePageChange(page - 1)} disabled={!pagination.has_prev}
+                    className="p-2 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                    <ChevronLeft className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  </button>
+                  <span className="text-xs font-bold text-gray-500 dark:text-gray-400 px-2 min-w-[40px] text-center">
+                    {pagination.page} / {pagination.total_pages}
+                  </span>
+                  <button onClick={() => handlePageChange(page + 1)} disabled={!pagination.has_next}
+                    className="p-2 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                    <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  </button>
+                </div>
+              </div>
             )}
-          </div>
-        </div>
+          </>
+        )}
       </div>
       {showTruncateConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
