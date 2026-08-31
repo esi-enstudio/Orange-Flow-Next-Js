@@ -1108,9 +1108,9 @@ export default function ActivationDashboardPage() {
             <KpiCard
               icon={Zap}
               label={t("activation_report.daily_required")}
-              value={s.daily_required}
+              value={Math.ceil(s.daily_required)}
               valueColor="text-purple-600 dark:text-purple-400"
-              subtitle={`${t("activation_report.with_friday")}: ${s.daily_required_with_friday} | ${t("activation_report.remaining_fridays")}: ${s.remaining_fridays}`}
+              subtitle={`${t("activation_report.with_friday")}: ${Math.ceil(s.daily_required_with_friday)} | ${t("activation_report.remaining_fridays")}: ${s.remaining_fridays}`}
             />
             <KpiCard
               icon={Trophy}
