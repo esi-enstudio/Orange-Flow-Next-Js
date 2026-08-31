@@ -139,19 +139,30 @@ Frontend চলবে `http://localhost:3000`-এ
 ### Setup Diagram
 
 ```
-Terminal 1: docker compose up -d --build db redis backend
+Terminal 1: docker compose up -d --build
 Terminal 2: cd frontend && npm run dev
 Browser:    http://localhost:3000/setup  →  Wizard complete
 ```
+
+`docker compose up -d` এখন **সব service** একসাথে চালু করে — `db`, `redis`,
+`backend` এবং `whatsapp-gateway` — কারণ WhatsApp gateway-টা ডিফল্ট set-এ অন্তর্ভুক্ত।
+এতে করে backend আর gateway-এর মধ্যে "WhatsApp gateway is unreachable" mismatch আর হবে না।
 
 ### Step 5: WhatsApp Gateway (রিপোর্ট ডেলিভারির জন্য)
 
 WhatsApp-এ রিপোর্ট (GA Live / Active LSO / Active SSO) পাঠাতে WhatsApp Gateway লাগবে।
 Gateway-এর image Docker Hub-এ নেই (এবং WhatsApp 405 fix-সহ patched code প্রয়োজন),
-তাই project-এর ভেতরেই `wa-gateway/` সোর্স vendor করা আছে। Fresh machine-এ শুধু:
+তাই project-এর ভেতরেই `wa-gateway/` সোর্স vendor করা আছে। **Gateway-টা এখন ডিফল্ট
+service**, তাই আলাদা profile দিয়ে উঠাতে হয় না — শুধু:
 
 ```bash
-docker compose --profile whatsapp up -d --build whatsapp-gateway
+docker compose up -d --build
+```
+
+শুধুমাত্র WhatsApp gateway-টা rebuild/restart করতে চাইলে:
+
+```bash
+docker compose up -d --build whatsapp-gateway
 # অথবা helper script দিয়ে:
 ./scripts/setup-whatsapp-gateway.sh
 ```
@@ -180,12 +191,10 @@ docker exec -it orange_flow_db psql -U postgres -d orange_flow_dev_db
 docker exec -it orange_flow_backend alembic upgrade head
 
 # Containers stop করা
-# NOTE: WhatsApp gateway-টা `whatsapp` profile-এ আছে, তাই plain `down` হলে
-# ওটা চলতে থাকে এবং "Network ... Resource is still in use" warning দেখায়।
-# সব container বন্ধ করতে profile সহ `down` চালাও:
-docker compose --profile "*" down
-# শুধুমাত্র main services বন্ধ করতে (gateway চলতে থাকবে):
+# WhatsApp gateway-টা এখন ডিফল্ট service, তাই plain `down` এ সব বন্ধ হবে:
 docker compose down
+# সব container (র েকর্ডসহ) এবং network বন্ধ করতে:
+docker compose down -v
 
 # Rebuild without cache
 docker compose build --no-cache backend

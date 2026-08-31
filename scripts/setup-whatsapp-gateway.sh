@@ -33,10 +33,10 @@ echo "==> [2/3] Building image ${IMAGE}"
 docker build -t "${IMAGE}" ./wa-gateway
 
 echo "==> [3/3] Starting whatsapp-gateway container"
-if [ "${1:-}" = "--restart" ] || docker compose --profile whatsapp ps --status running | grep -q orange_flow_wa_gateway; then
-  docker compose --profile whatsapp up -d --force-recreate whatsapp-gateway
+if [ "${1:-}" = "--restart" ] || docker compose ps --status running | grep -q orange_flow_wa_gateway; then
+  docker compose up -d --force-recreate whatsapp-gateway
 else
-  docker compose --profile whatsapp up -d whatsapp-gateway
+  docker compose up -d whatsapp-gateway
 fi
 
 echo "==> Done. Gateway health:"

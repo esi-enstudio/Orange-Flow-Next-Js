@@ -1,84 +1,596 @@
 {
-    "modules": {
-        "houses": { "display_name": "Houses", "permissions": ["houses.view", "houses.create", "houses.edit", "houses.delete", "houses.import", "houses.export"] },
-        "users": { "display_name": "Users", "permissions": ["users.view", "users.create", "users.edit", "users.delete", "users.import", "users.export"] },
-        "roles": { "display_name": "Roles", "permissions": ["roles.view", "roles.create", "roles.edit", "roles.delete"] },
-        "permissions": { "display_name": "Permissions", "permissions": ["permissions.view", "permissions.create", "permissions.edit", "permissions.delete"] },
-        "retailers": { "display_name": "Retailers", "permissions": ["retailers.view", "retailers.create", "retailers.edit", "retailers.delete", "retailers.import", "retailers.export", "retailers.marking"] },
-        "employees": { "display_name": "Employees", "permissions": ["employees.view", "employees.create", "employees.edit", "employees.delete", "employees.import", "employees.export", "employees.assign"] },
-        "bts": { "display_name": "BTS", "permissions": ["bts.view", "bts.create", "bts.edit", "bts.delete", "bts.import", "bts.export"] },
-        "lifting": { "display_name": "Lifting", "permissions": ["lifting.view", "lifting.create", "lifting.edit", "lifting.delete", "lifting.approve", "lifting.import", "lifting.export"] },
-        "reports": { "display_name": "Reports", "permissions": ["reports.view", "reports.edit", "reports.download", "reports.dms_access", "reports.target_achievement", "reports.achievement.config", "reports.whatsapp_share"] },
-        "products": { "display_name": "Products", "permissions": ["products.view", "products.create", "products.edit", "products.delete", "products.import", "products.export"] },
-        "commission": { "display_name": "Commission", "permissions": ["commission.view", "commission.manage", "commission.import", "commission.export"] },
-        "sim_status": { "display_name": "SIM Status Check", "permissions": ["sim_status.view"] },
-        "activations": { "display_name": "Activations", "permissions": ["activations.view", "activations.export", "activations.import", "activations.delete"] },
-        "itopup": { "display_name": "iTopUp Details", "permissions": ["itopup.view", "itopup.export", "itopup.import"] },
-        "live_activations": { "display_name": "Live Activations", "permissions": ["live_activations.view", "live_activations.export", "live_activations.import", "live_activations.schedule"] },
-        "scratch_card": { "display_name": "Scratch Card Issues", "permissions": ["scratch_card.view", "scratch_card.create", "scratch_card.edit", "scratch_card.delete", "scratch_card.import", "scratch_card.export"] },
-        "scratch_card_serials": { "display_name": "SC Serial Management", "permissions": ["scratch_card_serials.view", "scratch_card_serials.create", "scratch_card_serials.edit", "scratch_card_serials.delete", "scratch_card_serials.delete.permanent", "scratch_card_serials.import", "scratch_card_serials.export"] },
-        "sim_issues": { "display_name": "SIM Issues", "permissions": ["sim_issues.view", "sim_issues.create", "sim_issues.edit", "sim_issues.delete", "sim_issues.import", "sim_issues.export"] },
-        "targets": { "display_name": "Targets", "permissions": ["targets.view", "targets.export", "targets.import", "targets.edit"] },
-        "bp_targets": { "display_name": "BP Targets", "permissions": ["bp_targets.view", "bp_targets.create", "bp_targets.edit", "bp_targets.delete"] },
-        "visits": { "display_name": "Retailer Visits", "permissions": ["visits.view", "visits.create"] },
-        "orders": { "display_name": "Orders", "permissions": ["orders.view", "orders.create"] },
-        "dms": { "display_name": "DMS Automation", "permissions": ["dms.sim_status", "dms.sim_return", "dms.sim_issue"] },
-        "app_settings": { "display_name": "App Settings", "permissions": ["app_settings.manage"] },
-        "bp_retailer_codes": { "display_name": "BP Retailer Codes", "permissions": ["bp_retailer_codes.edit"] },
-        "ga_section_configs": { "display_name": "Section Configs", "permissions": ["ga_section_configs.edit"] },
-        "filters": { "display_name": "Filters", "permissions": ["filters.edit"] },
-        "automation": { "display_name": "Automation", "permissions": ["automation.ga_sync", "automation.dms_sync", "automation.settings"] },
-        "shifts": { "display_name": "Shifts", "permissions": ["shifts.view", "shifts.create", "shifts.edit", "shifts.delete", "shifts.assign"] },
-        "mela": { "display_name": "Mela", "permissions": ["mela.view", "mela.create", "mela.edit", "mela.delete", "mela.settings", "mela.import", "mela.export"] },
-        "navigation": { "display_name": "Navigation", "permissions": ["imports.view", "settings.view", "expenses.view"] },
-        "zoom_in": { "display_name": "Zoom In", "permissions": ["zoom_in.view", "zoom_in.create", "zoom_in.edit", "zoom_in.delete", "zoom_in.import", "zoom_in.export"] },
-        "cv": { "display_name": "CV Management", "permissions": ["cv.view", "cv.create", "cv.edit", "cv.delete", "cv.export"] },
-        "recharge_dashboard": { "display_name": "Recharge Dashboard", "permissions": ["recharge_dashboard.view", "recharge_dashboard.export"] },
-        "sim_replacement": { "display_name": "SIM Replacement", "permissions": ["sim_replacement.view", "sim_replacement.create", "sim_replacement.edit", "sim_replacement.delete", "sim_replacement.approve", "sim_replacement.issue", "sim_replacement.activate", "sim_replacement.export", "sim_replacement.import"] },
-        "sim_inventory": { "display_name": "SIM Inventory", "permissions": ["sim_inventory.view", "sim_inventory.create", "sim_inventory.edit", "sim_inventory.delete", "sim_inventory.export", "sim_inventory.import"] },
-        "ev_kit": { "display_name": "EV Kit Inventory", "permissions": ["ev_kit.view", "ev_kit.create", "ev_kit.edit", "ev_kit.delete", "ev_kit.allocate", "ev_kit.export"] },
-        "sales": { "display_name": "Sales", "permissions": ["sales.view", "sales.create", "sales.edit", "sales.delete"] },
-        "stock": { "display_name": "Stock", "permissions": ["stock.view", "stock.create", "stock.transfer", "stock.adjust"] },
-        "itopup_balance": { "display_name": "iTopUp Balance", "permissions": ["itopup_balance.view", "itopup_balance.create", "itopup_balance.edit"] },
-        "active_lso": { "display_name": "Active LSO Report", "permissions": ["active_lso.view", "active_lso.export", "active_lso.print", "active_lso.config"] },
-        "active_sso": { "display_name": "Active SSO Report", "permissions": ["active_sso.view", "active_sso.export", "active_sso.config"] },
-        "transactions": { "display_name": "Transactions", "permissions": ["transactions.view", "transactions.export"] },
-        "ga_report_builder": { "display_name": "GA Report Builder", "permissions": ["ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.delete.permanent", "ga_report_builder.export", "ga_report_builder.send"] },
-        "whatsapp": { "display_name": "WhatsApp Gateway", "permissions": ["whatsapp.view", "whatsapp.connect", "whatsapp.disconnect", "whatsapp.setup", "whatsapp.manage"] },
-        "telegram": { "display_name": "Telegram Bots", "permissions": ["telegram.view", "telegram.manage"] }
+  "modules": {
+    "houses": {
+      "display_name": "Houses",
+      "permissions": [
+        "houses.view",
+        "houses.create",
+        "houses.edit",
+        "houses.delete",
+        "houses.import",
+        "houses.export"
+      ]
     },
-    "default_roles": [
-        {
-            "name": "Super Admin",
-            "is_admin": true
-        },
-        {
-            "name": "Admin",
-            "is_admin": true
-        },
-        {
-            "name": "Distributor",
-            "permissions": ["houses.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "reports.view", "sim_status.view", "activations.view", "live_activations.view", "targets.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "imports.view", "reports.target_achievement", "reports.whatsapp_share", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "active_sso.view", "active_sso.export", "transactions.view", "transactions.export", "ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"]
-        },
-        {
-            "name": "Manager",
-            "permissions": ["reports.view", "retailers.view", "employees.view", "employees.assign", "bts.view", "sim_status.view", "activations.view", "live_activations.view", "bp_targets.view", "bp_targets.edit", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "reports.whatsapp_share", "zoom_in.view", "sales.view", "sales.create", "sales.edit", "sales.delete", "stock.view", "stock.create", "stock.transfer", "stock.adjust", "itopup_balance.view", "itopup_balance.create", "itopup_balance.edit", "active_lso.view", "active_lso.export", "active_lso.print", "active_sso.view", "active_sso.export", "transactions.view", "transactions.export", "ga_report_builder.view", "ga_report_builder.create", "ga_report_builder.edit", "ga_report_builder.delete", "ga_report_builder.export", "ga_report_builder.send"]
-        },
-        {
-            "name": "Supervisor",
-            "permissions": ["reports.view", "retailers.view", "sim_status.view", "activations.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "sales.view", "stock.view", "active_lso.view", "active_sso.view", "transactions.view"]
-        },
-        {
-            "name": "RSO",
-            "permissions": ["reports.view", "retailers.view", "sim_status.view", "visits.view", "visits.create", "orders.view", "orders.create", "reports.target_achievement", "active_lso.view", "active_sso.view", "transactions.view"]
-        },
-        {
-            "name": "BP",
-            "permissions": ["reports.view", "transactions.view"]
-        },
-        {
-            "name": "Cc",
-            "permissions": ["reports.view", "transactions.view"]
-        }
-    ]
+    "users": {
+      "display_name": "Users",
+      "permissions": [
+        "users.view",
+        "users.create",
+        "users.edit",
+        "users.delete",
+        "users.import",
+        "users.export"
+      ]
+    },
+    "roles": {
+      "display_name": "Roles",
+      "permissions": [
+        "roles.view",
+        "roles.create",
+        "roles.edit",
+        "roles.delete"
+      ]
+    },
+    "permissions": {
+      "display_name": "Permissions",
+      "permissions": [
+        "permissions.view",
+        "permissions.create",
+        "permissions.edit",
+        "permissions.delete"
+      ]
+    },
+    "retailers": {
+      "display_name": "Retailers",
+      "permissions": [
+        "retailers.view",
+        "retailers.create",
+        "retailers.edit",
+        "retailers.delete",
+        "retailers.import",
+        "retailers.export",
+        "retailers.marking"
+      ]
+    },
+    "employees": {
+      "display_name": "Employees",
+      "permissions": [
+        "employees.view",
+        "employees.create",
+        "employees.edit",
+        "employees.delete",
+        "employees.import",
+        "employees.export",
+        "employees.assign"
+      ]
+    },
+    "bts": {
+      "display_name": "BTS",
+      "permissions": [
+        "bts.view",
+        "bts.create",
+        "bts.edit",
+        "bts.delete",
+        "bts.import",
+        "bts.export"
+      ]
+    },
+    "lifting": {
+      "display_name": "Lifting",
+      "permissions": [
+        "lifting.view",
+        "lifting.create",
+        "lifting.edit",
+        "lifting.delete",
+        "lifting.approve",
+        "lifting.import",
+        "lifting.export"
+      ]
+    },
+    "reports": {
+      "display_name": "Reports",
+      "permissions": [
+        "reports.view",
+        "reports.edit",
+        "reports.download",
+        "reports.dms_access",
+        "reports.target_achievement",
+        "reports.achievement.config",
+        "reports.whatsapp_share"
+      ]
+    },
+    "products": {
+      "display_name": "Products",
+      "permissions": [
+        "products.view",
+        "products.create",
+        "products.edit",
+        "products.delete",
+        "products.import",
+        "products.export"
+      ]
+    },
+    "commission": {
+      "display_name": "Commission",
+      "permissions": [
+        "commission.view",
+        "commission.manage",
+        "commission.import",
+        "commission.export"
+      ]
+    },
+    "sim_status": {
+      "display_name": "SIM Status Check",
+      "permissions": [
+        "sim_status.view"
+      ]
+    },
+    "activations": {
+      "display_name": "Activations",
+      "permissions": [
+        "activations.view",
+        "activations.export",
+        "activations.import",
+        "activations.delete"
+      ]
+    },
+    "itopup": {
+      "display_name": "iTopUp Details",
+      "permissions": [
+        "itopup.view",
+        "itopup.export",
+        "itopup.import"
+      ]
+    },
+    "live_activations": {
+      "display_name": "Live Activations",
+      "permissions": [
+        "live_activations.view",
+        "live_activations.export",
+        "live_activations.import",
+        "live_activations.schedule"
+      ]
+    },
+    "scratch_card": {
+      "display_name": "Scratch Card Issues",
+      "permissions": [
+        "scratch_card.view",
+        "scratch_card.create",
+        "scratch_card.edit",
+        "scratch_card.delete",
+        "scratch_card.import",
+        "scratch_card.export"
+      ]
+    },
+    "scratch_card_serials": {
+      "display_name": "SC Serial Management",
+      "permissions": [
+        "scratch_card_serials.view",
+        "scratch_card_serials.create",
+        "scratch_card_serials.edit",
+        "scratch_card_serials.delete",
+        "scratch_card_serials.delete.permanent",
+        "scratch_card_serials.import",
+        "scratch_card_serials.export"
+      ]
+    },
+    "sim_issues": {
+      "display_name": "SIM Issues",
+      "permissions": [
+        "sim_issues.view",
+        "sim_issues.create",
+        "sim_issues.edit",
+        "sim_issues.delete",
+        "sim_issues.import",
+        "sim_issues.export"
+      ]
+    },
+    "targets": {
+      "display_name": "Targets",
+      "permissions": [
+        "targets.view",
+        "targets.export",
+        "targets.import",
+        "targets.edit"
+      ]
+    },
+    "bp_targets": {
+      "display_name": "BP Targets",
+      "permissions": [
+        "bp_targets.view",
+        "bp_targets.create",
+        "bp_targets.edit",
+        "bp_targets.delete"
+      ]
+    },
+    "visits": {
+      "display_name": "Retailer Visits",
+      "permissions": [
+        "visits.view",
+        "visits.create"
+      ]
+    },
+    "orders": {
+      "display_name": "Orders",
+      "permissions": [
+        "orders.view",
+        "orders.create"
+      ]
+    },
+    "dms": {
+      "display_name": "DMS Automation",
+      "permissions": [
+        "dms.sim_status",
+        "dms.sim_return",
+        "dms.sim_issue"
+      ]
+    },
+    "app_settings": {
+      "display_name": "App Settings",
+      "permissions": [
+        "app_settings.manage"
+      ]
+    },
+    "bp_retailer_codes": {
+      "display_name": "BP Retailer Codes",
+      "permissions": [
+        "bp_retailer_codes.edit"
+      ]
+    },
+    "ga_section_configs": {
+      "display_name": "Section Configs",
+      "permissions": [
+        "ga_section_configs.edit"
+      ]
+    },
+    "filters": {
+      "display_name": "Filters",
+      "permissions": [
+        "filters.edit"
+      ]
+    },
+    "automation": {
+      "display_name": "Automation",
+      "permissions": [
+        "automation.ga_sync",
+        "automation.dms_sync",
+        "automation.settings"
+      ]
+    },
+    "shifts": {
+      "display_name": "Shifts",
+      "permissions": [
+        "shifts.view",
+        "shifts.create",
+        "shifts.edit",
+        "shifts.delete",
+        "shifts.assign"
+      ]
+    },
+    "mela": {
+      "display_name": "Mela",
+      "permissions": [
+        "mela.view",
+        "mela.create",
+        "mela.edit",
+        "mela.delete",
+        "mela.settings",
+        "mela.import",
+        "mela.export"
+      ]
+    },
+    "navigation": {
+      "display_name": "Navigation",
+      "permissions": [
+        "imports.view",
+        "settings.view",
+        "expenses.view"
+      ]
+    },
+    "zoom_in": {
+      "display_name": "Zoom In",
+      "permissions": [
+        "zoom_in.view",
+        "zoom_in.create",
+        "zoom_in.edit",
+        "zoom_in.delete",
+        "zoom_in.import",
+        "zoom_in.export"
+      ]
+    },
+    "cv": {
+      "display_name": "CV Management",
+      "permissions": [
+        "cv.view",
+        "cv.create",
+        "cv.edit",
+        "cv.delete",
+        "cv.export"
+      ]
+    },
+    "recharge_dashboard": {
+      "display_name": "Recharge Dashboard",
+      "permissions": [
+        "recharge_dashboard.view",
+        "recharge_dashboard.export"
+      ]
+    },
+    "sim_replacement": {
+      "display_name": "SIM Replacement",
+      "permissions": [
+        "sim_replacement.view",
+        "sim_replacement.create",
+        "sim_replacement.edit",
+        "sim_replacement.delete",
+        "sim_replacement.approve",
+        "sim_replacement.issue",
+        "sim_replacement.activate",
+        "sim_replacement.export",
+        "sim_replacement.import"
+      ]
+    },
+    "sim_inventory": {
+      "display_name": "SIM Inventory",
+      "permissions": [
+        "sim_inventory.view",
+        "sim_inventory.create",
+        "sim_inventory.edit",
+        "sim_inventory.delete",
+        "sim_inventory.export",
+        "sim_inventory.import"
+      ]
+    },
+    "ev_kit": {
+      "display_name": "EV Kit Inventory",
+      "permissions": [
+        "ev_kit.view",
+        "ev_kit.create",
+        "ev_kit.edit",
+        "ev_kit.delete",
+        "ev_kit.allocate",
+        "ev_kit.export"
+      ]
+    },
+    "sales": {
+      "display_name": "Sales",
+      "permissions": [
+        "sales.view",
+        "sales.create",
+        "sales.edit",
+        "sales.delete"
+      ]
+    },
+    "stock": {
+      "display_name": "Stock",
+      "permissions": [
+        "stock.view",
+        "stock.create",
+        "stock.transfer",
+        "stock.adjust"
+      ]
+    },
+    "itopup_balance": {
+      "display_name": "iTopUp Balance",
+      "permissions": [
+        "itopup_balance.view",
+        "itopup_balance.create",
+        "itopup_balance.edit"
+      ]
+    },
+    "active_lso": {
+      "display_name": "Active LSO Report",
+      "permissions": [
+        "active_lso.view",
+        "active_lso.export",
+        "active_lso.print",
+        "active_lso.config"
+      ]
+    },
+    "active_sso": {
+      "display_name": "Active SSO Report",
+      "permissions": [
+        "active_sso.view",
+        "active_sso.export",
+        "active_sso.config"
+      ]
+    },
+    "transactions": {
+      "display_name": "Transactions",
+      "permissions": [
+        "transactions.view",
+        "transactions.export"
+      ]
+    },
+    "ga_report_builder": {
+      "display_name": "GA Report Builder",
+      "permissions": [
+        "ga_report_builder.view",
+        "ga_report_builder.create",
+        "ga_report_builder.edit",
+        "ga_report_builder.delete",
+        "ga_report_builder.delete.permanent",
+        "ga_report_builder.export",
+        "ga_report_builder.send"
+      ]
+    },
+    "whatsapp": {
+      "display_name": "WhatsApp Gateway",
+      "permissions": [
+        "whatsapp.view",
+        "whatsapp.connect",
+        "whatsapp.disconnect",
+        "whatsapp.setup",
+        "whatsapp.manage"
+      ]
+    },
+    "telegram": {
+      "display_name": "Telegram Bots",
+      "permissions": [
+        "telegram.view",
+        "telegram.manage"
+      ]
+    },
+    "otp": {
+      "display_name": "OTP Monitor",
+      "permissions": [
+        "otp.view"
+      ]
+    }
+  },
+  "default_roles": [
+    {
+      "name": "Super Admin",
+      "is_admin": true
+    },
+    {
+      "name": "Admin",
+      "is_admin": true
+    },
+    {
+      "name": "Distributor",
+      "permissions": [
+        "houses.view",
+        "retailers.view",
+        "employees.view",
+        "employees.assign",
+        "bts.view",
+        "reports.view",
+        "sim_status.view",
+        "activations.view",
+        "live_activations.view",
+        "targets.view",
+        "bp_targets.view",
+        "bp_targets.edit",
+        "visits.view",
+        "visits.create",
+        "orders.view",
+        "orders.create",
+        "imports.view",
+        "reports.target_achievement",
+        "reports.whatsapp_share",
+        "zoom_in.view",
+        "sales.view",
+        "sales.create",
+        "sales.edit",
+        "sales.delete",
+        "stock.view",
+        "stock.create",
+        "stock.transfer",
+        "stock.adjust",
+        "itopup_balance.view",
+        "itopup_balance.create",
+        "itopup_balance.edit",
+        "active_lso.view",
+        "active_lso.export",
+        "active_lso.print",
+        "active_sso.view",
+        "active_sso.export",
+        "transactions.view",
+        "transactions.export",
+        "ga_report_builder.view",
+        "ga_report_builder.create",
+        "ga_report_builder.edit",
+        "ga_report_builder.delete",
+        "ga_report_builder.export",
+        "ga_report_builder.send",
+        "otp.view"
+      ]
+    },
+    {
+      "name": "Manager",
+      "permissions": [
+        "reports.view",
+        "retailers.view",
+        "employees.view",
+        "employees.assign",
+        "bts.view",
+        "sim_status.view",
+        "activations.view",
+        "live_activations.view",
+        "bp_targets.view",
+        "bp_targets.edit",
+        "visits.view",
+        "visits.create",
+        "orders.view",
+        "orders.create",
+        "reports.target_achievement",
+        "reports.whatsapp_share",
+        "zoom_in.view",
+        "sales.view",
+        "sales.create",
+        "sales.edit",
+        "sales.delete",
+        "stock.view",
+        "stock.create",
+        "stock.transfer",
+        "stock.adjust",
+        "itopup_balance.view",
+        "itopup_balance.create",
+        "itopup_balance.edit",
+        "active_lso.view",
+        "active_lso.export",
+        "active_lso.print",
+        "active_sso.view",
+        "active_sso.export",
+        "transactions.view",
+        "transactions.export",
+        "ga_report_builder.view",
+        "ga_report_builder.create",
+        "ga_report_builder.edit",
+        "ga_report_builder.delete",
+        "ga_report_builder.export",
+        "ga_report_builder.send",
+        "otp.view"
+      ]
+    },
+    {
+      "name": "Supervisor",
+      "permissions": [
+        "reports.view",
+        "retailers.view",
+        "sim_status.view",
+        "activations.view",
+        "visits.view",
+        "visits.create",
+        "orders.view",
+        "orders.create",
+        "reports.target_achievement",
+        "sales.view",
+        "stock.view",
+        "active_lso.view",
+        "active_sso.view",
+        "transactions.view"
+      ]
+    },
+    {
+      "name": "RSO",
+      "permissions": [
+        "reports.view",
+        "retailers.view",
+        "sim_status.view",
+        "visits.view",
+        "visits.create",
+        "orders.view",
+        "orders.create",
+        "reports.target_achievement",
+        "active_lso.view",
+        "active_sso.view",
+        "transactions.view"
+      ]
+    },
+    {
+      "name": "BP",
+      "permissions": [
+        "reports.view",
+        "transactions.view"
+      ]
+    },
+    {
+      "name": "Cc",
+      "permissions": [
+        "reports.view",
+        "transactions.view"
+      ]
+    }
+  ]
 }

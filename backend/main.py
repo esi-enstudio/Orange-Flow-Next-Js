@@ -81,6 +81,7 @@ from app.routers.whatsapp_connections import router as whatsapp_connections_rout
 from app.routers.telegram_bots import router as telegram_bots_router
 from app.routers.transactions import router as transactions_router
 from app.routers.ga_report_builder import router as ga_report_builder_router
+from app.routers.otp import router as otp_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -139,6 +140,7 @@ app.include_router(whatsapp_connections_router)
 app.include_router(telegram_bots_router)
 app.include_router(transactions_router)
 app.include_router(ga_report_builder_router)
+app.include_router(otp_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -208,6 +210,32 @@ async def receive_otp(request: Request):
     if otp_code and house_code:
         from app.core.otp_manager import otp_manager
         otp_manager.update_otp(str(otp_code), house_code)
+        try:
+            from app.services.db_service import async_session
+            from app.models.otp import OTP
+            from app.models.house import House
+            from app.utils.timezone import now_naive
+            from sqlalchemy import select
+            async with async_session() as session:
+                house_id = None
+                hres = await session.execute(
+                    select(House.id).where(House.code == str(house_code).strip())
+                )
+                row = hres.scalar_one_or_none()
+                if row is not None:
+                    house_id = row
+                session.add(OTP(
+                    house_id=house_id,
+                    house_code=str(house_code).strip().upper(),
+                    otp_code=str(otp_code),
+                    sender=sender if sender != house_code else None,
+                    message=message,
+                    received_at=now_naive(),
+                    is_used=False,
+                ))
+                await session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to persist OTP to DB: {e}")
 
     logger.info("=" * 60)
     if otp_code and house_code:

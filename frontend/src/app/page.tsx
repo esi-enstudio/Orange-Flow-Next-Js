@@ -23,6 +23,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import OtpPanel from "@/components/OtpPanel";
 
 interface Stats {
   total_retailers: number;
@@ -259,6 +260,11 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {/* OTP Monitor */}
+      {hasPermission("otp.view") && (
+        <OtpPanel houseId={selectedHouseId} />
+      )}
 
       {/* To-Do Widget */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

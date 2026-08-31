@@ -88,7 +88,6 @@ services:
   # "client outdated" MACOS-platform fix (WhatsApp rejects Platform.WEB
   # for new pairing since Feb 2026). Do NOT switch to :latest.
   whatsapp-gateway:
-    profiles: ["whatsapp"]
     build:
       context: ./wa-gateway
     image: ghiovanidebrians/go-whatsapp-multi-session-rest-api:pgx-fixed

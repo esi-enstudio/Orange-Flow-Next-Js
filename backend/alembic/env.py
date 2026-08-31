@@ -42,6 +42,7 @@ from app.models.commission import (
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
 from app.models.retailer_visit import RetailerVisit
+from app.models.otp import OTP
 from app.models.order_collection import OrderCollection
 from app.models.zoom_in import (
     ZoomInEventType, ZoomInActivity,
