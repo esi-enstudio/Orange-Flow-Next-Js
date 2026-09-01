@@ -6,7 +6,7 @@ vendor
 *.DS_Store
 !*.gitkeep
 *.exe
-main
+/main
 
 # Frontend application (separate repository)
 frontend/

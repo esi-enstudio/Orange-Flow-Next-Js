@@ -58,11 +58,25 @@ export default function OtpPanel({ houseId }: OtpPanelProps) {
 
   const copy = async (item: OTPItem) => {
     try {
-      await navigator.clipboard.writeText(item.otp_code);
-      setCopiedId(item.id);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(item.otp_code);
+        setCopiedId(item.id);
+        return;
+      }
     } catch {
-      // clipboard unavailable
+      // clipboard API unavailable, fall through to execCommand fallback
     }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = item.otp_code;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+    setCopiedId(item.id);
   };
 
   const elapsed = (iso: string | null) => {
