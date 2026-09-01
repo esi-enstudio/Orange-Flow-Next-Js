@@ -138,7 +138,6 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
             )
             user_all = user_res.scalars().all()
             user_username_map = {u.username.upper(): u for u in user_all if u.username}
-            user_phone_map = {u.phone_number: u for u in user_all if u.phone_number}
 
             house_res = await session.execute(select(House.code, House.id))
             house_map = {h.code.upper(): h.id for h in house_res.all() if h.code}
@@ -175,22 +174,12 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
                     pbar.update(1)
                     continue
 
-                # 3. User mapping ✅ (first by username, then by phone)
+                # 3. User mapping ✅ (match by username only)
                 username_val = clean_val(row.get('USERNAME'))
                 target_user = None
                 
                 if username_val:
                     target_user = user_username_map.get(username_val.upper())
-                
-                if not target_user:
-                    p_phone_raw = clean_val(row.get('PERSONAL_NUMBER'))
-                    if p_phone_raw:
-                        # Match by last 10 digits of phone number
-                        clean_p_phone = str(p_phone_raw).replace(".0", "")[-10:]
-                        for u_phone, u_obj in user_phone_map.items():
-                            if u_phone and u_phone[-10:] == clean_p_phone:
-                                target_user = u_obj
-                                break
 
                 target_user_id = target_user.id if target_user else None
 
