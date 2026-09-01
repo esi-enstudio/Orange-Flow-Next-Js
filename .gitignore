@@ -78,3 +78,6 @@ browser_profiles/
 sessions/
 temp_downloads/
 #*.xlsx
+
+# Uploads (profile pictures, etc.)
+backend/uploads/
