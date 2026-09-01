@@ -143,8 +143,8 @@ async def get_retailers_by_house(
             "itop_number": r.itop_number,
             "employee_id": r.employee_id,
             "employee_itop_number": r.employee.itop_number if r.employee else None,
-            "is_assisted": r.employee_id is not None,
-            "assisted_by_role": assisted_map.get(r.retailer_code) or (r.employee.employee_type if r.employee else None)
+            "is_assisted": r.retailer_code in assisted_map,
+            "assisted_by_role": assisted_map.get(r.retailer_code)
         }
         for r in retailers
     ]
