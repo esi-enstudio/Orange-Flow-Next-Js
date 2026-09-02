@@ -126,6 +126,7 @@ export default function DeployModal({ open, onClose }: DeployModalProps) {
 
     const baseUrl = API_BASE.replace(/\/api\/?$/, "");
     const es = new EventSource(`${baseUrl}/api/v1/deploy/stream?token=${token}`);
+    es.onerror = null;
     eventSourceRef.current = es;
 
     es.addEventListener("started", (e) => {
@@ -161,12 +162,55 @@ export default function DeployModal({ open, onClose }: DeployModalProps) {
         const data = JSON.parse(e.data);
         setState("error");
         addLog("error", "Error: " + (data.message || "unknown"));
-      } else {
-        setState("error");
-        addLog("error", "Connection lost. The server may be restarting.");
+        es.close();
+        return;
       }
+
+      // The stream closed (the backend restarts mid-deploy and kills the SSE
+      // connection before the "completed"/"failed" event can be delivered).
+      // Disable auto-reconnect and ask the server for the terminal state so we
+      // can still show the real success/failure instead of a generic error.
       es.close();
+      checkTerminalState(token);
     });
+  };
+
+  const checkTerminalState = async (token: string) => {
+    addLog("system", "Deployment finished. Checking final status...");
+    const maxTries = 6;
+    for (let i = 0; i < maxTries; i++) {
+      try {
+        const res = await fetch(`${API_BASE}/v1/deploy/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        const st = data.state;
+        if (st === "completed") {
+          setExitCode(data.exit_code ?? 0);
+          setState("completed");
+          addLog("system", "─".repeat(60));
+          addLog("system", "Deploy completed successfully (exit code: " + (data.exit_code ?? 0) + ")");
+          return;
+        }
+        if (st === "failed") {
+          setExitCode(data.exit_code ?? 1);
+          setState("failed");
+          addLog("system", "─".repeat(60));
+          addLog("error", "Deploy failed (exit code: " + (data.exit_code ?? 1) + ")");
+          return;
+        }
+        if (st === "running") {
+          addLog("log", "Deployment still in progress...");
+        }
+        // wait before retrying (backend may still be restarting)
+        await new Promise((r) => setTimeout(r, 2000));
+      } catch {
+        // backend not up yet
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    setState("error");
+    addLog("error", "Connection lost. The server may be restarting.");
   };
 
   if (!open) return null;
