@@ -140,6 +140,12 @@ class SessionManager:
                 pass
             logger.info(f"⏹️ Keepalive stopped for {code}")
 
+    async def stop_keepalive_for(self, code: str):
+        """Public method to force-stop a house's keepalive (used when session is stale)."""
+        if code and code in self._keepalive_ctx:
+            await self._stop_keepalive(code)
+            logger.info(f"🔁 Keepalive cleared for {code} to force fresh login")
+
     async def _stop_all_keepalive(self):
         """Stop all keepalive tasks."""
         for code in list(self._keepalive_ctx.keys()):

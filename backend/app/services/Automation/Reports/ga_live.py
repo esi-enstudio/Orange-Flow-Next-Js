@@ -81,9 +81,21 @@ async def sync_live_activation_module(house_id=None, progress_callback=None):
         except Exception as e:
             logger.error(f"❌ [Manual GA Sync Error] {house.name}: {str(e)}")
 
+async def _navigate_to_report(page, timeout=60000):
+    """Navigate to REPORT_URL and return True if #StartDate is visible, False if redirected to login."""
+    await page.goto(REPORT_URL, wait_until="networkidle", timeout=timeout)
+    if "login" in page.url.lower():
+        return False
+    try:
+        await page.wait_for_selector("#StartDate", state="visible", timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
 async def sync_house_data(house, progress_callback=None):
     """Download report using session manager"""
-    
+
     credentials = {
         "user": house.dms_user,
         "pass": house.dms_pass,
@@ -95,58 +107,52 @@ async def sync_house_data(house, progress_callback=None):
     file_path = os.path.join(TEMP_DIR, f"ga_{house.code}.xlsx")
     page = None
     context = None
-    
+
     try:
-        # Get valid page from session manager
         page, context = await session_manager.get_valid_page(credentials)
 
         if progress_callback:
             await progress_callback(f"Starting Live Activation sync for {house.name}...")
         logger.info(f"🚀 [GA Sync] {house.name} Report download starting...")
-        
-        # Navigate to report page — wait for full network idle so JS-rendered forms are ready
-        await page.goto(REPORT_URL, wait_until="networkidle", timeout=60000)
-        
-        # Wait for date field with extra patience (DMS loads slowly sometimes)
-        try:
-            await page.wait_for_selector("#StartDate", state="visible", timeout=60000)
-        except Exception:
-            # Log current page state for debugging
-            url = page.url
-            logger.warning(f"⚠️ #StartDate not found on {url} — retrying after reload")
-            await page.reload(wait_until="networkidle", timeout=60000)
-            await page.wait_for_selector("#StartDate", state="visible", timeout=60000)
-        
+
+        page_ready = await _navigate_to_report(page)
+
+        if not page_ready:
+            # Session invalid on report page — force fresh login
+            logger.warning(f"⚠️ {house.name}: Redirected to login — forcing fresh login")
+            # Close stale page & context
+            try:
+                await page.close()
+            except Exception:
+                pass
+            if context:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+            # Kill keepalive so get_valid_page won't reuse stale session
+            await session_manager.stop_keepalive_for(house.code)
+            # Fresh login
+            page, context = await session_manager.get_valid_page(credentials)
+            page_ready = await _navigate_to_report(page)
+
+        if not page_ready:
+            raise Exception("Could not reach report page after fresh login")
+
         today_str = date.today().strftime("%Y-%m-%d")
-        
-        # Using evaluate instead of direct type for safer date input
         await page.evaluate(f"document.getElementById('StartDate').value = '{today_str}';")
         await page.evaluate(f"document.getElementById('EndDate').value = '{today_str}';")
-        
-        await asyncio.sleep(1) # Input processing gap
+        await asyncio.sleep(1)
 
-        # Download process (click Export Details button)
-        try:
-            async with page.expect_download(timeout=60000) as download_info:
-                await page.wait_for_selector("button:has-text('Export Details')", state="visible", timeout=30000)
-                await page.click("button:has-text('Export Details')")
-        except Exception:
-            logger.warning(f"⚠️ Export button not ready — reloading page")
-            await page.reload(wait_until="networkidle", timeout=60000)
-            await page.wait_for_selector("#StartDate", state="visible", timeout=60000)
-            await page.evaluate(f"document.getElementById('StartDate').value = '{today_str}';")
-            await page.evaluate(f"document.getElementById('EndDate').value = '{today_str}';")
-            await asyncio.sleep(1)
-            async with page.expect_download(timeout=60000) as download_info:
-                await page.wait_for_selector("button:has-text('Export Details')", state="visible", timeout=30000)
-                await page.click("button:has-text('Export Details')")
-        
+        async with page.expect_download(timeout=60000) as download_info:
+            await page.wait_for_selector("button:has-text('Export Details')", state="visible", timeout=30000)
+            await page.click("button:has-text('Export Details')")
+
         download = await download_info.value
         await download.save_as(file_path)
 
-        # Call database update
         await process_and_save_data(file_path, house.id)
-        
+
         if progress_callback:
             await progress_callback(f"✓ Live Activation sync complete for {house.name}")
         logger.info(f"✅ [GA Sync] {house.name} database update successful.")
@@ -157,15 +163,17 @@ async def sync_house_data(house, progress_callback=None):
             await progress_callback(f"✗ Error in {house.name}: {str(e)}")
         raise
     finally:
-        # Close tab and context after work ✅
         if page:
-            await page.close()
+            try:
+                await page.close()
+            except Exception:
+                pass
         if context:
-            await context.close()
-        
+            try:
+                await context.close()
+            except Exception:
+                pass
         logger.info(f"🚪 [{house.name}] Task cleanup completed.")
-
-        # Temp file cleanup
         if os.path.exists(file_path):
             os.remove(file_path)
 
