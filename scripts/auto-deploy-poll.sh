@@ -44,12 +44,16 @@ log "NEW COMMITS DETECTED: branch=$LOCAL_BRANCH local=${LOCAL_HEAD:0:8} -> remot
 log "Starting auto-deploy (pull + build + restart)..."
 
 # git pull + build + restart are handled by deploy.sh
+DEPLOY_OUTPUT=$(mktemp)
 if bash "$PROJECT_DIR/deploy.sh" >> "$DEPLOY_LOG" 2>&1; then
   NEW_HEAD="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo 'unknown')"
   NEW_STATUS="$(git -C "$PROJECT_DIR" status --porcelain | wc -l)"
   log "AUTO-DEPLOY OK: now at ${NEW_HEAD:0:8} (was ${REMOTE_HEAD:0:8}), uncommitted_changes=$NEW_STATUS."
 else
-  log "ERROR: deploy.sh failed (exit $?). See log above."
+  EXIT_CODE=$?
+  log "ERROR: deploy.sh failed (exit code: ${EXIT_CODE})."
+  log "Check /tmp/orangeflow-deploy-status.json for details."
 fi
+rm -f "$DEPLOY_OUTPUT"
 
 exit 0
