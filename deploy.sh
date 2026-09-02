@@ -19,7 +19,10 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 NODE_BIN="/root/.nvm/versions/node/v24.20.0/bin"
 export PATH="$NODE_BIN:$PATH"
 
-STATUS_FILE="/tmp/orangeflow-deploy-status.json"
+# Status/log shared with the backend container via the backend bind mount
+BACKEND_DIR="$PROJECT_DIR/backend"
+DEPLOY_DIR="$BACKEND_DIR/.deploy"
+STATUS_FILE="$DEPLOY_DIR/status.json"
 
 write_status() {
   local state="$1" exit_code="${2:-0}" message="${3:-}"
