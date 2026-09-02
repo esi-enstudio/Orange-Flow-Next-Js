@@ -104,11 +104,18 @@ async def sync_house_data(house, progress_callback=None):
             await progress_callback(f"Starting Live Activation sync for {house.name}...")
         logger.info(f"🚀 [GA Sync] {house.name} Report download starting...")
         
-        # Navigate to report page (domcontentloaded is more stable)
-        await page.goto(REPORT_URL, wait_until="domcontentloaded", timeout=60000)
+        # Navigate to report page — wait for full network idle so JS-rendered forms are ready
+        await page.goto(REPORT_URL, wait_until="networkidle", timeout=60000)
         
-        # Wait for date field and input
-        await page.wait_for_selector("#StartDate", timeout=30000)
+        # Wait for date field with extra patience (DMS loads slowly sometimes)
+        try:
+            await page.wait_for_selector("#StartDate", state="visible", timeout=60000)
+        except Exception:
+            # Log current page state for debugging
+            url = page.url
+            logger.warning(f"⚠️ #StartDate not found on {url} — retrying after reload")
+            await page.reload(wait_until="networkidle", timeout=60000)
+            await page.wait_for_selector("#StartDate", state="visible", timeout=60000)
         
         today_str = date.today().strftime("%Y-%m-%d")
         
@@ -119,10 +126,20 @@ async def sync_house_data(house, progress_callback=None):
         await asyncio.sleep(1) # Input processing gap
 
         # Download process (click Export Details button)
-        async with page.expect_download() as download_info:
-            # Wait until button is visible
-            await page.wait_for_selector("button:has-text('Export Details')", state="visible")
-            await page.click("button:has-text('Export Details')")
+        try:
+            async with page.expect_download(timeout=60000) as download_info:
+                await page.wait_for_selector("button:has-text('Export Details')", state="visible", timeout=30000)
+                await page.click("button:has-text('Export Details')")
+        except Exception:
+            logger.warning(f"⚠️ Export button not ready — reloading page")
+            await page.reload(wait_until="networkidle", timeout=60000)
+            await page.wait_for_selector("#StartDate", state="visible", timeout=60000)
+            await page.evaluate(f"document.getElementById('StartDate').value = '{today_str}';")
+            await page.evaluate(f"document.getElementById('EndDate').value = '{today_str}';")
+            await asyncio.sleep(1)
+            async with page.expect_download(timeout=60000) as download_info:
+                await page.wait_for_selector("button:has-text('Export Details')", state="visible", timeout=30000)
+                await page.click("button:has-text('Export Details')")
         
         download = await download_info.value
         await download.save_as(file_path)
