@@ -4,8 +4,9 @@ import { usePrimaryColor, PRIMARY_COLORS } from "@/context/ColorContext";
 import {
   Settings, Palette, Sun, Moon, Monitor, Check, Image, Save,
   Loader2, Upload, RefreshCw, Building2, Globe, Bell, Shield,
-  Database, ChevronRight
+  Database, ChevronRight, Rocket
 } from "lucide-react";
+import DeployButton from "@/components/deploy/DeployButton";
 import { useTheme } from "@/components/ThemeProvider";
 import { useState, useEffect } from "react";
 import apiClient, { resolveImageUrl } from "@/lib/api";
@@ -290,20 +291,23 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Placeholder for future automation settings */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden opacity-50 hover:opacity-80 transition-opacity">
+            {/* Server Deploy */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
               <div className="p-6">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-start gap-4">
-                    <div className="p-2.5 bg-gray-100 dark:bg-slate-800 rounded-xl shrink-0">
-                      <Database className="w-5 h-5 text-gray-400" />
+                    <div className="p-2.5 bg-violet-100 dark:bg-violet-500/10 rounded-xl shrink-0">
+                      <Rocket className="w-5 h-5 text-violet-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-400 dark:text-gray-500">More automation settings coming soon...</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Additional sync and scheduler options</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Server Deploy</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Pull latest code and restart all services</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                        Fetches latest commits from GitHub, rebuilds the frontend, and restarts both frontend and backend services.
+                      </p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-gray-300 dark:text-gray-600" />
+                  <DeployButton />
                 </div>
               </div>
             </div>
