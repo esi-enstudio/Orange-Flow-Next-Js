@@ -2,9 +2,10 @@ import asyncio
 import os
 import time
 import logging
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Error as PlaywrightError
 from app.core.otp_manager import otp_manager
 from config import settings
+from app.core.automation_lock import automation_locks
 
 logger = logging.getLogger("app.core.session_manager")
 
@@ -12,23 +13,119 @@ LOGIN_URL = "https://blkdms.banglalink.net/Account/Login"
 CHECK_URL = "https://blkdms.banglalink.net/SmartSearchReport"
 SESSION_DIR = "sessions"
 KEEPALIVE_INTERVAL = 120  # seconds between keepalive pings
+MAX_CONSECUTIVE_FAILURES = 3
+
 
 class SessionManager:
     def __init__(self):
         self.browser = None
         self._playwright = None
         self._own_browser = False
+        self._browser_epoch = 0  # bumped every time the shared browser is (re)created
         self._keepalive_ctx: dict[str, dict] = {}  # code -> {context, page, task}
+        self._recovery_lock = asyncio.Lock()
         os.makedirs(SESSION_DIR, exist_ok=True)
 
     def set_browser(self, browser):
-        """Use an externally-owned browser (from AutomationEngine) instead of launching our own."""
+        """Use an externally-owned browser (from AutomationEngine)."""
         if self._own_browser and self.browser and self.browser is not browser:
             logger.warning("🔁 Closing self-managed browser in favor of shared instance")
             asyncio.create_task(self.browser.close())
         self.browser = browser
         self._own_browser = False
+        self._browser_epoch += 1
         logger.info("🔗 SessionManager using shared browser instance.")
+
+    # ── Connection-error detection ─────────────────────────
+    def _is_connection_closed_error(self, e: Exception) -> bool:
+        """Detect a dead/closed Playwright connection to the browser driver."""
+        msg = str(e).lower()
+        return any(
+            token in msg
+            for token in (
+                "connection closed",
+                "connection lost",
+                "pipe closed by peer",
+                "target page, context or browser has been closed",
+                "browser has been closed",
+                "cant reach",
+                "closed by the driver",
+                "connection refused",
+                "target closed",
+            )
+        )
+
+    # ── Centralized context creation (with auto-recovery) ──
+
+    async def _new_context(self, **kwargs):
+        """Create a new browser context, transparently recovering the shared
+        browser if its driver has died.
+
+        This is the single place that calls browser.new_context() so that every
+        call site gets the same recovery + retry behavior.
+        """
+        await automation_locks.browser_lock.acquire()
+        try:
+            await self._ensure_browser_alive(raise_on_fail=True)
+            return await self.browser.new_context(**kwargs)
+        finally:
+            automation_locks.browser_lock.release()
+
+    async def _ensure_browser_alive(self, raise_on_fail: bool = False):
+        """Verify the shared browser is still usable; recover it if the driver died.
+
+        The Chromium subprocess can crash (pipe closed by peer) leaving a stale
+        non-None browser reference. Any new_context would then fail forever with
+        "Connection closed while reading from the driver". This probes the
+        browser and relaunches it via the AutomationEngine when necessary.
+        """
+        if self.browser is None:
+            await self.start()
+            return
+
+        try:
+            probe = await self.browser.new_context()
+            await probe.close()
+            return
+        except Exception as _e:
+            if not self._is_connection_closed_error(_e):
+                if raise_on_fail:
+                    raise
+                return
+            err_msg = str(_e)
+
+        logger.error(f"🔌 Browser connection dead ({err_msg}); recovering...")
+        async with self._recovery_lock:
+            # Re-probe under the lock: another task may have already recovered it
+            try:
+                probe = await self.browser.new_context()
+                await probe.close()
+                return
+            except Exception:
+                pass
+
+            # Release any per-house locks held by tasks tied to the dead browser
+            automation_locks.reset_house_locks()
+            # Tear down ALL stale keepalive contexts referencing the dead browser
+            await self._stop_all_keepalive()
+            try:
+                self.browser = None
+            except Exception:
+                pass
+
+            # Ask the engine to relaunch the shared browser
+            from app.core.automation_engine import engine
+            try:
+                await engine.start()
+                self.browser = engine.browser
+                self._own_browser = False
+                self._browser_epoch += 1
+                logger.info("✅ Browser successfully recovered.")
+            except Exception as re:
+                logger.error(f"❌ Browser recovery failed: {re}")
+                if raise_on_fail:
+                    raise
+                self.browser = None
 
     async def start(self):
         if self.browser:
@@ -40,9 +137,13 @@ class SessionManager:
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
-                '--disable-setuid-sandbox'
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-software-rasterizer'
             ]
         )
+        self._browser_epoch += 1
         logger.info("🚀 Browser started for automation tasks.")
 
     async def stop(self):
@@ -61,7 +162,7 @@ class SessionManager:
 
     # ── Keepalive ──────────────────────────────────────────
 
-    async def _start_keepalive(self, credentials: dict):
+    async def _start_keepalive(self, credentials: dict, attempt: int = 1):
         """Start background keepalive for a house to prevent DMS session expiry."""
         code = credentials.get('code')
         if not code or code in self._keepalive_ctx:
@@ -72,18 +173,18 @@ class SessionManager:
             return
 
         try:
-            context = await self.browser.new_context(storage_state=session_path)
+            context = await self._new_context(storage_state=session_path)
             page = await context.new_page()
         except Exception as e:
             logger.warning(f"⚠️ Keepalive context creation failed for {code}: {e}")
+            if attempt < 2:
+                logger.warning(f"🔁 Retrying keepalive setup for {code}...")
+                await self._start_keepalive(credentials, attempt=attempt + 1)
             return
-
-        MAX_CONSECUTIVE_FAILURES = 3
 
         async def _ping():
             try:
                 await page.goto(CHECK_URL, timeout=30000, wait_until="commit")
-                # Refresh storage state so anti-forgery tokens stay current
                 await context.storage_state(path=session_path)
                 logger.debug(f"🔄 Keepalive ping for {code}")
                 return True
@@ -114,7 +215,6 @@ class SessionManager:
                     pass
                 self._keepalive_ctx.pop(code, None)
 
-        # Send first ping immediately to establish session
         ok = await _ping()
         if not ok:
             try:
@@ -167,7 +267,8 @@ class SessionManager:
     # ── Login ─────────────────────────────────────────────
 
     async def _login(self, credentials):
-        context = await self.browser.new_context()
+        await self._ensure_browser_alive(raise_on_fail=True)
+        context = await self._new_context()
         page = await context.new_page()
 
         try:
@@ -247,56 +348,112 @@ class SessionManager:
 
         except Exception as e:
             logger.error(f"❌ Login failed for {credentials['house_name']}: {str(e)}")
-            await page.close()
-            await context.close()
+            try:
+                await page.close()
+                await context.close()
+            except Exception:
+                pass
             raise e
 
     # ── Main entry point ───────────────────────────────
 
-    async def get_valid_page(self, credentials):
+    async def get_valid_page(self, credentials, attempts: int = 2):
+        """Return a usable (page, context) for the house, transparently
+        recovering the shared browser on driver failure and retrying.
+
+        Returns ``(page, context)``. When the returned page lives on a shared
+        keepalive context, ``context`` is ``None`` so callers do not close it.
+        """
+        await automation_locks.browser_lock.acquire()
+        try:
+            if not self.browser:
+                await self.start()
+            else:
+                await self._ensure_browser_alive()
+        finally:
+            automation_locks.browser_lock.release()
+
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return await self._get_valid_page_inner(credentials)
+            except Exception as e:
+                last_error = e
+                if not self._is_connection_closed_error(e):
+                    raise
+                # Browser died mid-operation — recover and retry with fresh browser
+                logger.warning(
+                    f"🔁 [{credentials.get('house_name')}] Browser died during session "
+                    f"setup ({e}); recovering & retrying (attempt {attempt}/{attempts})"
+                )
+                await automation_locks.browser_lock.acquire()
+                try:
+                    await self._ensure_browser_alive(raise_on_fail=True)
+                    automation_locks.reset_house_locks()
+                finally:
+                    automation_locks.browser_lock.release()
+
+        raise last_error
+
+    async def _get_valid_page_inner(self, credentials):
         if not self.browser:
             await self.start()
+        else:
+            await self._ensure_browser_alive(raise_on_fail=True)
 
         code = credentials.get('code')
 
-        # 1. Reuse keepalive context directly — just create a new page
-        #    Return None for context so callers don't close the shared keepalive context
-        if code and code in self._keepalive_ctx:
-            page = await self._keepalive_ctx[code]["context"].new_page()
-            logger.info(f"✅ Reused keepalive session for {credentials['house_name']}")
-            return page, None
+        # Per-house lock: only one browser operation per house at a time.
+        house_lock = automation_locks.house(code or str(credentials['house_id']))
+        await house_lock.acquire()
+        try:
+            # 1. Reuse keepalive context directly — just create a new page
+            if code and code in self._keepalive_ctx:
+                try:
+                    page = await self._keepalive_ctx[code]["context"].new_page()
+                    logger.info(f"✅ Reused keepalive session for {credentials['house_name']}")
+                    return page, None
+                except Exception as e:
+                    logger.warning(f"⚠️ Keepalive context unusable for {code} ({e}); falling back to fresh session")
+                    await self._stop_keepalive(code)
 
-        session_path = self._session_path(credentials)
+            session_path = self._session_path(credentials)
 
-        if os.path.exists(session_path):
-            logger.info(f"🔍 Checking saved session for {credentials['house_name']}...")
-            test_context = await self.browser.new_context(storage_state=session_path)
-            test_page = await test_context.new_page()
-            try:
-                if await self._is_session_valid(test_page):
-                    logger.info(f"✅ Session valid for {credentials['house_name']}")
-                    # Start keepalive so future calls reuse it
-                    if code:
-                        await self._start_keepalive(credentials)
-                        # Return a page from the keepalive context, close the test context
-                        await test_page.close()
-                        await test_context.close()
-                        page = await self._keepalive_ctx[code]["context"].new_page()
-                        return page, None
-                    return test_page, test_context
-            except Exception:
-                pass
-            await test_page.close()
-            await test_context.close()
-            logger.info(f"⏳ Session expired for {credentials['house_name']}, re-logging in...")
+            if os.path.exists(session_path):
+                logger.info(f"🔍 Checking saved session for {credentials['house_name']}...")
+                test_context = await self._new_context(storage_state=session_path)
+                test_page = await test_context.new_page()
+                try:
+                    if await self._is_session_valid(test_page):
+                        logger.info(f"✅ Session valid for {credentials['house_name']}")
+                        if code:
+                            await self._start_keepalive(credentials)
+                            await test_page.close()
+                            await test_context.close()
+                            page = await self._keepalive_ctx[code]["context"].new_page()
+                            return page, None
+                        return test_page, test_context
+                except Exception:
+                    pass
+                try:
+                    await test_page.close()
+                    await test_context.close()
+                except Exception:
+                    pass
+                logger.info(f"⏳ Session expired for {credentials['house_name']}, re-logging in...")
 
-        page, context = await self._login(credentials)
-        # After login, keepalive is running; use that context instead
-        if code and code in self._keepalive_ctx:
-            await page.close()
-            await context.close()
-            page = await self._keepalive_ctx[code]["context"].new_page()
-            return page, None
-        return page, context
+            page, context = await self._login(credentials)
+            if code and code in self._keepalive_ctx:
+                try:
+                    await page.close()
+                    await context.close()
+                except Exception:
+                    pass
+                page = await self._keepalive_ctx[code]["context"].new_page()
+                return page, None
+            return page, context
+        finally:
+            house_lock.release()
+
 
 session_manager = SessionManager()

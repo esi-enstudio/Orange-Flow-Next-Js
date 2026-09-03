@@ -12,6 +12,7 @@ from app.routers.deps import has_permission, get_house_context, get_current_user
 from app.models.user import User
 from app.services.Automation.dms_sync_service import sync_activation_module, sync_itopup_module
 from app.services.Automation.Reports.ga_live import sync_live_activation_module
+from app.core.automation_lock import automation_locks
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,13 @@ async def _run_sync_job(job_id: str, sync_fn, module_name: str, house_id: Option
         logger.exception(f"Sync error for {module_name}")
         job["done"] = True
         job["error"] = str(e)
+
+
+async def _ga_sync_guarded(house_id: Optional[int], progress_callback=None):
+    """Run the live-activation sync under the shared GA lock so it never
+    overlaps with the scheduler-driven GA sync (both use the shared browser)."""
+    async with automation_locks.ga_sync_lock:
+        await sync_live_activation_module(house_id=house_id, progress_callback=progress_callback)
 
 
 @router.post("/activation")
@@ -101,12 +109,12 @@ async def manual_sync_live_activation(
 ):
     """Manually trigger Live Activation sync"""
     if background:
-        asyncio.create_task(sync_live_activation_module(house_id=house_id))
+        asyncio.create_task(_ga_sync_guarded(house_id))
         return {"status": "started", "message": "Live Activation sync started in background"}
     
     job_id = str(uuid.uuid4())
     _sync_jobs[job_id] = {"events": [], "done": False, "error": None, "has_work": False, "started_at": time.time()}
-    asyncio.create_task(_run_sync_job(job_id, sync_live_activation_module, "Live Activation", house_id))
+    asyncio.create_task(_run_sync_job(job_id, _ga_sync_guarded, "Live Activation", house_id))
     
     return {
         "status": "started",

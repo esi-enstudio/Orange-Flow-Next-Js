@@ -38,6 +38,7 @@ import uvicorn
 from config.settings import settings
 from app.services.db_service import init_db
 from app.core.automation_engine import engine
+from app.core.automation_lock import automation_locks
 from app.routers import admin_controller, admin_setup_controller
 
 # --- Routers ---
@@ -274,8 +275,6 @@ async def receive_otp(request: Request):
 # 2. SCHEDULER
 # ==========================================
 
-_ga_sync_lock = asyncio.Lock()
-
 async def master_automation_scheduler():
     from app.services.Automation.Reports.ga_live import run_ga_live_sync, reset_daily_activations
     from app.services.Automation.dms_report_excel import cleanup_old_dms_reports
@@ -320,7 +319,7 @@ async def master_automation_scheduler():
 
             # 8:00 AM - 11:59 PM — Live activation sync (every 5 minutes)
             if 8 <= hour < 24:
-                async with _ga_sync_lock:
+                async with automation_locks.ga_sync_lock:
                     await run_ga_live_sync()
                 await asyncio.sleep(300)
             else:

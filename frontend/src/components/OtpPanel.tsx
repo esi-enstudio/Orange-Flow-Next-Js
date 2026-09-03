@@ -79,17 +79,29 @@ export default function OtpPanel({ houseId }: OtpPanelProps) {
     setCopiedId(item.id);
   };
 
+  // Backend stores received_at as naive BST (UTC+6). Parse it as BST regardless of the
+  // browser's local timezone so elapsed/expiry are always correct.
+  const parseReceived = (iso: string | null): number => {
+    if (!iso) return 0;
+    const hasTz = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
+    if (hasTz) return new Date(iso).getTime();
+    // Naive string from backend is BST (UTC+6)
+    return new Date(`${iso}+06:00`).getTime();
+  };
+
   const elapsed = (iso: string | null) => {
-    if (!iso) return "";
-    const diff = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+    const t = parseReceived(iso);
+    if (!t) return "";
+    const diff = Math.max(0, (Date.now() - t) / 1000);
     if (diff < 60) return `${Math.floor(diff)}s`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m`;
     return `${Math.floor(diff / 3600)}h`;
   };
 
   const isExpired = (iso: string | null) => {
-    if (!iso) return false;
-    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    const t = parseReceived(iso);
+    if (!t) return false;
+    const diff = (Date.now() - t) / 1000;
     return diff > OTP_EXPIRY_SECONDS;
   };
 

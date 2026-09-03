@@ -11,6 +11,27 @@ class AutomationEngine:
         self.browser = None
 
     async def start(self):
+        # If we already have a browser object but the underlying driver died,
+        # tear it down so we can relaunch a fresh one.
+        if self.browser is not None:
+            try:
+                probe = await self.browser.new_context()
+                await probe.close()
+                return
+            except Exception:
+                logger.error("🔌 Engine browser connection dead; relaunching...")
+                try:
+                    await self.browser.close()
+                except Exception:
+                    pass
+                self.browser = None
+                if self.playwright:
+                    try:
+                        await self.playwright.stop()
+                    except Exception:
+                        pass
+                    self.playwright = None
+
         if not self.playwright:
             self.playwright = await async_playwright().start()
             # Launch standard browser
@@ -19,7 +40,10 @@ class AutomationEngine:
                 args=[
                     '--disable-blink-features=AutomationControlled',
                     '--no-sandbox',
-                    '--disable-setuid-sandbox'
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-software-rasterizer'
                 ]
             )
             logger.info("🚀 [Engine] Browser Engine Started.")

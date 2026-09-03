@@ -11,10 +11,20 @@ from app.models.user import User
 from app.models.otp import OTP
 from app.models.house import House
 from app.utils.access_control import is_admin_user
+from app.utils.timezone import BST
 
 router = APIRouter(prefix="/api", tags=["OTP Monitor"])
 
 logger = logging.getLogger(__name__)
+
+
+def _to_iso(dt) -> Optional[str]:
+    """Serialize naive BST datetime as timezone-aware ISO (- better: +06:00)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=BST)
+    return dt.isoformat()
 
 
 @router.get("/otp")
@@ -57,9 +67,9 @@ async def list_otps(
             "house_name": house_name,
             "sender": otp.sender,
             "message": otp.message,
-            "received_at": otp.received_at.isoformat() if otp.received_at else None,
+            "received_at": _to_iso(otp.received_at),
             "is_used": otp.is_used,
-            "used_at": otp.used_at.isoformat() if otp.used_at else None,
+            "used_at": _to_iso(otp.used_at),
         })
 
     return {"success": True, "data": data}
