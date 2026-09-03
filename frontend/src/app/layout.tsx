@@ -43,7 +43,7 @@ export default function RootLayout({
               <DashboardLayout>
                 {children}
               </DashboardLayout>
-              <Toaster position="top-right" reverseOrder={false} />
+              <Toaster position="top-center" reverseOrder={false} />
               </BrandProvider>
             </ColorProvider>
           </AuthProvider>
