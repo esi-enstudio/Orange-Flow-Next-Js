@@ -5,7 +5,7 @@ import { X, Loader2, CheckCircle2, XCircle, Terminal, GitCommitHorizontal, Rocke
 import { API_BASE } from "@/lib/api";
 import Cookies from "js-cookie";
 
-type DeployState = "idle" | "confirm" | "connecting" | "running" | "completed" | "failed" | "error";
+type DeployState = "idle" | "confirm" | "connecting" | "running" | "completed" | "failed" | "error" | "stuck";
 
 interface LogEntry {
   type: "log" | "system" | "error";
@@ -31,6 +31,7 @@ export default function DeployModal({ open, onClose }: DeployModalProps) {
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [hasPending, setHasPending] = useState<boolean | null>(null);
   const [remoteHead, setRemoteHead] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -114,8 +115,9 @@ export default function DeployModal({ open, onClose }: DeployModalProps) {
         connectStream(token);
       })
       .catch((err) => {
-        setState("error");
-        addLog("error", err.message || "Failed to trigger deploy");
+        const msg = err.message || "Failed to trigger deploy";
+        setState(msg.toLowerCase().includes("already in progress") ? "stuck" : "error");
+        addLog("error", msg);
       });
   };
 
@@ -217,6 +219,36 @@ export default function DeployModal({ open, onClose }: DeployModalProps) {
 
   const isBusy = state === "running" || state === "connecting";
 
+  const handleReset = async () => {
+    const token = Cookies.get("token");
+    if (!token) {
+      setState("error");
+      addLog("error", "Authentication token not found. Please login again.");
+      return;
+    }
+    setIsResetting(true);
+    addLog("system", "Resetting deployment state...");
+    try {
+      const res = await fetch(`${API_BASE}/v1/deploy/reset`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.detail || `Reset failed (${res.status})`);
+      }
+      addLog("system", "Deployment state reset. You can now deploy again.");
+      setState("confirm");
+      setExitCode(null);
+    } catch (err) {
+      setState("error");
+      addLog("error", (err as Error).message || "Failed to reset deployment");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={isBusy ? undefined : onClose} />
@@ -253,6 +285,7 @@ export default function DeployModal({ open, onClose }: DeployModalProps) {
                 {state === "completed" && "Deployment completed"}
                 {state === "failed" && "Deployment failed"}
                 {state === "error" && "Connection error"}
+                {state === "stuck" && "Previous deployment is stuck"}
               </p>
             </div>
           </div>
@@ -354,6 +387,7 @@ export default function DeployModal({ open, onClose }: DeployModalProps) {
               : "Rebuild and restart services with current code.")}
             {state === "completed" && "Frontend and backend services have been restarted"}
             {state === "failed" && "Check the logs above for error details"}
+            {state === "stuck" && "A previous deployment is still marked as running. Reset it to deploy again."}
             {state === "running" && "Do not close this window during deployment"}
           </p>
           {state === "confirm" ? (
@@ -374,17 +408,29 @@ export default function DeployModal({ open, onClose }: DeployModalProps) {
               </button>
             </div>
           ) : (
-            <button
-              onClick={onClose}
-              disabled={isBusy}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
-                state === "completed" || state === "failed" || state === "error"
-                  ? "bg-primary-500 hover:bg-primary-600 text-white"
-                  : "bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-slate-600"
-              }`}
-            >
-              {isBusy ? "Deploying..." : "Close"}
-            </button>
+            <div className="flex items-center gap-2">
+              {(state === "stuck" || state === "failed" || state === "error") && (
+                <button
+                  onClick={handleReset}
+                  disabled={isResetting}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 hover:bg-amber-200 dark:hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                >
+                  {isResetting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Reset
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                disabled={isBusy}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
+                  state === "completed" || state === "failed" || state === "error"
+                    ? "bg-primary-500 hover:bg-primary-600 text-white"
+                    : "bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-slate-600"
+                }`}
+              >
+                {isBusy ? "Deploying..." : "Close"}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -401,6 +447,7 @@ function StatusBadge({ state }: { state: DeployState }) {
     completed: { label: "Success", className: "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" },
     failed: { label: "Failed", className: "bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400" },
     error: { label: "Error", className: "bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400" },
+    stuck: { label: "Stuck", className: "bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400" },
   };
 
   const c = config[state];

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,6 +23,9 @@ STATUS_FILE = os.path.join(DEPLOY_DIR, "status.json")
 LOG_FILE = os.path.join(DEPLOY_DIR, "deploy.log")
 TRIGGER_FILE = os.path.join(DEPLOY_DIR, "deploy-trigger")
 
+# Stale deploy threshold — if a deploy has been "running" longer than this, it's stuck
+STALE_DEPLOY_MINUTES = 30
+
 
 def _require_admin(current_user: User):
     if not is_admin_user(current_user):
@@ -39,8 +43,43 @@ def _read_json(path: str) -> dict:
         return {}
 
 
+def _is_stale_deploy() -> bool:
+    """Check if a 'running' deploy is stale (no update in >30 min)."""
+    data = _read_json(STATUS_FILE)
+    if data.get("state") != "running":
+        return False
+    ts = data.get("timestamp") or data.get("last_updated")
+    if not ts:
+        return True
+    try:
+        deploy_time = datetime.fromisoformat(ts)
+        return (datetime.now().astimezone() - deploy_time) > timedelta(minutes=STALE_DEPLOY_MINUTES)
+    except (ValueError, TypeError):
+        return True
+
+
 def _state() -> str:
-    return _read_json(STATUS_FILE).get("state", "idle")
+    data = _read_json(STATUS_FILE)
+    state = data.get("state", "idle")
+    if state == "running" and _is_stale_deploy():
+        logger.warning("Stale deploy detected (running >%d min). Auto-resetting to idle.", STALE_DEPLOY_MINUTES)
+        _write_status("idle", None, "Auto-reset: stale deploy detected")
+        return "idle"
+    return state
+
+
+def _write_status(state: str, exit_code=None, message: str = ""):
+    """Write status.json directly from the backend."""
+    try:
+        with open(STATUS_FILE, "w") as f:
+            f.write(json.dumps({
+                "state": state,
+                "exit_code": exit_code,
+                "message": message,
+                "timestamp": now_naive().isoformat(),
+            }))
+    except OSError as e:
+        logger.error(f"Failed to write status.json: {e}")
 
 
 @router.get("/pending-commits")
@@ -83,6 +122,45 @@ async def trigger_deploy(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Failed to queue deploy")
 
     return {"success": True, "message": "Deploy queued. The server will start shortly."}
+
+
+@router.post("/reset")
+async def reset_deploy(current_user: User = Depends(get_current_user)):
+    """Force-reset a stuck deploy. Clears status.json, trigger file, and lock file."""
+    _require_admin(current_user)
+
+    cleared = []
+    # Reset status.json to idle
+    _write_status("idle", None, "Manually reset")
+    cleared.append("status.json")
+
+    # Remove trigger file if present
+    if os.path.exists(TRIGGER_FILE):
+        try:
+            os.remove(TRIGGER_FILE)
+            cleared.append("deploy-trigger")
+        except OSError:
+            pass
+
+    # Remove stale log file
+    if os.path.exists(LOG_FILE):
+        try:
+            os.remove(LOG_FILE)
+            cleared.append("deploy.log")
+        except OSError:
+            pass
+
+    # Remove lock file
+    lock_file = "/tmp/orangeflow-auto-deploy.lock"
+    if os.path.exists(lock_file):
+        try:
+            os.remove(lock_file)
+            cleared.append("lock file")
+        except OSError:
+            pass
+
+    logger.info("Deploy reset by %s. Cleared: %s", current_user.username, cleared)
+    return {"success": True, "message": "Deploy state reset. You can now trigger a new deploy.", "cleared": cleared}
 
 
 @router.get("/stream")
