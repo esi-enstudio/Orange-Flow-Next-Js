@@ -71,7 +71,7 @@ function timeOnly(ts: string): string {
   return m ? m[0] : ts;
 }
 
-export default function SystemLogsPanel({ maxHeight = "500px" }: SystemLogsPanelProps) {
+export default function SystemLogsPanel({ maxHeight = "calc(100vh - 15rem)" }: SystemLogsPanelProps) {
   const { t } = useLanguage();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,7 +123,7 @@ export default function SystemLogsPanel({ maxHeight = "500px" }: SystemLogsPanel
   const errorCount = (countsByLevel["ERROR"] || 0) + (countsByLevel["CRITICAL"] || 0);
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm transition-colors duration-300 flex flex-col">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm transition-colors duration-300 flex flex-col h-full">
       {/* Header */}
       <div className="p-6 pb-4 border-b border-gray-50 dark:border-slate-800">
         <div className="flex items-center justify-between">
@@ -215,7 +215,7 @@ export default function SystemLogsPanel({ maxHeight = "500px" }: SystemLogsPanel
       {/* Body */}
       <div
         ref={scrollRef}
-        className="flex-1 relative overflow-y-auto bg-slate-50/70 dark:bg-slate-950/50 rounded-b-2xl"
+        className="flex-1 min-h-0 relative overflow-y-auto bg-slate-50/70 dark:bg-slate-950/50 rounded-b-2xl"
         style={{ maxHeight }}
       >
         {loading ? (

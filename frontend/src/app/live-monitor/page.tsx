@@ -15,6 +15,8 @@ interface House {
   display_name: string;
 }
 
+const HEADER_RESERVE = 15;
+
 export default function LiveMonitorPage() {
   const { loading: authLoading, hasPermission } = useAuth();
   const { t } = useLanguage();
@@ -55,10 +57,9 @@ export default function LiveMonitorPage() {
     return (
       <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto animate-pulse">
         <div className="h-8 w-64 bg-gray-200 dark:bg-slate-700 rounded-lg" />
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="h-[480px] bg-gray-200 dark:bg-slate-700 rounded-2xl" />
-          ))}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="h-[480px] bg-gray-200 dark:bg-slate-700 rounded-2xl xl:col-span-1" />
+          <div className="h-[480px] bg-gray-200 dark:bg-slate-700 rounded-2xl xl:col-span-2" />
         </div>
       </div>
     );
@@ -97,9 +98,17 @@ export default function LiveMonitorPage() {
       </div>
 
       {/* Panels */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-        {hasPermission("otp.view") && <OtpPanel houseId={selectedHouseId} />}
-        {hasPermission("system_logs.view") && <SystemLogsPanel />}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3 items-start">
+        {hasPermission("otp.view") && (
+          <div className="xl:col-span-1">
+            <OtpPanel houseId={selectedHouseId} maxHeight={`calc(100vh - ${HEADER_RESERVE}rem)`} />
+          </div>
+        )}
+        {hasPermission("system_logs.view") && (
+          <div className="xl:col-span-2">
+            <SystemLogsPanel maxHeight={`calc(100vh - ${HEADER_RESERVE}rem)`} />
+          </div>
+        )}
       </div>
     </div>
   );

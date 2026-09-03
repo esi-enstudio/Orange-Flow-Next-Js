@@ -23,9 +23,10 @@ interface OTPItem {
 
 interface OtpPanelProps {
   houseId?: string;
+  maxHeight?: string;
 }
 
-export default function OtpPanel({ houseId }: OtpPanelProps) {
+export default function OtpPanel({ houseId, maxHeight = "calc(100vh - 15rem)" }: OtpPanelProps) {
   const { t } = useLanguage();
   const [items, setItems] = useState<OTPItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,7 +107,7 @@ export default function OtpPanel({ houseId }: OtpPanelProps) {
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm transition-colors duration-300">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm transition-colors duration-300 flex flex-col h-full">
       <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
@@ -138,7 +139,7 @@ export default function OtpPanel({ houseId }: OtpPanelProps) {
         </div>
       </div>
 
-      <div className="divide-y divide-gray-50 dark:divide-slate-800">
+      <div className="divide-y divide-gray-50 dark:divide-slate-800 flex-1 min-h-0 overflow-y-auto rounded-b-2xl" style={{ maxHeight }}>
         {loading ? (
           <div className="divide-y divide-gray-50 dark:divide-slate-800">
             {Array.from({ length: 4 }).map((_, i) => (

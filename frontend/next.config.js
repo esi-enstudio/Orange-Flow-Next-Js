@@ -6,7 +6,7 @@ const nextConfig = {
     root: path.resolve(__dirname, ".."),
   },
   allowedDevOrigins: ["165.99.219.177"],
-  devIndicators: false,
+  devIndicators: true,
 };
 
 module.exports = nextConfig;
