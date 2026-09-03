@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Rocket } from "lucide-react";
 import apiClient from "@/lib/api";
-import DeployModal from "./DeployModal";
+import { useRouter } from "next/navigation";
 import { useLanguage } from "@/i18n/useLanguage";
 import { cn } from "@/lib/utils";
 
@@ -13,8 +13,8 @@ interface DeployButtonProps {
 
 export default function DeployButton({ className }: DeployButtonProps) {
   const { t } = useLanguage();
+  const router = useRouter();
   const [pendingCount, setPendingCount] = useState<number | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const [deployRunning, setDeployRunning] = useState(false);
 
   const fetchPending = async () => {
@@ -46,32 +46,29 @@ export default function DeployButton({ className }: DeployButtonProps) {
   }, []);
 
   return (
-    <>
-      <button
-        onClick={() => setModalOpen(true)}
-        aria-label={t("settings.deploy.button")}
-        className={cn(
-          "group relative inline-flex items-center justify-center gap-2.5 px-4 sm:px-5 py-3 min-w-[44px] min-h-[44px] w-max shrink-0",
-          "bg-primary-500 hover:bg-primary-600",
-          "text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98]",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950",
-          className ?? ""
-        )}
-      >
-        <Rocket className="w-4 h-4 shrink-0" />
-        <span className="whitespace-nowrap">{t("settings.deploy.button")}</span>
-        {pendingCount !== null && pendingCount > 0 && (
-          <span className="absolute -top-2 -right-2 min-w-[20px] h-5 flex items-center justify-center px-1.5 text-[10px] font-bold bg-red-500 text-white rounded-full shadow-md animate-pulse">
-            {pendingCount}
-          </span>
-        )}
-        {deployRunning && (
-          <span className="absolute -top-2 -right-2 min-w-[20px] h-5 flex items-center justify-center px-1.5 text-[10px] font-bold bg-blue-500 text-white rounded-full shadow-md">
-            <span className="w-2 h-2 bg-white rounded-full animate-ping" />
-          </span>
-        )}
-      </button>
-      <DeployModal open={modalOpen} onClose={() => setModalOpen(false)} />
-    </>
+    <button
+      onClick={() => router.push("/deploy")}
+      aria-label={t("settings.deploy.button")}
+      className={cn(
+        "group relative inline-flex items-center justify-center gap-2.5 px-4 sm:px-5 py-3 min-w-[44px] min-h-[44px] w-max shrink-0",
+        "bg-primary-500 hover:bg-primary-600",
+        "text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950",
+        className ?? ""
+      )}
+    >
+      <Rocket className="w-4 h-4 shrink-0" />
+      <span className="whitespace-nowrap">{t("settings.deploy.button")}</span>
+      {pendingCount !== null && pendingCount > 0 && (
+        <span className="absolute -top-2 -right-2 min-w-[20px] h-5 flex items-center justify-center px-1.5 text-[10px] font-bold bg-red-500 text-white rounded-full shadow-md animate-pulse">
+          {pendingCount}
+        </span>
+      )}
+      {deployRunning && (
+        <span className="absolute -top-2 -right-2 min-w-[20px] h-5 flex items-center justify-center px-1.5 text-[10px] font-bold bg-blue-500 text-white rounded-full shadow-md">
+          <span className="w-2 h-2 bg-white rounded-full animate-ping" />
+        </span>
+      )}
+    </button>
   );
 }

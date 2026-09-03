@@ -108,6 +108,33 @@ services:
       resources:
         limits:
           memory: 512M
+  # Isolated deployment service — survives backend/frontend restarts, provides
+  # a WebSocket-based real-time deploy UI that does NOT reload on restart.
+  deploy-service:
+    build: ./deploy-service
+    container_name: orange_flow_deploy
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    cap_add:
+      - SYS_ADMIN
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/Orange-Flow-Next-Js:/project
+      - deploy_state:/app/state
+    env_file:
+      - .env
+    environment:
+      - PORT=8100
+      - PROJECT_DIR=/project
+      - FRONTEND_DIR=/project/frontend
+      - DEPLOY_STATE_DIR=/app/state
+      - NODE_BIN=/usr/local/bin
+      - JWT_SECRET=${SECRET_KEY}
+      - JWT_ALGORITHM=HS256
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   frontend:
     profiles: ["production"]
     image: node:20-slim
@@ -161,3 +188,4 @@ services:
 
 volumes:
   postgres_data:
+  deploy_state:

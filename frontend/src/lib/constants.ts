@@ -254,6 +254,7 @@ export const navItems: NavItem[] = [
       { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
+      { title: "Server Deploy", translationKey: "nav.deploy", href: "/deploy", permission: "app_settings.manage" },
     ]
   },
   {

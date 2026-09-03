@@ -1,0 +1,13 @@
+{
+  "name": "orange-flow-deploy-service",
+  "version": "1.0.0",
+  "description": "Isolated deployment service for Orange Flow",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.18.0"
+  }
+}

@@ -228,7 +228,8 @@
     "app_settings": {
       "display_name": "App Settings",
       "permissions": [
-        "app_settings.manage"
+        "app_settings.manage",
+        "deploy.manage"
       ]
     },
     "bp_retailer_codes": {

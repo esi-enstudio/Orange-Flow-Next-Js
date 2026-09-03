@@ -100,6 +100,32 @@ async def deploy_status(current_user: User = Depends(get_current_user)):
     return _read_json(STATUS_FILE)
 
 
+@router.post("/authorize")
+async def authorize_deploy(current_user: User = Depends(get_current_user)):
+    """Issue a short-lived (60s) admin deploy ticket for the deploy-service.
+
+    The deploy-service cannot query the database for roles, so the frontend
+    calls this first to obtain a signed ticket that proves the user is an admin.
+    The deploy-service validates the ticket signature + type + admin claim.
+    """
+    _require_admin(current_user)
+
+    from jose import jwt as jose_jwt
+    from app.utils.timezone import utc_now
+
+    ticket = jose_jwt.encode(
+        {
+            "sub": str(current_user.id),
+            "type": "deploy",
+            "admin": True,
+            "exp": utc_now() + timedelta(minutes=1),
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+    return {"success": True, "ticket": ticket, "expires_in": 60}
+
+
 @router.post("/trigger")
 async def trigger_deploy(current_user: User = Depends(get_current_user)):
     _require_admin(current_user)
