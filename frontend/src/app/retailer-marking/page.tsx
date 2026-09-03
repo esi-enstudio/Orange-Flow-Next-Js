@@ -38,7 +38,7 @@ export default function RetailerMarkingPage() {
 
   const [tags, setTags] = useState<FilterTag[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
-  const [selectedHouseId, setSelectedHouseId] = useState<number | "">("");
+  const [selectedHouseId, setSelectedHouseId] = useState<number | "">(selectedHouse?.id ?? "");
   const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
   const [retailerFilters, setRetailerFilters] = useState<RetailerFilter[]>([]);
   const [search, setSearch] = useState("");
@@ -57,6 +57,7 @@ export default function RetailerMarkingPage() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedTagName = tags.find(t => t.id === selectedTagId)?.name || "";
+  const hasHouse = !!selectedHouseId;
 
   useEffect(() => {
     if (!authLoading && !hasPermission("retailers.view")) {
@@ -81,20 +82,25 @@ export default function RetailerMarkingPage() {
   const fetchMarkedRetailers = useCallback(async (tagName: string) => {
     if (!tagName) { setRetailerFilters([]); return; }
     try {
-      const res = await apiClient.get("retailer-filters", { params: { tag: tagName } });
+      const headers: Record<string, string> = {};
+      if (selectedHouseId) headers["X-House-ID"] = String(selectedHouseId);
+      const res = await apiClient.get("retailer-filters", { params: { tag: tagName }, headers });
       setRetailerFilters(res.data);
     } catch { toast.error(t('retailer_marking.toast_load_failed')); }
-  }, [t]);
+  }, [t, selectedHouseId]);
 
   const searchRetailers = useCallback(async (query: string) => {
     if (!query.trim()) { setSearchResults([]); setSearching(false); return; }
     setSearching(true);
     try {
-      const res = await apiClient.get("retailers", { params: { search: query.trim(), per_page: 100 } });
+      const params: Record<string, any> = { search: query.trim(), per_page: 100 };
+      const headers: Record<string, string> = {};
+      if (selectedHouseId) headers["X-House-ID"] = String(selectedHouseId);
+      const res = await apiClient.get("retailers", { params, headers });
       setSearchResults(res.data.data || res.data);
     } catch { setSearchResults([]); }
     finally { setSearching(false); }
-  }, []);
+  }, [selectedHouseId]);
 
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -112,6 +118,9 @@ export default function RetailerMarkingPage() {
 
   useEffect(() => {
     fetchTags(selectedHouseId || undefined);
+    setSearch(""); setSearchResults([]); setSelectedIds(new Set());
+    if (selectedTagId) setRetailerFilters([]);
+    if (!selectedHouseId) setRetailerFilters([]);
   }, [selectedHouseId, fetchTags]);
 
   useEffect(() => {
@@ -339,11 +348,19 @@ export default function RetailerMarkingPage() {
           {/* Left: Marked retailers */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
             <div className="p-6 border-b border-gray-50 dark:border-slate-800">
-              <h2 className="font-bold flex items-center gap-2 dark:text-gray-100 mb-3">
-                <Tag className="w-5 h-5 text-primary-600" /> {t('retailer_marking.mark_retailers')}
-              </h2>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h2 className="font-bold flex items-center gap-2 dark:text-gray-100">
+                  <Tag className="w-5 h-5 text-primary-600" /> {t('retailer_marking.mark_retailers')}
+                </h2>
+                <select value={selectedHouseId} onChange={e => setSelectedHouseId(e.target.value ? Number(e.target.value) : "")}
+                  className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none">
+                  <option value="">{t('retailer_marking.filter_by_house')}</option>
+                  {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                </select>
+              </div>
               <select value={selectedTagId ?? ""} onChange={e => setSelectedTagId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none">
+                disabled={!hasHouse}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 <option value="">{t('retailer_marking.select_tag')}</option>
                 {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
               </select>
@@ -392,8 +409,9 @@ export default function RetailerMarkingPage() {
               <div className="relative">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder={t('retailer_marking.search_retailers')}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none" />
+                  disabled={!hasHouse}
+                  placeholder={hasHouse ? t('retailer_marking.search_retailers') : t('retailer_marking.select_house_first')}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed" />
               </div>
             </div>
             <div className="divide-y divide-gray-50 dark:divide-slate-800 max-h-[500px] overflow-y-auto">
@@ -429,7 +447,7 @@ export default function RetailerMarkingPage() {
                   </button>
                   <span className="text-gray-400">{selectedIds.size} selected</span>
                 </div>
-                <button onClick={handleBulkApply} disabled={!selectedTagId || selectedIds.size === 0 || applying}
+                <button onClick={handleBulkApply} disabled={!selectedTagId || !hasHouse || selectedIds.size === 0 || applying}
                   className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
                   {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tag className="w-4 h-4" />}
                   {t('retailer_marking.apply_tag')}
