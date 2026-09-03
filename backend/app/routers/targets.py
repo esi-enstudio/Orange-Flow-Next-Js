@@ -1,7 +1,7 @@
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, Query, Response, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from datetime import date, datetime
@@ -502,3 +502,34 @@ async def delete_rso_target(
     await db.delete(record)
     await db.commit()
     return
+
+@router.delete("/rso-targets")
+async def delete_all_rso_targets(
+    target_date_param: Optional[str] = Query(None, alias="target_date"),
+    market_type: Optional[str] = Query(None),
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("targets.edit")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    query = select(RSOTarget)
+    active_house = filter_house_id or house_id
+    if active_house:
+        query = query.where(RSOTarget.house_id == active_house)
+    if target_date_param:
+        try:
+            query = query.where(RSOTarget.target_date == date.fromisoformat(target_date_param))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid target_date format. Use YYYY-MM-DD.")
+    if market_type:
+        query = query.where(RSOTarget.market_type == market_type)
+
+    result = await db.execute(query)
+    records = result.scalars().all()
+    count = len(records)
+    if count == 0:
+        return {"success": True, "deleted": 0, "message": "No RSO targets to delete"}
+
+    await db.execute(delete(RSOTarget).where(RSOTarget.id.in_([r.id for r in records])))
+    await db.commit()
+    return {"success": True, "deleted": count, "message": f"{count} RSO target(s) deleted"}

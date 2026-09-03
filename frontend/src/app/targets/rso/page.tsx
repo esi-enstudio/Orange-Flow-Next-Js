@@ -95,6 +95,8 @@ export default function RSOTargetsPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RSOTargetRecord | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [rsoList, setRsoList] = useState<RSOOption[]>([]);
   const [supervisorList, setSupervisorList] = useState<SupervisorOption[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
@@ -317,6 +319,25 @@ export default function RSOTargetsPage() {
     finally { setFormLoading(false); setDeletingId(null); }
   };
 
+  const handleConfirmDeleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      const params: Record<string, string> = {};
+      if (filters.house_id) params.house_id = String(filters.house_id);
+      if (filters.market_type) params.market_type = filters.market_type;
+      if (filters.target_date) params.target_date = filters.target_date + "-01";
+      const res = await apiClient.delete("rso-targets", { params });
+      const count = res.data?.deleted ?? 0;
+      toast.success(count > 0 ? `${count} RSO target(s) deleted` : t('rso_targets.no_data'));
+      setIsDeleteAllOpen(false);
+      fetchData();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.response?.data?.message || "Failed to delete";
+      toast.error(msg);
+    }
+    finally { setDeletingAll(false); }
+  };
+
   const readSSEStream = async (response: Response) => {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
@@ -493,6 +514,15 @@ export default function RSOTargetsPage() {
                   className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
                   <Download className="w-4 h-4 text-blue-500" /> Export Excel
                 </button>
+                {canEdit && (
+                  <>
+                    <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                    <button onClick={() => { setIsDeleteAllOpen(true); setMenuOpen(false); }} disabled={deletingAll}
+                      className="flex items-center gap-3 w-full px-4 py-3 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50">
+                      <Trash2 className="w-4 h-4 text-red-500" /> Delete All
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -579,6 +609,7 @@ export default function RSOTargetsPage() {
           <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">House</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_rso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_supervisor')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_ev_secondary')}</th>
@@ -597,7 +628,7 @@ export default function RSOTargetsPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    {Array.from({ length: canEdit ? 12 : 11 }).map((__, j) => (
+                    {Array.from({ length: canEdit ? 13 : 12 }).map((__, j) => (
                       <td key={j} className="px-4 py-4">
                         <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded-md" />
                       </td>
@@ -605,9 +636,15 @@ export default function RSOTargetsPage() {
                   </tr>
                 ))
               ) : data.length === 0 ? (
-                <tr><td colSpan={canEdit ? 12 : 11} className="text-center py-12 text-gray-400">{t('rso_targets.no_data')}</td></tr>
+                <tr><td colSpan={canEdit ? 13 : 12} className="text-center py-12 text-gray-400">{t('rso_targets.no_data')}</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.house?.name || "-"}</div>
+                    {r.house?.code && (
+                      <div className="text-xs text-gray-400 mt-0.5">{r.house.code}</div>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900 dark:text-gray-100">{r.employee?.user?.name || r.employee?.dms_code || `#${r.employee_id}`}</div>
                     {r.employee?.dms_code && (
@@ -903,6 +940,17 @@ export default function RSOTargetsPage() {
         message={t('rso_targets.delete_message')}
         confirmText={t('rso_targets.delete_confirm')}
         loading={formLoading}
+      />
+
+      <ConfirmationModal
+        isOpen={isDeleteAllOpen}
+        onClose={() => setIsDeleteAllOpen(false)}
+        onConfirm={handleConfirmDeleteAll}
+        type="danger"
+        title="Delete All RSO Targets"
+        message="Are you sure you want to delete all RSO targets? This action cannot be undone."
+        confirmText={deletingAll ? "Deleting..." : "Delete All"}
+        loading={deletingAll}
       />
     </div>
   );
