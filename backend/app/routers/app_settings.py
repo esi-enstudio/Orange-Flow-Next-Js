@@ -35,6 +35,7 @@ async def get_brand_settings(
     return {
         "app_name": setting.app_name,
         "logo": f"/uploads/brand/{setting.logo}" if setting.logo else None,
+        "favicon": f"/uploads/brand/{setting.favicon}" if setting.favicon else None,
         "is_daily_sync_enabled": bool(setting.is_daily_sync_enabled),
     }
 
@@ -56,6 +57,7 @@ async def update_brand_settings(
     return {
         "app_name": setting.app_name,
         "logo": f"/uploads/brand/{setting.logo}" if setting.logo else None,
+        "favicon": f"/uploads/brand/{setting.favicon}" if setting.favicon else None,
         "is_daily_sync_enabled": bool(setting.is_daily_sync_enabled),
     }
 
@@ -157,3 +159,25 @@ async def upload_logo(
     setting.logo = filename
     await db.commit()
     return {"logo": f"/uploads/brand/{filename}"}
+
+@router.post("/brand/favicon")
+async def upload_favicon(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("app_settings.manage")),
+):
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    ext = os.path.splitext(file.filename)[1] if file.filename else ".png"
+    filename = f"favicon{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    with open(filepath, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
+    setting = result.scalar_one_or_none()
+    if not setting:
+        setting = AppSetting(id=1)
+        db.add(setting)
+    setting.favicon = filename
+    await db.commit()
+    return {"favicon": f"/uploads/brand/{filename}"}

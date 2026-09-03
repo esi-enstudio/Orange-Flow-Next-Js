@@ -55,8 +55,10 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [appName, setAppName] = useState(brand.app_name);
   const [logo, setLogo] = useState<string | null>(brand.logo);
+  const [favicon, setFavicon] = useState<string | null>(brand.favicon);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingFavicon, setUploadingFavicon] = useState(false);
   const [dailySyncEnabled, setDailySyncEnabled] = useState(true);
   const [togglingSync, setTogglingSync] = useState(false);
 
@@ -69,13 +71,14 @@ export default function SettingsPage() {
   useEffect(() => {
     setAppName(brand.app_name);
     setLogo(brand.logo);
+    setFavicon(brand.favicon);
   }, [brand]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await apiClient.put("settings/brand", { app_name: appName });
-      updateBrand({ app_name: appName, logo });
+      updateBrand({ app_name: appName, logo, favicon });
       toast.success("Brand settings saved");
     } catch { toast.error("Failed to save"); }
     finally { setSaving(false); }
@@ -102,10 +105,26 @@ export default function SettingsPage() {
       const res = await apiClient.post("settings/brand/logo", form);
       const logoUrl = resolveImageUrl(res.data.logo);
       setLogo(logoUrl);
-      updateBrand({ app_name: appName, logo: logoUrl });
+      updateBrand({ app_name: appName, logo: logoUrl, favicon });
       toast.success("Logo uploaded");
     } catch { toast.error("Failed to upload logo"); }
     finally { setUploading(false); }
+  };
+
+  const handleFaviconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingFavicon(true);
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await apiClient.post("settings/brand/favicon", form);
+      const faviconUrl = resolveImageUrl(res.data.favicon);
+      setFavicon(faviconUrl);
+      updateBrand({ app_name: appName, logo, favicon: faviconUrl });
+      toast.success("Favicon uploaded");
+    } catch { toast.error("Failed to upload favicon"); }
+    finally { setUploadingFavicon(false); }
   };
 
   if (!authLoading && !hasPermission("app_settings.manage")) {
@@ -187,6 +206,24 @@ export default function SettingsPage() {
                     {uploading ? "Uploading..." : "Upload Logo"}
                     <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                   </label>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Favicon (Browser Tab Icon)</label>
+                <div className="flex items-center gap-4">
+                  {favicon ? (
+                    <img src={favicon} alt="Favicon" className="w-10 h-10 rounded-lg object-cover border border-gray-200 dark:border-slate-700" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center text-gray-400">
+                      <Globe className="w-5 h-5" />
+                    </div>
+                  )}
+                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors">
+                    <Upload className="w-4 h-4" />
+                    {uploadingFavicon ? "Uploading..." : "Upload Favicon"}
+                    <input type="file" accept="image/*" onChange={handleFaviconUpload} className="hidden" />
+                  </label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Recommended: 16x16 or 32x32 px .ico or .png</p>
                 </div>
               </div>
               <button onClick={handleSave} disabled={saving}

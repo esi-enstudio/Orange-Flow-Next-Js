@@ -105,6 +105,22 @@ async def _migrate_app_settings_daily_sync():
     except Exception as e:
         logger.warning(f"Migration warning (app_settings.is_daily_sync_enabled): {e}")
 
+async def _migrate_app_settings_favicon():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='app_settings' AND column_name='favicon'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating app_settings: adding favicon column...")
+            await conn.execute(text(
+                "ALTER TABLE app_settings ADD COLUMN favicon VARCHAR(255)"
+            ))
+            logger.info("Migration complete: app_settings.favicon")
+    except Exception as e:
+        logger.warning(f"Migration warning (app_settings.favicon): {e}")
+
 INDEX_MIGRATIONS = [
     # activations table
     ("ix_activations_house_id", "CREATE INDEX IF NOT EXISTS ix_activations_house_id ON activations (house_id)"),
@@ -615,6 +631,7 @@ async def init_db():
         await _migrate_house_live_sync_enabled()
         await _migrate_retailer_filter_tag_id()
         await _migrate_app_settings_daily_sync()
+        await _migrate_app_settings_favicon()
         await _migrate_live_activation_date_type()
         await _migrate_ga_section_config_employee_ids()
         await _migrate_bp_target_remove_soft_delete()
