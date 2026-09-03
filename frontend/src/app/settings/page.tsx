@@ -294,10 +294,10 @@ export default function SettingsPage() {
             {/* Server Deploy */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
               <div className="p-6">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-start gap-4">
                     <div className="p-2.5 bg-violet-100 dark:bg-violet-500/10 rounded-xl shrink-0">
-                      <Rocket className="w-5 h-5 text-violet-600" />
+                      <Rocket className="w-5 h-5 text-violet-600 dark:text-violet-400" />
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Server Deploy</p>
