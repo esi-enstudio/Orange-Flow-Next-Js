@@ -123,11 +123,28 @@ echo "[DEPLOY_STEP:restarting]"
 echo "==> [4/4] Restarting services"
 
 echo "--> Restarting frontend (systemd: orangeflow-frontend)"
+# IMPORTANT: The frontend MUST be restarted after a rebuild so `next start`
+# loads the freshly built .next. An old `next start` process kept running
+# against an overwritten .next serves mismatched client/server chunks and
+# renders BLANK pages. A failed restart is NOT acceptable here.
 if host systemctl restart orangeflow-frontend; then
   echo "==> Frontend restarted"
 else
-  echo "WARNING: Could not restart frontend service via systemctl" >&2
+  echo "ERROR: Could not restart frontend service via systemctl. The old " >&2
+  echo "       next start process would keep serving a stale/mismatched build" >&2
+  echo "       and render blank pages. Aborting deploy." >&2
+  write_status "failed" 4 "frontend restart failed"
+  echo "[DEPLOY_FAILED:frontend_restart_failed]" >&2
+  exit 4
 fi
+
+# Verify the running `next start` process actually restarted after the build.
+FIS=$(host systemctl show orangeflow-frontend -p ActiveEnterTimestamp --value 2>/dev/null || echo "")
+echo "    Frontend service ActiveEnterTimestamp: ${FIS:-unknown}"
+case "$FIS" in
+  ""|"unknown") echo "WARNING: Could not confirm frontend restart timestamp" >&2 ;;
+  *) echo "    (built/build completed at START_TIME=$START_TIME seq)" ;;
+esac
 
 echo "--> Restarting backend (docker: orange_flow_backend)"
 if docker restart orange_flow_backend; then
@@ -145,13 +162,25 @@ sleep 10
 FRONTEND_OK=false
 BACKEND_OK=false
 
-if curl -sf -o /dev/null --max-time 10 http://host.docker.internal:3000 2>/dev/null || \
-   curl -sf -o /dev/null --max-time 10 http://172.17.0.1:3000 2>/dev/null || \
-   host curl -sf -o /dev/null --max-time 10 http://localhost:3000 2>/dev/null; then
-  echo "    Frontend  : http://localhost:3000  -> OK"
+# Frontend must not only return HTTP 200 but actually stream a rendered shell.
+# A stale/mismatched `next start` (build rebuilt without a service restart)
+# returns 200 but serves an empty/blank page, which is exactly the bug we must
+# catch.
+frontend_shell_ok() {
+  local body
+  body=$(curl -sf --max-time 10 "http://localhost:3000/login" 2>/dev/null || \
+        host curl -sf --max-time 10 "http://localhost:3000/login" 2>/dev/null || \
+        curl -sf --max-time 10 "http://127.0.0.1:3000/login" 2>/dev/null) || return 1
+  # Next.js always renders <body ...> ...; an empty/mismatched build has a bare head.
+  echo "$body" | grep -q "<body" && echo "$body" | grep -qi "class="
+}
+
+if frontend_shell_ok; then
+  echo "    Frontend  : http://localhost:3000  -> OK (shell rendered)"
   FRONTEND_OK=true
 else
-  echo "    Frontend  : http://localhost:3000  -> NOT responding"
+  echo "    Frontend  : http://localhost:3000  -> responding but EMPTY/BLANK (stale build!)" >&2
+  FRONTEND_OK=false
 fi
 
 if curl -sf -o /dev/null --max-time 10 http://host.docker.internal:8000/docs 2>/dev/null || \
@@ -173,6 +202,14 @@ if [ "$FRONTEND_OK" = true ] && [ "$BACKEND_OK" = true ]; then
   echo ""
   echo "  RESULT: Deploy SUCCESS (duration: $DURATION)"
   echo "[DEPLOY_COMPLETE]"
+elif [ "$FRONTEND_OK" = false ]; then
+  # Blank/stale frontend is a hard failure — pages render empty to users.
+  write_status "failed" 1 "Deploy failed — frontend is serving a blank/stale build. Restart needed."
+  echo ""
+  echo "  RESULT: Deploy FAILED — frontend serving blank/stale build" >&2
+  echo "  Fix    : run 'systemctl restart orangeflow-frontend' and redeploy." >&2
+  echo "[DEPLOY_FAILED:frontend_blank_after_deploy]"
+  exit 1
 else
   write_status "completed" 0 "Deploy finished with warnings — some services may not be responding"
   echo ""
