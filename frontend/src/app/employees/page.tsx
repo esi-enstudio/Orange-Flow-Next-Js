@@ -829,6 +829,12 @@ export default function EmployeesPage() {
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-800 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b dark:border-slate-800">
                     <th className="px-6 py-4">
+                      <button onClick={() => handleSort("house")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                        {t('employees.table_house')}
+                        {sortField === "house" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4">
                       <button onClick={() => handleSort("name")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
                         {t('employees.table_info')}
                         {sortField === "name" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
@@ -838,12 +844,6 @@ export default function EmployeesPage() {
                       <button onClick={() => handleSort("dms_code")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
                         {t('employees.table_dms')}
                         {sortField === "dms_code" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
-                      </button>
-                    </th>
-                    <th className="px-6 py-4">
-                      <button onClick={() => handleSort("house")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
-                        {t('employees.table_house')}
-                        {sortField === "house" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
                       </button>
                     </th>
                     <th className="px-6 py-4">
@@ -865,6 +865,16 @@ export default function EmployeesPage() {
                 <tbody className="divide-y dark:divide-slate-800 text-sm">
                   {filteredMembers.map((m) => (
                     <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors group">
+                      <td className="px-6 py-4">
+                        {m.house ? (
+                          <div className="flex flex-col">
+                            <span className="font-bold text-gray-700 dark:text-gray-300">{m.house.name}</span>
+                            <span className="text-[10px] text-gray-500 uppercase font-mono">{m.house.code}</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 italic text-xs">{t('employees.no_house')}</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs shadow-inner overflow-hidden shrink-0">
@@ -893,16 +903,6 @@ export default function EmployeesPage() {
                           <p className="text-xs font-mono font-bold text-primary-600 bg-primary-50 dark:bg-primary-500/5 px-2 py-0.5 rounded-lg inline-block">{m.dms_code}</p>
                           <p className="text-[10px] text-gray-500 flex items-center gap-1 font-medium"><Smartphone className="w-3 h-3"/> {m.itop_number || "N/A"}</p>
                         </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        {m.house ? (
-                          <div className="flex flex-col">
-                            <span className="font-bold text-gray-700 dark:text-gray-300">{m.house.name}</span>
-                            <span className="text-[10px] text-gray-500 uppercase font-mono">{m.house.code}</span>
-                          </div>
-                        ) : (
-                          <span className="text-gray-400 italic text-xs">{t('employees.no_house')}</span>
-                        )}
                       </td>
                       <td className="px-6 py-4">
                         {m.assisted_retailer_code ? (
