@@ -299,6 +299,12 @@ export default function RetailersPage() {
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
                     <th className="px-6 py-4">
+                      <button onClick={() => toggleSort("house_id")} className="flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300">
+                        {t('retailers.table_house')}
+                        <ArrowUpDown className="w-3 h-3" />
+                      </button>
+                    </th>
+                    <th className="px-6 py-4">
                       <button onClick={() => toggleSort("name")} className="flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300">
                         {t('retailers.table_name')}
                         <ArrowUpDown className="w-3 h-3" />
@@ -306,18 +312,18 @@ export default function RetailersPage() {
                     </th>
                     <th className="px-6 py-4">{t('retailers.table_rso')}</th>
                     <th className="px-6 py-4">{t('retailers.table_status')}</th>
-                    <th className="px-6 py-4">
-                      <button onClick={() => toggleSort("house_id")} className="flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300">
-                        {t('retailers.table_house')}
-                        <ArrowUpDown className="w-3 h-3" />
-                      </button>
-                    </th>
                     <th className="px-6 py-4"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
                   {retailers.map((r) => (
                     <tr key={r.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="space-y-1 text-xs">
+                          <p className="font-bold text-gray-700 dark:text-gray-200">{r.house?.name || "N/A"}</p>
+                          <p className="text-[10px] font-mono text-gray-500 dark:text-gray-400">{r.house?.code || ""}</p>
+                        </div>
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm">
@@ -371,12 +377,6 @@ export default function RetailersPage() {
                               </>
                             );
                           })()}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="space-y-1 text-xs">
-                          <p className="font-bold text-gray-700 dark:text-gray-200">{r.house?.name || "N/A"}</p>
-                          <p className="text-[10px] font-mono text-gray-500 dark:text-gray-400">{r.house?.code || ""}</p>
                         </div>
                       </td>
                       <td className="px-6 py-4">
