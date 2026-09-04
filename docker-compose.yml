@@ -122,6 +122,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/Orange-Flow-Next-Js:/project
       - deploy_state:/app/state
+      # Host SSH keys so `git pull` (git@github.com) can authenticate inside the
+      # container. Read-only; the container never modifies host keys.
+      - /root/.ssh:/root/.ssh:ro
     env_file:
       - .env
     environment:
