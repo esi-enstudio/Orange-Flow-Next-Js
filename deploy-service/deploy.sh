@@ -21,14 +21,36 @@ STATUS_FILE="$STATE_DIR/status.json"
 LOCK_FILE="$STATE_DIR/deploy.lock"
 START_TIME=$(date +%s)
 
-# Run a command in the HOST namespace (uses host's node, systemd, tools).
-# Falls back to running directly if nsenter is unavailable.
+# Run a command in the REAL host namespace.
+#
+# IMPORTANT: `nsenter -t 1` run directly in this container targets the
+# CONTAINER'S OWN PID 1 (its mount namespace), so it only sees the container
+# filesystem — NOT the host. It can never see /opt/Orange-Flow-Next-Js or the
+# host's systemd services.
+#
+# The reliable way to reach the host is via the mounted docker socket: spawn a
+# throwaway container with `--pid=host --privileged` and nsenter host PID 1
+# from there. This gives real access to host systemd/systemctl.
 host() {
-  if nsenter -t 1 -m -u -i -n -- true 2>/dev/null; then
-    nsenter -t 1 -m -u -i -n -- "$@"
-  else
+  docker run --rm --pid=host --privileged --net=none \
+    --entrypoint nsenter alpine -t 1 -m -u -i -n -- "$@"
+}
+
+# Same as host() but for the systemd `systemctl` subcommand specifically.
+host_systemctl() {
+  host systemctl "$@"
+}
+
+# Build & install the frontend INSIDE this container on the shared /project
+# mount (which is bind-mounted from the host's /opt/Orange-Flow-Next-Js).
+# The resulting node_modules/ and .next/ are written directly into the host
+# directory, so a host `next start` picks them up after restart.
+build_frontend() {
+  (
+    set -e
+    cd "$PROJECT_DIR/frontend" || return 1
     "$@"
-  fi
+  )
 }
 
 write_status() {
@@ -81,23 +103,14 @@ if ! git pull --ff-only; then
 fi
 echo "==> git pull successful"
 
-# ── Step 2 & 3: Install deps + Build frontend (on HOST) ─────────────────────
+# ── Step 2 & 3: Install deps + Build frontend (in container, on /project) ───
 echo ""
 echo "[DEPLOY_STEP:installing]"
-echo "==> [2/4] Installing frontend dependencies (host)"
+echo "==> [2/4] Installing frontend dependencies"
+echo "    (running inside this container on $PROJECT_DIR/frontend)"
+echo "    (== host $HOST_PROJECT_DIR/frontend via bind mount)"
 
-FRONTEND_ON_HOST="$HOST_PROJECT_DIR/frontend"
-
-# Source nvm if present so the host's correct node/npm is used.
-NVM_INIT=""
-for c in /root/.nvm/nvm.sh /root/.nvm/node/nvm.sh; do
-  if [ -f "$c" ]; then
-    NVM_INIT="source '$c' && nvm use default && "
-    break
-  fi
-done
-
-if ! host bash -lc "${NVM_INIT}cd '$FRONTEND_ON_HOST' && npm install"; then
+if ! build_frontend npm install; then
   echo "ERROR: npm install failed." >&2
   write_status "failed" 2 "npm install failed"
   echo "[DEPLOY_FAILED:npm_install_failed]"
@@ -107,9 +120,9 @@ echo "==> npm install successful"
 
 echo ""
 echo "[DEPLOY_STEP:building]"
-echo "==> [3/4] Building frontend (production, host)"
+echo "==> [3/4] Building frontend (production)"
 
-if ! host bash -lc "${NVM_INIT}cd '$FRONTEND_ON_HOST' && npm run build"; then
+if ! build_frontend npm run build; then
   echo "ERROR: npm run build failed." >&2
   write_status "failed" 3 "npm run build failed"
   echo "[DEPLOY_FAILED:build_failed]"
@@ -127,7 +140,7 @@ echo "--> Restarting frontend (systemd: orangeflow-frontend)"
 # loads the freshly built .next. An old `next start` process kept running
 # against an overwritten .next serves mismatched client/server chunks and
 # renders BLANK pages. A failed restart is NOT acceptable here.
-if host systemctl restart orangeflow-frontend; then
+if host_systemctl restart orangeflow-frontend; then
   echo "==> Frontend restarted"
 else
   echo "ERROR: Could not restart frontend service via systemctl. The old " >&2
@@ -139,7 +152,7 @@ else
 fi
 
 # Verify the running `next start` process actually restarted after the build.
-FIS=$(host systemctl show orangeflow-frontend -p ActiveEnterTimestamp --value 2>/dev/null || echo "")
+FIS=$(host_systemctl show orangeflow-frontend -p ActiveEnterTimestamp --value 2>/dev/null || echo "")
 echo "    Frontend service ActiveEnterTimestamp: ${FIS:-unknown}"
 case "$FIS" in
   ""|"unknown") echo "WARNING: Could not confirm frontend restart timestamp" >&2 ;;
@@ -168,9 +181,9 @@ BACKEND_OK=false
 # catch.
 frontend_shell_ok() {
   local body
-  body=$(curl -sf --max-time 10 "http://localhost:3000/login" 2>/dev/null || \
-        host curl -sf --max-time 10 "http://localhost:3000/login" 2>/dev/null || \
-        curl -sf --max-time 10 "http://127.0.0.1:3000/login" 2>/dev/null) || return 1
+  # Container reaches the host's frontend via host.docker.internal (host-gateway).
+  body=$(curl -sf --max-time 10 "http://host.docker.internal:3000/login" 2>/dev/null || \
+        curl -sf --max-time 10 "http://172.17.0.1:3000/login" 2>/dev/null) || return 1
   # Next.js always renders <body ...> ...; an empty/mismatched build has a bare head.
   echo "$body" | grep -q "<body" && echo "$body" | grep -qi "class="
 }
@@ -184,8 +197,7 @@ else
 fi
 
 if curl -sf -o /dev/null --max-time 10 http://host.docker.internal:8000/docs 2>/dev/null || \
-   curl -sf -o /dev/null --max-time 10 http://172.17.0.1:8000/docs 2>/dev/null || \
-   host curl -sf -o /dev/null --max-time 10 http://localhost:8000/docs 2>/dev/null; then
+   curl -sf -o /dev/null --max-time 10 http://172.17.0.1:8000/docs 2>/dev/null; then
   echo "    Backend   : http://localhost:8000  -> OK"
   BACKEND_OK=true
 else
