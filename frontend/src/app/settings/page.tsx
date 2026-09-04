@@ -4,9 +4,8 @@ import { usePrimaryColor, PRIMARY_COLORS } from "@/context/ColorContext";
 import {
   Settings, Palette, Sun, Moon, Monitor, Check, Image, Save,
   Loader2, Upload, RefreshCw, Building2, Globe, Bell, Shield,
-  Database, ChevronRight, Rocket
+  Database, ChevronRight
 } from "lucide-react";
-import DeployButton from "@/components/deploy/DeployButton";
 import { useTheme } from "@/components/ThemeProvider";
 import { useState, useEffect } from "react";
 import apiClient, { resolveImageUrl } from "@/lib/api";
@@ -324,27 +323,6 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <Toggle enabled={dailySyncEnabled} onToggle={handleToggleSync} disabled={togglingSync} />
-                </div>
-              </div>
-            </div>
-
-            {/* Server Deploy */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-              <div className="p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <div className="p-2.5 bg-violet-100 dark:bg-violet-500/10 rounded-xl shrink-0">
-                      <Rocket className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Server Deploy</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Pull latest code and restart all services</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                        Fetches latest commits from GitHub, rebuilds the frontend, and restarts both frontend and backend services.
-                      </p>
-                    </div>
-                  </div>
-                  <DeployButton />
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 FROM node:22-alpine
 
-RUN apk add --no-cache bash git curl docker-cli flock
+RUN apk add --no-cache bash git curl docker-cli flock openssh-client
 
 WORKDIR /app
 
