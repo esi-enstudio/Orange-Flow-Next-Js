@@ -160,10 +160,17 @@ export default function DeployPage() {
         case "step":
           setDeploy((prev) => {
             if (prev.type !== "running") return prev;
+            const serverSteps: DeployStep[] | null = Array.isArray(data.steps) ? (data.steps as DeployStep[]) : null;
+            if (serverSteps) {
+              return { ...prev, currentStep: data.step ?? null, steps: serverSteps };
+            }
             return {
               ...prev,
               currentStep: data.step ?? null,
-              steps: [...prev.steps, { name: data.step ?? "unknown", status: "running" as const, startTime: Date.now() }],
+              steps: [
+                ...prev.steps.map((s) => (s.status === "running" ? { ...s, status: "completed" as const } : s)),
+                { name: data.step ?? "unknown", status: "running" as const, startTime: Date.now() },
+              ],
             };
           });
           break;
