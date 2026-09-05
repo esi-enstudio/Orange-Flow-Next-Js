@@ -8,33 +8,45 @@ import {
   ClipboardList,
   Undo2,
   CreditCard,
+  RefreshCw,
   Zap,
   X,
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
+import { useAuth } from "@/context/AuthContext";
 
 const dmsItems = [
   {
     key: "sim_status",
     href: "/dms/sim-status",
     icon: ClipboardList,
+    permission: "dms.sim_status",
   },
   {
     key: "sim_issue",
     href: "/dms/sim-issue",
     icon: Smartphone,
+    permission: "dms.sim_issue",
   },
   {
     key: "sim_return",
     href: "/dms/sim-return",
     icon: Undo2,
+    permission: "dms.sim_return",
   },
   {
     key: "scratch_card",
     href: "/dms/scratch-card",
     icon: CreditCard,
+    permission: "scratch_card.view",
+  },
+  {
+    key: "dms_sync",
+    href: "/sync",
+    icon: RefreshCw,
+    permission: "automation.dms_sync",
   },
 ];
 
@@ -46,6 +58,9 @@ interface DMSSheetProps {
 export function DMSSheet({ open, onClose }: DMSSheetProps) {
   const pathname = usePathname();
   const { t } = useLanguage();
+  const { hasPermission } = useAuth();
+
+  const visibleItems = dmsItems.filter((item) => hasPermission(item.permission));
 
   return (
     <AnimatePresence>
@@ -81,7 +96,7 @@ export function DMSSheet({ open, onClose }: DMSSheetProps) {
               </button>
             </div>
             <div className="overflow-y-auto px-4 py-3 space-y-1">
-              {dmsItems.map((item) => (
+              {visibleItems.map((item) => (
                 <Link
                   key={item.key}
                   href={item.href}

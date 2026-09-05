@@ -413,13 +413,15 @@ export default function SIMIssuePage() {
 
         {/* Main Entry Card */}
         <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm relative">
-          {/* Glow decoration */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1.5 }}
-            className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 dark:bg-orange-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"
-          />
+          {/* Glow decoration (clipped to card to avoid horizontal scroll) */}
+          <div className="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 1.5 }}
+              className="absolute -top-20 -right-20 w-64 h-64 bg-orange-500/5 dark:bg-orange-500/10 rounded-full blur-3xl"
+            />
+          </div>
 
           <form onSubmit={handleSearch} className="space-y-6 relative z-10">
             {/* No house selected placeholder */}
