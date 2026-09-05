@@ -1314,7 +1314,7 @@ export default function GaLiveReportPage() {
                 <table className="w-full text-sm border-collapse whitespace-nowrap">
                   <thead>
                     <tr>
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">Name</th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">Name</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Today Target</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Own Activation</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Market Activation</th>
@@ -1329,7 +1329,7 @@ export default function GaLiveReportPage() {
                   <tbody>
                     {rsos.map((rso) => (
                       <tr key={rso.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
-                        <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">
+                        <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">
                           <p className="font-medium text-gray-900 dark:text-gray-100">{rso.name}</p>
                           <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">{rso.dms_code ? `${rso.dms_code}${rso.itop_number ? ` • ${rso.itop_number.slice(-3)}` : ''}${rso.assisted_code ? ` • ${rso.assisted_code}` : ''}` : `#${rso.id}`}</p>
                         </td>
@@ -1369,7 +1369,7 @@ export default function GaLiveReportPage() {
                     ))}
                     {/* Total row */}
                     <tr className="bg-gray-50 dark:bg-slate-700/30 font-semibold">
-                      <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 sticky left-0 bg-gray-50 dark:bg-slate-700/30 z-20 text-gray-900 dark:text-gray-100">
+                      <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/30 text-gray-900 dark:text-gray-100">
                         Total ({rsos.length} RSOs)
                       </td>
                       <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
@@ -1454,61 +1454,66 @@ export default function GaLiveReportPage() {
                 <div
                   key={bp.id}
                   className={cn(
-                    "flex items-center gap-4 bg-white dark:bg-slate-800/80 rounded-2xl border p-4 transition-all hover:shadow-md",
+                    "flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white dark:bg-slate-800/80 rounded-2xl border p-4 transition-all hover:shadow-md",
                     idx < 3
                       ? "border-amber-200 dark:border-amber-500/30 bg-gradient-to-r from-amber-50/50 to-transparent dark:from-amber-500/5"
                       : "border-gray-100 dark:border-slate-700/50"
                   )}
                 >
-                  {/* Rank */}
-                  <div
-                    className={cn(
-                      "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm",
-                      idx === 0
-                        ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400"
-                        : idx === 1
-                        ? "bg-gray-100 dark:bg-gray-600/30 text-gray-500 dark:text-gray-300"
-                        : idx === 2
-                        ? "bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400"
-                        : "bg-gray-50 dark:bg-slate-700/50 text-gray-400 dark:text-gray-500"
-                    )}
-                  >
-                    {idx === 0 ? <Medal className="w-5 h-5" /> : idx === 1 ? <Award className="w-5 h-5" /> : idx === 2 ? <Zap className="w-5 h-5" /> : `#${bp.rank}`}
-                  </div>
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{bp.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {[bp.dms_code, bp.assisted_code, bp.pool_number].filter(Boolean).join(' • ') || `ID: ${bp.id}`}
-                    </p>
+                  {/* Rank + Info */}
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    {/* Rank */}
+                    <div
+                      className={cn(
+                        "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm",
+                        idx === 0
+                          ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                          : idx === 1
+                          ? "bg-gray-100 dark:bg-gray-600/30 text-gray-500 dark:text-gray-300"
+                          : idx === 2
+                          ? "bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400"
+                          : "bg-gray-50 dark:bg-slate-700/50 text-gray-400 dark:text-gray-500"
+                      )}
+                    >
+                      {idx === 0 ? <Medal className="w-5 h-5" /> : idx === 1 ? <Award className="w-5 h-5" /> : idx === 2 ? <Zap className="w-5 h-5" /> : `#${bp.rank}`}
+                    </div>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{bp.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {[bp.dms_code, bp.assisted_code, bp.pool_number].filter(Boolean).join(' • ') || `ID: ${bp.id}`}
+                      </p>
+                    </div>
                   </div>
                   {/* Stats */}
-                  <div className="text-right shrink-0">
-                    <p className="font-bold text-gray-900 dark:text-gray-100">{bp.own_activation.toLocaleString()}</p>
-                    <p className="text-xs text-gray-400">own activation</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-bold text-gray-900 dark:text-gray-100">{bpTodayTarget.toLocaleString()}</p>
-                    <p className="text-xs text-gray-400">today target</p>
-                  </div>
-                  <div className="w-24 shrink-0">
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="text-gray-400">Contribution</span>
-                      <span className="font-semibold text-gray-700 dark:text-gray-300">{bp.contribution}%</span>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-3 sm:shrink-0">
+                    <div className="min-w-[70px] text-left sm:text-right shrink-0">
+                      <p className="font-bold text-gray-900 dark:text-gray-100 leading-tight">{bp.own_activation.toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">own activation</p>
                     </div>
-                    <div className="w-full h-1.5 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-teal-400 to-teal-500 rounded-full"
-                        style={{ width: `${Math.min(bp.contribution, 100)}%` }}
-                      />
+                    <div className="min-w-[70px] text-left sm:text-right shrink-0">
+                      <p className="font-bold text-gray-900 dark:text-gray-100 leading-tight">{bpTodayTarget.toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">today target</p>
                     </div>
+                    <div className="flex-1 sm:w-24 sm:flex-none sm:shrink-0">
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-gray-400">Contribution</span>
+                        <span className="font-semibold text-gray-700 dark:text-gray-300">{bp.contribution}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-teal-400 to-teal-500 rounded-full"
+                          style={{ width: `${Math.min(bp.contribution, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => bp.employee_id && setDetailModal({ open: true, employeeId: bp.employee_id, roleType: "bp", employeeName: bp.name })}
+                      className="w-full sm:w-auto shrink-0 px-3 py-2 sm:py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      Details
+                    </button>
                   </div>
-                  <button
-                    onClick={() => bp.employee_id && setDetailModal({ open: true, employeeId: bp.employee_id, roleType: "bp", employeeName: bp.name })}
-                    className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    Details
-                  </button>
                 </div>
               )})}
             </div>
@@ -1518,7 +1523,7 @@ export default function GaLiveReportPage() {
                 <table className="w-full text-sm border-collapse whitespace-nowrap">
                   <thead>
                     <tr>
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">Name</th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">Name</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Today Target</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Own Activation</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Total</th>
@@ -1534,7 +1539,7 @@ export default function GaLiveReportPage() {
                       const bpTodayTarget = bp.remaining > 0 ? Math.ceil(bp.remaining / Math.max(daysRemaining, 1)) : 0;
                       return (
                       <tr key={bp.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
-                        <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 sticky left-0 bg-white dark:bg-slate-800 z-20 relative after:absolute after:inset-y-0 after:right-0 after:w-[3px] after:shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]">
+                        <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">
                           <p className="font-medium text-gray-900 dark:text-gray-100">{bp.name}</p>
                           <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">{bp.dms_code ? `${bp.dms_code}${bp.assisted_code ? ` • ${bp.assisted_code}` : ''}${bp.pool_number ? ` • ${bp.pool_number}` : ''}` : `#${bp.id}`}</p>
                         </td>
@@ -1569,7 +1574,7 @@ export default function GaLiveReportPage() {
                     )})}
                     {/* Total row */}
                     <tr className="bg-gray-50 dark:bg-slate-700/30 font-semibold">
-                      <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 sticky left-0 bg-gray-50 dark:bg-slate-700/30 z-20 text-gray-900 dark:text-gray-100">
+                      <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/30 text-gray-900 dark:text-gray-100">
                         Total ({bps.length} BPs)
                       </td>
                       <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
