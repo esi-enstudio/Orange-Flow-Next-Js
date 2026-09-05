@@ -226,6 +226,33 @@ async def _migrate_employee_sr_no():
     except Exception as e:
         logger.warning(f"Migration warning (employees.sr_no): {e}")
 
+async def _migrate_employee_name():
+    """Add employees.employee_name (Excel Name column) and backfill it from the
+    linked users table so existing employees get a real name immediately."""
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='employees' AND column_name='employee_name'"
+            ))
+            if not result.scalar():
+                logger.info("Migrating employees: adding employee_name column...")
+                await conn.execute(text("ALTER TABLE employees ADD COLUMN employee_name VARCHAR"))
+                logger.info("Migration complete: employees.employee_name")
+            backfilled = await conn.execute(text(
+                """
+                UPDATE employees e
+                SET employee_name = u.name
+                FROM users u
+                WHERE e.user_id = u.id
+                  AND u.name IS NOT NULL AND u.name <> ''
+                  AND (e.employee_name IS NULL OR e.employee_name = '')
+                """
+            ))
+            if backfilled.rowcount:
+                logger.info(f"Migration: backfilled employee_name for {backfilled.rowcount} employee(s) from linked users")
+    except Exception as e:
+        logger.warning(f"Migration warning (employees.employee_name): {e}")
+
 async def _migrate_lifting_soft_delete():
     try:
         async with engine.begin() as conn:
@@ -627,6 +654,7 @@ async def init_db():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await _migrate_employee_sr_no()
+        await _migrate_employee_name()
         await _migrate_retailer_employee_link()
         await _migrate_house_live_sync_enabled()
         await _migrate_retailer_filter_tag_id()

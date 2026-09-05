@@ -245,13 +245,14 @@ class GaLiveQueryBuilder:
         id_to_retailer_code = {r.id: r.retailer_code for r in ret_rows_all}
 
         emp_rows = await self.db.execute(
-            select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number, Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number, Employee.employee_type, Employee.employee_id)
+            select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number, Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number, Employee.employee_type, Employee.employee_id, Employee.employee_name)
             .where(Employee.house_id == self.house_id, Employee.status == "Active")
         )
         employees_raw = emp_rows.all()
         emp_id_to_user = {e.id: (e.user_id, e.dms_code, e.itop_number, e.personal_number, e.assisted_retailer_code, e.pool_number) for e in employees_raw}
         emp_id_to_type = {e.id: e.employee_type for e in employees_raw}
         emp_id_to_biz_id = {e.id: e.employee_id for e in employees_raw}
+        emp_id_to_emp_name = {e.id: e.employee_name for e in employees_raw}
 
         emp_code_rows = await self.db.execute(
             select(Employee.id, Employee.assisted_retailer_code).where(
@@ -491,7 +492,9 @@ class GaLiveQueryBuilder:
                         own_q = own_q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
                     res = await self.db.execute(select(func.count()).select_from(own_q.subquery()))
                     rso_own = res.scalar() or 0
-            rso_name = user_name_map.get(rso_uid) if rso_uid else None
+            rso_name = emp_id_to_emp_name.get(rso_emp_id)
+            if not rso_name:
+                rso_name = user_name_map.get(rso_uid) if rso_uid else None
             rso_name = rso_name or rso_info[1] or rso_info[4] or emp_id_to_biz_id.get(rso_emp_id) or f"RSO #{rso_emp_id}"
             rso_target_val = rso_target_map.get(rso_emp_id, 0)
             mtd_achievement = sum(mtd_retailer_counts.get(rid, 0) for rid in rso_emp_retailer_map.get(rso_emp_id, set()))
@@ -626,7 +629,9 @@ class GaLiveQueryBuilder:
                 )
                 res = await self.db.execute(select(func.count()).select_from(bp_q.subquery()))
                 bp_total = res.scalar() or 0
-            bp_name = user_name_map.get(bp_uid) if bp_uid else None
+            bp_name = emp_id_to_emp_name.get(bp_emp_id)
+            if not bp_name:
+                bp_name = user_name_map.get(bp_uid) if bp_uid else None
             if not bp_name:
                 bp_name = (bp_info[1] if bp_info else None) or (bp_info[4] if bp_info else None)
             bp_name = bp_name or emp_id_to_biz_id.get(bp_emp_id) or f"BP #{bp_emp_id}"
@@ -714,7 +719,9 @@ class GaLiveQueryBuilder:
                 )
                 res = await self.db.execute(yest_q)
                 cc_yesterday = res.scalar() or 0
-            cc_name = user_name_map.get(cc_uid) if cc_uid else None
+            cc_name = emp_id_to_emp_name.get(cc_emp_id)
+            if not cc_name:
+                cc_name = user_name_map.get(cc_uid) if cc_uid else None
             if not cc_name:
                 cc_name = (cc_info[1] if cc_info else None) or (cc_info[4] if cc_info else None)
             cc_name = cc_name or emp_id_to_biz_id.get(cc_emp_id) or f"CC #{cc_emp_id}"

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Column list (USERNAME added)
 EMP_COLUMNS = [
-    'USERNAME', 'DD_CODE', 'DMS_CODE', 'AGENCY_ID', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
+    'NAME', 'USERNAME', 'DD_CODE', 'DMS_CODE', 'AGENCY_ID', 'ITOP_NUMBER', 'PERSONAL_NUMBER', 
     'POOL_NUMBER', 'ASSISTED_RETAILER_CODE', 'SR_NO', 'SALARY', 'MARKET_TYPE', 
     'JOINING_DATE', 'RESIGNED_DATE', 'RELIGION', 'DOB', 'NID',
     'BANK_NAME', 'BANK_ACCOUNT', 'BRANCH_NAME', 'ROUTING_NUMBER', 'HOME_TOWN',
@@ -38,6 +38,7 @@ async def export_employees_excel(employees):
     data = []
     for emp in employees:
         data.append({
+            'NAME': emp.employee_name,
             'USERNAME': emp.user.username if emp.user else "",
             'DD_CODE': emp.house.code if emp.house else "", # House code (DD Code)
             'DMS_CODE': emp.dms_code,
@@ -210,6 +211,7 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
                     "user_id": target_user_id,
                     "house_id": target_house_id,
                     "dms_code": dms_code_val,
+                    "employee_name": clean_val(row.get('NAME') or row.get('EMPLOYEE_NAME') or row.get('FULL_NAME')),
                     "employee_type": employee_type,
                     "employee_id": employee_id,
                     "sr_no": clean_val(row.get('SR_NO')),

@@ -13,6 +13,7 @@ class EmployeeSchema(BaseModel):
     employee_type: Optional[str] = None
     sr_no: Optional[str] = None
     employee_id: Optional[str] = None
+    employee_name: Optional[str] = None
     assisted_retailer_code: Optional[str] = None
     agency_id: Optional[str] = None
     dms_code: Optional[str] = None
@@ -57,6 +58,7 @@ class EmployeeCreate(BaseModel):
     house_id: int
     employee_type: Optional[str] = None
     sr_no: Optional[str] = None
+    employee_name: Optional[str] = None
     assisted_retailer_code: Optional[str] = None
     agency_id: Optional[str] = None
     dms_code: Optional[str] = None

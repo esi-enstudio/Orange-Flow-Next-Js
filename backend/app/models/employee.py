@@ -12,6 +12,7 @@ class Employee(Base):
     # This helps the bot identify RSO or BP when checking their GA.
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  
     assisted_retailer_code = Column(String, nullable=True, index=True) # R026588  
+    employee_name = Column(String, nullable=True)
     agency_id = Column(String, nullable=True) # If agency data exists
     
     # Basic info
