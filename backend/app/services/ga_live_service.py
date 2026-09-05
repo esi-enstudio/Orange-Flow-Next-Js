@@ -12,7 +12,6 @@ from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
-from app.models.role import Role
 from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.ga_section_config import GaSectionConfig
@@ -246,11 +245,13 @@ class GaLiveQueryBuilder:
         id_to_retailer_code = {r.id: r.retailer_code for r in ret_rows_all}
 
         emp_rows = await self.db.execute(
-            select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number, Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number)
+            select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number, Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number, Employee.employee_type, Employee.employee_id)
             .where(Employee.house_id == self.house_id, Employee.status == "Active")
         )
         employees_raw = emp_rows.all()
         emp_id_to_user = {e.id: (e.user_id, e.dms_code, e.itop_number, e.personal_number, e.assisted_retailer_code, e.pool_number) for e in employees_raw}
+        emp_id_to_type = {e.id: e.employee_type for e in employees_raw}
+        emp_id_to_biz_id = {e.id: e.employee_id for e in employees_raw}
 
         emp_code_rows = await self.db.execute(
             select(Employee.id, Employee.assisted_retailer_code).where(
@@ -263,42 +264,28 @@ class GaLiveQueryBuilder:
 
         user_ids = [u[0] for u in emp_id_to_user.values() if u[0]]
         user_role_map: dict[int, list[str]] = {}
+        user_name_map: dict[int, str] = {}
         if user_ids:
             users_res = await self.db.execute(
                 select(User).options(selectinload(User.roles)).where(User.id.in_(user_ids))
             )
             for u in users_res.unique().scalars().all():
                 user_role_map[u.id] = [r.name.lower() for r in u.roles]
+                user_name_map[u.id] = u.name or ""
 
         emp_user_id_to_emp_id = {}
         for eid, (uid, *_) in emp_id_to_user.items():
             if uid:
                 emp_user_id_to_emp_id[uid] = eid
 
-        role_uids = {"supervisor": set(), "rso": set(), "bp": set(), "cc": set()}
+        role_uids = {"supervisor": set()}
         for uid, roles in user_role_map.items():
-            for role_name in role_uids:
-                if role_name in roles:
-                    role_uids[role_name].add(uid)
+            if "supervisor" in roles:
+                role_uids["supervisor"].add(uid)
 
-        if not role_uids["bp"]:
-            bp_direct = await self.db.execute(
-                select(User).options(selectinload(User.roles)).where(User.roles.any(Role.name.ilike("bp")))
-            )
-            for u in bp_direct.unique().scalars().all():
-                role_uids["bp"].add(u.id)
-
-        if not role_uids["bp"]:
-            bp_emps = await self.db.execute(
-                select(Employee.user_id).where(
-                    Employee.house_id == self.house_id,
-                    Employee.status == "Active",
-                    Employee.employee_type == "bp",
-                    Employee.user_id != None,
-                )
-            )
-            for (uid,) in bp_emps.all():
-                role_uids["bp"].add(uid)
+        rso_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "rso"]
+        bp_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "bp"]
+        cc_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "cc"]
 
         # ── Load BP retailer codes ──
         bp_code_rows = await self.db.execute(
@@ -333,11 +320,7 @@ class GaLiveQueryBuilder:
             if info and info[0]:
                 active_user_ids.add(info[0])
 
-        active_counts = {}
-        for role_name in role_uids:
-            active_counts[role_name] = len([uid for uid in role_uids[role_name] if uid in active_user_ids])
-
-        total_counts = {role_name: len(uids) for role_name, uids in role_uids.items()}
+        total_counts = {"supervisor": len(role_uids["supervisor"])}
 
         supervisor_data = []
         for sup_uid in role_uids["supervisor"]:
@@ -414,10 +397,7 @@ class GaLiveQueryBuilder:
         month_start = date(today_for_target.year, today_for_target.month, 1)
         _, last_day = monthrange(today_for_target.year, today_for_target.month)
         month_end = date(today_for_target.year, today_for_target.month, last_day)
-        rso_emp_ids_for_target = [
-            eid for uid, eid in emp_user_id_to_emp_id.items()
-            if uid in role_uids["rso"] and eid
-        ]
+        rso_emp_ids_for_target = rso_emp_ids_all
         rso_target_map: dict[int, int] = {}
         if rso_emp_ids_for_target:
             target_rows = await self.db.execute(
@@ -431,10 +411,7 @@ class GaLiveQueryBuilder:
                 rso_target_map[t.employee_id] = t.ga or 0
 
         # ── Load BP targets for current month ──
-        bp_emp_ids_for_target = [
-            eid for uid, eid in emp_user_id_to_emp_id.items()
-            if uid in role_uids["bp"] and eid
-        ]
+        bp_emp_ids_for_target = bp_emp_ids_all
         bp_target_map: dict[int, int] = {}
         if bp_emp_ids_for_target:
             bp_target_rows = await self.db.execute(
@@ -452,13 +429,11 @@ class GaLiveQueryBuilder:
         mtd_retailer_counts: dict[int, int] = {}
         all_rso_retailer_ids: set[int] = set()
         rso_emp_retailer_map: dict[int, set[int]] = {}
-        for rso_uid in role_uids["rso"]:
-            rso_emp_id = emp_user_id_to_emp_id.get(rso_uid)
-            if rso_emp_id:
-                ret_ids = {rid for rid, eid in retailer_employee_map.items() if eid == rso_emp_id}
-                if ret_ids:
-                    rso_emp_retailer_map[rso_emp_id] = ret_ids
-                    all_rso_retailer_ids.update(ret_ids)
+        for rso_emp_id in rso_emp_ids_all:
+            ret_ids = {rid for rid, eid in retailer_employee_map.items() if eid == rso_emp_id}
+            if ret_ids:
+                rso_emp_retailer_map[rso_emp_id] = ret_ids
+                all_rso_retailer_ids.update(ret_ids)
         if all_rso_retailer_ids and yesterday_for_mtd >= month_start:
             # Apply section exclusions (product codes + retailer tags)
             mtd_exclude_product_codes, mtd_exclude_retailer_tags = await self._get_exclusions("rsos")
@@ -489,17 +464,14 @@ class GaLiveQueryBuilder:
                 mtd_retailer_counts[rid] = cnt
 
         rso_data = []
-        for rso_uid in role_uids["rso"]:
-            rso_user = (await self.db.execute(select(User).where(User.id == rso_uid))).scalar_one_or_none()
-            if not rso_user:
-                continue
-            rso_emp_id = emp_user_id_to_emp_id.get(rso_uid)
+        for rso_emp_id in rso_emp_ids_all:
+            rso_info = emp_id_to_user.get(rso_emp_id)
+            rso_uid = rso_info[0] if rso_info else None
             rso_ret_ids = set()
-            if rso_emp_id:
-                for rid, eid in retailer_employee_map.items():
-                    if eid == rso_emp_id:
-                        rso_ret_ids.add(rid)
-            rso_code = emp_id_to_code.get(rso_emp_id) if rso_emp_id else None
+            for rid, eid in retailer_employee_map.items():
+                if eid == rso_emp_id:
+                    rso_ret_ids.add(rid)
+            rso_code = emp_id_to_code.get(rso_emp_id)
             rso_own = 0
             rso_total = 0
             if rso_ret_ids:
@@ -519,13 +491,14 @@ class GaLiveQueryBuilder:
                         own_q = own_q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
                     res = await self.db.execute(select(func.count()).select_from(own_q.subquery()))
                     rso_own = res.scalar() or 0
-            rso_info = emp_id_to_user.get(rso_emp_id) if rso_emp_id else None
-            rso_target_val = rso_target_map.get(rso_emp_id, 0) if rso_emp_id else 0
-            mtd_achievement = sum(mtd_retailer_counts.get(rid, 0) for rid in rso_emp_retailer_map.get(rso_emp_id, set())) if rso_emp_id else 0
+            rso_name = user_name_map.get(rso_uid) if rso_uid else None
+            rso_name = rso_name or rso_info[1] or rso_info[4] or emp_id_to_biz_id.get(rso_emp_id) or f"RSO #{rso_emp_id}"
+            rso_target_val = rso_target_map.get(rso_emp_id, 0)
+            mtd_achievement = sum(mtd_retailer_counts.get(rid, 0) for rid in rso_emp_retailer_map.get(rso_emp_id, set()))
             rso_data.append({
-                "id": rso_uid,
+                "id": rso_uid if rso_uid else rso_emp_id,
                 "employee_id": rso_emp_id,
-                "name": rso_user.name or f"RSO #{rso_uid}",
+                "name": rso_name,
                 "dms_code": rso_info[1] if rso_info else "",
                 "itop_number": rso_info[2] if rso_info else "",
                 "assisted_code": rso_info[4] if rso_info else "",
@@ -642,29 +615,27 @@ class GaLiveQueryBuilder:
                 bp_mtd_code_counts[code] = cnt
 
         bp_data = []
-        for bp_uid in role_uids["bp"]:
-            bp_user = (await self.db.execute(select(User).where(User.id == bp_uid))).scalar_one_or_none()
-            if not bp_user:
-                continue
-            bp_emp_id = emp_user_id_to_emp_id.get(bp_uid)
-            if not bp_emp_id:
-                continue
+        for bp_emp_id in bp_emp_ids_all:
+            bp_info = emp_id_to_user.get(bp_emp_id)
+            bp_uid = bp_info[0] if bp_info else None
+            bp_codes = bp_retailer_code_map.get(bp_emp_id, [])
             bp_total = 0
-            if bp_emp_id:
-                bp_codes = bp_retailer_code_map.get(bp_emp_id, [])
-                if bp_codes:
-                    bp_q = base_act_bps.where(
-                        LiveActivation.retailer_code.in_(bp_codes)
-                    )
-                    res = await self.db.execute(select(func.count()).select_from(bp_q.subquery()))
-                    bp_total = res.scalar() or 0
-            bp_info = emp_id_to_user.get(bp_emp_id) if bp_emp_id else None
-            bp_target_val = bp_target_map.get(bp_emp_id, 0) if bp_emp_id else 0
-            bp_mtd_achievement = sum(bp_mtd_code_counts.get(code, 0) for code in bp_retailer_code_map.get(bp_emp_id, [])) if bp_emp_id else 0
+            if bp_codes:
+                bp_q = base_act_bps.where(
+                    LiveActivation.retailer_code.in_(bp_codes)
+                )
+                res = await self.db.execute(select(func.count()).select_from(bp_q.subquery()))
+                bp_total = res.scalar() or 0
+            bp_name = user_name_map.get(bp_uid) if bp_uid else None
+            if not bp_name:
+                bp_name = (bp_info[1] if bp_info else None) or (bp_info[4] if bp_info else None)
+            bp_name = bp_name or emp_id_to_biz_id.get(bp_emp_id) or f"BP #{bp_emp_id}"
+            bp_target_val = bp_target_map.get(bp_emp_id, 0)
+            bp_mtd_achievement = sum(bp_mtd_code_counts.get(code, 0) for code in bp_codes)
             bp_data.append({
-                "id": bp_uid,
+                "id": bp_uid if bp_uid else bp_emp_id,
                 "employee_id": bp_emp_id,
-                "name": bp_user.name or f"BP #{bp_uid}",
+                "name": bp_name,
                 "dms_code": bp_info[1] if bp_info else "",
                 "assisted_code": bp_info[4] if bp_info else "",
                 "pool_number": bp_info[5] if bp_info else "",
@@ -688,26 +659,20 @@ class GaLiveQueryBuilder:
             b["yesterday_activation"] = y_total
 
         cc_data = []
-        for cc_uid in role_uids["cc"]:
-            cc_user = (await self.db.execute(select(User).where(User.id == cc_uid))).scalar_one_or_none()
-            if not cc_user:
-                continue
-            cc_emp_id = emp_user_id_to_emp_id.get(cc_uid)
-            if not cc_emp_id:
-                continue
+        for cc_emp_id in cc_emp_ids_all:
+            cc_info = emp_id_to_user.get(cc_emp_id)
+            cc_uid = cc_info[0] if cc_info else None
             cc_ret_ids = set()
             cc_ret_codes = set()
-            if cc_emp_id:
-                for rid, eid in retailer_employee_map.items():
-                    if eid == cc_emp_id:
-                        cc_ret_ids.add(rid)
-                        if rid in id_to_retailer_code:
-                            cc_ret_codes.add(id_to_retailer_code[rid])
-                cc_assisted_code = emp_id_to_code.get(cc_emp_id)
-                if cc_assisted_code and cc_assisted_code in retailer_code_to_id:
-                    cc_ret_ids.add(retailer_code_to_id[cc_assisted_code])
-                    cc_ret_codes.add(cc_assisted_code)
-            cc_info = emp_id_to_user.get(cc_emp_id)
+            for rid, eid in retailer_employee_map.items():
+                if eid == cc_emp_id:
+                    cc_ret_ids.add(rid)
+                    if rid in id_to_retailer_code:
+                        cc_ret_codes.add(id_to_retailer_code[rid])
+            cc_assisted_code = emp_id_to_code.get(cc_emp_id)
+            if cc_assisted_code and cc_assisted_code in retailer_code_to_id:
+                cc_ret_ids.add(retailer_code_to_id[cc_assisted_code])
+                cc_ret_codes.add(cc_assisted_code)
             # Today GA
             cc_today = 0
             if cc_ret_ids:
@@ -749,9 +714,13 @@ class GaLiveQueryBuilder:
                 )
                 res = await self.db.execute(yest_q)
                 cc_yesterday = res.scalar() or 0
+            cc_name = user_name_map.get(cc_uid) if cc_uid else None
+            if not cc_name:
+                cc_name = (cc_info[1] if cc_info else None) or (cc_info[4] if cc_info else None)
+            cc_name = cc_name or emp_id_to_biz_id.get(cc_emp_id) or f"CC #{cc_emp_id}"
             cc_data.append({
-                "id": cc_uid,
-                "name": cc_user.name or f"CC #{cc_uid}",
+                "id": cc_uid if cc_uid else cc_emp_id,
+                "name": cc_name,
                 "dms_code": cc_info[1] if cc_info else "",
                 "assisted_code": cc_info[4] if cc_info else "",
                 "pool_number": cc_info[5] if cc_info else "",
@@ -769,9 +738,9 @@ class GaLiveQueryBuilder:
         top_cc = cc_data[0] if cc_data and (len(cc_data) == 1 or cc_data[0]["own_activation"] != cc_data[1]["own_activation"]) else None
 
         active_sup = len([uid for uid in role_uids["supervisor"] if uid in active_user_ids])
-        active_rso = len([uid for uid in role_uids["rso"] if uid in active_user_ids])
-        active_bp = len([uid for uid in role_uids["bp"] if uid in active_user_ids])
-        active_cc = len([uid for uid in role_uids["cc"] if uid in active_user_ids])
+        active_rso = len(set(rso_emp_ids_all) & active_employee_ids)
+        active_bp = len(set(bp_emp_ids_all) & active_employee_ids)
+        active_cc = len(set(cc_emp_ids_all) & active_employee_ids)
 
         return (
             supervisor_data,
@@ -788,9 +757,9 @@ class GaLiveQueryBuilder:
                 "active_bp": active_bp,
                 "active_cc": active_cc,
                 "total_supervisors": len(role_uids["supervisor"]),
-                "total_rso": len(role_uids["rso"]),
-                "total_bp": len(role_uids["bp"]),
-                "total_cc": len(role_uids["cc"]),
+                "total_rso": len(rso_emp_ids_all),
+                "total_bp": len(bp_emp_ids_all),
+                "total_cc": len(cc_emp_ids_all),
             },
         )
 
