@@ -9,41 +9,37 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Download,
   Store,
+  MapPin,
+  Smartphone,
   Hash,
-  History,
   ChevronDown,
-  UserCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import { useLanguage } from "@/i18n/useLanguage";
-import { houseHeaders, type DropdownMarking, type HistoryRow, type PaginationMeta } from "../types";
+import { houseHeaders, type DropdownMarking, type PaginationMeta, type RetailerRow } from "./types";
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-export default function HistoryPage() {
+export default function RetailersPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
   const router = useRouter();
   const { t } = useLanguage();
 
-  const [rows, setRows] = useState<HistoryRow[]>([]);
+  const [retailers, setRetailers] = useState<RetailerRow[]>([]);
   const [markings, setMarkings] = useState<DropdownMarking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [markingsLoading, setMarkingsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [markingFilter, setMarkingFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
+  const [sortBy, setSortBy] = useState("id");
+  const [sortOrder, setSortOrder] = useState("desc");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [exporting, setExporting] = useState(false);
   const perPage = 20;
 
   useEffect(() => {
@@ -54,11 +50,14 @@ export default function HistoryPage() {
   }, [authLoading, hasPermission, router]);
 
   const fetchMarkings = useCallback(async () => {
+    setMarkingsLoading(true);
     try {
       const res = await apiClient.get("retailer-markings/options");
       setMarkings(res.data || []);
     } catch {
       setMarkings([]);
+    } finally {
+      setMarkingsLoading(false);
     }
   }, []);
 
@@ -68,38 +67,64 @@ export default function HistoryPage() {
     }
   }, [authLoading, hasPermission, fetchMarkings]);
 
-  const fetchHistory = useCallback(async () => {
+  const fetchRetailers = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, any> = { page, per_page: perPage };
+      const params: Record<string, any> = {
+        page,
+        per_page: perPage,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      };
       if (search) params.search = search;
-      if (markingFilter) {
-        const m = markings.find((x) => x.name === markingFilter);
-        if (m) params.marking_id = m.id;
-      }
-      if (statusFilter) params.status = statusFilter;
-      const res = await apiClient.get("retailer-markings/history", {
+      if (markingFilter) params.marking = markingFilter;
+      const res = await apiClient.get("retailer-markings/retailers", {
         params,
         headers: houseHeaders(selectedHouse),
       });
-      setRows(res.data.data || []);
+      setRetailers(res.data.data || []);
       setPagination(res.data.pagination || null);
     } catch {
       toast.error(t("retailer_marking.toast_load_failed"));
     } finally {
       setLoading(false);
     }
-  }, [page, search, markingFilter, statusFilter, markings, selectedHouse, t]);
+  }, [page, search, markingFilter, sortBy, sortOrder, selectedHouse, t]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("retailer_markings.view")) {
-      fetchHistory();
+      fetchRetailers();
     }
-  }, [selectedHouse, page, markingFilter, statusFilter, authLoading, hasPermission, fetchHistory]);
+  }, [selectedHouse, page, sortBy, sortOrder, markingFilter, authLoading, hasPermission, fetchRetailers]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
     setPage(1);
+  };
+
+  const handleExport = async () => {
+    if (!hasPermission("retailer_markings.export")) return;
+    setExporting(true);
+    try {
+      const params: Record<string, any> = {};
+      if (markingFilter) params.marking_id = markings.find((m) => m.name === markingFilter)?.id;
+      const response = await apiClient.get("retailer-markings/export", {
+        params,
+        headers: houseHeaders(selectedHouse),
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", "retailer_marking_assignments.xlsx");
+      document.body.appendChild(link);
+      link.click();
+      toast.success(t("retailer_marking.toast_export_success"));
+    } catch {
+      toast.error(t("retailer_marking.toast_export_failed"));
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (authLoading)
@@ -110,33 +135,30 @@ export default function HistoryPage() {
     );
   if (!hasPermission("retailer_markings.view")) return <AccessDenied />;
 
-  const StatusBadge = ({ status }: { status: string }) => (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
-        status === "active"
-          ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
-          : "bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400"
-      )}
-    >
-      <span
-        className="w-1 h-1 rounded-full"
-        style={{ backgroundColor: status === "active" ? "rgb(34 197 94)" : "rgb(148 163 184)" }}
-      />
-      {status === "active" ? t("retailer_marking.active") : t("retailer_marking.inactive")}
-    </span>
-  );
-
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
-            {t("retailer_marking.history_title")}
+            {t("retailer_marking.retailers_title")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("retailer_marking.history_description")}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {t("retailer_marking.retailers_description")}
+          </p>
         </div>
-        <PageGuideModal pageKey="retailer_marking" />
+        <div className="flex flex-wrap gap-3">
+          <PageGuideModal pageKey="retailer_marking" />
+          {hasPermission("retailer_markings.export") && (
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+            >
+              {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {t("retailer_marking.export_btn")}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -145,7 +167,7 @@ export default function HistoryPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
-              placeholder={t("retailer_marking.search_placeholder")}
+              placeholder={t("retailer_marking.search_retailers")}
               className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
               value={search}
               onChange={(e) => handleSearch(e.target.value)}
@@ -157,7 +179,8 @@ export default function HistoryPage() {
               setMarkingFilter(e.target.value);
               setPage(1);
             }}
-            className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none"
+            disabled={markingsLoading}
+            className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none disabled:opacity-50"
           >
             <option value="">{t("retailer_marking.all_markings")}</option>
             {markings.map((m) => (
@@ -165,18 +188,6 @@ export default function HistoryPage() {
                 {m.name}
               </option>
             ))}
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-            className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none"
-          >
-            <option value="">{t("retailer_marking.all_status")}</option>
-            <option value="active">{t("retailer_marking.active")}</option>
-            <option value="inactive">{t("retailer_marking.inactive")}</option>
           </select>
         </div>
 
@@ -198,68 +209,81 @@ export default function HistoryPage() {
                 </div>
                 <div className="hidden lg:block flex-1 space-y-2">
                   <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-14 bg-gray-100 dark:bg-slate-800 rounded-md" />
                 </div>
               </div>
             ))}
           </div>
         ) : !pagination || pagination.total === 0 ? (
           <div className="py-20 text-center">
-            <History className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400 font-medium">{t("retailer_marking.no_history")}</p>
+            <Store className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+            <p className="text-gray-500 dark:text-gray-400 font-medium">{t("retailer_marking.no_retailers")}</p>
           </div>
         ) : (
           <>
             {/* Desktop table */}
             <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-left min-w-[1000px]">
+              <table className="w-full text-left min-w-[920px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
-                    <th className="px-6 py-4">{t("retailer_marking.table_retailer")}</th>
-                    <th className="px-6 py-4">{t("retailer_marking.marking_col")}</th>
-                    <th className="px-6 py-4">{t("retailer_marking.table_status")}</th>
-                    <th className="px-6 py-4">{t("retailer_marking.assigned_at")}</th>
-                    <th className="px-6 py-4">{t("retailer_marking.assigned_by")}</th>
-                    <th className="px-6 py-4">{t("retailer_marking.removed_at")}</th>
-                    <th className="px-6 py-4">{t("retailer_marking.remarks")}</th>
+                    <th className="px-6 py-4">{t("retailer_marking.table_house")}</th>
+                    <th className="px-6 py-4">
+                      <button onClick={() => setSortBy("name")} className="flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300">
+                        {t("retailer_marking.table_retailer")}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4">{t("retailer_marking.retailer_code_col")}</th>
+                    <th className="px-6 py-4">{t("retailer_marking.itop_col")}</th>
+                    <th className="px-6 py-4">{t("retailer_marking.thana_col")}</th>
+                    <th className="px-6 py-4">{t("retailer_marking.markings_col")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
-                  {rows.map((r) => (
+                  {retailers.map((r) => (
                     <tr key={r.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors group">
                       <td className="px-2 py-1">
-                        <div className="flex items-center gap-3 py-2">
-                          <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 shrink-0">
-                            <Store className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{r.retailer?.name}</p>
-                            <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400">
-                              {r.retailer?.retailer_code}
-                            </p>
-                          </div>
+                        <div className="space-y-1 text-xs py-2">
+                          <p className="font-bold text-gray-700 dark:text-gray-200">{r.house?.name || "N/A"}</p>
+                          <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400">{r.house?.code || ""}</p>
                         </div>
                       </td>
                       <td className="px-2 py-1">
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-700 dark:text-gray-200">
-                          <Hash className="w-3 h-3 text-primary-500" /> {r.marking_name || "—"}
+                        <div className="flex items-center gap-3 py-2">
+                          <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400">
+                            <Store className="w-5 h-5" />
+                          </div>
+                          <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{r.name}</p>
+                        </div>
+                      </td>
+                      <td className="px-2 py-1">
+                        <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{r.retailer_code}</span>
+                      </td>
+                      <td className="px-2 py-1">
+                        <span className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                          <Smartphone className="w-3 h-3 text-blue-500" /> {r.itop_number || "—"}
                         </span>
                       </td>
                       <td className="px-2 py-1">
-                        <StatusBadge status={r.status} />
+                        <span className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                          <MapPin className="w-3 h-3 text-gray-400" /> {r.thana || "—"}
+                        </span>
                       </td>
                       <td className="px-2 py-1">
-                        <p className="text-xs text-gray-600 dark:text-gray-300">{formatDate(r.assigned_at)}</p>
-                      </td>
-                      <td className="px-2 py-1">
-                        <p className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-                          <UserCheck className="w-3 h-3 text-gray-400" /> {r.assigned_by_name || "—"}
-                        </p>
-                      </td>
-                      <td className="px-2 py-1">
-                        <p className="text-xs text-gray-600 dark:text-gray-300">{formatDate(r.removed_at)}</p>
-                      </td>
-                      <td className="px-2 py-1">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 max-w-[200px] truncate">{r.remarks || "—"}</p>
+                        {r.markings.length === 0 ? (
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500">{t("retailer_marking.no_markings_assigned")}</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {r.markings.map((name) => (
+                              <span
+                                key={name}
+                                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 text-[11px] font-semibold border border-primary-100 dark:border-primary-500/20"
+                              >
+                                <Hash className="w-2.5 h-2.5" />
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -269,7 +293,7 @@ export default function HistoryPage() {
 
             {/* Mobile accordion */}
             <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
-              {rows.map((r) => (
+              {retailers.map((r) => (
                 <div key={r.id}>
                   <button
                     onClick={() => setExpandedId((prev) => (prev === r.id ? null : r.id))}
@@ -279,14 +303,10 @@ export default function HistoryPage() {
                       <Store className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{r.retailer?.name}</p>
+                      <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{r.name}</p>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono truncate">
-                        {r.retailer?.retailer_code} · {r.marking_name || "—"}
+                        {r.retailer_code} · {r.itop_number || "—"}
                       </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <StatusBadge status={r.status} />
-                      <p className="text-[11px] text-gray-400 mt-1">{formatDate(r.assigned_at)}</p>
                     </div>
                     <ChevronDown
                       className={cn("w-4 h-4 text-gray-400 transition-transform shrink-0", expandedId === r.id && "rotate-180")}
@@ -295,23 +315,31 @@ export default function HistoryPage() {
                   {expandedId === r.id && (
                     <div className="px-5 pb-4 pt-1 space-y-2 animate-in fade-in duration-200">
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {t("retailer_marking.assigned_by")}:{" "}
-                        <span className="font-semibold text-gray-700 dark:text-gray-200">{r.assigned_by_name || "—"}</span>
+                        {t("retailer_marking.table_house")}:{" "}
+                        <span className="font-semibold text-gray-700 dark:text-gray-200">{r.house?.name || "N/A"}</span>
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {t("retailer_marking.removed_at")}:{" "}
-                        <span className="font-semibold text-gray-700 dark:text-gray-200">{formatDate(r.removed_at)}</span>
+                        {t("retailer_marking.thana_col")}:{" "}
+                        <span className="font-semibold text-gray-700 dark:text-gray-200">{r.thana || "—"}</span>
                       </p>
-                      {r.removed_by_name && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {t("retailer_marking.removed_by")}:{" "}
-                          <span className="font-semibold text-gray-700 dark:text-gray-200">{r.removed_by_name}</span>
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {t("retailer_marking.remarks")}:{" "}
-                        <span className="font-semibold text-gray-700 dark:text-gray-200">{r.remarks || "—"}</span>
-                      </p>
+                      <div>
+                        <p className="text-[11px] font-semibold text-gray-400 mb-1.5">{t("retailer_marking.markings_col")}</p>
+                        {r.markings.length === 0 ? (
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("retailer_marking.no_markings_assigned")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {r.markings.map((name) => (
+                              <span
+                                key={name}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 text-[11px] font-semibold border border-primary-100 dark:border-primary-500/20"
+                              >
+                                <Hash className="w-2.5 h-2.5" />
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

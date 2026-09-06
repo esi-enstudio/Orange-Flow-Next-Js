@@ -22,7 +22,7 @@ import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import PageGuideModal from "@/components/PageGuideModal";
 import { useLanguage } from "@/i18n/useLanguage";
-import type { Marking, PaginationMeta } from "../types";
+import type { Marking, PaginationMeta } from "../retailer-marking/types";
 
 export default function MarkingsPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();

@@ -20,7 +20,7 @@ import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import { useLanguage } from "@/i18n/useLanguage";
-import { houseHeaders, type DropdownMarking, type RetailerRow } from "../types";
+import { houseHeaders, type DropdownMarking, type RetailerRow } from "../retailer-marking/types";
 
 export default function AssignPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();

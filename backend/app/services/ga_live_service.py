@@ -57,6 +57,14 @@ class GaLiveQueryBuilder:
             return [], []
         return cfg["exclude_product_codes"], cfg["exclude_retailer_tags"]
 
+    async def _effective_excluded_codes(self, section_key: str) -> set[str]:
+        """Section config authoritative; global excluded codes = fallback only when no config."""
+        cfg = self._section_configs.get(section_key)
+        if cfg is not None:
+            return set(cfg["exclude_product_codes"] or [])
+        await self._load_excluded_codes()
+        return set(self._excluded_codes or [])
+
     async def _load_excluded_codes(self):
         if self._excluded_codes is None:
             self._excluded_codes = await get_excluded_codes(self.db)
@@ -77,9 +85,7 @@ class GaLiveQueryBuilder:
 
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
 
-        await self._load_excluded_codes()
-        global_excluded = self._excluded_codes or set()
-        all_excluded = set(exclude_product_codes) | global_excluded
+        all_excluded = await self._effective_excluded_codes(section_key)
 
         if all_excluded:
             clause = exclude_clause(LiveActivation, all_excluded)
@@ -116,9 +122,7 @@ class GaLiveQueryBuilder:
 
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
 
-        await self._load_excluded_codes()
-        global_excluded = self._excluded_codes or set()
-        all_excluded = set(exclude_product_codes) | global_excluded
+        all_excluded = await self._effective_excluded_codes(section_key)
 
         if all_excluded:
             clause = exclude_clause(Activation, all_excluded)
@@ -771,9 +775,7 @@ class GaLiveQueryBuilder:
 
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
 
-        await self._load_excluded_codes()
-        global_excluded = self._excluded_codes or set()
-        all_excluded = set(exclude_product_codes) | global_excluded
+        all_excluded = await self._effective_excluded_codes(section_key)
 
         trend_map: dict[str, int] = {}
 

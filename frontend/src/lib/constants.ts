@@ -93,7 +93,6 @@ export const navItems: NavItem[] = [
     color: "text-emerald-500",
     children: [
       { title: "Houses", translationKey: "nav.houses", href: "/houses", permission: "houses.view" },
-      { title: "Retailers", translationKey: "nav.retailers", href: "/retailers", permission: "retailers.view" },
       { title: "BTS", translationKey: "nav.bts", href: "/bts", permission: "bts.view" },
       { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "imports.view" },
       { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "imports.view" },
@@ -112,6 +111,20 @@ export const navItems: NavItem[] = [
       { title: "Employee Management", translationKey: "nav.employees", href: "/employees", permission: "employees.view" },
       { title: "KPI Reports (GA/C2C)", translationKey: "nav.reports", href: "/reports/kpi", permission: "reports.view" },
     ]
+  },
+  {
+    title: "Retailers",
+    translationKey: "nav.retailers",
+    icon: Tag,
+    color: "text-orange-500",
+    children: [
+      { title: "Retailer List", translationKey: "nav.retailer_list", href: "/retailers", permission: "retailers.view" },
+      { title: "Marked Retailers", translationKey: "nav.marking_retailers", href: "/retailers/retailer-marking", permission: "retailer_markings.view" },
+      { title: "Markings", translationKey: "nav.markings", href: "/retailers/markings", permission: "retailer_markings.view" },
+      { title: "Assign Markings", translationKey: "nav.marking_assign", href: "/retailers/assign-marking", permission: "retailer_markings.assign" },
+      { title: "Import Markings", translationKey: "nav.marking_import", href: "/retailers/import-marking", permission: "retailer_markings.import" },
+      { title: "Marking History", translationKey: "nav.marking_history", href: "/retailers/marking-history", permission: "retailer_markings.view" },
+    ],
   },
   {
     title: "Commercial & Sales",
@@ -255,19 +268,6 @@ export const navItems: NavItem[] = [
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
       { title: "Server Deploy", translationKey: "nav.deploy", href: "/deploy", permission: "app_settings.manage" },
     ]
-  },
-  {
-    title: "Retailer Management",
-    translationKey: "nav.retailer_management",
-    icon: Tag,
-    color: "text-orange-500",
-    children: [
-      { title: "Marked Retailers", translationKey: "nav.marking_retailers", href: "/retailer-marking/retailers", permission: "retailer_markings.view" },
-      { title: "Markings", translationKey: "nav.markings", href: "/retailer-marking/markings", permission: "retailer_markings.view" },
-      { title: "Assign Markings", translationKey: "nav.marking_assign", href: "/retailer-marking/assign", permission: "retailer_markings.assign" },
-      { title: "Import Markings", translationKey: "nav.marking_import", href: "/retailer-marking/import", permission: "retailer_markings.import" },
-      { title: "Marking History", translationKey: "nav.marking_history", href: "/retailer-marking/history", permission: "retailer_markings.view" },
-    ],
   },
   {
     title: "Billing & Subscription",
