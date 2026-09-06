@@ -50,12 +50,17 @@ async def seed_system_data(session=None):
             )
             role = res.scalar_one_or_none()
             
-            if not role:
-                role = Role(name=r_name)
-                session.add(role)
-                print(f"➕ Creating role: {r_name}")
-            
-            # Assign permissions
+            if role:
+                # NEVER touch an existing role's permissions on startup/restart.
+                # Permission assignments are managed exclusively through the Roles UI.
+                print(f"ℹ️ Role exists (skipping permission sync): {r_name}")
+                continue
+
+            role = Role(name=r_name)
+            session.add(role)
+            print(f"➕ Creating role: {r_name}")
+
+            # Assign default permissions ONLY for newly created roles
             if role_config.get('is_admin'):
                 role.permissions = all_perms
             elif 'permissions' in role_config:
