@@ -148,7 +148,7 @@ export default function SIMIssuePage() {
         );
         setRetailers(res.data);
       } catch {
-        // Silently handle
+        setRetailers([]);
       } finally {
         setRetailersLoading(false);
       }

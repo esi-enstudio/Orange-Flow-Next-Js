@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.routers.deps import get_db, has_permission, get_house_context
+from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.retailer import Retailer
 from app.models.employee import Employee
@@ -101,7 +101,12 @@ async def get_retailers_by_house(
     house_id: int,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("retailers.view"))
+    current_user: User = Depends(has_any_permission([
+        "retailers.view",
+        "dms.sim_issue",
+        "dms.sim_return",
+        "dms.sim_status"
+    ]))
 ):
     is_admin = is_admin_user(current_user)
     if not is_admin:
