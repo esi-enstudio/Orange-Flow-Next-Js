@@ -190,6 +190,8 @@ function typeBadgeColor(type: string): string {
   return colors[type.toLowerCase()] || colors.unknown;
 }
 
+const MARKET_TYPES = ["Urban", "Rural", "HVLP", "BL Core"];
+
 export default function EmployeesPage() {
   const { t } = useLanguage();
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
@@ -1474,8 +1476,11 @@ export default function EmployeesPage() {
                         value={formData.market_type}
                         onChange={e => setFormData({...formData, market_type: e.target.value})}
                       >
-                        <option value="Urban">Urban</option>
-                        <option value="Rural">Rural</option>
+                        <option value="">{t('employees.field_market_type_placeholder')}</option>
+                        {MARKET_TYPES.map(mt => <option key={mt} value={mt}>{mt}</option>)}
+                        {formData.market_type && !MARKET_TYPES.includes(formData.market_type) && (
+                          <option value={formData.market_type}>{formData.market_type}</option>
+                        )}
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                     </div>

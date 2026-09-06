@@ -4,6 +4,8 @@ from datetime import datetime
 from app.schemas.user import UserSchema
 from app.schemas.house import HouseSchema
 
+MARKET_TYPES = ("Urban", "Rural", "HVLP", "BL Core")
+
 class EmployeeSchema(BaseModel):
     id: int
     user_id: Optional[int] = None
@@ -111,8 +113,8 @@ class EmployeeCreate(BaseModel):
     @field_validator('market_type')
     @classmethod
     def validate_market_type(cls, v):
-        if v is not None and v not in ("Urban", "Rural"):
-            raise ValueError('market_type must be one of: Urban, Rural')
+        if v is not None and v not in MARKET_TYPES:
+            raise ValueError(f'market_type must be one of: {", ".join(MARKET_TYPES)}')
         return v
 
     @field_validator('motor_bike', 'bicyle', 'driving_license')
@@ -179,8 +181,8 @@ class EmployeeSelfUpdate(BaseModel):
     @field_validator('market_type')
     @classmethod
     def validate_market_type(cls, v):
-        if v is not None and v not in ("Urban", "Rural"):
-            raise ValueError('market_type must be one of: Urban, Rural')
+        if v is not None and v not in MARKET_TYPES:
+            raise ValueError(f'market_type must be one of: {", ".join(MARKET_TYPES)}')
         return v
 
     @field_validator('motor_bike', 'bicyle', 'driving_license')
