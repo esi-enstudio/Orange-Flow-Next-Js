@@ -26,9 +26,12 @@ from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
 from app.models.house import House
-from app.models.ga_filter import FilterTag, RetailerFilter
 from app.models.product_exclusion import ExcludedProductCode
 from app.models.ga_report_target import GaReportTarget
+from app.services.retailer_marking_service import (
+    get_active_markings,
+    get_active_retailer_ids_for_markings,
+)
 from app.utils.activation_rules import exclude_clause
 from app.utils.timezone import now_naive
 
@@ -227,14 +230,10 @@ class GaReportBuilderService:
     async def get_exclusion_options(self) -> dict:
         prod_res = await self.db.execute(select(ExcludedProductCode.product_code))
         codes: set[str] = {row[0] for row in prod_res.all()}
-        tag_res = await self.db.execute(
-            select(FilterTag.id, FilterTag.name)
-            .where(FilterTag.house_id == self.cfg.house_id)
-            .order_by(FilterTag.name)
-        )
+        markings = await get_active_markings(self.db)
         return {
             "product_codes": sorted(codes),
-            "retailer_tags": [{"id": t.id, "name": t.name} for t in tag_res.all()],
+            "retailer_tags": [{"id": m.id, "name": m.name} for m in markings],
         }
 
     # ------------------------------------------------------------ data access
@@ -246,15 +245,9 @@ class GaReportBuilderService:
     async def _excluded_retailer_ids(self) -> set[int]:
         if not self.cfg.exclude_retailer_tags:
             return set()
-        res = await self.db.execute(
-            select(RetailerFilter.retailer_id)
-            .join(FilterTag, RetailerFilter.tag_id == FilterTag.id)
-            .where(
-                FilterTag.name.in_(self.cfg.exclude_retailer_tags),
-                RetailerFilter.house_id == self.cfg.house_id,
-            )
+        return await get_active_retailer_ids_for_markings(
+            self.db, self.cfg.house_id, self.cfg.exclude_retailer_tags
         )
-        return {row[0] for row in res.all()}
 
     def _event_window(self) -> tuple[date, date]:
         start = self.cfg.start_date or date(2020, 1, 1)

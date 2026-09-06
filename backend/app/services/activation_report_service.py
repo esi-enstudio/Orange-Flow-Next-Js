@@ -18,8 +18,8 @@ from app.models.employee import Employee
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.user import User
 from app.models.role import Role
-from app.models.ga_filter import FilterTag, RetailerFilter
 from app.models.product_exclusion import ExcludedProductCode
+from app.services.retailer_marking_service import get_active_retailer_ids_for_markings
 
 logger = logging.getLogger("app.services.ActivationReport")
 
@@ -67,23 +67,15 @@ class ActivationReportService:
         if not self.exclude_tag_names:
             self._cached_excluded_ids = set()
             return self._cached_excluded_ids
-        q = select(RetailerFilter.retailer_id).join(FilterTag, RetailerFilter.tag_id == FilterTag.id).where(
-            FilterTag.name.in_(self.exclude_tag_names),
-            RetailerFilter.house_id == self.house_id,
+        self._cached_excluded_ids = await get_active_retailer_ids_for_markings(
+            self.db, self.house_id, self.exclude_tag_names
         )
-        res = await self.db.execute(q)
-        self._cached_excluded_ids = {row[0] for row in res.all()}
         return self._cached_excluded_ids
 
     async def _get_excluded_retailer_ids_for_tags(self, tag_names: list[str]) -> set[int]:
         if not tag_names:
             return set()
-        q = select(RetailerFilter.retailer_id).join(FilterTag, RetailerFilter.tag_id == FilterTag.id).where(
-            FilterTag.name.in_(tag_names),
-            RetailerFilter.house_id == self.house_id,
-        )
-        res = await self.db.execute(q)
-        return {row[0] for row in res.all()}
+        return await get_active_retailer_ids_for_markings(self.db, self.house_id, tag_names)
 
     async def _count_activations(
         self,

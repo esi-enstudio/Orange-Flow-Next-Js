@@ -16,8 +16,8 @@ from app.models.scratch_card_issue import ScratchCardIssue
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
-from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.role import Role
+from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
 from app.utils.activation_rules import get_excluded_codes
 
 logger = logging.getLogger("app.services.TargetAchievement")
@@ -62,15 +62,9 @@ class TargetAchievementService:
 
         excluded_retailer_ids: set[int] = set()
         if house_id_filter:
-            result = await self.db.execute(
-                select(RetailerFilter.retailer_id)
-                .join(FilterTag, RetailerFilter.tag_id == FilterTag.id)
-                .where(
-                    FilterTag.name == "DRC",
-                    RetailerFilter.house_id == house_id_filter,
-                )
+            excluded_retailer_ids = await get_active_retailer_ids_for_marking(
+                self.db, house_id_filter, "DRC"
             )
-            excluded_retailer_ids = {row[0] for row in result.all()}
 
         q = select(func.count()).select_from(Activation).where(
             Activation.activation_date >= self.month_start,

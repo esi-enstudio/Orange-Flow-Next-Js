@@ -12,11 +12,11 @@ from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
-from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.ga_section_config import GaSectionConfig
 from app.models.rso_target import RSOTarget
 from app.models.bp_target import BpTarget
+from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
 from app.utils.activation_rules import get_excluded_codes, exclude_clause
 from app.services.cache_service import cache_service
 
@@ -63,15 +63,9 @@ class GaLiveQueryBuilder:
 
     async def _load_excluded_retailers_by_tag(self, tag_name: str) -> set[int]:
         if tag_name not in self._excluded_retailers:
-            result = await self.db.execute(
-                select(RetailerFilter.retailer_id)
-                .join(FilterTag, RetailerFilter.tag_id == FilterTag.id)
-                .where(
-                    FilterTag.name == tag_name,
-                    RetailerFilter.house_id == self.house_id,
-                )
+            self._excluded_retailers[tag_name] = await get_active_retailer_ids_for_marking(
+                self.db, self.house_id, tag_name
             )
-            self._excluded_retailers[tag_name] = {row[0] for row in result.all()}
         return self._excluded_retailers[tag_name]
 
     async def _build_base_query(self, section_key: str):

@@ -19,7 +19,7 @@ from app.models.house import House
 from app.models.itopup_detail import ITopUpDetail
 from app.models.scratch_card_issue import ScratchCardIssue
 from app.models.sim_issue import SimIssue
-from app.models.ga_filter import RetailerFilter, FilterTag, RetailerFilter as RetailerFilterModel
+from app.models.retailer_marking import RetailerMarking, RetailerMarkingAssignment
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.active_lso_config import ActiveLsoConfig
@@ -849,9 +849,19 @@ async def get_activation_report(
         excluded_tags_list = [t.strip() for t in exclude_tags.split(",") if t.strip()]
         if excluded_tags_list:
             house_ids_for_exclusion = [effective_house_id] if effective_house_id else (user_house_ids if not is_admin else None)
-            excl_query = select(RetailerFilter.retailer_id).join(FilterTag, RetailerFilter.tag_id == FilterTag.id).where(FilterTag.name.in_(excluded_tags_list))
+            excl_query = (
+                select(RetailerMarkingAssignment.retailer_id)
+                .join(RetailerMarking, RetailerMarking.id == RetailerMarkingAssignment.marking_id)
+                .where(
+                    RetailerMarking.name.in_(excluded_tags_list),
+                    RetailerMarkingAssignment.status == "active",
+                )
+            )
             if house_ids_for_exclusion:
-                excl_query = excl_query.where(RetailerFilter.house_id.in_(house_ids_for_exclusion))
+                excl_query = (
+                    excl_query.join(Retailer, Retailer.id == RetailerMarkingAssignment.retailer_id)
+                    .where(Retailer.house_id.in_(house_ids_for_exclusion))
+                )
             excluded_ids_result = await db.execute(excl_query)
             excluded_retailer_ids = [row[0] for row in excluded_ids_result.all()]
             if excluded_retailer_ids:
@@ -870,9 +880,12 @@ async def get_activation_report(
     tags_map: dict[int, list[str]] = {}
     if retailer_ids:
         tag_rows = await db.execute(
-            select(RetailerFilter.retailer_id, FilterTag.name)
-            .join(FilterTag, RetailerFilter.tag_id == FilterTag.id)
-            .where(RetailerFilter.retailer_id.in_(retailer_ids))
+            select(RetailerMarkingAssignment.retailer_id, RetailerMarking.name)
+            .join(RetailerMarking, RetailerMarking.id == RetailerMarkingAssignment.marking_id)
+            .where(
+                RetailerMarkingAssignment.retailer_id.in_(retailer_ids),
+                RetailerMarkingAssignment.status == "active",
+            )
         )
         for rid, tname in tag_rows.all():
             tags_map.setdefault(rid, []).append(tname)
@@ -966,9 +979,19 @@ async def get_activation_daily_stats(
         excluded_tags_list = [t.strip() for t in exclude_tags.split(",") if t.strip()]
         if excluded_tags_list:
             house_ids_for_exclusion = [target_house_id] if target_house_id else ([h.id for h in current_user.houses] if not is_admin else None)
-            excl_query = select(RetailerFilter.retailer_id).join(RetailerFilter.tag).where(FilterTag.name.in_(excluded_tags_list))
+            excl_query = (
+                select(RetailerMarkingAssignment.retailer_id)
+                .join(RetailerMarking, RetailerMarking.id == RetailerMarkingAssignment.marking_id)
+                .where(
+                    RetailerMarking.name.in_(excluded_tags_list),
+                    RetailerMarkingAssignment.status == "active",
+                )
+            )
             if house_ids_for_exclusion:
-                excl_query = excl_query.where(RetailerFilter.house_id.in_(house_ids_for_exclusion))
+                excl_query = (
+                    excl_query.join(Retailer, Retailer.id == RetailerMarkingAssignment.retailer_id)
+                    .where(Retailer.house_id.in_(house_ids_for_exclusion))
+                )
             excluded_ids_result = await db.execute(excl_query)
             excluded_retailer_ids = [row[0] for row in excluded_ids_result.all()]
             if excluded_retailer_ids:

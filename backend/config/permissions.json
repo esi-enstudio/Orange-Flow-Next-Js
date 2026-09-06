@@ -52,6 +52,19 @@
         "retailers.marking"
       ]
     },
+    "retailer_markings": {
+      "display_name": "Retailer Markings",
+      "permissions": [
+        "retailer_markings.view",
+        "retailer_markings.create",
+        "retailer_markings.edit",
+        "retailer_markings.delete",
+        "retailer_markings.restore",
+        "retailer_markings.assign",
+        "retailer_markings.import",
+        "retailer_markings.export"
+      ]
+    },
     "employees": {
       "display_name": "Employees",
       "permissions": [

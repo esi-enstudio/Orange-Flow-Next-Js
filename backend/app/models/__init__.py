@@ -19,6 +19,7 @@ from app.models.mela import Mela, MelaEligibleBTS
 from app.models.product import Product, ProductCodeHistory
 from app.models.lifting import LiftingRecord, LiftingProduct
 from app.models.ga_filter import GAProductFilter, FilterTag, RetailerFilter
+from app.models.retailer_marking import RetailerMarking, RetailerMarkingAssignment
 from app.models.sync_history import SyncHistory
 from app.models.role import Permission
 from app.models.user import user_houses, user_roles

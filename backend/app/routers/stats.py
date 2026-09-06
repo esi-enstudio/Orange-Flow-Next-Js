@@ -15,7 +15,6 @@ from app.models.user import User
 from app.models.activation import Activation
 from app.models.live_activation import LiveActivation
 
-from app.models.ga_filter import FilterTag, RetailerFilter
 from app.utils.access_control import is_admin_user
 from app.utils.activation_rules import get_excluded_codes, exclude_clause
 

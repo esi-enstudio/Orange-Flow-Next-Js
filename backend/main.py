@@ -48,6 +48,7 @@ from app.routers.employees import router as employees_router
 from app.routers.users import router as users_router
 from app.routers.roles_permissions import router as roles_permissions_router
 from app.routers.retailers import router as retailers_router
+from app.routers.retailer_markings import router as retailer_markings_router
 from app.routers.bts import router as bts_router
 from app.routers.imports import router as imports_router
 from app.routers.reports import router as reports_router
@@ -114,6 +115,7 @@ app.include_router(employees_router)
 app.include_router(users_router)
 app.include_router(roles_permissions_router)
 app.include_router(retailers_router)
+app.include_router(retailer_markings_router)
 app.include_router(bts_router)
 app.include_router(imports_router)
 app.include_router(reports_router)

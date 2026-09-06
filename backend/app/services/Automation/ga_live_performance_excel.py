@@ -14,9 +14,9 @@ from app.models.employee import Employee
 from app.models.user import User
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
-from app.models.ga_filter import RetailerFilter, FilterTag
 from app.models.ga_section_config import GaSectionConfig
 from app.models.role import Role
+from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
 from app.utils.activation_rules import exclude_clause
 
 # ── Style constants (matching frontend activations export) ──
@@ -64,12 +64,7 @@ async def _get_excluded_retailer_ids_by_tags(
 ) -> set[int]:
     excluded: set[int] = set()
     for tag_name in tag_names:
-        result = await db.execute(
-            select(RetailerFilter.retailer_id)
-            .join(FilterTag, RetailerFilter.tag_id == FilterTag.id)
-            .where(FilterTag.name == tag_name, RetailerFilter.house_id == house_id)
-        )
-        excluded |= {row[0] for row in result.all()}
+        excluded |= await get_active_retailer_ids_for_marking(db, house_id, tag_name)
     return excluded
 
 

@@ -8,6 +8,7 @@ import app.models.house
 import app.models.role
 import app.models.live_activation
 import app.models.retailer
+import app.models.retailer_marking
 import app.models.employee
 import app.models.bts
 import app.models.ga_filter
@@ -88,6 +89,45 @@ async def _migrate_retailer_filter_tag_id():
             logger.info("Migration complete: retailer_filters.tag_id")
     except Exception as e:
         logger.warning(f"Migration warning (retailer_filters.tag_id): {e}")
+
+async def _migrate_retailer_markings():
+    """One-time migration of legacy filter_tags/retailer_filters into the global
+    retailer_markings/retailer_marking_assignments tables.
+
+    - Each distinct tag name becomes one global marking (code = upper(name)).
+    - Each retailer_filters row becomes an active assignment.
+      Cross-house tags with the same name collapse into the single global marking.
+    Idempotent: guarded by the presence of migrated markings; both INSERTs use
+    ON CONFLICT DO NOTHING so a partial re-run is safe.
+    """
+    try:
+        async with engine.begin() as conn:
+            migrated_count = (await conn.execute(text(
+                "SELECT COUNT(*) FROM retailer_markings WHERE description = 'Migrated from filter_tags'"
+            ))).scalar() or 0
+            if migrated_count > 0:
+                return
+            logger.info("Migrating filter_tags -> retailer_markings ...")
+            await conn.execute(text(
+                "INSERT INTO retailer_markings (name, code, status, description, created_at) "
+                "SELECT ft.name, UPPER(ft.name), 'active', 'Migrated from filter_tags', NOW() "
+                "FROM (SELECT DISTINCT name FROM filter_tags) ft "
+                "ON CONFLICT (name) DO NOTHING"
+            ))
+            await conn.execute(text(
+                "INSERT INTO retailer_marking_assignments "
+                "(retailer_id, marking_id, status, effective_from, assigned_at, created_at, remarks) "
+                "SELECT DISTINCT rf.retailer_id, rm.id, 'active', COALESCE(rf.created_at, NOW()), NOW(), NOW(), "
+                "'Migrated from retailer_filters' "
+                "FROM retailer_filters rf "
+                "JOIN filter_tags ft ON ft.id = rf.tag_id "
+                "JOIN retailer_markings rm ON rm.name = ft.name "
+                "WHERE rm.is_deleted = false "
+                "ON CONFLICT (retailer_id, marking_id, status) DO NOTHING"
+            ))
+            logger.info("Migration complete: retailer_markings")
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer_markings): {e}")
 
 async def _migrate_app_settings_daily_sync():
     try:
@@ -656,8 +696,9 @@ async def init_db():
         await _migrate_employee_sr_no()
         await _migrate_employee_name()
         await _migrate_retailer_employee_link()
-        await _migrate_house_live_sync_enabled()
         await _migrate_retailer_filter_tag_id()
+        await _migrate_retailer_markings()
+        await _migrate_house_live_sync_enabled()
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
         await _migrate_live_activation_date_type()

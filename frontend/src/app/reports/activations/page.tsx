@@ -770,7 +770,7 @@ export default function ActivationDashboardPage() {
       apiClient.get("houses/accessible").then(res => {
         setHouses(res.data);
       }).catch(() => {});
-      apiClient.get("filter-tags").then(res => {
+      apiClient.get("retailer-markings/options").then(res => {
         setTags(res.data);
       }).catch(() => {});
       apiClient.get("product-exclusions").then(res => {

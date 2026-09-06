@@ -250,12 +250,24 @@ export const navItems: NavItem[] = [
     children: [
       { title: "User Management", translationKey: "nav.users", href: "/users", permission: "users.view" },
       { title: "CV Management", translationKey: "nav.cv", href: "/cv", permission: "cv.view" },
-      { title: "Retailer Marking", translationKey: "nav.retailer_marking", href: "/retailer-marking", permission: "retailers.view" },
       { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
       { title: "Server Deploy", translationKey: "nav.deploy", href: "/deploy", permission: "app_settings.manage" },
     ]
+  },
+  {
+    title: "Retailer Management",
+    translationKey: "nav.retailer_management",
+    icon: Tag,
+    color: "text-orange-500",
+    children: [
+      { title: "Marked Retailers", translationKey: "nav.marking_retailers", href: "/retailer-marking/retailers", permission: "retailer_markings.view" },
+      { title: "Markings", translationKey: "nav.markings", href: "/retailer-marking/markings", permission: "retailer_markings.view" },
+      { title: "Assign Markings", translationKey: "nav.marking_assign", href: "/retailer-marking/assign", permission: "retailer_markings.assign" },
+      { title: "Import Markings", translationKey: "nav.marking_import", href: "/retailer-marking/import", permission: "retailer_markings.import" },
+      { title: "Marking History", translationKey: "nav.marking_history", href: "/retailer-marking/history", permission: "retailer_markings.view" },
+    ],
   },
   {
     title: "Billing & Subscription",

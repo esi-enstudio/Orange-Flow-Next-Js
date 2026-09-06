@@ -140,9 +140,7 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
         } else {
           const [codesRes, tagsRes, configRes] = await Promise.all([
             apiClient.get<Array<{ id: number; product_code: string }>>("/product-exclusions"),
-            apiClient.get<Array<{ id: number; name: string }>>("/filter-tags", {
-              params: { house_id: houseId },
-            }),
+            apiClient.get<Array<{ id: number; name: string }>>("/retailer-markings/options"),
             apiClient.get<{ sections: Array<{ section_key: string; exclude_product_codes: string[]; exclude_retailer_tags: string[]; selected_employee_ids: number[] }> }>(
               "/live-activations/section-configs",
               { params: { house_id: houseId } }
