@@ -126,6 +126,7 @@ class TransactionReportService:
                     ITopUpDetail.retailer_id,
                     Retailer.retailer_code,
                     Retailer.name,
+                    Retailer.itop_number,
                     ITopUpDetail.daily_value,
                 )
                 .join(Retailer, ITopUpDetail.retailer_id == Retailer.id)
@@ -144,13 +145,14 @@ class TransactionReportService:
             detail_rows = detail_res.all()
 
             detail_map: dict = {}
-            for d_date, r_id, r_code, r_name, value in detail_rows:
+            for d_date, r_id, r_code, r_name, itop, value in detail_rows:
                 key = d_date.isoformat()
                 detail_map.setdefault(key, []).append(
                     {
                         "retailer_id": r_id,
                         "retailer_code": r_code or "",
                         "retailer_name": r_name or "",
+                        "itop_number": itop or "",
                         "value": float(value or 0),
                     }
                 )

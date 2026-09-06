@@ -31,6 +31,7 @@ interface RetailerDetail {
   retailer_id: number;
   retailer_code: string;
   retailer_name: string;
+  itop_number?: string;
   value: number;
 }
 
@@ -649,7 +650,10 @@ export default function TransactionsReportPage() {
                           <div key={r.retailer_id} className="flex items-center justify-between py-1.5 border-t border-gray-50 dark:border-slate-800 text-sm">
                             <div className="min-w-0 pr-3">
                               <p className="font-semibold text-gray-900 dark:text-gray-100 truncate">{r.retailer_name}</p>
-                              <p className="text-[11px] text-gray-400">{r.retailer_code}</p>
+                              <p className="text-[11px] text-gray-400 font-mono">
+                                {r.retailer_code}
+                                {r.itop_number ? <span> • {r.itop_number}</span> : null}
+                              </p>
                             </div>
                             <span className="font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{formatNumber(r.value)}</span>
                           </div>
@@ -714,7 +718,10 @@ export default function TransactionsReportPage() {
                                   <div key={r.retailer_id} className="flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-900 rounded-lg border border-gray-100 dark:border-slate-800">
                                     <div className="min-w-0 pr-2">
                                       <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">{r.retailer_name}</p>
-                                      <p className="text-[11px] text-gray-400">{r.retailer_code}</p>
+                                      <p className="text-[11px] text-gray-400 font-mono">
+                                        {r.retailer_code}
+                                        {r.itop_number ? <span> • {r.itop_number}</span> : null}
+                                      </p>
                                     </div>
                                     <span className="text-xs font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">{formatNumber(r.value)}</span>
                                   </div>
