@@ -63,10 +63,10 @@ async def get_retailer_markings_map(
 
 
 async def get_active_markings(db: AsyncSession) -> list[RetailerMarking]:
-    """All active (non-deleted) markings, ordered by name. Global across houses."""
+    """All active markings, ordered by name. Global across houses."""
     res = await db.execute(
         select(RetailerMarking)
-        .where(RetailerMarking.status == "active", RetailerMarking.is_deleted == False)  # noqa: E712
+        .where(RetailerMarking.status == "active")
         .order_by(RetailerMarking.name)
     )
     return list(res.scalars().all())
@@ -75,10 +75,7 @@ async def get_active_markings(db: AsyncSession) -> list[RetailerMarking]:
 async def get_marking_id_by_name(db: AsyncSession, name: str) -> Optional[int]:
     row = (
         await db.execute(
-            select(RetailerMarking.id).where(
-                RetailerMarking.name == name,
-                RetailerMarking.is_deleted == False,  # noqa: E712
-            )
+            select(RetailerMarking.id).where(RetailerMarking.name == name)
         )
     ).scalar_one_or_none()
     return int(row) if row is not None else None

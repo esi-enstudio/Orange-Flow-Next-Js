@@ -716,6 +716,7 @@ export const translations = {
       marking_code_placeholder: "e.g. DRC",
       description_placeholder: "What does this marking mean?",
       validation_name_code_required: "Name and code are required",
+      marking_exists: "A marking with this name or code already exists in the database.",
       action: "Actions",
       retailer_count: "Retailers",
       // Filters / states
@@ -3846,6 +3847,7 @@ live_monitor: "লাইভ মনিটর",
       marking_code_placeholder: "যেমন DRC",
       description_placeholder: "এই মার্কিং এর অর্থ কী?",
       validation_name_code_required: "নাম এবং কোড আবশ্যক",
+      marking_exists: "এই নাম বা কোডের একটি মার্কিং ইতিমধ্যে ডেটাবেসে বিদ্যমান।",
       action: "অ্যাকশন",
       retailer_count: "রিটেইলার",
       // Filters / states

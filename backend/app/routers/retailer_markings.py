@@ -7,7 +7,8 @@ from typing import Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -38,7 +39,7 @@ from app.utils.validation import safe_filename, validate_excel
 
 router = APIRouter(prefix="/api/retailer-markings", tags=["retailer-markings"])
 
-MODULE = "retailer_marking"
+MODULE = "retailer_markings"
 
 # In-memory staging store for the Import → Preview → Confirm flow.
 _IMPORT_STAGING: dict[str, dict] = {}
@@ -107,7 +108,6 @@ async def list_markings(
     query = (
         select(RetailerMarking, func.coalesce(count_subq.c.cnt, 0))
         .outerjoin(count_subq, count_subq.c.marking_id == RetailerMarking.id)
-        .where(RetailerMarking.is_deleted == False)  # noqa: E712
     )
     if status:
         query = query.where(RetailerMarking.status == status)
@@ -168,51 +168,13 @@ async def create_marking(
         await db.execute(
             select(RetailerMarking).where(
                 (RetailerMarking.name == data.name)
-                | (RetailerMarking.code == data.code),
-                RetailerMarking.is_deleted == False,  # noqa: E712
+                | (RetailerMarking.code == data.code)
             )
         )
     ).scalar_one_or_none()
     if existing:
         dup = "name" if existing.name == data.name else "code"
         raise HTTPException(status_code=409, detail=f"Marking {dup} already exists")
-
-    # Soft-deleted leftover with the same name/code blocks the unique index
-    # (uq_retailer_marking_name / uq_retailer_marking_code are not partial).
-    # Restore it instead of failing with an IntegrityError.
-    deleted_rows = (
-        await db.execute(
-            select(RetailerMarking)
-            .where(
-                (RetailerMarking.name == data.name)
-                | (RetailerMarking.code == data.code),
-                RetailerMarking.is_deleted == True,  # noqa: E712
-            )
-            .order_by(RetailerMarking.id.desc())
-        )
-    ).scalars().all()
-    if deleted_rows:
-        restored = deleted_rows[0]
-        restored.name = data.name.strip()
-        restored.code = data.code.strip().upper()
-        restored.description = data.description
-        restored.status = "active"
-        restored.is_deleted = False
-        restored.deleted_at = None
-        restored.deleted_by = None
-        restored.updated_by = current_user.id
-        stale_ids = [d.id for d in deleted_rows[1:]]
-        if stale_ids:
-            await db.execute(delete(RetailerMarking).where(RetailerMarking.id.in_(stale_ids)))
-        await db.commit()
-        await db.refresh(restored)
-        await log_activity(
-            db, current_user.id, current_user.name, MODULE, "restore",
-            record_id=restored.id, record_identifier=restored.name,
-            new_values={"name": restored.name, "code": restored.code, "reason": "recreated after soft delete"},
-            request=None, status_code=200,
-        )
-        return _marking_to_dict(restored)
 
     marking = RetailerMarking(
         name=data.name.strip(),
@@ -222,7 +184,11 @@ async def create_marking(
         created_by=current_user.id,
     )
     db.add(marking)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Marking name or code already exists")
     await db.refresh(marking)
     await log_activity(
         db, current_user.id, current_user.name, MODULE, "create",
@@ -241,7 +207,7 @@ async def update_marking(
     current_user: User = Depends(has_permission(f"{MODULE}.edit")),
 ):
     marking = await db.get(RetailerMarking, marking_id)
-    if not marking or marking.is_deleted:
+    if not marking:
         raise HTTPException(status_code=404, detail="Marking not found")
 
     old = _marking_to_dict(marking)
@@ -252,7 +218,6 @@ async def update_marking(
                 select(RetailerMarking).where(
                     RetailerMarking.name == data.name.strip(),
                     RetailerMarking.id != marking_id,
-                    RetailerMarking.is_deleted == False,  # noqa: E712
                 )
             )
         ).scalar_one_or_none()
@@ -266,7 +231,6 @@ async def update_marking(
                 select(RetailerMarking).where(
                     RetailerMarking.code == data.code.strip().upper(),
                     RetailerMarking.id != marking_id,
-                    RetailerMarking.is_deleted == False,  # noqa: E712
                 )
             )
         ).scalar_one_or_none()
@@ -315,12 +279,10 @@ async def delete_marking(
     current_user: User = Depends(has_permission(f"{MODULE}.delete")),
 ):
     marking = await db.get(RetailerMarking, marking_id)
-    if not marking or marking.is_deleted:
+    if not marking:
         raise HTTPException(status_code=404, detail="Marking not found")
     old = _marking_to_dict(marking)
-    marking.is_deleted = True
-    marking.deleted_at = now_naive()
-    marking.deleted_by = current_user.id
+    await db.delete(marking)
     await db.commit()
     await log_activity(
         db, current_user.id, current_user.name, MODULE, "delete",
@@ -337,21 +299,7 @@ async def restore_marking(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission(f"{MODULE}.restore")),
 ):
-    marking = await db.get(RetailerMarking, marking_id)
-    if not marking or not marking.is_deleted:
-        raise HTTPException(status_code=404, detail="Deleted marking not found")
-    marking.is_deleted = False
-    marking.deleted_at = None
-    marking.deleted_by = None
-    marking.updated_by = current_user.id
-    await db.commit()
-    await db.refresh(marking)
-    await log_activity(
-        db, current_user.id, current_user.name, MODULE, "restore",
-        record_id=marking.id, record_identifier=marking.name,
-        request=None, status_code=200,
-    )
-    return _marking_to_dict(marking)
+    raise HTTPException(status_code=404, detail="Markings use hard delete only — restore is not supported")
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +322,6 @@ async def list_retailers_with_markings(
             .join(RetailerMarking, RetailerMarking.id == RetailerMarkingAssignment.marking_id)
             .where(
                 RetailerMarkingAssignment.status == "active",
-                RetailerMarking.is_deleted == False,  # noqa: E712
                 RetailerMarking.name == marking,
             )
         )
@@ -452,7 +399,6 @@ async def _marking_names_for_retailers(db: AsyncSession, retailer_ids: list[int]
         .where(
             RetailerMarkingAssignment.retailer_id.in_(retailer_ids),
             RetailerMarkingAssignment.status == "active",
-            RetailerMarking.is_deleted == False,  # noqa: E712
         )
         .order_by(RetailerMarking.name)
     )
@@ -475,7 +421,7 @@ async def assign_marking(
     house_context: Optional[int] = Depends(get_house_context),
 ):
     marking = await db.get(RetailerMarking, marking_id)
-    if not marking or marking.is_deleted or marking.status != "active":
+    if not marking or marking.status != "active":
         raise HTTPException(status_code=400, detail="Marking is not active")
 
     assigned = 0
@@ -533,7 +479,7 @@ async def unassign_marking(
     house_context: Optional[int] = Depends(get_house_context),
 ):
     marking = await db.get(RetailerMarking, marking_id)
-    if not marking or marking.is_deleted:
+    if not marking:
         raise HTTPException(status_code=404, detail="Marking not found")
 
     removed = 0
@@ -713,9 +659,7 @@ async def _parse_import_file(file_path: str, db: AsyncSession) -> tuple[list[Imp
     existing_markings = {
         m.name.lower(): m
         for m in (
-            await db.execute(
-                select(RetailerMarking).where(RetailerMarking.is_deleted == False)  # noqa: E712
-            )
+            await db.execute(select(RetailerMarking))
         ).scalars().all()
     }
 
@@ -831,10 +775,7 @@ async def import_preview(
 async def _create_marking_for_import(db: AsyncSession, name: str, current_user: User) -> RetailerMarking:
     if (
         await db.execute(
-            select(RetailerMarking.id).where(
-                RetailerMarking.name == name,
-                RetailerMarking.is_deleted == False,  # noqa: E712
-            )
+            select(RetailerMarking.id).where(RetailerMarking.name == name)
         )
     ).scalar_one_or_none():
         return (await db.execute(select(RetailerMarking).where(RetailerMarking.name == name))).scalar_one()
@@ -844,10 +785,7 @@ async def _create_marking_for_import(db: AsyncSession, name: str, current_user: 
     suffix = 1
     while (
         await db.execute(
-            select(RetailerMarking.id).where(
-                RetailerMarking.code == code,
-                RetailerMarking.is_deleted == False,  # noqa: E712
-            )
+            select(RetailerMarking.id).where(RetailerMarking.code == code)
         )
     ).scalar_one_or_none():
         code = f"{base_code}{suffix}"
@@ -877,10 +815,7 @@ async def import_confirm(
     for name in new_markings:
         existing = (
             await db.execute(
-                select(RetailerMarking).where(
-                    RetailerMarking.name == name,
-                    RetailerMarking.is_deleted == False,  # noqa: E712
-                )
+                select(RetailerMarking).where(RetailerMarking.name == name)
             )
         ).scalar_one_or_none()
         if not existing:
@@ -899,10 +834,7 @@ async def import_confirm(
             continue
         marking = (
             await db.execute(
-                select(RetailerMarking).where(
-                    RetailerMarking.name == row.marking_name,
-                    RetailerMarking.is_deleted == False,  # noqa: E712
-                )
+                select(RetailerMarking).where(RetailerMarking.name == row.marking_name)
             )
         ).scalar_one_or_none()
         if not marking or marking.status != "active":

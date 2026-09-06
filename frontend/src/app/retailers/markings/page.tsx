@@ -150,7 +150,11 @@ export default function MarkingsPage() {
       setEditing(null);
       fetchMarkings();
     } catch (err: any) {
-      setFormError(err.response?.data?.detail || t("retailer_marking.toast_save_failed"));
+      if (err.response?.status === 409) {
+        setFormError(t("retailer_marking.marking_exists"));
+      } else {
+        setFormError(err.response?.data?.detail || t("retailer_marking.toast_save_failed"));
+      }
     } finally {
       setSaving(false);
     }

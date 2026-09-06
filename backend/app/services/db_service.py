@@ -109,8 +109,8 @@ async def _migrate_retailer_markings():
                 return
             logger.info("Migrating filter_tags -> retailer_markings ...")
             await conn.execute(text(
-                "INSERT INTO retailer_markings (name, code, status, description, created_at) "
-                "SELECT ft.name, UPPER(ft.name), 'active', 'Migrated from filter_tags', NOW() "
+                "INSERT INTO retailer_markings (name, code, status, description, created_at, is_deleted) "
+                "SELECT ft.name, UPPER(ft.name), 'active', 'Migrated from filter_tags', NOW(), false "
                 "FROM (SELECT DISTINCT name FROM filter_tags) ft "
                 "ON CONFLICT (name) DO NOTHING"
             ))
@@ -128,6 +128,29 @@ async def _migrate_retailer_markings():
             logger.info("Migration complete: retailer_markings")
     except Exception as e:
         logger.warning(f"Migration warning (retailer_markings): {e}")
+
+async def _migrate_retailer_markings_hard_delete():
+    """retailer_markings uses hard delete only (no soft delete).
+
+    - Sets a server default so raw INSERTs can never leave is_deleted NULL.
+    - Backfills legacy rows that carry NULL (from older raw INSERTs).
+    - Physically removes rows that were previously soft-deleted.
+    Idempotent and safe to run on every startup.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE retailer_markings ALTER COLUMN is_deleted SET DEFAULT false"
+            ))
+            await conn.execute(text(
+                "UPDATE retailer_markings SET is_deleted = false WHERE is_deleted IS NULL"
+            ))
+            await conn.execute(text(
+                "DELETE FROM retailer_markings WHERE is_deleted = true"
+            ))
+            logger.info("Migration complete: retailer_markings hard delete normalization")
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer_markings hard delete): {e}")
 
 async def _migrate_app_settings_daily_sync():
     try:
@@ -698,6 +721,7 @@ async def init_db():
         await _migrate_retailer_employee_link()
         await _migrate_retailer_filter_tag_id()
         await _migrate_retailer_markings()
+        await _migrate_retailer_markings_hard_delete()
         await _migrate_house_live_sync_enabled()
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
