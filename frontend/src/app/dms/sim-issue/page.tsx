@@ -56,6 +56,15 @@ interface IssueResultItem {
   message: string | null;
 }
 
+const matchesRetailerSearch = (r: Retailer, query: string) => {
+  const s = query.toLowerCase();
+  return (
+    (r.name || "").toLowerCase().includes(s) ||
+    (r.retailer_code || "").toLowerCase().includes(s) ||
+    (r.itop_number || "").toLowerCase().includes(s)
+  );
+};
+
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -114,6 +123,8 @@ export default function SIMIssuePage() {
   const pageSize = 10;
   const logContainerRef = useRef<HTMLDivElement>(null);
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const retailersCacheRef = useRef<{ key: string; data: Retailer[] } | null>(null);
 
   useEffect(() => {
     if (logContainerRef.current) {
@@ -137,24 +148,40 @@ export default function SIMIssuePage() {
   }, [language]);
 
   useEffect(() => {
-    if (!selectedHouseId || retailerSearch.trim() === "") {
+    searchAbortRef.current?.abort();
+    const q = retailerSearch.trim();
+    if (!selectedHouseId || q === "") {
       setRetailers([]);
+      setRetailersLoading(false);
       return;
     }
+
+    const cached = retailersCacheRef.current;
+    if (cached && q.startsWith(cached.key) && cached.data.length > 0) {
+      setRetailers(cached.data.filter((r) => matchesRetailerSearch(r, q)));
+    }
+
     const delayDebounceFn = setTimeout(async () => {
       setRetailersLoading(true);
+      const ctrl = new AbortController();
+      searchAbortRef.current = ctrl;
       try {
         const res = await apiClient.get(
-          `retailers/by-house/${selectedHouseId}?search=${encodeURIComponent(retailerSearch)}`
+          `retailers/by-house/${selectedHouseId}?search=${encodeURIComponent(q)}`,
+          { signal: ctrl.signal, timeout: 4000 }
         );
+        retailersCacheRef.current = { key: q, data: res.data };
         setRetailers(res.data);
       } catch {
-        setRetailers([]);
+        if (!ctrl.signal.aborted) setRetailers([]);
       } finally {
-        setRetailersLoading(false);
+        if (!ctrl.signal.aborted) setRetailersLoading(false);
       }
-    }, 300);
-    return () => clearTimeout(delayDebounceFn);
+    }, 200);
+    return () => {
+      clearTimeout(delayDebounceFn);
+      searchAbortRef.current?.abort();
+    };
   }, [retailerSearch, selectedHouseId]);
 
   const parsedCount = useMemo(() => {
@@ -480,7 +507,7 @@ export default function SIMIssuePage() {
                             }}
                             className="w-full text-left px-4 py-3 hover:bg-orange-50/50 dark:hover:bg-orange-500/5 flex items-center gap-3 transition-colors"
                           >
-                            <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 flex items-center justify-center flex-shrink-0">
+                            <div className="hidden lg:flex w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 items-center justify-center flex-shrink-0">
                               <Store className="w-4 h-4" />
                             </div>
                             <div className="min-w-0 flex-1">
@@ -522,7 +549,7 @@ export default function SIMIssuePage() {
                   className="p-4 bg-orange-50/30 dark:bg-orange-500/5 border border-orange-200/50 dark:border-orange-500/20 rounded-2xl flex items-center justify-between gap-3"
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
+                    <div className="hidden lg:flex w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 items-center justify-center shrink-0">
                       <Store className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">

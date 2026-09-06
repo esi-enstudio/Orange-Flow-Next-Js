@@ -125,7 +125,7 @@ async def get_retailers_by_house(
             (Retailer.retailer_code.ilike(pattern)) |
             (Retailer.itop_number.ilike(pattern))
         )
-    query = query.order_by(Retailer.name)
+    query = query.order_by(Retailer.name).limit(50)
     result = await db.execute(query)
     retailers = result.unique().scalars().all()
 
