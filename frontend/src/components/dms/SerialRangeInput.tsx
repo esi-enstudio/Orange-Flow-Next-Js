@@ -72,7 +72,7 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
         setRanges((prev) =>
           prev.map((r) => {
             if (r.id !== id) return r;
-            let updated = { ...r, [field]: value };
+            const updated = { ...r, [field]: value };
 
             if (field === "end") {
               const q = calcQty(updated.start, value);
@@ -146,14 +146,20 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
               : range.qty;
 
           return (
-            <div key={range.id} className="flex items-end gap-2">
+            <div
+              key={range.id}
+              className="flex flex-col gap-3 p-3.5 rounded-2xl border border-gray-100 dark:border-slate-800 bg-gray-50/40 dark:bg-slate-800/20 sm:p-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:flex-row sm:items-end sm:gap-2"
+            >
               {/* Start Serial */}
-              <div className="flex-1 min-w-0">
+              <div className="min-w-0 flex-1">
                 {index === 0 && (
-                  <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
+                  <label className="hidden sm:block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
                     Start
                   </label>
                 )}
+                <label className="sm:hidden block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
+                  {index === 0 ? "Start" : `Range ${index + 1} — Start`}
+                </label>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -173,12 +179,15 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
               </div>
 
               {/* End Serial */}
-              <div className="flex-1 min-w-0">
+              <div className="min-w-0 flex-1">
                 {index === 0 && (
-                  <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
+                  <label className="hidden sm:block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
                     End
                   </label>
                 )}
+                <label className="sm:hidden block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
+                  {index === 0 ? "End" : `Range ${index + 1} — End`}
+                </label>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -197,64 +206,69 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
                 />
               </div>
 
-              {/* Qty (editable — derives end) */}
-              <div className="w-20 flex-shrink-0">
-                {index === 0 && (
-                  <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
-                    Qty
-                  </label>
-                )}
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={qty}
-                  onChange={(e) =>
-                    updateField(range.id, "qty", e.target.value.replace(/\D/g, ""))
-                  }
-                  disabled={disabled}
-                  placeholder="—"
-                  className={cn(
-                    "w-full px-2 py-2.5 rounded-xl text-sm font-mono font-bold text-center border bg-gray-50/50 dark:bg-slate-800/30 focus:outline-none focus:ring-2 transition-all",
-                    qty
-                      ? "text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20 focus:ring-emerald-500"
-                      : "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-slate-700 focus:ring-gray-400",
-                    exceedsLimit && "focus:ring-red-500 border-red-300 dark:border-red-500/20"
+              <div className="flex items-end gap-2 w-full sm:w-20">
+                {/* Qty (editable — derives end) */}
+                <div className="flex-1 sm:w-20 sm:flex-none min-w-0">
+                  {index === 0 && (
+                    <label className="hidden sm:block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
+                      Qty
+                    </label>
                   )}
-                />
-              </div>
+                  <label className="sm:hidden block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
+                    {index === 0 ? "Qty" : `Range ${index + 1} — Qty`}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={qty}
+                    onChange={(e) =>
+                      updateField(range.id, "qty", e.target.value.replace(/\D/g, ""))
+                    }
+                    disabled={disabled}
+                    placeholder="—"
+                    className={cn(
+                      "w-full px-2 py-2.5 rounded-xl text-sm font-mono font-bold text-center border bg-gray-50/50 dark:bg-slate-800/30 focus:outline-none focus:ring-2 transition-all",
+                      qty
+                        ? "text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20 focus:ring-emerald-500"
+                        : "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-slate-700 focus:ring-gray-400",
+                      exceedsLimit && "focus:ring-red-500 border-red-300 dark:border-red-500/20"
+                    )}
+                  />
+                </div>
 
-              {/* Remove */}
-              {ranges.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeRange(range.id)}
-                  disabled={disabled}
-                  className="p-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all flex-shrink-0 self-end mb-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+                {/* Remove */}
+                {ranges.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeRange(range.id)}
+                    disabled={disabled}
+                    aria-label={`Remove range ${index + 1}`}
+                    className="h-11 w-11 sm:h-auto sm:w-auto sm:px-2 sm:py-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all flex-shrink-0 self-end sm:self-auto flex items-center justify-center"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
 
         {/* Total count + Add More */}
         <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <button
               type="button"
               onClick={addRange}
               disabled={disabled}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Add More
             </button>
-
             {totalSerials > 0 && (
               <span
                 className={cn(
-                  "text-xs font-bold px-3 py-1.5 rounded-xl border",
+                  "text-xs font-bold px-3 py-2 rounded-xl border inline-flex items-center",
                   exceedsLimit
                     ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20"
                     : "bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-gray-400 dark:border-slate-700"

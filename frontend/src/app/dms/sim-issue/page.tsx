@@ -110,6 +110,7 @@ export default function SIMIssuePage() {
   const [statusFilter, setStatusFilter] = useState<"All" | IssueResultItem["status"]>("All");
   const [currentPage, setCurrentPage] = useState(1);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const pageSize = 10;
   const logContainerRef = useRef<HTMLDivElement>(null);
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
@@ -214,6 +215,8 @@ export default function SIMIssuePage() {
     setLogs([]);
     setCurrentPage(1);
     setStatusFilter("All");
+    setSearchQuery("");
+    setExpandedId(null);
 
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
     const url = `${baseUrl}/dms/sim-issue/stream`;
@@ -301,7 +304,10 @@ export default function SIMIssuePage() {
   }, [processedRows, currentPage]);
 
   const handlePageChange = useCallback((page: number) => {
-    if (page >= 1 && page <= totalPages) setCurrentPage(page);
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setExpandedId(null);
+    }
   }, [totalPages]);
 
   const getStatusBadge = (status: IssueResultItem["status"]) => {
@@ -513,14 +519,14 @@ export default function SIMIssuePage() {
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="p-4 bg-orange-50/30 dark:bg-orange-500/5 border border-orange-200/50 dark:border-orange-500/20 rounded-2xl flex items-center justify-between"
+                  className="p-4 bg-orange-50/30 dark:bg-orange-500/5 border border-orange-200/50 dark:border-orange-500/20 rounded-2xl flex items-center justify-between gap-3"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 flex items-center justify-center">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
                       <Store className="w-5 h-5" />
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
                         {selectedRetailer.name}
                         {selectedRetailer.employee_itop_number && (
                           <span className="text-orange-600 dark:text-orange-400 font-mono">
@@ -528,7 +534,7 @@ export default function SIMIssuePage() {
                           </span>
                         )}
                       </p>
-                      <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-2">
+                      <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
                         <span>Code: <span className="text-orange-600 dark:text-orange-400 font-bold">{selectedRetailer.retailer_code}</span></span>
                         {selectedRetailer.itop_number && <span>• iTop: {selectedRetailer.itop_number}</span>}
                         {selectedRetailer.is_assisted && (
@@ -552,7 +558,8 @@ export default function SIMIssuePage() {
                       setStatusFilter("All");
                       setCurrentPage(1);
                     }}
-                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"
+                    className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all shrink-0"
+                    aria-label="Remove retailer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -599,12 +606,12 @@ export default function SIMIssuePage() {
                     </div>
                   </div>
 
-                  <div className="flex gap-3 text-xs font-bold">
+                  <div className="w-full sm:w-auto flex flex-wrap gap-1 text-xs font-bold">
                     <button
                       type="button"
                       onClick={() => loadExample(inputMethod)}
                       disabled={loading}
-                      className="text-orange-500 hover:text-orange-600 transition-colors flex items-center gap-1 border-b border-orange-500/20 hover:border-orange-600/50"
+                      className="text-orange-500 hover:text-orange-600 transition-colors flex items-center gap-1 border-b border-orange-500/20 hover:border-orange-600/50 py-2 px-2 min-h-[44px]"
                     >
                       <Clipboard className="w-3.5 h-3.5" />
                       {"Load Example"}
@@ -626,7 +633,7 @@ export default function SIMIssuePage() {
                         setTimeout(() => rangeInputRef.current?.resetFromValue(""), 0);
                       }}
                       disabled={loading}
-                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors py-2 px-2 min-h-[44px] flex items-center"
                     >
                       {t("common.reset")}
                     </button>
@@ -689,7 +696,7 @@ export default function SIMIssuePage() {
                   <button
                     type="submit"
                     disabled={loading || parsedCount === 0 || parsedCount > 500 || !selectedHouseId || !selectedRetailer}
-                    className="px-8 py-3.5 bg-gradient-to-tr from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-tr from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[48px]"
                   >
                     {loading ? (
                       <>
@@ -804,10 +811,10 @@ export default function SIMIssuePage() {
               animate="visible"
               className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
             >
-              <motion.h2 variants={itemVariants} className="text-xl font-black text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                <Database className="w-5 h-5 text-orange-500" />
+              <motion.h2 variants={itemVariants} className="text-xl font-black text-gray-900 dark:text-gray-100 flex items-center gap-2 flex-wrap">
+                <Database className="w-5 h-5 text-orange-500 shrink-0" />
                 {t("sim_issue.results_title")}
-                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 font-mono">
+                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 font-mono break-all">
                   ({issueInfo?.retailerName} - {issueInfo?.retailerCode})
                 </span>
               </motion.h2>
@@ -815,7 +822,7 @@ export default function SIMIssuePage() {
               <motion.button
                 variants={itemVariants}
                 onClick={exportToCSV}
-                className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-black transition-colors flex items-center gap-2"
+                className="w-full sm:w-auto px-4 py-3 min-h-[44px] bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-black transition-colors flex items-center justify-center gap-2"
               >
                 <Download className="w-4 h-4" />
                 {"Export Results (CSV)"}
@@ -872,7 +879,7 @@ export default function SIMIssuePage() {
                   variants={cardVariants}
                   initial="hidden"
                   animate="visible"
-                  onClick={() => { setStatusFilter(card.key); setCurrentPage(1); }}
+                  onClick={() => { setStatusFilter(card.key); setCurrentPage(1); setExpandedId(null); }}
                   className={cn(
                     "p-5 rounded-2xl bg-white dark:bg-slate-900 border transition-all cursor-pointer select-none relative group hover:scale-[1.02]",
                     statusFilter === card.key
@@ -908,7 +915,7 @@ export default function SIMIssuePage() {
                   <input
                     type="text"
                     value={searchQuery}
-                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); setExpandedId(null); }}
                     placeholder={"Search serial or message..."}
                     className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all font-medium"
                   />
@@ -919,8 +926,8 @@ export default function SIMIssuePage() {
                 </span>
               </div>
 
-              {/* Results Table */}
-              <div className="overflow-x-auto">
+              {/* Desktop Results Table */}
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-left border-collapse whitespace-nowrap">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-slate-800/60 bg-gray-50/20 dark:bg-slate-900/10">
@@ -963,13 +970,69 @@ export default function SIMIssuePage() {
                 </table>
               </div>
 
+              {/* Mobile Results Cards (accordion below lg) */}
+              <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800/40">
+                {paginatedRows.map((row, index) => (
+                  <div key={`${row.sim_no}-${index}`} className="px-4 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId((e) => (e === index ? null : index))}
+                      className="w-full flex items-center justify-between gap-3 py-2 text-left min-h-[44px]"
+                      aria-expanded={expandedId === index}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono font-bold text-gray-900 dark:text-gray-100 text-xs break-all">
+                          {row.sim_no}
+                        </p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                          {row.message || "-"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {getStatusBadge(row.status)}
+                        <ChevronDown
+                          className={cn(
+                            "w-4 h-4 text-gray-400 transition-transform shrink-0",
+                            expandedId === index && "rotate-180"
+                          )}
+                        />
+                      </div>
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {expandedId === index && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <p className="pb-2 pl-1 text-xs text-gray-500 dark:text-gray-400 break-words">
+                            <span className="font-bold text-gray-400 dark:text-gray-500">
+                              {t("sim_issue.table_message")}:
+                            </span>{" "}
+                            {row.message || "-"}
+                          </p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ))}
+
+                {paginatedRows.length === 0 && (
+                  <p className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
+                    {"No results found."}
+                  </p>
+                )}
+              </div>
+
               {/* Pagination Controls */}
               {totalPages > 1 && (
                 <div className="p-5 border-t border-gray-100 dark:border-slate-800/80 bg-gray-50/20 dark:bg-slate-900/10 flex items-center justify-center gap-4">
                   <button
                     onClick={() => handlePageChange(currentPage - 1)}
                     disabled={currentPage === 1}
-                    className="px-3 py-2 border border-gray-200 dark:border-slate-700/60 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-40"
+                    className="px-4 py-2.5 min-h-[44px] flex items-center border border-gray-200 dark:border-slate-700/60 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-40"
                   >
                     <ChevronLeft className="w-4 h-4 inline-block mr-1" />
                     {t("common.prev")}
@@ -978,7 +1041,7 @@ export default function SIMIssuePage() {
                   <button
                     onClick={() => handlePageChange(currentPage + 1)}
                     disabled={currentPage === totalPages}
-                    className="px-3 py-2 border border-gray-200 dark:border-slate-700/60 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-40"
+                    className="px-4 py-2.5 min-h-[44px] flex items-center border border-gray-200 dark:border-slate-700/60 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-40"
                   >
                     {t("common.next")}
                     <ChevronRight className="w-4 h-4 inline-block ml-1" />
@@ -1003,7 +1066,7 @@ export default function SIMIssuePage() {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                 transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl"
+                className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl max-h-[85vh] overflow-y-auto"
               >
                 <div className="flex flex-col items-center text-center">
                   <motion.div
