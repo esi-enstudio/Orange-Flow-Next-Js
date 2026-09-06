@@ -62,6 +62,7 @@ interface Employee {
   dms_code: string;
   itop_number: string;
   personal_number: string;
+  employee_name?: string;
   status: string;
   joining_date: string;
   salary: string;
@@ -169,6 +170,10 @@ function FieldRow({ label, value }: { label: string; value?: string | null }) {
 function profilePicUrl(pic?: string): string | null {
   if (!pic) return null;
   return `${process.env.NEXT_PUBLIC_API_URL?.replace("/api", "")}${pic}`;
+}
+
+function employeeDisplayName(m: Employee): string {
+  return (m.user?.name || m.employee_name || m.dms_code || `#${m.id}`).trim();
 }
 
 function typeBadgeColor(type: string): string {
@@ -881,12 +886,12 @@ export default function EmployeesPage() {
                             {m.user?.profile_pic ? (
                               <img src={profilePicUrl(m.user.profile_pic)!} alt="" className="w-full h-full object-cover" />
                             ) : (
-                              (m.user?.name || m.dms_code).charAt(0)
+                              employeeDisplayName(m).charAt(0)
                             )}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <p className="font-bold text-gray-900 dark:text-gray-100">{m.user?.name || m.dms_code}</p>
+                              <p className="font-bold text-gray-900 dark:text-gray-100">{employeeDisplayName(m)}</p>
                               {m.employee_type && (
                                 <span className={cn(
                                   "text-[10px] font-bold px-1.5 py-0.5 rounded-md uppercase leading-tight",
@@ -984,12 +989,12 @@ export default function EmployeesPage() {
                       {m.user?.profile_pic ? (
                         <img src={profilePicUrl(m.user.profile_pic)!} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        (m.user?.name || m.dms_code).charAt(0)
+                        employeeDisplayName(m).charAt(0)
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{m.user?.name || m.dms_code}</p>
+                        <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{employeeDisplayName(m)}</p>
                         {m.employee_type && (
                           <span className={cn(
                             "text-[10px] font-bold px-1.5 py-0.5 rounded-md uppercase leading-tight shrink-0",
@@ -1107,11 +1112,11 @@ export default function EmployeesPage() {
                   {viewingMember.user?.profile_pic ? (
                     <img src={profilePicUrl(viewingMember.user.profile_pic)!} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    (viewingMember.user?.name || viewingMember.dms_code).charAt(0)
+                    (viewingMember.user?.name || viewingMember.employee_name || viewingMember.dms_code).charAt(0)
                   )}
                 </div>
                 <div className="flex-1 text-white min-w-0">
-                  <h2 className="text-base sm:text-xl font-bold truncate">{viewingMember.user?.name || "Unnamed"}</h2>
+                  <h2 className="text-base sm:text-xl font-bold truncate">{viewingMember.user?.name || viewingMember.employee_name || viewingMember.dms_code || "Unnamed"}</h2>
                   <div className="flex flex-wrap items-center gap-1 mt-1.5">
                     <span className="text-[11px] font-mono bg-white/15 px-2 py-0.5 rounded-lg whitespace-nowrap">{viewingMember.dms_code}</span>
                     {viewingMember.house && (
@@ -1674,7 +1679,7 @@ export default function EmployeesPage() {
                     <option value={0} disabled>Select an employee...</option>
                     {reassignTargets.map(m => (
                       <option key={m.id} value={m.id}>
-                        {m.user?.name || `#${m.id}`} — {m.dms_code || "N/A"} {m.itop_number ? `(${m.itop_number})` : ""}
+                        {m.user?.name || m.employee_name || `#${m.id}`} — {m.dms_code || "N/A"} {m.itop_number ? `(${m.itop_number})` : ""}
                       </option>
                     ))}
                   </select>
