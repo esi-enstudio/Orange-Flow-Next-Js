@@ -251,7 +251,7 @@ class TransactionReportService:
             select(
                 House.code,
                 ITopUpDetail.report_date,
-                User.name.label("rso_name"),
+                func.coalesce(User.name, Employee.employee_name, Employee.dms_code, "").label("rso_name"),
                 Employee.dms_code,
                 Employee.itop_number,
                 Retailer.retailer_code,
@@ -273,7 +273,7 @@ class TransactionReportService:
             {
                 "house_code": r[0] or "",
                 "date": r[1].strftime("%d %b %Y") if r[1] else "",
-                "rso_name": r[2] or "",
+                "rso_name": r[2] or "-",
                 "rso_dms_code": r[3] or "",
                 "rso_itop_number": r[4] or "",
                 "retailer_code": r[5] or "",
