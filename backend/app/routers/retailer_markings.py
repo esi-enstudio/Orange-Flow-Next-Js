@@ -7,7 +7,7 @@ from typing import Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -177,6 +177,43 @@ async def create_marking(
         dup = "name" if existing.name == data.name else "code"
         raise HTTPException(status_code=409, detail=f"Marking {dup} already exists")
 
+    # Soft-deleted leftover with the same name/code blocks the unique index
+    # (uq_retailer_marking_name / uq_retailer_marking_code are not partial).
+    # Restore it instead of failing with an IntegrityError.
+    deleted_rows = (
+        await db.execute(
+            select(RetailerMarking)
+            .where(
+                (RetailerMarking.name == data.name)
+                | (RetailerMarking.code == data.code),
+                RetailerMarking.is_deleted == True,  # noqa: E712
+            )
+            .order_by(RetailerMarking.id.desc())
+        )
+    ).scalars().all()
+    if deleted_rows:
+        restored = deleted_rows[0]
+        restored.name = data.name.strip()
+        restored.code = data.code.strip().upper()
+        restored.description = data.description
+        restored.status = "active"
+        restored.is_deleted = False
+        restored.deleted_at = None
+        restored.deleted_by = None
+        restored.updated_by = current_user.id
+        stale_ids = [d.id for d in deleted_rows[1:]]
+        if stale_ids:
+            await db.execute(delete(RetailerMarking).where(RetailerMarking.id.in_(stale_ids)))
+        await db.commit()
+        await db.refresh(restored)
+        await log_activity(
+            db, current_user.id, current_user.name, MODULE, "restore",
+            record_id=restored.id, record_identifier=restored.name,
+            new_values={"name": restored.name, "code": restored.code, "reason": "recreated after soft delete"},
+            request=None, status_code=200,
+        )
+        return _marking_to_dict(restored)
+
     marking = RetailerMarking(
         name=data.name.strip(),
         code=data.code.strip().upper(),
@@ -280,14 +317,15 @@ async def delete_marking(
     marking = await db.get(RetailerMarking, marking_id)
     if not marking or marking.is_deleted:
         raise HTTPException(status_code=404, detail="Marking not found")
+    old = _marking_to_dict(marking)
     marking.is_deleted = True
     marking.deleted_at = now_naive()
     marking.deleted_by = current_user.id
     await db.commit()
     await log_activity(
         db, current_user.id, current_user.name, MODULE, "delete",
-        record_id=marking.id, record_identifier=marking.name,
-        old_values=_marking_to_dict(marking), new_values=None,
+        record_id=old["id"], record_identifier=old["name"],
+        old_values=old, new_values=None,
         request=None, status_code=200,
     )
     return {"message": "Marking deleted successfully"}
