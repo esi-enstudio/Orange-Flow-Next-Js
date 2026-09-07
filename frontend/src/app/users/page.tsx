@@ -343,8 +343,19 @@ export default function UsersPage() {
       toast.success(t('users.toast_delete_success'));
       setIsConfirmOpen(false);
       fetchData();
-    } catch (err) {
-      toast.error(t('users.toast_delete_failed'));
+    } catch (err: any) {
+      const data = err.response?.data;
+      const detail = data?.detail;
+      const errorCode = data?.error_code;
+
+      let errorMsg = t('users.toast_delete_failed');
+      if (errorCode) {
+        const mapped = t(`users.errors.${errorCode}`);
+        if (mapped !== `users.errors.${errorCode}`) errorMsg = mapped;
+      } else if (typeof detail === "string" && detail) {
+        errorMsg = detail;
+      }
+      toast.error(errorMsg);
     } finally {
       setFormLoading(false);
       setDeletingId(null);

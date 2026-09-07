@@ -2,20 +2,22 @@ import os
 import shutil
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response
-from sqlalchemy import select, and_, or_
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response, Request
+from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, get_house_context
 from app.schemas.user import UserSchema, UserUpdate, UserFilterParams
-from app.models.user import User
+from app.models.user import User, user_roles, user_houses
 from app.models.role import Role
 from app.models.house import House
 from app.models.employee import Employee
 from app.utils.access_control import is_admin_user
 from app.utils.validation import safe_filename, validate_excel
+from app.utils.activity_logger import log_activity
+from app.services.user_employee import ensure_supervisor_employee, conflict_detail
 from app.services.Automation.user_excel import process_user_excel, export_users_excel
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -112,6 +114,7 @@ async def get_user_filter_options(
 async def update_user(
     user_id: int,
     user_data: UserUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("users.edit"))
 ):
@@ -123,135 +126,227 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    old_values = {
+        "username": user.username,
+        "name": user.name,
+        "email": user.email,
+        "phone_number": user.phone_number,
+        "telegram_id": user.telegram_id,
+        "status": user.status,
+        "parent_id": user.parent_id,
+        "role_ids": [r.id for r in user.roles],
+        "house_ids": [h.id for h in user.houses],
+    }
+
     # Only apply fields that were explicitly present in the request body.
     fields = user_data.model_fields_set
 
-    # Username — uniqueness check (case-insensitive)
-    if "username" in fields and user_data.username and user_data.username != user.username:
-        existing = await db.execute(
-            select(User).where(User.username == user_data.username, User.id != user_id)
-        )
-        if existing.scalar_one_or_none():
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "username_already_used",
-                    "message": "Username is already taken",
-                    "fields": {"username": "Username is already taken"},
-                },
-            )
-        user.username = user_data.username
-
-    if "name" in fields and user_data.name is not None:
-        user.name = user_data.name
-
-    # Email — uniqueness check + ability to clear (empty string / null clears it)
-    if "email" in fields:
-        new_email = (user_data.email or "").strip() or None
-        if new_email != user.email:
-            if new_email is not None:
-                existing = await db.execute(
-                    select(User).where(User.email == new_email, User.id != user_id)
-                )
-                if existing.scalar_one_or_none():
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "code": "email_already_used",
-                            "message": "Email is already used by another user",
-                            "fields": {"email": "Email is already used by another user"},
-                        },
-                    )
-            user.email = new_email
-
-    if "phone_number" in fields and user_data.phone_number is not None:
-        user.phone_number = user_data.phone_number
-
-    # Telegram ID — uniqueness check + ability to clear (null clears it)
-    if "telegram_id" in fields:
-        new_telegram = user_data.telegram_id
-        if new_telegram != user.telegram_id:
-            if new_telegram is not None:
-                existing = await db.execute(
-                    select(User).where(User.telegram_id == new_telegram, User.id != user_id)
-                )
-                if existing.scalar_one_or_none():
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "code": "telegram_id_already_used",
-                            "message": "Telegram ID is already used by another user",
-                            "fields": {"telegram_id": "Telegram ID is already used by another user"},
-                        },
-                    )
-            user.telegram_id = new_telegram
-
-    if "status" in fields and user_data.status is not None:
-        user.status = user_data.status
-    if "parent_id" in fields:
-        user.parent_id = user_data.parent_id
-    if user_data.password:
-        from app.routers.deps import get_password_hash
-        user.hashed_password = get_password_hash(user_data.password)
-    if user_data.role_ids is not None:
-        roles_result = await db.execute(select(Role).where(Role.id.in_(user_data.role_ids)))
-        user.roles = list(roles_result.scalars().all())
-    if user_data.house_ids is not None:
-        houses_result = await db.execute(select(House).where(House.id.in_(user_data.house_ids)))
-        user.houses = list(houses_result.scalars().all())
-
     try:
+        # Username — uniqueness check (case-insensitive)
+        if "username" in fields and user_data.username and user_data.username != user.username:
+            existing = await db.execute(
+                select(User).where(User.username == user_data.username, User.id != user_id)
+            )
+            if existing.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "username_already_used",
+                        "message": "Username is already taken",
+                        "fields": {"username": "Username is already taken"},
+                    },
+                )
+            user.username = user_data.username
+
+        if "name" in fields and user_data.name is not None:
+            user.name = user_data.name
+
+        # Email — uniqueness check + ability to clear (empty string / null clears it)
+        if "email" in fields:
+            new_email = (user_data.email or "").strip() or None
+            if new_email != user.email:
+                if new_email is not None:
+                    existing = await db.execute(
+                        select(User).where(User.email == new_email, User.id != user_id)
+                    )
+                    if existing.scalar_one_or_none():
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "code": "email_already_used",
+                                "message": "Email is already used by another user",
+                                "fields": {"email": "Email is already used by another user"},
+                            },
+                        )
+                user.email = new_email
+
+        if "phone_number" in fields and user_data.phone_number is not None:
+            user.phone_number = user_data.phone_number
+
+        # Telegram ID — uniqueness check + ability to clear (null clears it)
+        if "telegram_id" in fields:
+            new_telegram = user_data.telegram_id
+            if new_telegram != user.telegram_id:
+                if new_telegram is not None:
+                    existing = await db.execute(
+                        select(User).where(User.telegram_id == new_telegram, User.id != user_id)
+                    )
+                    if existing.scalar_one_or_none():
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "code": "telegram_id_already_used",
+                                "message": "Telegram ID is already used by another user",
+                                "fields": {"telegram_id": "Telegram ID is already used by another user"},
+                            },
+                        )
+                user.telegram_id = new_telegram
+
+        if "status" in fields and user_data.status is not None:
+            user.status = user_data.status
+        if "parent_id" in fields:
+            user.parent_id = user_data.parent_id
+        if user_data.password:
+            from app.routers.deps import get_password_hash
+            user.hashed_password = get_password_hash(user_data.password)
+        if user_data.role_ids is not None:
+            roles_result = await db.execute(select(Role).where(Role.id.in_(user_data.role_ids)))
+            user.roles = list(roles_result.scalars().all())
+        if user_data.house_ids is not None:
+            houses_result = await db.execute(select(House).where(House.id.in_(user_data.house_ids)))
+            user.houses = list(houses_result.scalars().all())
+
+        # Auto-create an Employee profile when the user holds a Supervisor role.
+        # Added in the SAME transaction so the user update and the employee
+        # profile commit atomically — no partial success / misleading error.
+        if any("supervisor" in role.name.lower() for role in user.roles):
+            await ensure_supervisor_employee(db, user)
+
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "conflict",
-                "message": "Another user already has this username, email or Telegram ID",
-                "fields": {},
-            },
-        )
+        raise HTTPException(status_code=409, detail=conflict_detail(exc)) from exc
+
     await db.refresh(user)
 
-    # Auto-create an Employee profile when the user holds a Supervisor role.
-    # Avoid conflicts with an existing record (by user_id OR by the SUP-{id} dms_code).
-    for role in user.roles:
-        if "supervisor" in role.name.lower():
-            existing_emp = (
-                await db.execute(
-                    select(Employee).where(
-                        or_(Employee.user_id == user.id, Employee.dms_code == f"SUP-{user.id}")
-                    )
-                )
-            ).scalars().all()
-            if not existing_emp:
-                first_house = user.houses[0] if user.houses else (
-                    await db.execute(select(House).limit(1))
-                ).scalar_one_or_none()
-                if first_house:
-                    emp = Employee(
-                        user_id=user.id,
-                        house_id=first_house.id,
-                        dms_code=f"SUP-{user.id}",
-                        type="Supervisor",
-                        status="Active",
-                    )
-                    db.add(emp)
-                    try:
-                        await db.commit()
-                    except IntegrityError:
-                        await db.rollback()
-            break
+    try:
+        await log_activity(
+            db=db,
+            user_id=current_user.id,
+            user_name=current_user.name or current_user.username,
+            module="user",
+            action="edit",
+            record_id=user.id,
+            record_identifier=user.username or user.email,
+            old_values=old_values,
+            new_values={
+                "username": user.username,
+                "name": user.name,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "telegram_id": user.telegram_id,
+                "status": user.status,
+                "parent_id": user.parent_id,
+                "role_ids": [r.id for r in user.roles],
+                "house_ids": [h.id for h in user.houses],
+            },
+            request=request,
+            status_code=200,
+        )
+    except Exception as log_exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Activity log failed for user update ({user_id}): {log_exc}")
+
     return user
 
 @router.delete("/{user_id}")
-async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("users.delete"))):
+async def delete_user(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("users.delete")),
+):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    await db.delete(user)
-    await db.commit()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "cannot_delete_self",
+                "message": "You cannot delete your own account",
+                "fields": {},
+            },
+        )
+
+    # A linked Employee profile holds business data (links, performance) —
+    # deleting it silently would destroy data. Require unassignment first.
+    emp_result = await db.execute(select(Employee.id, Employee.employee_id, Employee.dms_code).where(Employee.user_id == user_id).limit(1))
+    emp_row = emp_result.first()
+    if emp_row is not None:
+        emp_label = emp_row.employee_id or emp_row.dms_code or f"#{user_id}"
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "user_has_employee_profile",
+                "message": f"Cannot delete user: a linked employee profile ({emp_label}) exists. Unassign the employee first.",
+                "fields": {},
+            },
+        )
+
+    # Block deletion while other users report to this user.
+    child_result = await db.execute(select(User.id).where(User.parent_id == user_id).limit(1))
+    if child_result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "user_has_subordinates",
+                "message": "Cannot delete user: other users report to this user. Reassign them before deleting.",
+                "fields": {},
+            },
+        )
+
+    old_values = {
+        "username": user.username,
+        "name": user.name,
+        "email": user.email,
+        "phone_number": user.phone_number,
+        "telegram_id": user.telegram_id,
+        "status": user.status,
+        "parent_id": user.parent_id,
+        "role_ids": [r.id for r in user.roles],
+        "house_ids": [h.id for h in user.houses],
+    }
+
+    try:
+        # Clear pivot rows so DB-level FKs don't block the hard delete.
+        await db.execute(delete(user_roles).where(user_roles.c.user_id == user_id))
+        await db.execute(delete(user_houses).where(user_houses.c.user_id == user_id))
+        await db.delete(user)
+        await db.commit()
+
+        await log_activity(
+            db=db,
+            user_id=current_user.id,
+            user_name=current_user.name or current_user.username,
+            module="user",
+            action="delete",
+            record_id=user.id,
+            record_identifier=user.username or user.email,
+            old_values=old_values,
+            new_values=None,
+            request=request,
+            status_code=200,
+        )
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=conflict_detail(exc)) from exc
+    except Exception as log_exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Activity log failed for user delete ({user_id}): {log_exc}")
+
     return {"message": "User deleted successfully"}
 
 @router.post("/import")

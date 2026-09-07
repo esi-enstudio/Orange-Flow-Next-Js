@@ -322,9 +322,13 @@ export const translations = {
       field_error_password: "Password is required",
       errors: {
         update_failed: "Failed to update user. Please check the details and try again.",
+        conflict: "This username, email or Telegram ID is already used by another user.",
         email_already_used: "This email is already used by another user",
         telegram_id_already_used: "This Telegram ID is already used by another user",
         username_already_used: "Username is already taken",
+        cannot_delete_self: "You cannot delete your own account",
+        user_has_employee_profile: "Cannot delete user: a linked employee profile exists. Unassign the employee first.",
+        user_has_subordinates: "Cannot delete user: other users report to this user. Reassign them before deleting.",
       },
     },
     retailers: {
@@ -3428,9 +3432,13 @@ live_monitor: "লাইভ মনিটর",
       field_error_password: "Password is required",
       errors: {
         update_failed: "ব্যবহারকারী আপডেট করা যায়নি। বিস্তারিত পরীক্ষা করে আবার চেষ্টা করুন।",
+        conflict: "এই ইউজারনেম, ইমেইল বা টেলিগ্রাম আইডিটি অন্য কোনো ব্যবহারকারী ব্যবহার করছে।",
         email_already_used: "এই ইমেইলটি অন্য কোনো ব্যবহারকারী ব্যবহার করছে",
         telegram_id_already_used: "এই টেলিগ্রাম আইডিটি অন্য কোনো ব্যবহারকারী ব্যবহার করছে",
         username_already_used: "এই ইউজারনেমটি ইতিমধ্যেই ব্যবহৃত হচ্ছে",
+        cannot_delete_self: "আপনি নিজের অ্যাকাউন্ট মুছে ফেলতে পারবেন না",
+        user_has_employee_profile: "ব্যবহারকারী মুছে ফেলা যাবে না: একটি সংযুক্ত কর্মচারী প্রোফাইল বিদ্যমান। আগে কর্মচারীটি আনঅ্যাসাইন করুন।",
+        user_has_subordinates: "ব্যবহারকারী মুছে ফেলা যাবে না: অন্য ব্যবহারকারীরা এই ব্যবহারকারীর অধীনে কাজ করে। আগে তাদের পুনরায় নিয়োগ করুন।",
       },
     },
     retailers: {

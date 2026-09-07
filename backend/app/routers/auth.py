@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from PIL import Image
 from pydantic import EmailStr
 
@@ -31,7 +31,8 @@ from app.schemas.house import HouseSchema
 from app.models.user import User
 from app.models.role import Role
 from app.models.house import House
-from app.models.employee import Employee
+from app.services.user_employee import ensure_supervisor_employee, conflict_detail
+from app.utils.activity_logger import log_activity
 from app.utils.validation import validate_image, MAX_FILE_SIZE
 import logging
 
@@ -40,15 +41,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserSchema)
-async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("users.create"))):
+async def register(
+    user_data: UserCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("users.create")),
+):
     username_exists = await db.execute(select(User).where(User.username == user_data.username))
     if username_exists.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise HTTPException(status_code=409, detail={
+            "code": "username_already_used",
+            "message": "Username is already taken",
+            "fields": {"username": "Username is already taken"},
+        })
 
     if user_data.email:
         email_exists = await db.execute(select(User).where(User.email == user_data.email))
         if email_exists.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(status_code=409, detail={
+                "code": "email_already_used",
+                "message": "Email is already used by another user",
+                "fields": {"email": "Email is already used by another user"},
+            })
 
     new_user = User(
         username=user_data.username,
@@ -69,30 +83,48 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db), cu
         new_user.houses = houses_res.scalars().all()
 
     db.add(new_user)
-    await db.commit()
 
-    result = await db.execute(
-        select(User).options(selectinload(User.roles), selectinload(User.houses))
-        .where(User.id == new_user.id)
-    )
-    new_user = result.unique().scalar_one_or_none()
+    try:
+        # flush() assigns new_user.id so the supervisor profile (created below in
+        # the same transaction) can be persisted atomically with the user.
+        await db.flush()
+        # Auto-create an Employee profile when the user holds a Supervisor role.
+        if any("supervisor" in role.name.lower() for role in new_user.roles):
+            await ensure_supervisor_employee(db, new_user)
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=conflict_detail(exc)) from exc
 
-    for role in new_user.roles:
-        if "supervisor" in role.name.lower():
-            existing_emp = (await db.execute(select(Employee).where(Employee.user_id == new_user.id))).scalar_one_or_none()
-            if not existing_emp:
-                first_house = new_user.houses[0] if new_user.houses else (await db.execute(select(House).limit(1))).scalar_one_or_none()
-                if first_house:
-                    emp = Employee(
-                        user_id=new_user.id,
-                        house_id=first_house.id,
-                        dms_code=f"SUP-{new_user.id}",
-                        type="Supervisor",
-                        status="Active"
-                    )
-                    db.add(emp)
-                    await db.commit()
-            break
+    await db.refresh(new_user)
+
+    try:
+        await log_activity(
+            db=db,
+            user_id=current_user.id,
+            user_name=current_user.name or current_user.username,
+            module="user",
+            action="create",
+            record_id=new_user.id,
+            record_identifier=new_user.username or new_user.email,
+            old_values=None,
+            new_values={
+                "username": new_user.username,
+                "name": new_user.name,
+                "email": new_user.email,
+                "phone_number": new_user.phone_number,
+                "telegram_id": new_user.telegram_id,
+                "status": new_user.status,
+                "parent_id": new_user.parent_id,
+                "role_ids": [r.id for r in new_user.roles],
+                "house_ids": [h.id for h in new_user.houses],
+            },
+            request=request,
+            status_code=201,
+        )
+    except Exception as log_exc:
+        logger.warning(f"Activity log failed for user create ({new_user.id}): {log_exc}")
+
     return new_user
 
 @router.post("/login", response_model=Token)
