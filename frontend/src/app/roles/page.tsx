@@ -36,10 +36,17 @@ interface Role {
   permissions: Permission[];
 }
 
+interface ReportsSubmenuGroup {
+  key: string;
+  label: string;
+  perms: Permission[];
+}
+
 interface ModuleGroup {
   key: string;
   displayName: string;
   perms: Permission[];
+  submenus?: ReportsSubmenuGroup[];
 }
 
 const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
@@ -101,6 +108,26 @@ const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
   settings: "Settings",
   expenses: "Expenses",
 };
+
+interface ReportsSubmenuDef {
+  key: string;
+  labelKey: string;
+  moduleKey: string;
+}
+
+const REPORTS_SUBMENUS: ReportsSubmenuDef[] = [
+  { key: "activations", labelKey: "nav.report_activations", moduleKey: "activations" },
+  { key: "recharge", labelKey: "nav.report_recharge", moduleKey: "recharge_dashboard" },
+  { key: "transactions", labelKey: "nav.report_transactions", moduleKey: "transactions" },
+  { key: "active_lso", labelKey: "nav.report_active_lso", moduleKey: "active_lso" },
+  { key: "active_sso", labelKey: "nav.report_active_sso", moduleKey: "active_sso" },
+  { key: "live_activations", labelKey: "nav.report_live_activations", moduleKey: "live_activations" },
+  { key: "ga_report_builder", labelKey: "nav.report_ga_builder", moduleKey: "ga_report_builder" },
+  { key: "scratch_card", labelKey: "nav.report_scratch_card", moduleKey: "scratch_card" },
+  { key: "sim_issues", labelKey: "nav.report_sim_issue", moduleKey: "sim_issues" },
+  { key: "visits", labelKey: "nav.visits", moduleKey: "visits" },
+  { key: "orders", labelKey: "nav.orders", moduleKey: "orders" },
+];
 
 const ACRONYM_WORDS = new Set(["ga", "dms", "sim", "otp", "ev", "bp", "sc", "lso", "sso", "cc"]);
 
@@ -289,6 +316,7 @@ export default function RolesPage() {
   const [selectedPermissions, setSelectedPermissions] = useState<number[]>([]);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [reportsExpanded, setReportsExpanded] = useState<Record<string, boolean>>({});
   const [formLoading, setFormLoading] = useState(false);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -346,13 +374,41 @@ export default function RolesPage() {
       const key = moduleKeyOfPermission(perm.name);
       (map[key] = map[key] || []).push(perm);
     }
-    return Object.entries(map)
+
+    const folded = new Set(REPORTS_SUBMENUS.map((d) => d.moduleKey));
+    folded.add("reports");
+
+    const modules: ModuleGroup[] = Object.entries(map)
+      .filter(([key]) => !folded.has(key))
       .map(([key, perms]) => ({
         key,
         displayName: displayNameForModule(key) || t("roles.others_module"),
         perms,
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+    const submenus: ReportsSubmenuGroup[] = REPORTS_SUBMENUS.map((def) => ({
+      key: def.key,
+      label: t(def.labelKey),
+      perms: map[def.moduleKey] || [],
+    }));
+    submenus.push({
+      key: "reports",
+      label: t("roles.reports_general"),
+      perms: map["reports"] || [],
+    });
+
+    const reportSubmenus = submenus.filter((s) => s.perms.length > 0);
+    if (reportSubmenus.length > 0) {
+      modules.push({
+        key: "reports",
+        displayName: displayNameForModule("reports") || t("roles.others_module"),
+        perms: [],
+        submenus: reportSubmenus,
+      });
+    }
+
+    return modules.sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [allPermissions, t]);
 
   const normalizedSearch = search.trim().toLowerCase();
@@ -361,8 +417,18 @@ export default function RolesPage() {
     if (!normalizedSearch) return groupedModules;
     const result: ModuleGroup[] = [];
     for (const mod of groupedModules) {
-      const matching = mod.perms.filter((p) => p.name.toLowerCase().includes(normalizedSearch));
-      if (matching.length) result.push({ ...mod, perms: matching });
+      if (mod.submenus) {
+        const submenus = mod.submenus
+          .map((sub) => ({
+            ...sub,
+            perms: sub.perms.filter((p) => p.name.toLowerCase().includes(normalizedSearch)),
+          }))
+          .filter((sub) => sub.perms.length > 0);
+        if (submenus.length) result.push({ ...mod, perms: [], submenus });
+      } else {
+        const matching = mod.perms.filter((p) => p.name.toLowerCase().includes(normalizedSearch));
+        if (matching.length) result.push({ ...mod, perms: matching });
+      }
     }
     return result;
   }, [groupedModules, normalizedSearch]);
@@ -384,14 +450,25 @@ export default function RolesPage() {
   const openEditDrawer = (role: Role) => {
     const ids = role.permissions.map((p) => p.id);
     const exp: Record<string, boolean> = {};
+    const expReports: Record<string, boolean> = {};
     for (const mod of groupedModules) {
-      if (mod.perms.some((p) => ids.includes(p.id))) exp[mod.key] = true;
+      if (mod.submenus) {
+        for (const sub of mod.submenus) {
+          if (sub.perms.some((p) => ids.includes(p.id))) {
+            exp[mod.key] = true;
+            expReports[sub.key] = true;
+          }
+        }
+      } else if (mod.perms.some((p) => ids.includes(p.id))) {
+        exp[mod.key] = true;
+      }
     }
     setEditingRole(role);
     setRoleName(role.name);
     setSelectedPermissions(ids);
     setSearch("");
     setExpanded(exp);
+    setReportsExpanded(expReports);
     setDrawerOpen(true);
   };
 
@@ -712,11 +789,18 @@ export default function RolesPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
                       setExpanded(
                         Object.fromEntries(filteredModules.map((m) => [m.key, true]))
-                      )
-                    }
+                      );
+                      setReportsExpanded(
+                        Object.fromEntries(
+                          filteredModules.flatMap((m) =>
+                            m.submenus ? m.submenus.map((s) => [s.key, true]) : []
+                          )
+                        )
+                      );
+                    }}
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
                   >
                     <ChevronDown className="w-3.5 h-3.5 rotate-180" />
@@ -724,7 +808,10 @@ export default function RolesPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setExpanded({})}
+                    onClick={() => {
+                      setExpanded({});
+                      setReportsExpanded({});
+                    }}
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
                   >
                     <ChevronDown className="w-3.5 h-3.5" />
@@ -765,9 +852,10 @@ export default function RolesPage() {
                   </div>
                 ) : (
                   filteredModules.map((mod) => {
-                    const permIds = mod.perms.map((p) => p.id);
-                    const { isFullySelected, isPartiallySelected, selectedInModule } =
-                      moduleState(permIds);
+                    const parentPermIds = mod.submenus
+                      ? mod.submenus.flatMap((s) => s.perms.map((p) => p.id))
+                      : mod.perms.map((p) => p.id);
+                    const parentState = moduleState(parentPermIds);
                     const isExpanded = normalizedSearch ? true : !!expanded[mod.key];
 
                     return (
@@ -782,9 +870,9 @@ export default function RolesPage() {
                           className="min-h-[52px] px-4 py-3 bg-gray-50/60 dark:bg-slate-800/40 flex items-center gap-3 cursor-pointer select-none"
                         >
                           <Checkbox
-                            checked={isFullySelected}
-                            indeterminate={isPartiallySelected}
-                            onChange={() => toggleModule(permIds)}
+                            checked={parentState.isFullySelected}
+                            indeterminate={parentState.isPartiallySelected}
+                            onChange={() => toggleModule(parentPermIds)}
                             label={mod.displayName}
                           />
                           <span className="flex-1 min-w-0 flex items-center gap-2">
@@ -796,14 +884,14 @@ export default function RolesPage() {
                           <span
                             className={cn(
                               "text-[10px] font-bold tabular-nums px-2 py-1 rounded-md",
-                              selectedInModule > 0
+                              parentState.selectedInModule > 0
                                 ? "bg-primary-100 dark:bg-primary-500/15 text-primary-700 dark:text-primary-400"
                                 : "bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400"
                             )}
                           >
                             {t("roles.module_count", {
-                              selected: selectedInModule,
-                              total: mod.perms.length,
+                              selected: parentState.selectedInModule,
+                              total: parentPermIds.length,
                             })}
                           </span>
                           <ChevronDown
@@ -814,7 +902,73 @@ export default function RolesPage() {
                           />
                         </div>
 
-                        {isExpanded && (
+                        {isExpanded && mod.submenus && (
+                          <div className="p-2 sm:p-3 space-y-2">
+                            {mod.submenus.map((sub) => {
+                              const subIds = sub.perms.map((p) => p.id);
+                              const subState = moduleState(subIds);
+                              const subExpanded = normalizedSearch ? true : !!reportsExpanded[sub.key];
+                              return (
+                                <div
+                                  key={sub.key}
+                                  className="bg-gray-50/40 dark:bg-slate-800/20 rounded-xl border border-gray-100 dark:border-slate-800/60 overflow-hidden"
+                                >
+                                  <div
+                                    onClick={() =>
+                                      setReportsExpanded((prev) => ({ ...prev, [sub.key]: !subExpanded }))
+                                    }
+                                    className="min-h-[44px] px-3 py-2 flex items-center gap-3 cursor-pointer select-none"
+                                  >
+                                    <Checkbox
+                                      checked={subState.isFullySelected}
+                                      indeterminate={subState.isPartiallySelected}
+                                      onChange={() => toggleModule(subIds)}
+                                      label={sub.label}
+                                    />
+                                    <span className="flex-1 min-w-0 flex items-center gap-2">
+                                      <span className="text-sm font-semibold text-gray-600 dark:text-gray-300 truncate">
+                                        {sub.label}
+                                      </span>
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        "text-[10px] font-bold tabular-nums px-2 py-1 rounded-md",
+                                        subState.selectedInModule > 0
+                                          ? "bg-primary-100 dark:bg-primary-500/15 text-primary-700 dark:text-primary-400"
+                                          : "bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400"
+                                      )}
+                                    >
+                                      {t("roles.module_count", {
+                                        selected: subState.selectedInModule,
+                                        total: subIds.length,
+                                      })}
+                                    </span>
+                                    <ChevronDown
+                                      className={cn(
+                                        "w-4 h-4 text-gray-400 transition-transform shrink-0",
+                                        subExpanded && "rotate-180"
+                                      )}
+                                    />
+                                  </div>
+                                  {subExpanded && (
+                                    <div className="p-2 sm:p-3 space-y-2 border-t border-gray-100 dark:border-slate-800/60">
+                                      {sub.perms.map((perm) => (
+                                        <PermissionRow
+                                          key={perm.id}
+                                          perm={perm}
+                                          selected={selectedSet.has(perm.id)}
+                                          onToggle={() => togglePermission(perm.id)}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {isExpanded && !mod.submenus && (
                           <div className="p-3 space-y-2">
                             {mod.perms.map((perm) => (
                               <PermissionRow
