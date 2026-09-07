@@ -180,10 +180,16 @@ export default function UsersPage() {
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
+    const emailValue = formData.email.trim();
     if (!formData.name.trim()) errors.name = t('users.field_error_name');
     if (!formData.username.trim()) errors.username = t('users.field_error_username');
-    if (!formData.email.trim()) errors.email = t('users.field_error_email');
-    if (!editingUser && !formData.password.trim()) errors.password = t('users.field_error_password');
+    if (emailValue && !/^\S+@\S+\.\S+$/.test(emailValue)) {
+      errors.email = t('users.field_error_email_invalid');
+    }
+    if (!editingUser) {
+      if (!emailValue) errors.email = t('users.field_error_email');
+      if (!formData.password.trim()) errors.password = t('users.field_error_password');
+    }
     
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -230,8 +236,38 @@ export default function UsersPage() {
       setIsFormModalOpen(false);
       fetchData();
     } catch (err: any) {
-      const detail = err.response?.data?.detail;
-      const errorMsg = typeof detail === "string" ? detail : t('common.action_failed');
+      const data = err.response?.data;
+      const detail = data?.detail;
+      const errorCode = data?.error_code;
+
+      let errorMsg = t('users.errors.update_failed');
+      if (errorCode) {
+        const mapped = t(`users.errors.${errorCode}`);
+        if (mapped !== `users.errors.${errorCode}`) errorMsg = mapped;
+      } else if (typeof detail === "string" && detail) {
+        errorMsg = detail;
+      }
+
+      // Map backend errors to the matching field so they show under the input.
+      const fieldMap: Record<string, string> = {};
+      if (errorCode) {
+        const match = errorCode.match(/^(.*?)_(already_used|taken)$/);
+        if (match) {
+          const mapped = t(`users.errors.${errorCode}`);
+          fieldMap[match[1]] = mapped !== `users.errors.${errorCode}` ? mapped : errorMsg;
+        }
+      }
+      if (Array.isArray(data?._fieldErrors)) {
+        for (const fe of data._fieldErrors) {
+          if (typeof fe === "object" && fe !== null) {
+            const e = fe as { loc?: unknown[]; msg?: string };
+            const field = Array.isArray(e.loc) ? String(e.loc[e.loc.length - 1]) : "";
+            if (field && !fieldMap[field]) fieldMap[field] = e.msg || t('users.errors.update_failed');
+          }
+        }
+      }
+
+      setFieldErrors(fieldMap);
       setFormError(errorMsg);
       toast.error(errorMsg);
     } finally {
@@ -731,7 +767,7 @@ export default function UsersPage() {
                       <InputField label={t('users.field_username')} required value={formData.username} onChange={(v: string) => setFormData({...formData, username: v.toLowerCase()})} placeholder={t('users.field_username_placeholder')} leftIcon={Hash} error={fieldErrors.username} />
                       <InputField label={t('users.field_phone')} type="number" value={formData.phone_number} onChange={(v: string) => setFormData({...formData, phone_number: v})} placeholder={t('users.field_phone_placeholder')} leftIcon={Phone} />
                     </div>
-                    <InputField label={t('users.field_email')} required type="email" value={formData.email} onChange={(v: string) => setFormData({...formData, email: v})} placeholder={t('users.field_email_placeholder')} leftIcon={Mail} error={fieldErrors.email} />
+                    <InputField label={t('users.field_email')} required={!editingUser} type="email" value={formData.email} onChange={(v: string) => setFormData({...formData, email: v})} placeholder={t('users.field_email_placeholder')} leftIcon={Mail} error={fieldErrors.email} />
                     <InputField label={t('users.field_password')} required={!editingUser} type="password" value={formData.password} onChange={(v: string) => setFormData({...formData, password: v})} placeholder={t('users.field_password_placeholder')} leftIcon={Lock} error={fieldErrors.password} />
                     
                     <div className="grid grid-cols-2 gap-4">

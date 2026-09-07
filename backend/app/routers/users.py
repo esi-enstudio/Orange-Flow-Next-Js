@@ -3,7 +3,8 @@ import shutil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -119,18 +120,76 @@ async def update_user(
         .where(User.id == user_id)
     )
     user = result.unique().scalar_one_or_none()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    if user_data.username is not None and user_data.username != user.username:
-        existing = await db.execute(select(User).where(User.username == user_data.username))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Only apply fields that were explicitly present in the request body.
+    fields = user_data.model_fields_set
+
+    # Username — uniqueness check (case-insensitive)
+    if "username" in fields and user_data.username and user_data.username != user.username:
+        existing = await db.execute(
+            select(User).where(User.username == user_data.username, User.id != user_id)
+        )
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Username already taken")
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "username_already_used",
+                    "message": "Username is already taken",
+                    "fields": {"username": "Username is already taken"},
+                },
+            )
         user.username = user_data.username
-    if user_data.name is not None: user.name = user_data.name
-    if user_data.email is not None: user.email = user_data.email
-    if user_data.phone_number is not None: user.phone_number = user_data.phone_number
-    if user_data.telegram_id is not None: user.telegram_id = user_data.telegram_id
-    if user_data.status is not None: user.status = user_data.status
-    if user_data.parent_id is not None: user.parent_id = user_data.parent_id
+
+    if "name" in fields and user_data.name is not None:
+        user.name = user_data.name
+
+    # Email — uniqueness check + ability to clear (empty string / null clears it)
+    if "email" in fields:
+        new_email = (user_data.email or "").strip() or None
+        if new_email != user.email:
+            if new_email is not None:
+                existing = await db.execute(
+                    select(User).where(User.email == new_email, User.id != user_id)
+                )
+                if existing.scalar_one_or_none():
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "email_already_used",
+                            "message": "Email is already used by another user",
+                            "fields": {"email": "Email is already used by another user"},
+                        },
+                    )
+            user.email = new_email
+
+    if "phone_number" in fields and user_data.phone_number is not None:
+        user.phone_number = user_data.phone_number
+
+    # Telegram ID — uniqueness check + ability to clear (null clears it)
+    if "telegram_id" in fields:
+        new_telegram = user_data.telegram_id
+        if new_telegram != user.telegram_id:
+            if new_telegram is not None:
+                existing = await db.execute(
+                    select(User).where(User.telegram_id == new_telegram, User.id != user_id)
+                )
+                if existing.scalar_one_or_none():
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "telegram_id_already_used",
+                            "message": "Telegram ID is already used by another user",
+                            "fields": {"telegram_id": "Telegram ID is already used by another user"},
+                        },
+                    )
+            user.telegram_id = new_telegram
+
+    if "status" in fields and user_data.status is not None:
+        user.status = user_data.status
+    if "parent_id" in fields:
+        user.parent_id = user_data.parent_id
     if user_data.password:
         from app.routers.deps import get_password_hash
         user.hashed_password = get_password_hash(user_data.password)
@@ -140,24 +199,49 @@ async def update_user(
     if user_data.house_ids is not None:
         houses_result = await db.execute(select(House).where(House.id.in_(user_data.house_ids)))
         user.houses = list(houses_result.scalars().all())
-    await db.commit()
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "conflict",
+                "message": "Another user already has this username, email or Telegram ID",
+                "fields": {},
+            },
+        )
     await db.refresh(user)
+
+    # Auto-create an Employee profile when the user holds a Supervisor role.
+    # Avoid conflicts with an existing record (by user_id OR by the SUP-{id} dms_code).
     for role in user.roles:
         if "supervisor" in role.name.lower():
-            existing_emp = (await db.execute(select(Employee).where(Employee.user_id == user.id))).scalar_one_or_none()
+            existing_emp = (
+                await db.execute(
+                    select(Employee).where(
+                        or_(Employee.user_id == user.id, Employee.dms_code == f"SUP-{user.id}")
+                    )
+                )
+            ).scalars().all()
             if not existing_emp:
-                first_house = user.houses[0] if user.houses else (await db.execute(select(House).limit(1))).scalar_one_or_none()
+                first_house = user.houses[0] if user.houses else (
+                    await db.execute(select(House).limit(1))
+                ).scalar_one_or_none()
                 if first_house:
-                    from app.routers.deps import get_password_hash
                     emp = Employee(
                         user_id=user.id,
                         house_id=first_house.id,
                         dms_code=f"SUP-{user.id}",
                         type="Supervisor",
-                        status="Active"
+                        status="Active",
                     )
                     db.add(emp)
-                    await db.commit()
+                    try:
+                        await db.commit()
+                    except IntegrityError:
+                        await db.rollback()
             break
     return user
 

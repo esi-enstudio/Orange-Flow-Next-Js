@@ -30,14 +30,15 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    const data = error.response?.data;
+    const detail = data?.detail;
     let message = "Something went wrong";
-    const detail = error.response?.data?.detail;
-    
+
     if (typeof detail === "string") {
       message = detail;
     } else if (Array.isArray(detail)) {
       // Handle FastAPI validation errors (Pydantic v2 style)
-      error.response.data._fieldErrors = detail;
+      data._fieldErrors = detail;
       const parts = detail.map((err: unknown) => {
         if (typeof err === 'string') return err;
         if (typeof err === 'object' && err !== null) {
@@ -49,15 +50,33 @@ apiClient.interceptors.response.use(
         return 'Unknown error';
       });
       message = parts.join("; ");
-      error.response.data.detail = message;
-    } else if (detail && typeof detail === 'object') {
-      // Handle case where detail is a single object
-      message = detail.msg || JSON.stringify(detail);
-      error.response.data.detail = message;
+      data.detail = message;
+    } else if (detail && typeof detail === "object") {
+      // Handle structured backend errors: { code, message, error_code, fields }
+      const d = detail as Record<string, unknown>;
+      if (d.fields && typeof d.fields === "object") {
+        data._fieldErrors = d.fields;
+      }
+      const code =
+        typeof d.error_code === "string" ? d.error_code :
+        typeof d.code === "string" ? d.code : "";
+      message = (typeof d.message === "string" && d.message) ||
+                (typeof d.msg === "string" && d.msg) ||
+                JSON.stringify(d);
+      data.detail = message;
+      if (code) data.error_code = code;
+    } else if (data?.error && typeof data.error === "object") {
+      // Handle the global handler envelope: { success:false, error:{ code, message } }
+      const e = data.error as Record<string, unknown>;
+      message = (typeof e.message === "string" && e.message) ||
+                (typeof e.msg === "string" && e.msg) ||
+                "Something went wrong";
+      data.detail = message;
+      if (typeof e.code === "string") data.error_code = e.code;
     } else if (error.message) {
       message = error.message;
     }
-    
+
     error.message = message;
     return Promise.reject(error);
   }
