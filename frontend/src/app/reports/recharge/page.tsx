@@ -585,6 +585,7 @@ function getStoredReportType(): "recharge" | "ev_secondary" {
 
 export default function RechargeDashboardPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
+  const canViewRechargeReport = hasPermission("reports.view") || hasPermission("recharge_dashboard.view");
   const router = useRouter();
   const { t, language } = useLanguage();
 
@@ -617,11 +618,11 @@ export default function RechargeDashboardPage() {
   };
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("reports.view")) {
+    if (!authLoading && !canViewRechargeReport) {
       const timer = setTimeout(() => router.push("/"), 5000);
       return () => clearTimeout(timer);
     }
-  }, [authLoading, hasPermission, router]);
+  }, [authLoading, canViewRechargeReport, router]);
 
   const fetchDashboard = useCallback(async () => {
     if (!selectedHouseId) {
@@ -643,18 +644,18 @@ export default function RechargeDashboardPage() {
   }, [month, year, selectedHouseId, reportType]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("reports.view")) {
+    if (!authLoading && canViewRechargeReport) {
       apiClient.get("houses/accessible").then(res => {
         setHouses(res.data);
       }).catch(() => {});
     }
-  }, [authLoading, hasPermission]);
+  }, [authLoading, canViewRechargeReport]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("reports.view")) {
+    if (!authLoading && canViewRechargeReport) {
       fetchDashboard();
     }
-  }, [authLoading, hasPermission, month, year, selectedHouseId, reportType]);
+  }, [authLoading, canViewRechargeReport, month, year, selectedHouseId, reportType]);
 
   const handleExport = async () => {
     if (!data) return;
@@ -691,7 +692,7 @@ export default function RechargeDashboardPage() {
     return monthNames[m as keyof typeof monthNames] || "";
   };
 
-  if (!authLoading && !hasPermission("reports.view")) {
+  if (!authLoading && !canViewRechargeReport) {
     return <AccessDenied />;
   }
 

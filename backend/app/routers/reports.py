@@ -10,7 +10,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, date, timedelta
 from calendar import monthrange
 
-from app.routers.deps import get_db, has_permission, get_house_context, get_current_user
+from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context, get_current_user
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.user import User
 from app.models.activation import Activation
@@ -797,7 +797,7 @@ async def get_activation_report(
     page_size: int = Query(50, ge=1, le=500),
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("reports.view")),
+    current_user: User = Depends(has_any_permission(["reports.view", "activations.view"])),
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
@@ -932,7 +932,7 @@ async def get_activation_daily_stats(
     exclude_tags: Optional[str] = Query(None),
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("reports.view")),
+    current_user: User = Depends(has_any_permission(["reports.view", "activations.view"])),
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
@@ -1359,7 +1359,7 @@ async def get_activation_dashboard(
     supervisor_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for Supervisor Performance"),
     supervisor_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for Supervisor Performance"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("reports.view")),
+    current_user: User = Depends(has_any_permission(["reports.view", "activations.view"])),
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):
@@ -1706,7 +1706,7 @@ async def get_recharge_dashboard(
     year: int = Query(None, ge=2020),
     report_type: str = Query("recharge", pattern="^(recharge|ev_secondary)$"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("reports.view")),
+    current_user: User = Depends(has_any_permission(["reports.view", "recharge_dashboard.view"])),
     house_id: Optional[int] = Depends(get_house_context),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
 ):

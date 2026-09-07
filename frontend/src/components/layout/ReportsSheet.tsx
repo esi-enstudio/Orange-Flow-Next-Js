@@ -25,13 +25,13 @@ const reportItems = [
     key: "report_activations",
     href: "/reports/activations",
     icon: BarChart3,
-    permission: "reports.view",
+    permissions: ["reports.view", "activations.view"],
   },
   {
     key: "report_recharge",
     href: "/reports/recharge",
     icon: Zap,
-    permission: "reports.view",
+    permissions: ["reports.view", "recharge_dashboard.view"],
   },
   {
     key: "report_transactions",
@@ -61,19 +61,19 @@ const reportItems = [
     key: "report_live_activations",
     href: "/reports/live-activations",
     icon: Activity,
-    permission: "reports.view",
+    permissions: ["reports.view", "live_activations.view"],
   },
   {
     key: "report_scratch_card",
     href: "/reports/scratch-card",
     icon: CreditCard,
-    permission: "reports.view",
+    permissions: ["reports.view", "scratch_card.view"],
   },
   {
     key: "report_sim_issue",
     href: "/reports/sim-issues",
     icon: Smartphone,
-    permission: "reports.view",
+    permissions: ["reports.view", "sim_issues.view"],
   },
   {
     key: "report_ga_builder",
@@ -93,7 +93,12 @@ export function ReportsSheet({ open, onClose }: ReportsSheetProps) {
   const { t } = useLanguage();
   const { hasPermission } = useAuth();
 
-  const visibleItems = reportItems.filter(item => !item.permission || hasPermission(item.permission));
+  const visibleItems = reportItems.filter(item => {
+    if (item.permissions && item.permissions.length > 0) {
+      return item.permissions.some(p => hasPermission(p));
+    }
+    return !item.permission || hasPermission(item.permission as string);
+  });
 
   return (
     <AnimatePresence>

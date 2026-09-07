@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.routers.deps import get_db, has_permission, get_house_context, get_current_user
+from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context, get_current_user
 from app.schemas.filter import FilterTagSchema, FilterTagCreate, FilterTagBulkCreate, RetailerFilterSchema, RetailerFilterCreate, RetailerFilterBulkCreate, ExcludedProductSchema, ExcludedProductCreate
 from app.models.ga_filter import FilterTag, RetailerFilter, GAProductFilter
 from app.models.product_exclusion import ExcludedProductCode
@@ -223,7 +223,7 @@ async def delete_retailer_filter(
 @router.get("/product-exclusions", response_model=list[ExcludedProductSchema])
 async def list_product_exclusions(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("reports.view")),
+    current_user: User = Depends(has_any_permission(["reports.view", "activations.view"])),
 ):
     result = await db.execute(select(ExcludedProductCode).order_by(ExcludedProductCode.product_code))
     return result.scalars().all()

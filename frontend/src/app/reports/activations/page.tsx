@@ -628,6 +628,7 @@ function LeaderboardCard({ data, title, icon: Icon, color, t }: {
 
 export default function ActivationDashboardPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
+  const canViewActivationsReport = hasPermission("reports.view") || hasPermission("activations.view");
   const router = useRouter();
   const { t, language } = useLanguage();
 
@@ -720,11 +721,11 @@ export default function ActivationDashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && !hasPermission("reports.view")) {
+    if (!authLoading && !canViewActivationsReport) {
       const timer = setTimeout(() => router.push("/"), 5000);
       return () => clearTimeout(timer);
     }
-  }, [authLoading, hasPermission, router]);
+  }, [authLoading, canViewActivationsReport, router]);
 
   useEffect(() => {
     if (!authLoading && selectedHouse?.id && !houseInitialized) {
@@ -766,7 +767,7 @@ export default function ActivationDashboardPage() {
   }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("reports.view")) {
+    if (!authLoading && canViewActivationsReport) {
       apiClient.get("houses/accessible").then(res => {
         setHouses(res.data);
       }).catch(() => {});
@@ -777,7 +778,7 @@ export default function ActivationDashboardPage() {
         setExcludedProductCodes(res.data);
       }).catch(() => {});
     }
-  }, [authLoading, hasPermission]);
+  }, [authLoading, canViewActivationsReport]);
 
   useEffect(() => {
     localStorage.setItem("activation_achievement_exclude_tags", JSON.stringify(achievementExcludeTags));
@@ -876,10 +877,10 @@ export default function ActivationDashboardPage() {
   }, [showCcConfig]);
 
   useEffect(() => {
-    if (!authLoading && hasPermission("reports.view")) {
+    if (!authLoading && canViewActivationsReport) {
       fetchDashboard();
     }
-  }, [authLoading, hasPermission, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
+  }, [authLoading, canViewActivationsReport, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
 
   const handleExport = async () => {
     if (!data) return;
@@ -936,7 +937,7 @@ export default function ActivationDashboardPage() {
     return monthNames[m as keyof typeof monthNames] || "";
   };
 
-  if (!authLoading && !hasPermission("reports.view")) {
+  if (!authLoading && !canViewActivationsReport) {
     return <AccessDenied />;
   }
 

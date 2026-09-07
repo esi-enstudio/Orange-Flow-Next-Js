@@ -182,16 +182,16 @@ export const navItems: NavItem[] = [
     icon: BarChart3,
     color: "text-primary-500",
     children: [
-      { title: "Activations", translationKey: "nav.report_activations", href: "/reports/activations", permission: "reports.view" },
-      { title: "Recharge", translationKey: "nav.report_recharge", href: "/reports/recharge", permission: "reports.view" },
+      { title: "Activations", translationKey: "nav.report_activations", href: "/reports/activations", permissions: ["reports.view", "activations.view"] },
+      { title: "Recharge", translationKey: "nav.report_recharge", href: "/reports/recharge", permissions: ["reports.view", "recharge_dashboard.view"] },
       { title: "Transactions", translationKey: "nav.report_transactions", href: "/reports/transactions", permission: "transactions.view" },
       { title: "Active LSO", translationKey: "nav.report_active_lso", href: "/reports/active-lso", permission: "active_lso.view" },
       { title: "Active SSO", translationKey: "nav.report_active_sso", href: "/reports/active-sso", permission: "active_sso.view" },
 
-      { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permission: "reports.view" },
+      { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permissions: ["reports.view", "live_activations.view"] },
       { title: "GA Report Builder", translationKey: "nav.report_ga_builder", href: "/reports/ga-report-builder", permission: "ga_report_builder.view" },
-      { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permission: "reports.view" },
-      { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permission: "reports.view" },
+      { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permissions: ["reports.view", "scratch_card.view"] },
+      { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permissions: ["reports.view", "sim_issues.view"] },
       { title: "Retailer Visits", translationKey: "nav.visits", href: "/visit", permission: "visits.view" },
       { title: "Orders", translationKey: "nav.orders", href: "/orders", permission: "orders.view" },
     ]

@@ -21,9 +21,17 @@ import { MoreSheet } from "./MoreSheet";
 const reportPermissions = [
   "reports.view",
   "activations.view",
+  "recharge_dashboard.view",
   "itopup.view",
   "live_activations.view",
   "transactions.view",
+  "active_lso.view",
+  "active_sso.view",
+  "ga_report_builder.view",
+  "scratch_card.view",
+  "sim_issues.view",
+  "visits.view",
+  "orders.view",
 ];
 
 const dmsPermissions = [
