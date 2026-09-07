@@ -842,8 +842,8 @@ function EmployeesSection({
       {groups.total === 0 ? (
         <div className="flex flex-col items-center py-8 text-center bg-gray-50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700">
           <Users className="w-8 h-8 text-gray-300 dark:text-gray-600 mb-2" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">No employees with assisted retailer codes</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Add them in <span className="font-medium">Employees</span> with retailer codes</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No active employees found</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Add employees in the <span className="font-medium">Employees</span> module</p>
         </div>
       ) : (
         <div className="space-y-3">
