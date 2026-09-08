@@ -83,6 +83,11 @@ echo "[DEPLOY_STEP:pulling]"
 echo "==> [1/4] Pulling latest code"
 cd "$PROJECT_DIR"
 
+# Snapshot THIS script's md5 BEFORE pulling, so we can detect if git pull
+# delivers a newer version of deploy.sh itself (see self-restart below).
+PULL_SCRIPT="$PROJECT_DIR/deploy-service/deploy.sh"
+PRE_PULL_MD5=$(md5sum "$PULL_SCRIPT" 2>/dev/null | awk '{print $1}')
+
 if ! git pull --ff-only; then
   echo "ERROR: git pull failed (could be local changes or conflicts)." >&2
   write_status "failed" 1 "git pull failed"
@@ -90,6 +95,19 @@ if ! git pull --ff-only; then
   exit 1
 fi
 echo "==> git pull successful"
+
+# ── Self-restart after pull if THIS script changed ─────────────────────────
+# The currently executing deploy.sh is loaded at start; if git pull just
+# delivered a NEWER deploy.sh (e.g. a bugfix like `npm install --include=dev`),
+# this stale in-memory copy would keep running the OLD flow and the fix would
+# never take effect. Restart with the freshly-pulled script instead.
+POST_PULL_MD5=$(md5sum "$PULL_SCRIPT" 2>/dev/null | awk '{print $1}')
+if [ -n "$PRE_PULL_MD5" ] && [ -n "$POST_PULL_MD5" ] && [ "$PRE_PULL_MD5" != "$POST_PULL_MD5" ]; then
+  echo "==> deploy.sh changed during pull — restarting with the updated script"
+  # `exec 9>` above is re-run in the new process; opening the lock file again
+  # closes the inherited fd and re-acquires the flock cleanly.
+  exec bash "$PULL_SCRIPT"
+fi
 
 # ── Step 2 & 3: Install deps + Build frontend (on HOST via nsenter) ────────
 # Build MUST run in the host namespace so it uses the same Node.js version
@@ -108,7 +126,13 @@ echo "[DEPLOY_STEP:installing]"
 echo "==> [2/4] Installing frontend dependencies"
 echo "    (running in HOST namespace with Node v24)"
 
-if ! host_build npm install; then
+# NOTE: NODE_ENV=production (set below for EVERY host command) makes plain
+# `npm install` SKIP devDependencies. Next.js production builds still need
+# build-time tooling from devDependencies (tailwindcss, @tailwindcss/postcss,
+# typescript, etc.) — omitting them breaks `next build` with
+# "Cannot find module '@tailwindcss/postcss'". Pass `--include=dev` so
+# devDependencies are ALWAYS installed, regardless of NODE_ENV.
+if ! host_build "npm install --include=dev"; then
   echo "ERROR: npm install failed." >&2
   write_status "failed" 2 "npm install failed"
   echo "[DEPLOY_FAILED:npm_install_failed]"
