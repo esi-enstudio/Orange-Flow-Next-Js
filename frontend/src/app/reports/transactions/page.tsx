@@ -12,7 +12,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { cn } from "@/lib/utils";
-import { exportTransactionsReport } from "@/lib/export-transactions";
+import { exportTransactionsReport, exportRetailerThresholdReport } from "@/lib/export-transactions";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -80,6 +80,27 @@ interface EntityOption {
   name: string;
   itop_number?: string;
   rso_name?: string;
+  rso_itop_number?: string;
+}
+
+interface ThresholdRetailer {
+  retailer_id: number;
+  retailer_code: string;
+  retailer_name: string;
+  itop_number?: string;
+  rso_name?: string;
+  type_totals: Record<string, number>;
+  record_count: number;
+  active_days: number;
+  total_value: number;
+}
+
+interface ThresholdData {
+  success: boolean;
+  report_types: string[];
+  min_amount: number;
+  data: ThresholdRetailer[];
+  pagination: Pagination;
 }
 
 const REPORT_TYPES = ["C2C", "C2S", "Balance"] as const;
@@ -172,7 +193,22 @@ export default function TransactionsReportPage() {
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const [thrFrom, setThrFrom] = useState(toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)));
+  const [thrTo, setThrTo] = useState(toDateStr(today));
+  const [thrTypes, setThrTypes] = useState<ReportType[]>(["C2C", "C2S", "Balance"]);
+  const [thrAmount, setThrAmount] = useState<string>("0");
+  const [thrRsoId, setThrRsoId] = useState<string>("");
+  const [thrRsoOptions, setThrRsoOptions] = useState<EntityOption[]>([]);
+  const [thrRsoOpen, setThrRsoOpen] = useState(false);
+  const [thrRsoMenu, setThrRsoMenu] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [thrRsoSearch, setThrRsoSearch] = useState<string>("");
+  const thrRsoTriggerRef = useRef<HTMLButtonElement>(null);
+  const [thrData, setThrData] = useState<ThresholdData | null>(null);
+  const [thrLoading, setThrLoading] = useState(false);
+  const [thrExpanded, setThrExpanded] = useState<number | null>(null);
+
   const entityDropdownRef = useRef<HTMLDivElement>(null);
+  const thrRsoDropdownRef = useRef<HTMLDivElement>(null);
 
   const dateRange = useMemo<{ start: string; end: string }>(() => {
     if (timeMode === "day") return { start: singleDate, end: singleDate };
@@ -216,10 +252,52 @@ export default function TransactionsReportPage() {
       if (entityDropdownRef.current && !entityDropdownRef.current.contains(e.target as Node)) {
         setEntityOpen(false);
       }
+      if (thrRsoDropdownRef.current && !thrRsoDropdownRef.current.contains(e.target as Node)) {
+        setThrRsoOpen(false);
+      }
+    };
+    const onCloseAny = () => {
+      setEntityOpen(false);
+      setThrRsoOpen(false);
     };
     document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
+    window.addEventListener("scroll", onCloseAny, true);
+    window.addEventListener("resize", onCloseAny);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      window.removeEventListener("scroll", onCloseAny, true);
+      window.removeEventListener("resize", onCloseAny);
+    };
   }, []);
+
+  const fetchThrRsoOptions = useCallback(async (search: string) => {
+    if (!selectedHouseId) {
+      setThrRsoOptions([]);
+      return;
+    }
+    try {
+      const res = await apiClient.get("reports/transactions/entities", {
+        params: { entity_type: "rso", search: search || undefined, house_id: selectedHouseId },
+      });
+      setThrRsoOptions(res.data?.data || []);
+    } catch {
+      setThrRsoOptions([]);
+    }
+  }, [selectedHouseId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setThrRsoId("");
+    setThrExpanded(null);
+    setThrRsoOpen(false);
+    fetchThrRsoOptions("");
+    setThrData(null);
+  }, [selectedHouseId, fetchThrRsoOptions]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => fetchThrRsoOptions(thrRsoSearch), 300);
+    return () => clearTimeout(timer);
+  }, [thrRsoSearch, fetchThrRsoOptions]);
 
   const fetchReport = useCallback(async (targetPage: number) => {
     if (!selectedHouseId) {
@@ -263,6 +341,88 @@ export default function TransactionsReportPage() {
     setPage(p);
     setExpandedId(null);
     fetchReport(p);
+  };
+
+  const fetchThreshold = useCallback(async (targetPage: number) => {
+    if (!selectedHouseId || thrTypes.length === 0) {
+      setThrData(null);
+      return;
+    }
+    setThrLoading(true);
+    try {
+      const params: Record<string, string | number> = {
+        report_types: thrTypes.join(","),
+        min_amount: Number(thrAmount) || 0,
+        start_date: thrFrom,
+        end_date: thrTo,
+        house_id: Number(selectedHouseId),
+        page: targetPage,
+        per_page: 10,
+      };
+      if (thrRsoId) params.rso_id = Number(thrRsoId);
+      const res = await apiClient.get("reports/transactions/retailer-threshold", { params });
+      setThrData(res.data);
+    } catch {
+      toast.error(t("transactions_report.threshold.error"));
+    } finally {
+      setThrLoading(false);
+    }
+  }, [selectedHouseId, thrTypes, thrAmount, thrFrom, thrTo, thrRsoId, t]);
+
+  const changeThresholdPage = (p: number) => {
+    setThrExpanded(null);
+    fetchThreshold(p);
+  };
+
+  const toggleThrType = (rt: ReportType) => {
+    setThrTypes((prev) => (prev.includes(rt) ? prev.filter((x) => x !== rt) : [...prev, rt]));
+    setThrExpanded(null);
+  };
+
+  const toggleThrRsoMenu = () => {
+    if (thrRsoOpen) {
+      setThrRsoOpen(false);
+      return;
+    }
+    const el = thrRsoTriggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const menuW = Math.min(Math.max(rect.width, 280), window.innerWidth - 24);
+    const menuH = Math.min(window.innerHeight * 0.5, 360);
+    const left = Math.max(Math.min(rect.left, window.innerWidth - menuW - 12), 12);
+    const below = rect.bottom + 6 + menuH <= window.innerHeight;
+    const top = below ? rect.bottom + 6 : Math.max(rect.top - menuH - 6, 12);
+    setThrRsoMenu({ top, left, width: menuW });
+    setThrRsoOpen(true);
+  };
+
+  const applyThreshold = () => {
+    if (thrTypes.length === 0) {
+      toast.error(t("transactions_report.threshold.types_required"));
+      return;
+    }
+    setThrExpanded(null);
+    fetchThreshold(1);
+  };
+
+  const handleThresholdExport = async () => {
+    if (thrTypes.length === 0) {
+      toast.error(t("transactions_report.threshold.types_required"));
+      return;
+    }
+    try {
+      await exportRetailerThresholdReport({
+        report_types: thrTypes,
+        min_amount: Number(thrAmount) || 0,
+        start_date: thrFrom,
+        end_date: thrTo,
+        house_id: selectedHouseId ? Number(selectedHouseId) : null,
+        rso_id: thrRsoId ? Number(thrRsoId) : null,
+      });
+      toast.success(t("transactions_report.threshold.export_success"));
+    } catch {
+      toast.error(t("transactions_report.threshold.export_failed"));
+    }
   };
 
   const handleExport = async () => {
@@ -430,11 +590,24 @@ export default function TransactionsReportPage() {
                             : "hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
                         )}
                       >
-                        <p className="text-xs font-medium">{e.name}</p>
+                        <p className="text-xs font-medium">
+                          {e.name}
+                          {entityType === "retailer" && e.rso_itop_number
+                            ? ` (${e.rso_itop_number.slice(-3)})`
+                            : ""}
+                        </p>
                         <p className="text-[11px] text-gray-400">
-                          {e.code}
-                          {e.itop_number ? ` | ${e.itop_number}` : ""}
-                          {e.rso_name ? ` | ${e.rso_name}` : ""}
+                          {entityType === "retailer" ? (
+                            <>
+                              {e.code || ""}
+                              {e.itop_number ? <span> • {e.itop_number}</span> : null}
+                            </>
+                          ) : (
+                            <>
+                              {e.code}
+                              {e.itop_number ? ` | ${e.itop_number}` : ""}
+                            </>
+                          )}
                         </p>
                       </button>
                     ))
@@ -760,6 +933,323 @@ export default function TransactionsReportPage() {
                     className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors"
                   >
                     {t("transactions_report.table.next")}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Retailer threshold report */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-gray-50 dark:border-slate-800">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("transactions_report.threshold.title")}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("transactions_report.threshold.subtitle")}</p>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.from")}</label>
+              <input
+                type="date"
+                value={thrFrom}
+                onChange={(e) => setThrFrom(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.to")}</label>
+              <input
+                type="date"
+                value={thrTo}
+                onChange={(e) => setThrTo(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.amount_label")}</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min={0}
+                  value={thrAmount}
+                  onChange={(e) => setThrAmount(e.target.value)}
+                  placeholder={t("transactions_report.threshold.amount_placeholder")}
+                  className="w-full px-3 py-2 pl-8 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
+                />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">BDT</span>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.type_label")}</label>
+              <div className="flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-lg p-1">
+                {REPORT_TYPES.map((rt) => {
+                  const active = thrTypes.includes(rt);
+                  return (
+                    <button
+                      key={rt}
+                      onClick={() => toggleThrType(rt)}
+                      className={cn(
+                        "flex-1 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all cursor-pointer",
+                        active
+                          ? "bg-primary-500 text-white shadow-sm"
+                          : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/70 dark:hover:bg-slate-700/60"
+                      )}
+                    >
+                      {rt}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.rso_label")}</label>
+              <div className="relative" ref={thrRsoDropdownRef}>
+                <button
+                  type="button"
+                  ref={thrRsoTriggerRef}
+                  onClick={toggleThrRsoMenu}
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs text-left dark:text-gray-200 outline-none focus:border-primary-500 transition-all flex items-center justify-between gap-2 cursor-pointer"
+                >
+                  <span className="truncate">
+                    {thrRsoId
+                      ? thrRsoOptions.find((e) => String(e.id) === thrRsoId)?.name || t("transactions_report.filters.select_entity")
+                      : t("transactions_report.threshold.all_rso")}
+                  </span>
+                  <ChevronDown className={cn("w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform", thrRsoOpen && "rotate-180")} />
+                </button>
+                {thrRsoOpen && (
+                  <div
+                    className="fixed z-50 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg shadow-xl"
+                    style={{ top: thrRsoMenu?.top ?? 0, left: thrRsoMenu?.left ?? 0, width: thrRsoMenu?.width ?? 280 }}
+                  >
+                    <div className="p-2 border-b border-gray-100 dark:border-slate-800">
+                      <input
+                        value={thrRsoSearch}
+                        onChange={(e) => setThrRsoSearch(e.target.value)}
+                        placeholder={t("transactions_report.threshold.rso_search_placeholder")}
+                        className="w-full px-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-md text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
+                      />
+                    </div>
+                    <div className="max-h-[min(50vh,360px)] overflow-y-auto py-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setThrRsoId("");
+                          setThrRsoOpen(false);
+                        }}
+                        className="w-full px-3 py-2 text-xs text-left text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        {t("transactions_report.threshold.all_rso")}
+                      </button>
+                      {thrRsoOptions.length === 0 ? (
+                        <p className="px-3 py-4 text-xs text-center text-gray-400">{t("transactions_report.messages.no_entities")}</p>
+                      ) : (
+                        thrRsoOptions.map((e) => (
+                          <button
+                            key={e.id}
+                            type="button"
+                            onClick={() => {
+                              setThrRsoId(String(e.id));
+                              setThrRsoOpen(false);
+                              setThrRsoSearch("");
+                            }}
+                            className={cn(
+                              "w-full px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800 text-xs cursor-pointer",
+                              String(e.id) === thrRsoId ? "text-primary-600 dark:text-primary-400 font-bold" : "text-gray-700 dark:text-gray-200"
+                            )}
+                          >
+                            <p className={cn("font-medium", String(e.id) === thrRsoId ? "text-primary-600 dark:text-primary-400" : "")}>{e.name}</p>
+                            <p className="text-[11px] text-gray-400 dark:text-gray-400">
+                              {e.code}
+                              {e.itop_number ? <span> • {e.itop_number}</span> : null}
+                            </p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={applyThreshold}
+              disabled={thrLoading || !selectedHouseId}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-xs font-bold hover:bg-primary-600 transition-colors shadow-sm disabled:opacity-50"
+            >
+              <ListFilter className={cn("w-3.5 h-3.5", thrLoading && "animate-spin")} />
+              {t("transactions_report.threshold.apply")}
+            </button>
+            <button
+              onClick={handleThresholdExport}
+              disabled={!selectedHouseId}
+              className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+              title={t("transactions_report.actions.export")}
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            <span className="text-[10px] text-gray-400">{t("transactions_report.threshold.only_enabled")}</span>
+          </div>
+        </div>
+
+        {/* Summary */}
+        {thrData && !thrLoading && thrData.data.length > 0 && (
+          <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-bold text-gray-700 dark:text-gray-200">
+              {thrData.min_amount === 0
+                ? t("transactions_report.threshold.summary_all_zero", { count: thrData.pagination.total })
+                : t("transactions_report.threshold.summary", { count: thrData.pagination.total, amount: formatNumber(thrData.min_amount) })}
+            </span>
+            {thrData.pagination.total_pages > 1 && (
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {t("transactions_report.threshold.page_of", { page: thrData.pagination.page, total: thrData.pagination.total_pages })}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Body */}
+        {thrLoading ? (
+          <>
+            {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)}
+          </>
+        ) : !thrData ? (
+          <div className="p-10 text-center">
+            <ListFilter className="w-10 h-10 text-gray-200 dark:text-gray-700 mx-auto mb-3" />
+            <p className="text-sm text-gray-400 dark:text-gray-500 font-medium">{t("transactions_report.threshold.select_filters")}</p>
+          </div>
+        ) : thrData.data.length === 0 ? (
+          <div className="p-10 text-center">
+            <Inbox className="w-10 h-10 text-gray-200 dark:text-gray-700 mx-auto mb-3" />
+            <p className="text-sm text-gray-400 dark:text-gray-500 font-medium">{t("transactions_report.threshold.no_data")}</p>
+          </div>
+        ) : (
+          <>
+            {/* Mobile accordion */}
+            <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+              {thrData.data.map((r) => {
+                const isOpen = thrExpanded === r.retailer_id;
+                return (
+                  <div key={r.retailer_id}>
+                    <button
+                      onClick={() => setThrExpanded(isOpen ? null : r.retailer_id)}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-gray-50/30 dark:hover:bg-slate-800/30"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
+                        <Store className="w-4 h-4 text-primary-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{r.retailer_name}</p>
+                        <p className="text-[11px] text-gray-400 font-mono">
+                          {r.retailer_code}
+                          {r.itop_number ? <span> • {r.itop_number}</span> : null}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(r.total_value)}</p>
+                        <p className="text-[10px] text-gray-400">BDT</p>
+                      </div>
+                      <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200", isOpen && "rotate-180")} />
+                    </button>
+                    {isOpen && (
+                      <div className="px-4 pb-4 pt-1 space-y-2">
+                        {thrData.report_types.map((rt) => (
+                          <div key={rt} className="flex items-center justify-between py-1.5 border-t border-gray-50 dark:border-slate-800 text-sm">
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{rt}</span>
+                            <span className="font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{formatNumber(r.type_totals[rt] ?? 0)}</span>
+                          </div>
+                        ))}
+                        {r.rso_name && (
+                          <div className="flex items-center justify-between py-1.5 border-t border-gray-50 dark:border-slate-800 text-sm">
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("transactions_report.threshold.columns.rso")}</span>
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">{r.rso_name}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
+                    <th className="px-4 py-3">{t("transactions_report.threshold.columns.retailer")}</th>
+                    <th className="px-4 py-3">{t("transactions_report.threshold.columns.rso")}</th>
+                    {thrData.report_types.map((rt) => (
+                      <th key={rt} className="px-4 py-3 text-right">{rt}</th>
+                    ))}
+                    <th className="px-4 py-3 text-right">{t("transactions_report.threshold.columns.total")}</th>
+                    <th className="px-4 py-3 text-center">{t("transactions_report.threshold.columns.records")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
+                  {thrData.data.map((r) => (
+                    <tr key={r.retailer_id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-2 py-1.5">
+                        <p className="font-medium text-gray-900 dark:text-gray-100">{r.retailer_name}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+                          {r.retailer_code}
+                          {r.itop_number ? <span> • {r.itop_number}</span> : null}
+                        </p>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <span className="text-xs text-gray-600 dark:text-gray-300">{r.rso_name || "-"}</span>
+                      </td>
+                      {thrData.report_types.map((rt) => (
+                        <td key={rt} className="px-2 py-1.5 text-right">
+                          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{formatNumber(r.type_totals[rt] ?? 0)}</span>
+                        </td>
+                      ))}
+                      <td className="px-2 py-1.5 text-right">
+                        <p className="font-bold text-gray-900 dark:text-gray-100">{formatNumber(r.total_value)}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">BDT</p>
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-md bg-gray-100 dark:bg-slate-800 text-xs font-semibold text-gray-600 dark:text-gray-300">
+                          {formatNumber(r.record_count)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {thrData.pagination.total_pages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-50 dark:border-slate-800">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {t("transactions_report.threshold.page_of", { page: thrData.pagination.page, total: thrData.pagination.total_pages })}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => changeThresholdPage(thrData.pagination.page - 1)}
+                    disabled={!thrData.pagination.has_prev}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors"
+                  >
+                    {t("transactions_report.threshold.prev")}
+                  </button>
+                  <span className="px-3 py-1.5 text-xs font-bold text-gray-700 dark:text-gray-200 bg-primary-50 dark:bg-primary-500/10 rounded-lg">
+                    {thrData.pagination.page}
+                  </span>
+                  <button
+                    onClick={() => changeThresholdPage(thrData.pagination.page + 1)}
+                    disabled={!thrData.pagination.has_next}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors"
+                  >
+                    {t("transactions_report.threshold.next")}
                   </button>
                 </div>
               </div>

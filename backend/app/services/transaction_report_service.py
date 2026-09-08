@@ -2,7 +2,7 @@ import logging
 from datetime import date, datetime
 from typing import Optional, Sequence
 
-from sqlalchemy import select, func, and_, or_, cast, String
+from sqlalchemy import select, func, and_, or_, cast, String, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -200,7 +200,10 @@ class TransactionReportService:
         if entity_type == "retailer":
             query = select(Retailer).options(
                 joinedload(Retailer.employee).joinedload(Employee.user)
-            ).where(Retailer.house_id == self.house_id)
+            ).where(
+                Retailer.house_id == self.house_id,
+                Retailer.enabled.ilike("y%"),
+            )
             if p:
                 query = query.where(
                     or_(
@@ -217,7 +220,12 @@ class TransactionReportService:
                     "code": r.retailer_code,
                     "name": r.name,
                     "itop_number": r.itop_number or "",
-                    "rso_name": r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else ""),
+                    "rso_name": (
+                        r.employee.employee_name
+                        if r.employee and r.employee.employee_name
+                        else (r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else ""))
+                    ),
+                    "rso_itop_number": r.employee.itop_number if r.employee and r.employee.itop_number else "",
                 }
                 for r in retailers
             ]
@@ -241,11 +249,128 @@ class TransactionReportService:
             {
                 "id": e.id,
                 "code": e.dms_code or "",
-                "name": e.user.name if e.user else (e.dms_code or f"#{e.id}"),
+                "name": (
+                    e.employee_name
+                    or (e.user.name if e.user else "")
+                    or (e.dms_code or f"#{e.id}")
+                ),
                 "itop_number": e.itop_number or "",
             }
             for e in employees
         ]
+
+    async def get_threshold_retailers(
+        self,
+        report_types: list[str],
+        min_amount: float,
+        search: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 20,
+        rso_id: Optional[int] = None,
+    ) -> tuple[list[dict], int]:
+        """Retailers whose total transaction value for EVERY selected type is <= min_amount.
+
+        Only enabled (enabled ILIKE 'y%') retailers in the house are considered. Retailers
+        with no rows at all for a selected type are treated as 0, so zero-transaction
+        retailers are included when the threshold is 0.
+        """
+        types = [rt for rt in report_types if rt in VALID_REPORT_TYPES]
+        if not types:
+            return [], 0
+        min_amount = max(min_amount, 0)
+
+        p = f"%{search}%" if search else None
+
+        def _type_sum(rt: str):
+            return func.coalesce(
+                func.sum(case((ITopUpDetail.report_type == rt, ITopUpDetail.daily_value), else_=None)),
+                0,
+            )
+
+        where_conds = [
+            Retailer.house_id == self.house_id,
+            Retailer.enabled.ilike("y%"),
+        ]
+        if rso_id:
+            where_conds.append(Retailer.employee_id == rso_id)
+
+        join_conds = [
+            ITopUpDetail.retailer_id == Retailer.id,
+            ITopUpDetail.house_id == self.house_id,
+            ITopUpDetail.report_type.in_(types),
+        ]
+        if self.start_date:
+            join_conds.append(ITopUpDetail.report_date >= self.start_date)
+        if self.end_date:
+            join_conds.append(ITopUpDetail.report_date <= self.end_date)
+
+        total_expr = func.coalesce(func.sum(ITopUpDetail.daily_value), 0)
+
+        query = (
+            select(
+                Retailer.id,
+                Retailer.retailer_code,
+                Retailer.name,
+                Retailer.itop_number,
+                Employee.employee_name,
+                Employee.dms_code,
+                Employee.itop_number,
+                *[_type_sum(rt) for rt in types],
+                func.count(ITopUpDetail.id),
+                func.count(func.distinct(ITopUpDetail.report_date)),
+                total_expr,
+            )
+            .select_from(Retailer)
+            .outerjoin(ITopUpDetail, and_(*join_conds))
+            .outerjoin(Employee, Retailer.employee_id == Employee.id)
+            .where(and_(*where_conds))
+            .group_by(
+                Retailer.id,
+                Retailer.retailer_code,
+                Retailer.name,
+                Retailer.itop_number,
+                Employee.employee_name,
+                Employee.dms_code,
+                Employee.itop_number,
+            )
+            .having(and_(*[_type_sum(rt) <= min_amount for rt in types]))
+        )
+        if p:
+            query = query.where(
+                or_(
+                    Retailer.retailer_code.ilike(p),
+                    Retailer.name.ilike(p),
+                    Retailer.itop_number.ilike(p),
+                )
+            )
+
+        count_q = select(func.count()).select_from(query.subquery())
+        total = int((await self.db.execute(count_q)).scalar() or 0)
+
+        offset = (page - 1) * per_page
+        query = query.order_by(total_expr.asc(), Retailer.name.asc()).offset(offset).limit(per_page)
+        res = await self.db.execute(query)
+        rows = res.all()
+
+        results = []
+        for row in rows:
+            n = 7 + len(types)
+            results.append(
+                {
+                    "retailer_id": row[0],
+                    "retailer_code": row[1] or "",
+                    "retailer_name": row[2] or "",
+                    "itop_number": row[3] or "",
+                    "rso_name": row[4] or "",
+                    "rso_dms_code": row[5] or "",
+                    "rso_itop_number": row[6] or "",
+                    "type_totals": {rt: float(row[7 + i] or 0) for i, rt in enumerate(types)},
+                    "record_count": int(row[n] or 0),
+                    "active_days": int(row[n + 1] or 0),
+                    "total_value": float(row[n + 2] or 0),
+                }
+            )
+        return results, total
 
     async def get_export_rows(self, limit: int = 20000) -> list[dict]:
         conditions = self._build_filters()
@@ -253,7 +378,7 @@ class TransactionReportService:
             select(
                 House.code,
                 ITopUpDetail.report_date,
-                func.coalesce(User.name, Employee.employee_name, Employee.dms_code, "").label("rso_name"),
+                func.coalesce(Employee.employee_name, User.name, Employee.dms_code, "").label("rso_name"),
                 Employee.dms_code,
                 Employee.itop_number,
                 Retailer.retailer_code,

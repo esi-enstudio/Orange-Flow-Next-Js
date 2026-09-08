@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 from app.routers.deps import get_db, has_permission, get_house_context
 from app.models.user import User
 from app.models.house import House
-from app.services.transaction_report_service import TransactionReportService, parse_date
+from app.services.transaction_report_service import TransactionReportService, parse_date, VALID_REPORT_TYPES
 from app.schemas.pagination import PaginationParams
 
 logger = logging.getLogger(__name__)
@@ -123,6 +123,167 @@ async def get_transaction_entities(
     target_house_id = await _resolve_house(db, current_user, q_house_id, header_house_id)
     service = TransactionReportService(db, target_house_id)
     return {"success": True, "data": await service.get_entities(entity_type, search)}
+
+
+@router.get("/reports/transactions/retailer-threshold")
+async def get_retailers_below_threshold(
+    report_types: Optional[str] = Query(None, description="Comma-separated, e.g. C2C,C2S,Balance"),
+    min_amount: float = Query(0, ge=0, description="Show retailers whose total value is <= this amount"),
+    start_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    search: Optional[str] = Query(None, description="Search by retailer code/name/itop"),
+    rso_id: Optional[int] = Query(None, description="RSO employee ID"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    q_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("transactions.view")),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    types = []
+    if report_types:
+        types = [t.strip() for t in report_types.split(",") if t.strip() in VALID_REPORT_TYPES]
+    else:
+        types = list(VALID_REPORT_TYPES)
+    if not types:
+        raise HTTPException(status_code=400, detail="At least one valid report type is required (C2C, C2S, Balance)")
+
+    try:
+        sd = parse_date(start_date, "start_date")
+        ed = parse_date(end_date, "end_date")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if sd and ed and sd > ed:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+
+    target_house_id = await _resolve_house(db, current_user, q_house_id, header_house_id)
+    service = TransactionReportService(
+        db,
+        target_house_id,
+        start_date=sd,
+        end_date=ed,
+    )
+    rows, total = await service.get_threshold_retailers(types, min_amount, search, page, per_page, rso_id=rso_id)
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    return {
+        "success": True,
+        "house_id": target_house_id,
+        "report_types": types,
+        "min_amount": min_amount,
+        "data": rows,
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+    }
+
+
+@router.get("/reports/transactions/retailer-threshold/export")
+async def export_retailers_below_threshold(
+    report_types: Optional[str] = Query(None, description="Comma-separated, e.g. C2C,C2S,Balance"),
+    min_amount: float = Query(0, ge=0),
+    start_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    rso_id: Optional[int] = Query(None, description="RSO employee ID"),
+    q_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("transactions.export")),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    types = []
+    if report_types:
+        types = [t.strip() for t in report_types.split(",") if t.strip() in VALID_REPORT_TYPES]
+    else:
+        types = list(VALID_REPORT_TYPES)
+    if not types:
+        raise HTTPException(status_code=400, detail="At least one valid report type is required (C2C, C2S, Balance)")
+
+    try:
+        sd = parse_date(start_date, "start_date")
+        ed = parse_date(end_date, "end_date")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if sd and ed and sd > ed:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+
+    target_house_id = await _resolve_house(db, current_user, q_house_id, header_house_id)
+    service = TransactionReportService(
+        db,
+        target_house_id,
+        start_date=sd,
+        end_date=ed,
+    )
+    rows, _total = await service.get_threshold_retailers(types, min_amount, None, 1, 100000, rso_id=rso_id)
+
+    house_code = ""
+    if target_house_id:
+        house_res = await db.execute(select(House.code).where(House.id == target_house_id))
+        house_code = house_res.scalar_one_or_none() or ""
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Retailer Threshold"
+
+    header_font = Font(bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="EA580C", end_color="EA580C", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    fmt_d = lambda d: d.strftime("%d %b %Y") if d else "..."
+    date_label = f"{fmt_d(sd)} to {fmt_d(ed)}"
+
+    cols = ["House Code", "Retailer Code", "Retailer Name", "Retailer Itop Number", "RSO DMS Code", "RSO Itop Number", "RSO Name"]
+    for rt in types:
+        cols.append(f"{rt} Value (BDT)")
+    cols += ["Total Value (BDT)", "Transactions", "Active Days"]
+
+    ws.cell(row=1, column=1, value=f"Retailer Threshold Report - {date_label}").font = Font(bold=True, size=14)
+    ws.cell(row=2, column=1, value=f"House: {house_code} | Max Amount: {min_amount} BDT | Types: {', '.join(types)}").font = Font(bold=False, size=10)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(cols))
+
+    for col, h in enumerate(cols, 1):
+        cell = ws.cell(row=4, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    for i, r in enumerate(rows):
+        row_idx = 5 + i
+        ws.cell(row=row_idx, column=1, value=house_code).border = thin_border
+        ws.cell(row=row_idx, column=2, value=r["retailer_code"]).border = thin_border
+        ws.cell(row=row_idx, column=3, value=r["retailer_name"]).border = thin_border
+        ws.cell(row=row_idx, column=4, value=r["itop_number"]).border = thin_border
+        ws.cell(row=row_idx, column=5, value=r["rso_dms_code"]).border = thin_border
+        ws.cell(row=row_idx, column=6, value=r["rso_itop_number"]).border = thin_border
+        ws.cell(row=row_idx, column=7, value=r["rso_name"]).border = thin_border
+        col_idx = 8
+        for rt in types:
+            ws.cell(row=row_idx, column=col_idx, value=r["type_totals"].get(rt, 0)).border = thin_border
+            col_idx += 1
+        ws.cell(row=row_idx, column=col_idx, value=r["total_value"]).border = thin_border
+        ws.cell(row=row_idx, column=col_idx + 1, value=r["record_count"]).border = thin_border
+        ws.cell(row=row_idx, column=col_idx + 2, value=r["active_days"]).border = thin_border
+
+    for col_idx in range(1, ws.max_column + 1):
+        col = ws[get_column_letter(col_idx)]
+        max_len = max((len(str(c.value)) if c.value is not None else 0) for c in col)
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 40)
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=retailer_threshold_report.xlsx"},
+    )
 
 
 @router.get("/reports/transactions/export")
