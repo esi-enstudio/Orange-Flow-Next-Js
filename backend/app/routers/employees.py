@@ -62,26 +62,25 @@ async def list_employees_by_house_grouped(
 
     emp_rows = await db.execute(
         select(Employee)
-        .options(joinedload(Employee.user).selectinload(User.roles))
         .where(
             Employee.house_id == house_id,
             Employee.status == "Active",
         )
     )
-    employees = emp_rows.unique().scalars().all()
+    employees = emp_rows.scalars().all()
 
     groups: dict[str, list] = {"rso": [], "bp": [], "cc": []}
     role_names = {"rso", "bp", "cc"}
 
     for emp in employees:
-        user_roles = [r.name.lower() for r in emp.user.roles] if emp.user else []
-        primary_role = next((r for r in user_roles if r in role_names), None)
-        if not primary_role:
+        # Role & name always come from the employees table itself.
+        primary_role = (emp.employee_type or "").lower()
+        if primary_role not in role_names:
             continue
 
         groups[primary_role].append({
             "id": emp.id,
-            "name": emp.user.name if emp.user else None,
+            "name": emp.employee_name,
             "dms_code": emp.dms_code,
             "itop_number": emp.itop_number,
             "personal_number": emp.personal_number,
