@@ -321,6 +321,36 @@ class GaLiveQueryBuilder:
 
         total_counts = {"supervisor": len(role_uids["supervisor"])}
 
+        # ── Yesterday activation counts per retailer for supervisor teams (with section exclusions) ──
+        sup_yesterday = self.start_date - timedelta(days=1)
+        sup_yest_retailer_counts: dict[int, int] = {}
+        if sup_yesterday >= date(2020, 1, 1):
+            sup_exc_pcodes, sup_exc_tags = await self._get_exclusions("supervisors")
+            sup_exc_rids: set[int] = set()
+            for tag in sup_exc_tags:
+                excluded = await self._load_excluded_retailers_by_tag(tag)
+                sup_exc_rids.update(excluded)
+
+            sup_yest_q = select(Activation.retailer_id).where(
+                Activation.house_id == self.house_id,
+                Activation.activation_date == sup_yesterday,
+            )
+            if sup_exc_rids:
+                sup_yest_q = sup_yest_q.where(Activation.retailer_id.notin_(sup_exc_rids))
+            if sup_exc_pcodes:
+                sup_yest_q = sup_yest_q.where(
+                    and_(
+                        Activation.product_code != None,
+                        Activation.product_code.notin_(sup_exc_pcodes),
+                    )
+                )
+            if all_bp_codes_for_house:
+                sup_yest_q = sup_yest_q.where(Activation.retailer_code.notin_(all_bp_codes_for_house))
+            sup_yest_rows = await self.db.execute(sup_yest_q)
+            for (rid,) in sup_yest_rows.all():
+                if rid:
+                    sup_yest_retailer_counts[rid] = sup_yest_retailer_counts.get(rid, 0) + 1
+
         supervisor_data = []
         for sup_uid in role_uids["supervisor"]:
             sup_user = (await self.db.execute(select(User).where(User.id == sup_uid))).scalar_one_or_none()
@@ -367,14 +397,14 @@ class GaLiveQueryBuilder:
                 sup_total = sup_count.scalar() or 0
 
             employee_retailers_in_team = sup_own_retailers | sub_retailer_ids
-            emp_team_active = set()
+            sup_emp = 0
             if employee_retailers_in_team:
                 team_q = base_act.where(LiveActivation.retailer_id.in_(employee_retailers_in_team))
                 team_q = _exclude_bp_codes(team_q)
-                team_res = await self.db.execute(select(LiveActivation.retailer_id).distinct().select_from(team_q.subquery()))
-                emp_team_active = {r[0] for r in team_res.all()}
-            sup_emp = len([r for r in emp_team_active if r in employee_retailers_in_team])
+                team_count = await self.db.execute(select(func.count()).select_from(team_q.subquery()))
+                sup_emp = team_count.scalar() or 0
             sup_market = sup_total - sup_emp
+            sup_y_total = sum(sup_yest_retailer_counts.get(rid, 0) for rid in all_retailers)
 
             supervisor_data.append({
                 "id": sup_uid,
@@ -384,6 +414,7 @@ class GaLiveQueryBuilder:
                 "total_activation": sup_total,
                 "employee_activation": sup_emp,
                 "market_activation": sup_market,
+                "yesterday_total": sup_y_total,
                 "contribution": total_counts["supervisor"] and round((sup_total / (sup_total or 1)) * 100, 1) or 0,
                 "active_rso": len([u for u in rso_user_ids if u in active_user_ids]),
                 "active_bp": 0,

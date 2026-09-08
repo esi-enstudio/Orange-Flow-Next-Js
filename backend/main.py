@@ -218,61 +218,13 @@ async def receive_otp(request: Request):
                 body = await request.body()
                 payload = {"raw": body.decode("utf-8", errors="replace")}
 
-    otp_code = payload.get("otp_code") or payload.get("otp") or payload.get("code") or ""
-    house_code = payload.get("house_code") or payload.get("house_name") or payload.get("house") or ""
-    sender = (payload.get("from") or payload.get("from_") or payload.get("sender")
-              or payload.get("phone") or payload.get("sender_number") or house_code or "Unknown")
-    message = (payload.get("message") or payload.get("body") or payload.get("text")
-               or payload.get("msg") or payload.get("sms") or payload.get("content")
-               or (f"OTP: {otp_code}" if otp_code else "")
-               or str(payload))
-
-    if otp_code and house_code:
-        from app.core.otp_manager import otp_manager
-        otp_manager.update_otp(str(otp_code), house_code)
-        try:
-            from app.services.db_service import async_session
-            from app.models.otp import OTP
-            from app.models.house import House
-            from app.utils.timezone import now_naive
-            from sqlalchemy import select
-            async with async_session() as session:
-                house_id = None
-                hres = await session.execute(
-                    select(House.id).where(House.code == str(house_code).strip())
-                )
-                row = hres.scalar_one_or_none()
-                if row is not None:
-                    house_id = row
-                session.add(OTP(
-                    house_id=house_id,
-                    house_code=str(house_code).strip().upper(),
-                    otp_code=str(otp_code),
-                    sender=sender if sender != house_code else None,
-                    message=message,
-                    received_at=now_naive(),
-                    is_used=False,
-                ))
-                await session.commit()
-        except Exception as e:
-            logger.warning(f"Failed to persist OTP to DB: {e}")
+    from app.core.otp_ingest import ingest_otp_payload
+    result = await ingest_otp_payload(payload)
 
     logger.info("=" * 60)
-    if otp_code and house_code:
-        logger.info(f"🔐 OTP Received — House: {house_code} | OTP: {otp_code}")
-        logger.info(f"🏢 House: {house_code}  |  🔑 OTP Code: {otp_code}")
-    else:
-        logger.info(f"🔐 OTP Received — From: {sender}")
-        logger.info(f"🔑 OTP/Message: {message}")
+    logger.info(f"🔐 OTP Received — House: {result.get('house_code')} | OTP: {result.get('otp_code')}")
     logger.info(f"📦 Full Payload: {payload}")
     logger.info("=" * 60)
-
-    try:
-        import aiohttp
-        async with aiohttp.ClientSession() as session:
-            await session.post("http://host.docker.internal:8080/receive-otp", json=payload, timeout=2)
-    except Exception:
-        pass
 
     return {"status": "ok", "message": "OTP received"}
 
@@ -431,8 +383,15 @@ async def main():
                 if settings.NGROK_AUTH_TOKEN:
                     ngrok.set_auth_token(settings.NGROK_AUTH_TOKEN)
                 ngrok_cfg = conf.PyngrokConfig(request_timeout=30)
-                ngrok.connect(8000, pyngrok_config=ngrok_cfg)
-                tunnels = ngrok.get_tunnels(pyngrok_config=ngrok_cfg)
+                if settings.STATIC_DOMAIN:
+                    ngrok_tunnel = ngrok.connect(
+                        8000,
+                        domain=settings.STATIC_DOMAIN,
+                        pyngrok_config=ngrok_cfg,
+                    )
+                else:
+                    ngrok_tunnel = ngrok.connect(8000, pyngrok_config=ngrok_cfg)
+                tunnels = [ngrok_tunnel] if ngrok_tunnel else ngrok.get_tunnels(pyngrok_config=ngrok_cfg)
                 if tunnels:
                     public_url = tunnels[0].public_url
                     logger.info(f"🌐 Ngrok tunnel opened: {public_url}")

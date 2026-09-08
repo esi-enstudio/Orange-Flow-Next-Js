@@ -3,7 +3,7 @@ import shutil
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Request, Response
 from sqlalchemy import select, or_, and_, cast, Float, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -13,14 +13,16 @@ from app.schemas.employee import EmployeeSchema, EmployeeCreate, EmployeeSelfUpd
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.employee import Employee
 from app.models.house import House
-from app.models.user import User
+from app.models.user import User, user_roles
 from app.models.retailer import Retailer
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.rso_target import RSOTarget
+from app.models.supervisor_assignment import SupervisorRSOAssignment
 from pydantic import BaseModel
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
 from app.utils.validation import safe_filename, validate_excel
+from app.utils.activity_logger import log_activity
 from app.services.Automation.employee_excel import process_employee_excel, export_employees_excel
 from app.models.role import Role
 
@@ -685,162 +687,36 @@ async def export_employees(
     )
 
 
-class AssignSupervisorRequest(BaseModel):
-    rso_user_id: int
-    supervisor_user_id: int
-
-class BatchAssignSupervisorRequest(BaseModel):
-    rso_user_ids: list[int]
-    supervisor_user_id: int
+class SupervisorAssignRequest(BaseModel):
+    rso_employee_ids: list[int]
 
 
-@router.post("/assign-supervisor")
-async def assign_rso_to_supervisor(
-    req: AssignSupervisorRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("employees.assign")),
-):
-    rso_user = await db.get(User, req.rso_user_id)
-    if not rso_user:
-        raise HTTPException(status_code=404, detail="RSO user not found")
-    sup_user = await db.get(User, req.supervisor_user_id)
-    if not sup_user:
-        raise HTTPException(status_code=404, detail="Supervisor user not found")
-
-    rso_roles = [r.name.lower() for r in rso_user.roles]
-    sup_roles = [r.name.lower() for r in sup_user.roles]
-    if "rso" not in rso_roles:
-        raise HTTPException(status_code=400, detail="Selected user is not an RSO")
-    if "supervisor" not in sup_roles:
-        raise HTTPException(status_code=400, detail="Selected user is not a Supervisor")
-
-    house_ids_rso = {h.id for h in rso_user.houses}
-    house_ids_sup = {h.id for h in sup_user.houses}
-    if not house_ids_rso.intersection(house_ids_sup):
-        raise HTTPException(status_code=400, detail="RSO and Supervisor must belong to the same house")
-
-    rso_user.parent_id = req.supervisor_user_id
-    await db.commit()
-    return {"success": True, "message": "RSO assigned to supervisor successfully"}
-
-
-@router.post("/assign-supervisor/batch")
-async def batch_assign_rso_to_supervisor(
-    req: BatchAssignSupervisorRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("employees.assign")),
-):
-    sup_user = await db.get(User, req.supervisor_user_id)
-    if not sup_user:
-        raise HTTPException(status_code=404, detail="Supervisor user not found")
-    if "supervisor" not in [r.name.lower() for r in sup_user.roles]:
-        raise HTTPException(status_code=400, detail="Selected user is not a Supervisor")
-
-    sup_house_ids = {h.id for h in sup_user.houses}
-    success_count = 0
-    errors = []
-
-    for rso_id in req.rso_user_ids:
-        rso_user = await db.get(User, rso_id)
-        if not rso_user:
-            errors.append({"rso_id": rso_id, "error": "User not found"})
-            continue
-        if "rso" not in [r.name.lower() for r in rso_user.roles]:
-            errors.append({"rso_id": rso_id, "error": "User is not an RSO"})
-            continue
-        rso_house_ids = {h.id for h in rso_user.houses}
-        if not rso_house_ids.intersection(sup_house_ids):
-            errors.append({"rso_id": rso_id, "error": "RSO and Supervisor must belong to the same house"})
-            continue
-        rso_user.parent_id = req.supervisor_user_id
-        success_count += 1
-
-    await db.commit()
-    return {
-        "success": True,
-        "message": f"{success_count} RSO(s) assigned successfully",
-        "assigned": success_count,
-        "errors": errors,
-    }
-
-
-@router.post("/remove-assignment/{rso_user_id}")
-async def remove_rso_assignment(
-    rso_user_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("employees.assign")),
-):
-    rso_user = await db.get(User, rso_user_id)
-    if not rso_user:
-        raise HTTPException(status_code=404, detail="User not found")
-    rso_user.parent_id = None
-    await db.commit()
-    return {"success": True, "message": "Assignment removed"}
-
-
-@router.get("/supervisor-team/{supervisor_user_id}")
-async def get_supervisor_team(
-    supervisor_user_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("employees.view")),
-):
-    sup_user = await db.get(User, supervisor_user_id)
-    if not sup_user:
-        raise HTTPException(status_code=404, detail="Supervisor not found")
-
-    rso_users = (
-        await db.execute(
-            select(User).options(selectinload(User.roles), selectinload(User.employee_profile))
-            .where(User.parent_id == supervisor_user_id)
-        )
-    ).unique().scalars().all()
-
-    team = []
-    for ru in rso_users:
-        if "rso" in [r.name.lower() for r in ru.roles]:
-            emp = ru.employee_profile
-            team.append({
-                "user_id": ru.id,
-                "name": ru.name,
-                "username": ru.username,
-                "phone": ru.phone_number,
-                "employee_id": emp.employee_id if emp else None,
-                "dms_code": emp.dms_code if emp else None,
-                "status": emp.status if emp else None,
-            })
-    return {"success": True, "data": team, "total": len(team)}
-
-
-@router.get("/unassigned-rsos")
-async def get_unassigned_rsos(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("employees.view")),
-    house_id: Optional[int] = Depends(get_house_context),
-):
-    query = (
-        select(User)
-        .options(selectinload(User.roles), selectinload(User.employee_profile))
-        .where(User.parent_id == None)
+async def _upsert_pivot_assignment(
+    db: AsyncSession,
+    sup_emp: Employee,
+    rso_emp: Employee,
+    assigned_by: Optional[int],
+) -> SupervisorRSOAssignment:
+    """Create (or re-point) the pivot row. The pivot is the source of truth;
+    User.parent_id is kept in sync as a convenience column."""
+    result = await db.execute(
+        select(SupervisorRSOAssignment).where(SupervisorRSOAssignment.rso_employee_id == rso_emp.id)
     )
-    if house_id:
-        query = query.where(User.houses.any(id=house_id))
-
-    result = await db.execute(query)
-    users = result.unique().scalars().all()
-
-    unassigned = []
-    for u in users:
-        if "rso" in [r.name.lower() for r in u.roles]:
-            emp = u.employee_profile
-            unassigned.append({
-                "user_id": u.id,
-                "name": u.name,
-                "username": u.username,
-                "employee_id": emp.employee_id if emp else None,
-                "dms_code": emp.dms_code if emp else None,
-                "itop_number": emp.itop_number if emp else None,
-            })
-    return {"success": True, "data": unassigned, "total": len(unassigned)}
+    row = result.scalar_one_or_none()
+    if row:
+        row.supervisor_employee_id = sup_emp.id
+        row.house_id = rso_emp.house_id
+        row.assigned_by = assigned_by
+        db.add(row)
+        return row
+    row = SupervisorRSOAssignment(
+        supervisor_employee_id=sup_emp.id,
+        rso_employee_id=rso_emp.id,
+        house_id=rso_emp.house_id,
+        assigned_by=assigned_by,
+    )
+    db.add(row)
+    return row
 
 
 @router.get("/rso-list")
@@ -910,11 +786,18 @@ async def get_supervisors_list(
     result = await db.execute(query)
     users = result.unique().scalars().all()
 
+    assigned_counts: dict[int, int] = {}
+    rows = (
+        await db.execute(select(SupervisorRSOAssignment.supervisor_employee_id))
+    ).scalars().all()
+    for sup_id in rows:
+        assigned_counts[sup_id] = assigned_counts.get(sup_id, 0) + 1
+
     supervisors = []
     for u in users:
         if "supervisor" in [r.name.lower() for r in u.roles]:
             emp = u.employee_profile
-            rso_count = len([s for s in (u.subordinates or []) if "rso" in [r.name.lower() for r in s.roles]])
+            rso_count = assigned_counts.get(emp.id if emp else None, 0) if emp else 0
             supervisors.append({
                 "id": emp.id if emp else None,
                 "user_id": u.id,
@@ -927,6 +810,238 @@ async def get_supervisors_list(
                 "assigned_rso_count": rso_count,
             })
     return {"success": True, "data": supervisors}
+
+
+@router.get("/supervisors")
+async def get_supervisors_with_teams(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.view")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    """List supervisors (employee-centric) with their full assigned RSO teams from the pivot table."""
+    sup_query = (
+        select(Employee)
+        .options(selectinload(Employee.user).selectinload(User.roles))
+        .where(Employee.employee_type == "supervisor")
+    )
+    if house_id:
+        sup_query = sup_query.where(Employee.house_id == house_id)
+    else:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            sup_query = sup_query.where(Employee.house_id.in_(user_house_ids))
+
+    sups = (await db.execute(sup_query.order_by(Employee.house_id, Employee.dms_code))).unique().scalars().all()
+
+    sup_ids = [s.id for s in sups]
+    rows = []
+    if sup_ids:
+        rows = (
+            await db.execute(
+                select(SupervisorRSOAssignment).where(
+                    SupervisorRSOAssignment.supervisor_employee_id.in_(sup_ids)
+                )
+            )
+        ).scalars().all()
+
+    rso_by_id: dict[int, Employee] = {}
+    rso_ids = [r.rso_employee_id for r in rows]
+    if rso_ids:
+        rso_emps = (
+            await db.execute(
+                select(Employee)
+                .options(selectinload(Employee.user).selectinload(User.roles))
+                .where(Employee.id.in_(rso_ids))
+            )
+        ).unique().scalars().all()
+        rso_by_id = {e.id: e for e in rso_emps}
+
+    row_map: dict[int, list] = {}
+    for row in rows:
+        row_map.setdefault(row.supervisor_employee_id, []).append(row)
+
+    data = []
+    for sup in sups:
+        sup_user = sup.user
+        team = []
+        for row in row_map.get(sup.id, []):
+            rso_emp = rso_by_id.get(row.rso_employee_id)
+            if not rso_emp:
+                continue
+            ru = rso_emp.user
+            team.append({
+                "rso_employee_id": rso_emp.id,
+                "rso_user_id": ru.id if ru else None,
+                "name": (ru.name if ru else None) or rso_emp.employee_name or rso_emp.employee_id,
+                "employee_id": rso_emp.employee_id,
+                "dms_code": rso_emp.dms_code,
+                "itop_number": rso_emp.itop_number,
+                "pool_number": rso_emp.pool_number,
+                "status": rso_emp.status,
+                "assigned_at": row.created_at.isoformat() if row.created_at else None,
+            })
+        data.append({
+            "id": sup.id,
+            "user_id": sup_user.id if sup_user else None,
+            "name": (sup_user.name if sup_user else None) or sup.employee_name or sup.employee_id,
+            "employee_id": sup.employee_id,
+            "dms_code": sup.dms_code,
+            "itop_number": sup.itop_number,
+            "pool_number": sup.pool_number,
+            "status": sup.status,
+            "rso_count": len(team),
+            "assigned_rsos": team,
+        })
+    return {"success": True, "data": data}
+
+
+@router.get("/supervisors/unassigned-rsos")
+async def get_supervisors_unassigned(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.view")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    """List RSO employees that are NOT tagged under any supervisor (house-scoped)."""
+    assigned_ids = (
+        await db.execute(select(SupervisorRSOAssignment.rso_employee_id))
+    ).scalars().all()
+    assigned_set = set(assigned_ids)
+
+    rso_user_subq = select(User.id).join(user_roles).join(Role).where(func.lower(Role.name) == "rso")
+    emp_query = (
+        select(Employee)
+        .options(selectinload(Employee.user))
+        .where(or_(Employee.employee_type == "rso", Employee.user_id.in_(rso_user_subq)))
+    )
+    if house_id:
+        emp_query = emp_query.where(Employee.house_id == house_id)
+    else:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            emp_query = emp_query.where(Employee.house_id.in_(user_house_ids))
+
+    employees = (await db.execute(emp_query.order_by(Employee.dms_code))).unique().scalars().all()
+
+    unassigned = []
+    for emp in employees:
+        if emp.id in assigned_set:
+            continue
+        ru = emp.user
+        unassigned.append({
+            "rso_employee_id": emp.id,
+            "rso_user_id": ru.id if ru else None,
+            "name": (ru.name if ru else None) or emp.employee_name or emp.employee_id,
+            "employee_id": emp.employee_id,
+            "dms_code": emp.dms_code,
+            "itop_number": emp.itop_number,
+            "pool_number": emp.pool_number,
+            "status": emp.status,
+        })
+    return {"success": True, "data": unassigned, "total": len(unassigned)}
+
+
+@router.post("/supervisors/{supervisor_employee_id}/assign")
+async def assign_rsos_to_supervisor(
+    supervisor_employee_id: int,
+    req: SupervisorAssignRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.assign")),
+):
+    """Tag one or more RSO employees under a supervisor (pivot is source of truth;
+    User.parent_id synced for backward compatibility)."""
+    sup_emp = (
+        await db.execute(
+            select(Employee).options(selectinload(Employee.user)).where(Employee.id == supervisor_employee_id)
+        )
+    ).scalar_one_or_none()
+    if not sup_emp:
+        raise HTTPException(status_code=404, detail="Supervisor employee not found")
+    if sup_emp.employee_type != "supervisor":
+        raise HTTPException(status_code=400, detail="Employee is not a supervisor")
+
+    sup_user = sup_emp.user
+    success_count = 0
+    errors = []
+    assigned_labels = []
+
+    for rso_id in req.rso_employee_ids:
+        rso_emp = (
+            await db.execute(
+                select(Employee).options(selectinload(Employee.user)).where(Employee.id == rso_id)
+            )
+        ).scalar_one_or_none()
+        if not rso_emp:
+            errors.append({"rso_employee_id": rso_id, "error": "RSO not found"})
+            continue
+        rso_user = rso_emp.user
+        if rso_emp.employee_type != "rso" and not (
+            rso_user and "rso" in [r.name.lower() for r in rso_user.roles]
+        ):
+            errors.append({"rso_employee_id": rso_id, "error": "Employee is not an RSO"})
+            continue
+        if rso_emp.house_id != sup_emp.house_id:
+            errors.append({"rso_employee_id": rso_id, "error": "RSO and Supervisor must belong to the same house"})
+            continue
+
+        await _upsert_pivot_assignment(db, sup_emp, rso_emp, current_user.id)
+        if rso_user and sup_user:
+            rso_user.parent_id = sup_user.id
+        elif rso_user:
+            rso_user.parent_id = None
+        success_count += 1
+        assigned_labels.append(rso_emp.employee_id or rso_emp.dms_code or str(rso_emp.id))
+
+    await db.commit()
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "assign",
+        record_id=sup_emp.id,
+        record_identifier=sup_emp.employee_id or sup_emp.dms_code,
+        new_values={"rso_employee_ids": req.rso_employee_ids, "assigned": assigned_labels},
+        request=request, status_code=200,
+    )
+    return {
+        "success": True,
+        "message": f"{success_count} RSO(s) assigned successfully",
+        "assigned": success_count,
+        "errors": errors,
+    }
+
+
+@router.delete("/supervisors/assignments/{rso_employee_id}")
+async def remove_supervisor_assignment(
+    rso_employee_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.assign")),
+):
+    """Remove an RSO from its supervisor (pivot row deleted + parent_id cleared)."""
+    rso_emp = (
+        await db.execute(
+            select(Employee).options(selectinload(Employee.user)).where(Employee.id == rso_employee_id)
+        )
+    ).scalar_one_or_none()
+    if not rso_emp:
+        raise HTTPException(status_code=404, detail="RSO not found")
+    row = (
+        await db.execute(
+            select(SupervisorRSOAssignment).where(SupervisorRSOAssignment.rso_employee_id == rso_emp.id)
+        )
+    ).scalar_one_or_none()
+    removed_supervisor = row.supervisor_employee_id if row else None
+    if row:
+        await db.delete(row)
+    if rso_emp.user and rso_emp.user.parent_id is not None:
+        rso_emp.user.parent_id = None
+    await db.commit()
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "unassign",
+        record_id=rso_emp.id,
+        record_identifier=rso_emp.employee_id or rso_emp.dms_code,
+        old_values={"supervisor_employee_id": removed_supervisor},
+        request=request, status_code=200,
+    )
+    return {"success": True, "message": "Assignment removed"}
 
 
 @router.post("/link-users")

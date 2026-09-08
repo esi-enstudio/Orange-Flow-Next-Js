@@ -5,6 +5,7 @@ from app.models.house import House
 from app.models.retailer import Retailer
 from app.models.bts import BTS
 from app.models.employee import Employee
+from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.activation import Activation
 from app.models.itopup_detail import ITopUpDetail
 from app.models.live_activation import LiveActivation

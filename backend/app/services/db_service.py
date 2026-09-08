@@ -10,6 +10,7 @@ import app.models.live_activation
 import app.models.retailer
 import app.models.retailer_marking
 import app.models.employee
+import app.models.supervisor_assignment
 import app.models.bts
 import app.models.ga_filter
 import app.models.mela
@@ -315,6 +316,34 @@ async def _migrate_employee_name():
                 logger.info(f"Migration: backfilled employee_name for {backfilled.rowcount} employee(s) from linked users")
     except Exception as e:
         logger.warning(f"Migration warning (employees.employee_name): {e}")
+
+async def _migrate_supervisor_rso_pivot():
+    """Seed supervisor_rso_assignments from existing User.parent_id reporting lines.
+    Idempotent — existing pivot rows are never overwritten."""
+    try:
+        async with engine.begin() as conn:
+            seed = await conn.execute(text(
+                """
+                INSERT INTO supervisor_rso_assignments
+                    (supervisor_employee_id, rso_employee_id, house_id, assigned_by, created_at)
+                SELECT sup_e.id, sub_e.id, sub_e.house_id, NULL, NOW()
+                FROM users sub
+                JOIN users sup ON sup.id = sub.parent_id
+                JOIN employees sub_e ON sub_e.user_id = sub.id
+                JOIN employees sup_e ON sup_e.user_id = sup.id
+                JOIN users_roles ur ON ur.user_id = sub.id
+                JOIN roles r ON r.id = ur.role_id
+                WHERE sub.parent_id IS NOT NULL
+                  AND LOWER(r.name) = 'rso'
+                ON CONFLICT (rso_employee_id) DO NOTHING
+                """
+            ))
+            if seed.rowcount:
+                logger.info(f"Migration: seeded {seed.rowcount} supervisor_rso_assignments row(s) from parent_id")
+            else:
+                logger.info("Migration: supervisor_rso_assignments already synced")
+    except Exception as e:
+        logger.warning(f"Migration warning (supervisor_rso_pivot): {e}")
 
 async def _migrate_lifting_soft_delete():
     try:
@@ -718,6 +747,7 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
         await _migrate_employee_sr_no()
         await _migrate_employee_name()
+        await _migrate_supervisor_rso_pivot()
         await _migrate_retailer_employee_link()
         await _migrate_retailer_filter_tag_id()
         await _migrate_retailer_markings()

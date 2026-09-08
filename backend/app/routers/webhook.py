@@ -2,6 +2,8 @@ import logging
 from fastapi import APIRouter, Request
 from typing import Dict, Any
 
+from app.core.otp_ingest import ingest_otp_payload
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webhook", tags=["Webhook"])
 
@@ -24,29 +26,12 @@ async def _extract_payload(request: Request) -> Dict[str, Any]:
                 return {"raw": body.decode("utf-8", errors="replace")}
 
 @router.post("/sms")
-async def receive_sms(request: Request):
-    payload = await _extract_payload(request)
-    sender = (payload.get("from") or payload.get("from_") or payload.get("sender")
-              or payload.get("phone") or payload.get("sender_number") or "Unknown")
-    message = (payload.get("message") or payload.get("body") or payload.get("text")
-               or payload.get("msg") or payload.get("sms") or payload.get("content") or str(payload))
-    logger.info("=" * 60)
-    logger.info(f"📩 SMS Received — From: {sender}")
-    logger.info(f"📝 Message: {message}")
-    logger.info(f"📦 Full Payload: {payload}")
-    logger.info("=" * 60)
-    return {"status": "ok", "message": "SMS received"}
-
 @router.post("/otp")
-async def receive_otp(request: Request):
+async def receive_sms_or_otp(request: Request):
     payload = await _extract_payload(request)
-    sender = (payload.get("from") or payload.get("from_") or payload.get("sender")
-              or payload.get("phone") or payload.get("sender_number") or "Unknown")
-    message = (payload.get("message") or payload.get("body") or payload.get("text")
-               or payload.get("msg") or payload.get("sms") or payload.get("content") or str(payload))
+    result = await ingest_otp_payload(payload)
     logger.info("=" * 60)
-    logger.info(f"🔐 OTP Received — From: {sender}")
-    logger.info(f"🔑 OTP/Message: {message}")
-    logger.info(f"📦 Full Payload: {payload}")
+    logger.info(f"📩 Webhook Payload: {payload}")
+    logger.info(f"🔑 Routed OTP: {result.get('otp_code')} for house: {result.get('house_code')}")
     logger.info("=" * 60)
-    return {"status": "ok", "message": "OTP received"}
+    return {"status": "ok", "message": "received"}

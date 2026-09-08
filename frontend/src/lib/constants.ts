@@ -109,6 +109,7 @@ export const navItems: NavItem[] = [
     color: "text-purple-500",
     children: [
       { title: "Employee Management", translationKey: "nav.employees", href: "/employees", permission: "employees.view" },
+      { title: "Supervisors", translationKey: "nav.supervisors", href: "/employees/supervisors", permission: "employees.view" },
       { title: "KPI Reports (GA/C2C)", translationKey: "nav.reports", href: "/reports/kpi", permission: "reports.view" },
     ]
   },
@@ -216,8 +217,6 @@ export const navItems: NavItem[] = [
       { title: "Manager Dashboard", translationKey: "nav.manager_dashboard", href: "/dashboard/manager", permission: "reports.target_achievement" },
       { title: "Supervisor Dashboard", translationKey: "nav.supervisor_dashboard", href: "/dashboard/supervisor", permission: "reports.target_achievement" },
       { title: "RSO Dashboard", translationKey: "nav.rso_dashboard", href: "/dashboard/rso", permission: "reports.target_achievement" },
-      { title: "My Team", translationKey: "nav.my_team", href: "/team", permission: "employees.view" },
-      { title: "Assign RSOs", translationKey: "nav.assign_rsos", href: "/assign", permission: "employees.assign" },
     ]
   },
   {
