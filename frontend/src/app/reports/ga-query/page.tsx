@@ -41,6 +41,7 @@ interface ActivationRecord {
   activation_time: string | null;
   retailer_code: string;
   retailer_name: string;
+  retailer_itop_number?: string | null;
   bts_code: string | null;
   thana: string | null;
   promotion: string | null;
@@ -154,7 +155,8 @@ export default function GAQueryPage() {
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
   const [retailerSearch, setRetailerSearch] = useState("");
   const [retailerOpen, setRetailerOpen] = useState(false);
-  const [selectedRetailerId, setSelectedRetailerId] = useState<string>("");
+  const [retailerMenu, setRetailerMenu] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [selectedRetailerIds, setSelectedRetailerIds] = useState<string[]>([]);
   const [loadingRetailers, setLoadingRetailers] = useState(false);
 
   const [activations, setActivations] = useState<ActivationRecord[]>([]);
@@ -171,6 +173,7 @@ export default function GAQueryPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const retailerDropdownRef = useRef<HTMLDivElement>(null);
+  const retailerTriggerRef = useRef<HTMLButtonElement>(null);
 
   // ── Permission check ──
   const canView = hasPermission("ga_query.view");
@@ -210,36 +213,62 @@ export default function GAQueryPage() {
   );
 
   useEffect(() => {
-    const timer = setTimeout(() => fetchRetailers(retailerSearch), 300);
+    const q = retailerSearch.trim();
+    if (q.length === 0) return;
+    const timer = setTimeout(() => fetchRetailers(q), 300);
     return () => clearTimeout(timer);
   }, [retailerSearch, fetchRetailers]);
 
-  // ── Close dropdown on outside click ──
+  // ── Close dropdown on outside click / scroll / resize ──
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (retailerDropdownRef.current && !retailerDropdownRef.current.contains(e.target as Node)) {
         setRetailerOpen(false);
       }
     };
+    const onCloseAny = () => setRetailerOpen(false);
     document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
+    window.addEventListener("scroll", onCloseAny, true);
+    window.addEventListener("resize", onCloseAny);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      window.removeEventListener("scroll", onCloseAny, true);
+      window.removeEventListener("resize", onCloseAny);
+    };
   }, []);
+
+  // ── Toggle retailer menu (fixed-position, viewport-aware) ──
+  const toggleRetailerMenu = () => {
+    if (!selectedHouseId) return;
+    if (retailerOpen) {
+      setRetailerOpen(false);
+      return;
+    }
+    const el = retailerTriggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const menuW = Math.min(Math.max(rect.width, 300), window.innerWidth - 24);
+    const menuH = Math.min(window.innerHeight * 0.5, 360);
+    const left = Math.max(Math.min(rect.left, window.innerWidth - menuW - 12), 12);
+    const below = rect.bottom + 6 + menuH <= window.innerHeight;
+    const top = below ? rect.bottom + 6 : Math.max(rect.top - menuH - 6, 12);
+    setRetailerMenu({ top, left, width: menuW });
+    setRetailerOpen(true);
+  };
 
   // ── Fetch product codes ──
   const fetchProductCodes = useCallback(
-    async (retId: string) => {
-      if (!retId) {
-        setProductCodes([]);
-        return;
-      }
+    async (retIds: string[]) => {
       setLoadingProducts(true);
       try {
-        const params: Record<string, string> = {};
-        if (selectedHouseId) params["X-House-ID"] = selectedHouseId;
         const headers: Record<string, string> = {};
         if (selectedHouseId) headers["X-House-ID"] = selectedHouseId;
         const res = await apiClient.get("ga-query/product-codes", {
-          params: { retailer_id: retId, start_date: startDate, end_date: endDate },
+          params: {
+            ...(retIds.length > 0 ? { retailer_ids: retIds.join(",") } : {}),
+            start_date: startDate,
+            end_date: endDate,
+          },
           headers,
         });
         setProductCodes(res.data || []);
@@ -254,17 +283,16 @@ export default function GAQueryPage() {
 
   // ── Fetch activations ──
   const fetchActivations = useCallback(
-    async (retId: string, page: number = 1) => {
-      if (!retId) return;
+    async (retIds: string[], page: number = 1) => {
       setLoading(true);
       try {
         const params: Record<string, string | number> = {
-          retailer_id: retId,
           start_date: startDate,
           end_date: endDate,
           page,
           per_page: 50,
         };
+        if (retIds.length > 0) params.retailer_ids = retIds.join(",");
         if (selectedProductCode) params.product_code = selectedProductCode;
         if (searchText) params.search = searchText;
 
@@ -287,13 +315,16 @@ export default function GAQueryPage() {
 
   // ── Fetch summary ──
   const fetchSummary = useCallback(
-    async (retId: string) => {
-      if (!retId) return;
+    async (retIds: string[]) => {
       try {
         const headers: Record<string, string> = {};
         if (selectedHouseId) headers["X-House-ID"] = selectedHouseId;
         const res = await apiClient.get("ga-query/summary", {
-          params: { retailer_id: retId, start_date: startDate, end_date: endDate },
+          params: {
+            ...(retIds.length > 0 ? { retailer_ids: retIds.join(",") } : {}),
+            start_date: startDate,
+            end_date: endDate,
+          },
           headers,
         });
         setSummary(res.data || null);
@@ -310,33 +341,27 @@ export default function GAQueryPage() {
       toast.error(t("ga_query.select_house_required"));
       return;
     }
-    if (!selectedRetailerId) {
-      toast.error(t("ga_query.select_retailer_required"));
-      return;
-    }
     setSelectedProductCode("");
     setSearchText("");
-    fetchProductCodes(selectedRetailerId);
-    fetchActivations(selectedRetailerId, 1);
-    fetchSummary(selectedRetailerId);
+    fetchProductCodes(selectedRetailerIds);
+    fetchActivations(selectedRetailerIds, 1);
+    fetchSummary(selectedRetailerIds);
   };
 
   // ── Page change ──
   const handlePageChange = (newPage: number) => {
-    if (!selectedRetailerId) return;
-    fetchActivations(selectedRetailerId, newPage);
+    fetchActivations(selectedRetailerIds, newPage);
     setExpandedId(null);
   };
 
   // ── Export ──
   const handleExport = async () => {
-    if (!selectedRetailerId) return;
     try {
       const headers: Record<string, string> = {};
       if (selectedHouseId) headers["X-House-ID"] = selectedHouseId;
       const res = await apiClient.get("ga-query/export", {
         params: {
-          retailer_id: selectedRetailerId,
+          ...(selectedRetailerIds.length > 0 ? { retailer_ids: selectedRetailerIds.join(",") } : {}),
           start_date: startDate,
           end_date: endDate,
           ...(selectedProductCode ? { product_code: selectedProductCode } : {}),
@@ -360,27 +385,16 @@ export default function GAQueryPage() {
 
   // ── Product filter ──
   useEffect(() => {
-    if (selectedRetailerId && activations.length > 0) {
-      fetchActivations(selectedRetailerId, pagination?.page || 1);
+    if (activations.length > 0) {
+      fetchActivations(selectedRetailerIds, pagination?.page || 1);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProductCode]);
 
-  const selectedRetailer = useMemo(
-    () => retailers.find((r) => String(r.id) === selectedRetailerId),
-    [retailers, selectedRetailerId]
+  const selectedRetailers = useMemo(
+    () => retailers.filter((r) => selectedRetailerIds.includes(String(r.id))),
+    [retailers, selectedRetailerIds]
   );
-
-  // ── Filtered retailer list ──
-  const filteredRetailers = useMemo(() => {
-    if (!retailerSearch) return retailers;
-    const s = retailerSearch.toLowerCase();
-    return retailers.filter(
-      (r) =>
-        r.retailer_code?.toLowerCase().includes(s) ||
-        r.name?.toLowerCase().includes(s) ||
-        r.owner_name?.toLowerCase().includes(s)
-    );
-  }, [retailers, retailerSearch]);
 
   // ── Render ──
   if (authLoading) {
@@ -430,14 +444,14 @@ export default function GAQueryPage() {
                 value={selectedHouseId}
                 onChange={(e) => {
                   setSelectedHouseId(e.target.value);
-                  setSelectedRetailerId("");
+                  setSelectedRetailerIds([]);
                   setRetailers([]);
                   setActivations([]);
                   setProductCodes([]);
                   setSummary(null);
                   setPagination(null);
                 }}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
               >
                 <option value="">{t("ga_query.select_house")}</option>
                 {houses.map((h) => (
@@ -458,7 +472,7 @@ export default function GAQueryPage() {
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
               />
             </div>
 
@@ -472,7 +486,7 @@ export default function GAQueryPage() {
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
               />
             </div>
 
@@ -485,45 +499,41 @@ export default function GAQueryPage() {
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (selectedHouseId) {
-                      setRetailerOpen(!retailerOpen);
-                      if (!retailerOpen) fetchRetailers("");
-                    }
-                  }}
+                  ref={retailerTriggerRef}
+                  onClick={toggleRetailerMenu}
                   disabled={!selectedHouseId}
                   className={cn(
-                    "w-full px-3 py-2.5 rounded-lg border text-sm text-left flex items-center justify-between transition-colors",
-                    selectedHouseId
-                      ? "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 hover:border-primary-300 dark:hover:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                      : "border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900 text-gray-400 cursor-not-allowed"
+                    "w-full px-3 py-2.5 rounded-lg border text-sm text-left flex items-center justify-between gap-2 transition-colors cursor-pointer",
+                    !selectedHouseId
+                      ? "border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900 text-gray-400 cursor-not-allowed"
+                      : selectedRetailers.length > 0
+                        ? "border-primary-300 dark:border-primary-500/60 bg-primary-50/60 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 hover:border-primary-400 dark:hover:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 hover:border-primary-300 dark:hover:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
                   )}
                 >
                   <span className="flex flex-col min-w-0">
-                    {selectedRetailer && (
+                    {selectedRetailers.length > 0 ? (
                       <>
-                        <span className="truncate font-medium text-gray-900 dark:text-gray-100">
-                          {selectedRetailer.name}
-                          {selectedRetailer.rso_itop_number && (
-                            <span className="text-gray-400 dark:text-gray-500 font-normal">
-                              {" "}({String(selectedRetailer.rso_itop_number).slice(-3)})
-                            </span>
-                          )}
+                        <span className={cn("truncate font-medium", selectedRetailers.length > 0 ? "text-primary-700 dark:text-primary-300" : "text-gray-900 dark:text-gray-100")}>
+                          {selectedRetailers.length} {t("ga_query.selected")}
                         </span>
                         <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                          {selectedRetailer.retailer_code}
-                          {selectedRetailer.itop_number && <span> • {selectedRetailer.itop_number}</span>}
+                          {selectedRetailers.map((r) => r.retailer_code).join(", ")}
                         </span>
                       </>
+                    ) : (
+                      <span className="truncate text-gray-400 dark:text-gray-500">{t("ga_query.retailer_search")}</span>
                     )}
-                    {!selectedRetailer && t("ga_query.retailer_search")}
                   </span>
                   <ChevronDown className={cn("w-4 h-4 shrink-0 transition-transform", retailerOpen && "rotate-180")} />
                 </button>
 
                 {retailerOpen && selectedHouseId && (
-                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-xl max-h-72 overflow-hidden flex flex-col">
-                    <div className="p-2 border-b border-gray-100 dark:border-slate-700">
+                  <div
+                    className="fixed z-50 flex flex-col bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg shadow-xl"
+                    style={{ top: retailerMenu?.top ?? 0, left: retailerMenu?.left ?? 0, width: retailerMenu?.width ?? 300 }}
+                  >
+                    <div className="p-2 border-b border-gray-100 dark:border-slate-800">
                       <input
                         type="text"
                         value={retailerSearch}
@@ -533,41 +543,64 @@ export default function GAQueryPage() {
                         autoFocus
                       />
                     </div>
-                    <div className="overflow-y-auto max-h-56">
+                    <div className="overflow-y-auto max-h-[min(50vh,360px)]">
                       {loadingRetailers ? (
-                        <div className="px-3 py-4 text-sm text-gray-500 text-center">{t("ga_query.loading_retailers")}</div>
-                      ) : filteredRetailers.length === 0 ? (
-                        <div className="px-3 py-4 text-sm text-gray-500 text-center">No retailers found</div>
+                        <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">{t("ga_query.loading_retailers")}</div>
+                      ) : retailerSearch.trim().length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-gray-400 dark:text-gray-500 text-center">{t("ga_query.type_to_search")}</div>
+                      ) : retailers.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">{t("ga_query.no_retailers")}</div>
                       ) : (
-                        filteredRetailers.map((r) => (
-                          <button
-                            key={r.id}
-                            onClick={() => {
-                              setSelectedRetailerId(String(r.id));
-                              setRetailerOpen(false);
-                              setRetailerSearch("");
-                            }}
-                            className={cn(
-                              "w-full px-3 py-2.5 text-left text-sm transition-colors",
-                              String(r.id) === selectedRetailerId
-                                ? "bg-primary-50 dark:bg-primary-500/15 text-primary-600 dark:text-primary-400 font-medium"
-                                : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700"
-                            )}
-                          >
-                            <div className="font-medium text-gray-900 dark:text-gray-100">
-                              {r.name}
-                              {r.rso_itop_number && (
-                                <span className="text-gray-400 dark:text-gray-500 font-normal">
-                                  {" "}({String(r.rso_itop_number).slice(-3)})
-                                </span>
+                        retailers.map((r) => {
+                          const isSelected = selectedRetailerIds.includes(String(r.id));
+                          return (
+                            <button
+                              key={r.id}
+                              onClick={() => {
+                                setSelectedRetailerIds((prev) =>
+                                  isSelected
+                                    ? prev.filter((id) => id !== String(r.id))
+                                    : [...prev, String(r.id)]
+                                );
+                              }}
+                              className={cn(
+                                "w-full px-3 py-2.5 text-left text-sm transition-colors flex items-start gap-2.5",
+                                isSelected
+                                  ? "bg-primary-50 dark:bg-primary-500/15 text-primary-600 dark:text-primary-300"
+                                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700/60"
                               )}
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                              {r.retailer_code}
-                              {r.itop_number && <span> • {r.itop_number}</span>}
-                            </div>
-                          </button>
-                        ))
+                            >
+                              <span
+                                className={cn(
+                                  "mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                                  isSelected
+                                    ? "bg-primary-500 dark:bg-primary-400 border-primary-500 dark:border-primary-400 text-white dark:text-primary-900"
+                                    : "border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800"
+                                )}
+                              >
+                                {isSelected && (
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-3 h-3">
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                                <span className={cn("block font-medium leading-snug", isSelected ? "text-primary-700 dark:text-primary-200" : "text-gray-900 dark:text-gray-100")}>
+                                  {r.name}
+                                  {r.rso_itop_number && (
+                                    <span className="text-gray-400 dark:text-gray-500 font-normal">
+                                      {" "}({String(r.rso_itop_number).slice(-3)})
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="block text-[11px] text-gray-500 dark:text-gray-400 [overflow-wrap:anywhere]">
+                                  {r.retailer_code}
+                                  {r.itop_number && <span> • {r.itop_number}</span>}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -576,14 +609,14 @@ export default function GAQueryPage() {
             </div>
           </div>
 
-          {/* Apply + Product Code Filter Row */}
-          <div className="mt-4 flex flex-col sm:flex-row gap-3">
+          {/* Apply Button */}
+          <div className="mt-4">
             <button
               onClick={handleApply}
-              disabled={!selectedHouseId || !selectedRetailerId || loading}
+              disabled={!selectedHouseId || loading}
               className={cn(
-                "inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all",
-                selectedHouseId && selectedRetailerId
+                "inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer",
+                selectedHouseId
                   ? "bg-primary-600 text-white hover:bg-primary-700 shadow-sm shadow-primary-600/25 active:scale-[0.98]"
                   : "bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
               )}
@@ -591,35 +624,6 @@ export default function GAQueryPage() {
               <Search className="w-4 h-4" />
               {loading ? t("ga_query.loading_data") : t("ga_query.apply")}
             </button>
-
-            {/* Product Code Filter */}
-            {productCodes.length > 0 && (
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-gray-400" />
-                <select
-                  value={selectedProductCode}
-                  onChange={(e) => setSelectedProductCode(e.target.value)}
-                  className="px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 transition-colors max-w-xs"
-                >
-                  <option value="">{t("ga_query.all_product_codes")}</option>
-                  {productCodes.map((p) => (
-                    <option key={p.code} value={p.code}>
-                      {p.code} ({p.count})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {canExport && activations.length > 0 && (
-              <button
-                onClick={handleExport}
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                {t("ga_query.download_excel")}
-              </button>
-            )}
           </div>
         </div>
 
@@ -672,33 +676,65 @@ export default function GAQueryPage() {
         {/* Results */}
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
           {/* Toolbar */}
-          <div className="px-4 sm:px-6 py-3 border-b border-gray-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                {t("ga_query.filter.title")}
-              </h2>
-              {pagination && (
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {t("ga_query.total_label", { count: formatNumber(pagination.total) })}
-                </span>
-              )}
+          <div className="px-4 sm:px-6 py-3 border-b border-gray-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div className="flex items-center flex-wrap gap-2">
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {t("ga_query.filter.title")}
+                </h2>
+                {pagination && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {t("ga_query.total_label", { count: formatNumber(pagination.total) })}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Export */}
+                {canExport && activations.length > 0 && (
+                  <button
+                    onClick={handleExport}
+                    title={t("ga_query.download_excel")}
+                    className="group inline-flex items-center gap-1.5 p-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-500/10 hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-200 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 shrink-0" />
+                    <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 ease-out text-xs font-medium group-hover:max-w-[280px] group-hover:opacity-100">
+                      {t("ga_query.download_excel")}
+                    </span>
+                  </button>
+                )}
+
+                {/* Product Code Filter */}
+                {productCodes.length > 0 && (
+                  <select
+                    value={selectedProductCode}
+                    onChange={(e) => setSelectedProductCode(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 transition-colors max-w-[180px] sm:max-w-xs cursor-pointer"
+                  >
+                    <option value="">{t("ga_query.all_product_codes")}</option>
+                    {productCodes.map((p) => (
+                      <option key={p.code} value={p.code}>
+                        {p.code} ({p.count})
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        fetchActivations(selectedRetailerIds, 1);
+                      }
+                    }}
+                    placeholder={t("ga_query.filter.search_placeholder")}
+                    className="w-40 sm:w-56 pl-9 pr-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 transition-colors"
+                  />
+                </div>
+              </div>
             </div>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && selectedRetailerId) {
-                    fetchActivations(selectedRetailerId, 1);
-                  }
-                }}
-                placeholder={t("ga_query.filter.search_placeholder")}
-                className="w-full sm:w-64 pl-9 pr-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 transition-colors"
-              />
-            </div>
-          </div>
 
           {/* Loading skeleton */}
           {loading && (
@@ -724,15 +760,13 @@ export default function GAQueryPage() {
                   <thead>
                     <tr className="bg-gray-50/80 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-800">
                       <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.activation_date")}</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.retailer")}</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.rso")}</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.sim_no")}</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.msisdn")}</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.product_code")}</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.product_name")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.bts_code")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.thana")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.promotion")}</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.selling_price")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.rso")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -742,6 +776,22 @@ export default function GAQueryPage() {
                           <p className="font-medium">{formatDate(a.activation_date, language)}</p>
                           {a.activation_time && (
                             <p className="text-[11px] text-gray-500 dark:text-gray-400">{a.activation_time}</p>
+                          )}
+                        </td>
+                        <td className="px-2 py-1 max-w-[200px]">
+                          <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{a.retailer_name || "-"}</p>
+                          {(a.retailer_code || a.retailer_itop_number) && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate [overflow-wrap:anywhere]">
+                              {[a.retailer_code, a.retailer_itop_number].filter(Boolean).join(" • ")}
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-2 py-1">
+                          {a.rso_name && (
+                            <p className="text-xs font-medium text-gray-900 dark:text-gray-100">{a.rso_name}</p>
+                          )}
+                          {a.rso_dms_code && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{a.rso_dms_code}</p>
                           )}
                         </td>
                         <td className="px-2 py-1">
@@ -756,18 +806,7 @@ export default function GAQueryPage() {
                           </span>
                         </td>
                         <td className="px-2 py-1 text-gray-600 dark:text-gray-400 max-w-[150px] truncate">{a.product_name || "-"}</td>
-                        <td className="px-2 py-1 font-mono text-xs text-gray-600 dark:text-gray-400">{a.bts_code || "-"}</td>
-                        <td className="px-2 py-1 text-gray-600 dark:text-gray-400">{a.thana || "-"}</td>
-                        <td className="px-2 py-1 text-gray-600 dark:text-gray-400">{a.promotion || "-"}</td>
                         <td className="px-2 py-1 text-gray-600 dark:text-gray-400">{a.selling_price || "-"}</td>
-                        <td className="px-2 py-1">
-                          {a.rso_name && (
-                            <p className="text-xs font-medium text-gray-900 dark:text-gray-100">{a.rso_name}</p>
-                          )}
-                          {a.rso_dms_code && (
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{a.rso_dms_code}</p>
-                          )}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -800,14 +839,22 @@ export default function GAQueryPage() {
                       </button>
                       {isExpanded && (
                         <div className="px-4 pb-4 space-y-2 bg-gray-50/50 dark:bg-slate-800/20">
+                          <div className="flex items-baseline justify-between gap-4">
+                            <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">{t("ga_query.table.retailer")}</span>
+                            <div className="text-right">
+                              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{a.retailer_name || "-"}</span>
+                              {(a.retailer_code || a.retailer_itop_number) && (
+                                <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                                  {[a.retailer_code, a.retailer_itop_number].filter(Boolean).join(" • ")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <DetailRow label={t("ga_query.table.rso")} value={a.rso_name} sub={a.rso_dms_code} />
                           <DetailRow label={t("ga_query.table.msisdn")} value={a.msisdn} />
                           <DetailRow label={t("ga_query.table.product_name")} value={a.product_name} />
-                          <DetailRow label={t("ga_query.table.bts_code")} value={a.bts_code} />
-                          <DetailRow label={t("ga_query.table.thana")} value={a.thana} />
-                          <DetailRow label={t("ga_query.table.promotion")} value={a.promotion} />
                           <DetailRow label={t("ga_query.table.selling_price")} value={a.selling_price} />
                           <DetailRow label={t("ga_query.table.subscription_type")} value={a.subscription_type} />
-                          <DetailRow label={t("ga_query.table.rso")} value={a.rso_name} sub={a.rso_dms_code} />
                         </div>
                       )}
                     </div>
@@ -828,7 +875,7 @@ export default function GAQueryPage() {
                   onClick={() => handlePageChange(pagination.page - 1)}
                   disabled={!pagination.has_prev}
                   className={cn(
-                    "p-2 rounded-lg transition-colors",
+                    "p-2 rounded-lg transition-colors cursor-pointer",
                     pagination.has_prev
                       ? "hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
                       : "text-gray-300 dark:text-gray-600 cursor-not-allowed"
@@ -852,7 +899,7 @@ export default function GAQueryPage() {
                       key={pageNum}
                       onClick={() => handlePageChange(pageNum)}
                       className={cn(
-                        "w-8 h-8 rounded-lg text-xs font-medium transition-colors",
+                        "w-8 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
                         pageNum === pagination.page
                           ? "bg-primary-600 text-white shadow-sm"
                           : "hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
@@ -866,7 +913,7 @@ export default function GAQueryPage() {
                   onClick={() => handlePageChange(pagination.page + 1)}
                   disabled={!pagination.has_next}
                   className={cn(
-                    "p-2 rounded-lg transition-colors",
+                    "p-2 rounded-lg transition-colors cursor-pointer",
                     pagination.has_next
                       ? "hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
                       : "text-gray-300 dark:text-gray-600 cursor-not-allowed"

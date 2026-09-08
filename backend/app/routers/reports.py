@@ -269,7 +269,7 @@ async def export_activations(
     current_user: User = Depends(has_permission("activations.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    query = select(Activation).options(joinedload(Activation.house))
+    query = select(Activation).options(joinedload(Activation.house), joinedload(Activation.retailer))
     if house_id: query = query.where(Activation.house_id == house_id)
     if start_date:
         try: sd = datetime.strptime(start_date, "%Y-%m-%d").date()

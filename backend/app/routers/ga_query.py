@@ -22,17 +22,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ga-query", tags=["ga-query"])
 
 
+def _parse_ids(raw: Optional[str]) -> Optional[List[int]]:
+    """Parse a comma-separated list of integer IDs into a list, or None if empty."""
+    if not raw:
+        return None
+    ids = [int(x.strip()) for x in raw.split(",") if x.strip().isdigit()]
+    return ids or None
+
+
 @router.get("/retailers")
 async def get_ga_query_retailers(
     search: Optional[str] = None,
+    limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("ga_query.view")),
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
-    """Get retailers for the selected house with activation counts."""
+    """Get retailers for the selected house with optional search (results are limited)."""
     query = select(Retailer).options(
         joinedload(Retailer.employee).joinedload(Employee.user)
-    )
+    ).where(Retailer.enabled.ilike("y%"))
 
     if header_house_id:
         query = query.where(Retailer.house_id == header_house_id)
@@ -53,7 +62,7 @@ async def get_ga_query_retailers(
             )
         )
 
-    result = await db.execute(query.order_by(Retailer.name))
+    result = await db.execute(query.order_by(Retailer.name).limit(limit))
     retailers = result.scalars().unique().all()
 
     return [
@@ -75,6 +84,7 @@ async def get_ga_query_retailers(
 async def get_ga_query_activations(
     retailer_id: Optional[int] = None,
     retailer_code: Optional[str] = None,
+    retailer_ids: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     product_code: Optional[str] = None,
@@ -86,9 +96,8 @@ async def get_ga_query_activations(
     current_user: User = Depends(has_permission("ga_query.view")),
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
-    """Get activations for a specific retailer within date range."""
-    if not retailer_id and not retailer_code:
-        raise HTTPException(status_code=400, detail="retailer_id or retailer_code is required")
+    """Get activations for one or more retailers (or all, when no retailer given) within date range."""
+    ids = _parse_ids(retailer_ids)
 
     query = select(Activation).options(
         joinedload(Activation.house),
@@ -102,7 +111,9 @@ async def get_ga_query_activations(
         if user_house_ids:
             query = query.where(Activation.house_id.in_(user_house_ids))
 
-    if retailer_id:
+    if ids:
+        query = query.where(Activation.retailer_id.in_(ids))
+    elif retailer_id:
         query = query.where(Activation.retailer_id == retailer_id)
     elif retailer_code:
         query = query.where(Activation.retailer_code == retailer_code)
@@ -160,6 +171,7 @@ async def get_ga_query_activations(
             "activation_time": r.activation_time,
             "retailer_code": r.retailer_code,
             "retailer_name": r.retailer_name,
+            "retailer_itop_number": r.retailer.itop_number if r.retailer else None,
             "bts_code": r.bts_code,
             "thana": r.thana,
             "promotion": r.promotion,
@@ -207,6 +219,7 @@ async def get_ga_query_activations(
 async def get_ga_query_product_codes(
     retailer_id: Optional[int] = None,
     retailer_code: Optional[str] = None,
+    retailer_ids: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
@@ -214,6 +227,8 @@ async def get_ga_query_product_codes(
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
     """Get distinct product codes for filter dropdown."""
+    ids = _parse_ids(retailer_ids)
+
     query = select(Activation.product_code, func.count(Activation.id).label("count")).where(
         Activation.product_code.isnot(None), Activation.product_code != ""
     )
@@ -225,7 +240,9 @@ async def get_ga_query_product_codes(
         if user_house_ids:
             query = query.where(Activation.house_id.in_(user_house_ids))
 
-    if retailer_id:
+    if ids:
+        query = query.where(Activation.retailer_id.in_(ids))
+    elif retailer_id:
         query = query.where(Activation.retailer_id == retailer_id)
     elif retailer_code:
         query = query.where(Activation.retailer_code == retailer_code)
@@ -258,6 +275,7 @@ async def export_ga_query(
     request: Request,
     retailer_id: Optional[int] = None,
     retailer_code: Optional[str] = None,
+    retailer_ids: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     product_code: Optional[str] = None,
@@ -267,10 +285,9 @@ async def export_ga_query(
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
     """Export activations to Excel."""
-    if not retailer_id and not retailer_code:
-        raise HTTPException(status_code=400, detail="retailer_id or retailer_code is required")
+    ids = _parse_ids(retailer_ids)
 
-    query = select(Activation).options(joinedload(Activation.house))
+    query = select(Activation).options(joinedload(Activation.house), joinedload(Activation.retailer))
 
     if header_house_id:
         query = query.where(Activation.house_id == header_house_id)
@@ -279,7 +296,9 @@ async def export_ga_query(
         if user_house_ids:
             query = query.where(Activation.house_id.in_(user_house_ids))
 
-    if retailer_id:
+    if ids:
+        query = query.where(Activation.retailer_id.in_(ids))
+    elif retailer_id:
         query = query.where(Activation.retailer_id == retailer_id)
     elif retailer_code:
         query = query.where(Activation.retailer_code == retailer_code)
@@ -328,6 +347,7 @@ async def export_ga_query(
 async def get_ga_query_summary(
     retailer_id: Optional[int] = None,
     retailer_code: Optional[str] = None,
+    retailer_ids: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
@@ -335,13 +355,14 @@ async def get_ga_query_summary(
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
     """Get summary stats for the query results."""
-    if not retailer_id and not retailer_code:
-        raise HTTPException(status_code=400, detail="retailer_id or retailer_code is required")
+    ids = _parse_ids(retailer_ids)
 
     base = select(Activation.id, Activation.product_code, Activation.activation_date)
-    if retailer_id:
+    if ids:
+        base = base.where(Activation.retailer_id.in_(ids))
+    elif retailer_id:
         base = base.where(Activation.retailer_id == retailer_id)
-    else:
+    elif retailer_code:
         base = base.where(Activation.retailer_code == retailer_code)
 
     if header_house_id:

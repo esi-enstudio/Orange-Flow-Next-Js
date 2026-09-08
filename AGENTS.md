@@ -744,6 +744,12 @@ Avoid:
 - Inconsistent styles
 - Duplicate components
 
+## Cursor Feedback (Mouse Hover)
+
+- Every clickable button and control (buttons, selects, date inputs, checkboxes, pagination controls) must show a **pointer cursor** on mouse hover using the `cursor-pointer` Tailwind class.
+- Text inputs used for typing (e.g., search boxes) should keep the default text cursor (`cursor-text`) — do not force `cursor-pointer` on them.
+- Disabled controls keep the default `cursor-not-allowed` behavior; do not add `cursor-pointer` when the element is disabled.
+
 ---
 
 # Loading / Skeleton Guidelines
