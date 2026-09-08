@@ -41,18 +41,6 @@ host_systemctl() {
   host systemctl "$@"
 }
 
-# Build & install the frontend INSIDE this container on the shared /project
-# mount (which is bind-mounted from the host's /opt/Orange-Flow-Next-Js).
-# The resulting node_modules/ and .next/ are written directly into the host
-# directory, so a host `next start` picks them up after restart.
-build_frontend() {
-  (
-    set -e
-    cd "$PROJECT_DIR/frontend" || return 1
-    "$@"
-  )
-}
-
 write_status() {
   local state="$1" exit_code="${2:-0}" message="${3:-}"
   cat > "$STATUS_FILE" <<EOF
@@ -103,14 +91,24 @@ if ! git pull --ff-only; then
 fi
 echo "==> git pull successful"
 
-# ── Step 2 & 3: Install deps + Build frontend (in container, on /project) ───
+# ── Step 2 & 3: Install deps + Build frontend (on HOST via nsenter) ────────
+# Build MUST run in the host namespace so it uses the same Node.js version
+# (v24) and OS (glibc) as the production `next start` service. Running inside
+# this Alpine/musl container (Node 22) causes native module issues (sharp,
+# playwright) and build hangs.
+HOST_NODE_BIN="/root/.nvm/versions/node/v24.20.0/bin"
+HOST_FRONTEND_DIR="$HOST_PROJECT_DIR/frontend"
+host_build() {
+  host env "PATH=$HOST_NODE_BIN:/usr/local/bin:/usr/bin:/bin" "NODE_ENV=production" \
+    bash -c "cd '$HOST_FRONTEND_DIR' && $*"
+}
+
 echo ""
 echo "[DEPLOY_STEP:installing]"
 echo "==> [2/4] Installing frontend dependencies"
-echo "    (running inside this container on $PROJECT_DIR/frontend)"
-echo "    (== host $HOST_PROJECT_DIR/frontend via bind mount)"
+echo "    (running in HOST namespace with Node v24)"
 
-if ! build_frontend npm install; then
+if ! host_build npm install; then
   echo "ERROR: npm install failed." >&2
   write_status "failed" 2 "npm install failed"
   echo "[DEPLOY_FAILED:npm_install_failed]"
@@ -122,7 +120,7 @@ echo ""
 echo "[DEPLOY_STEP:building]"
 echo "==> [3/4] Building frontend (production)"
 
-if ! build_frontend npm run build; then
+if ! host_build npm run build; then
   echo "ERROR: npm run build failed." >&2
   write_status "failed" 3 "npm run build failed"
   echo "[DEPLOY_FAILED:build_failed]"
