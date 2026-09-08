@@ -13,6 +13,7 @@ import {
   Target,
   ArrowLeftRight,
   SlidersHorizontal,
+  Search,
   X,
   ChevronRight,
 } from "lucide-react";
@@ -80,6 +81,12 @@ const reportItems = [
     href: "/reports/ga-report-builder",
     icon: SlidersHorizontal,
     permission: "ga_report_builder.view",
+  },
+  {
+    key: "report_ga_query",
+    href: "/reports/ga-query",
+    icon: Search,
+    permission: "ga_query.view",
   },
 ];
 

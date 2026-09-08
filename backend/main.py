@@ -83,6 +83,7 @@ from app.routers.whatsapp_connections import router as whatsapp_connections_rout
 from app.routers.telegram_bots import router as telegram_bots_router
 from app.routers.transactions import router as transactions_router
 from app.routers.ga_report_builder import router as ga_report_builder_router
+from app.routers.ga_query import router as ga_query_router
 from app.routers.otp import router as otp_router
 from app.routers.system_logs import router as system_logs_router
 from app.routers.plans import router as plans_router
@@ -150,6 +151,7 @@ app.include_router(whatsapp_connections_router)
 app.include_router(telegram_bots_router)
 app.include_router(transactions_router)
 app.include_router(ga_report_builder_router)
+app.include_router(ga_query_router)
 app.include_router(otp_router)
 app.include_router(system_logs_router)
 app.include_router(plans_router)

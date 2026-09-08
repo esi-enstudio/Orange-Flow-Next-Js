@@ -427,6 +427,13 @@
         "ga_report_builder.send"
       ]
     },
+    "ga_query": {
+      "display_name": "GA Query",
+      "permissions": [
+        "ga_query.view",
+        "ga_query.export"
+      ]
+    },
     "whatsapp": {
       "display_name": "WhatsApp Gateway",
       "permissions": [
@@ -558,6 +565,8 @@
         "ga_report_builder.delete",
         "ga_report_builder.export",
         "ga_report_builder.send",
+        "ga_query.view",
+        "ga_query.export",
         "otp.view",
         "system_logs.view",
         "subscription.view",
@@ -616,6 +625,8 @@
         "ga_report_builder.delete",
         "ga_report_builder.export",
         "ga_report_builder.send",
+        "ga_query.view",
+        "ga_query.export",
         "otp.view",
         "system_logs.view",
         "subscription.view",

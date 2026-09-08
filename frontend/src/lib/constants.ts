@@ -190,6 +190,7 @@ export const navItems: NavItem[] = [
 
       { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permissions: ["reports.view", "live_activations.view"] },
       { title: "GA Report Builder", translationKey: "nav.report_ga_builder", href: "/reports/ga-report-builder", permission: "ga_report_builder.view" },
+      { title: "GA Query", translationKey: "nav.report_ga_query", href: "/reports/ga-query", permission: "ga_query.view" },
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permissions: ["reports.view", "scratch_card.view"] },
       { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permissions: ["reports.view", "sim_issues.view"] },
       { title: "Retailer Visits", translationKey: "nav.visits", href: "/visit", permission: "visits.view" },

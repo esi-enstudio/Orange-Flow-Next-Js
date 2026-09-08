@@ -28,6 +28,7 @@ const reportPermissions = [
   "active_lso.view",
   "active_sso.view",
   "ga_report_builder.view",
+  "ga_query.view",
   "scratch_card.view",
   "sim_issues.view",
   "visits.view",
