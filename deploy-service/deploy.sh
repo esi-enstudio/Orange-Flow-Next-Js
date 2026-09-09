@@ -88,8 +88,19 @@ cd "$PROJECT_DIR"
 PULL_SCRIPT="$PROJECT_DIR/deploy-service/deploy.sh"
 PRE_PULL_MD5=$(md5sum "$PULL_SCRIPT" 2>/dev/null | awk '{print $1}')
 
-if ! git pull --ff-only; then
-  echo "ERROR: git pull failed (could be local changes or conflicts)." >&2
+# Fetch + explicit single-branch merge. Plain `git pull --ff-only` derives its
+# merge heads from FETCH_HEAD, which races with the background workers also
+# running `git fetch` on this repo (host auto-deploy / commit-refresh /
+# server.js startup). That race can produce "fatal: Cannot fast-forward to
+# multiple branches." Merging an explicit ref avoids the ambiguity entirely.
+if ! git fetch --prune origin main; then
+  echo "ERROR: git fetch failed (network or auth problem)." >&2
+  write_status "failed" 1 "git fetch failed"
+  echo "[DEPLOY_FAILED:git_pull_failed]"
+  exit 1
+fi
+if ! git merge --ff-only origin/main; then
+  echo "ERROR: git pull failed (local changes conflict with origin/main)." >&2
   write_status "failed" 1 "git pull failed"
   echo "[DEPLOY_FAILED:git_pull_failed]"
   exit 1

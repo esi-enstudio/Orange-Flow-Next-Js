@@ -320,19 +320,32 @@ export default function DeployPage() {
       addLog("error", "Failed to obtain deploy authorization ticket");
       return;
     }
-    try {
-      const res = await fetch(`${DEPLOY_HTTP_URL}/api/reset`, {
-        method: "POST",
-        headers: { "X-Deploy-Ticket": ticket },
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setDeploy({ type: "idle" });
-        setLogs([]);
-        addLog("system", "Deploy state reset");
-        fetchCommits();
+
+    let ok = false;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      // Prefer the live WebSocket connection (the service acknowledges reset
+      // by broadcasting an idle status back to all clients).
+      wsRef.current.send(JSON.stringify({ action: "reset", ticket }));
+      ok = true;
+    } else {
+      try {
+        const res = await fetch(`${DEPLOY_HTTP_URL}/api/reset`, {
+          method: "POST",
+          headers: { "X-Deploy-Ticket": ticket },
+        });
+        const data = await res.json();
+        ok = Boolean(data?.ok);
+      } catch {
+        ok = false;
       }
-    } catch {
+    }
+
+    if (ok) {
+      setDeploy({ type: "idle" });
+      setLogs([]);
+      addLog("system", "Deploy state reset");
+      fetchCommits();
+    } else {
       addLog("error", "Failed to reset deploy state");
     }
   };

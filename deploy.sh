@@ -59,8 +59,15 @@ echo "========================================================================"
 if [ "$PULL" = true ]; then
   echo ""
   echo "==> [1/3] git pull"
-  if ! git pull --ff-only; then
-    echo "ERROR: git pull failed (could be local changes or conflicts)." >&2
+  # Fetch + explicit single-branch merge (see deploy-service/deploy.sh for why).
+  if ! git fetch --prune origin main; then
+    echo "ERROR: git fetch failed (network or auth problem)." >&2
+    echo "       Resolve network issues then re-run, or use --no-pull to skip." >&2
+    write_status "failed" 1 "git fetch failed"
+    exit 1
+  fi
+  if ! git merge --ff-only origin/main; then
+    echo "ERROR: git pull failed (local changes or conflicts)." >&2
     echo "       Resolve conflicts then re-run, or use --no-pull to skip." >&2
     write_status "failed" 1 "git pull failed"
     exit 1
