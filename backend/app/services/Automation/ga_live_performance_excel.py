@@ -14,6 +14,7 @@ from app.models.employee import Employee
 from app.models.user import User
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
+from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.ga_section_config import GaSectionConfig
 from app.models.role import Role
 from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
@@ -221,6 +222,16 @@ async def export_ga_live_performance_excel(
                 sup_user_to_rso_user_ids.setdefault(u.parent_id, []).append(u.id)
     rso_user_id_to_emp_id = {e.user_id: e.id for e in rso_list if e.user_id}
 
+    sup_rso_pivot_rows = await db.execute(
+        select(
+            SupervisorRSOAssignment.supervisor_employee_id,
+            SupervisorRSOAssignment.rso_employee_id,
+        ).where(SupervisorRSOAssignment.house_id == house_id)
+    )
+    sup_emp_to_rso_emp_ids: dict[int, set[int]] = {}
+    for sup_eid, rso_eid in sup_rso_pivot_rows.all():
+        sup_emp_to_rso_emp_ids.setdefault(sup_eid, set()).add(rso_eid)
+
     async def _today_count(retailer_ids: set[int], bp_filter: bool = True):
         if not retailer_ids:
             return 0
@@ -398,12 +409,14 @@ async def export_ga_live_performance_excel(
     bp_headers = ["Name", "Pool Number", "Assisted Code", "Today Target", "Ach", "%", "Remain", "Yest GA"]
     bp_numeric_cols = {4, 5, 6, 7, 8}
     bp_rows = []
+    bp_total_map: dict[int, dict[str, int]] = {}
     for e in bp_list:
         codes = bp_code_map.get(e.id, [])
         if e.assisted_retailer_code and e.assisted_retailer_code not in codes:
             codes.append(e.assisted_retailer_code)
         today_count = await _bp_today(codes)
         yest_count = await _bp_yesterday(codes)
+        bp_total_map[e.id] = {"today_total": today_count, "yesterday_total": yest_count}
         user_name = user_name_map.get(e.user_id) if e.user_id else ""
         bp_target_val = bp_target_map.get(e.id, 0)
         bp_mtd = sum(bp_mtd_code_counts.get(code, 0) for code in codes)
@@ -442,13 +455,22 @@ async def export_ga_live_performance_excel(
         user_name = user_name_map.get(sup_emp.user_id) if sup_emp.user_id else ""
         today_total = 0
         yesterday_total = 0
+        team_emp_ids = set(sup_emp_to_rso_emp_ids.get(sup_emp.id, set()))
         sup_uid = sup_emp.user_id
         if sup_uid:
             for rso_uid in sup_user_to_rso_user_ids.get(sup_uid, []):
                 rso_emp_id = rso_user_id_to_emp_id.get(rso_uid)
-                if rso_emp_id and rso_emp_id in rso_total_map:
-                    today_total += rso_total_map[rso_emp_id]["today_total"]
-                    yesterday_total += rso_total_map[rso_emp_id]["yesterday_total"]
+                if rso_emp_id:
+                    team_emp_ids.add(rso_emp_id)
+        for member_emp_id in team_emp_ids:
+            if not member_emp_id:
+                continue
+            if member_emp_id in rso_total_map:
+                today_total += rso_total_map[member_emp_id]["today_total"]
+                yesterday_total += rso_total_map[member_emp_id]["yesterday_total"]
+            elif member_emp_id in bp_total_map:
+                today_total += bp_total_map[member_emp_id]["today_total"]
+                yesterday_total += bp_total_map[member_emp_id]["yesterday_total"]
         sup_rows.append([
             user_name or sup_emp.dms_code or f"#{sup_emp.id}",
             sup_emp.pool_number or "",

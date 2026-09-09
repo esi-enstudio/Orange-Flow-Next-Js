@@ -18,7 +18,6 @@ type SectionKey =
   | "supervisors"
   | "rsos"
   | "bps"
-  | "ccs"
   | "insights"
   | "trend";
 
@@ -30,7 +29,6 @@ const SECTION_META: Record<string, { label: string; icon: string; desc: string }
   supervisors:        { label: "Supervisor Performance", icon: "👥", desc: "Supervisor contribution and team breakdown" },
   rsos:               { label: "RSO Performance", icon: "🛠️", desc: "RSO activation summary and rankings" },
   bps:                { label: "BP Performance", icon: "🏅", desc: "BP leaderboard ranking" },
-  ccs:                { label: "CC Performance", icon: "📱", desc: "CC activation summary" },
   insights:           { label: "Smart Insights", icon: "💡", desc: "Automated analysis of activation data" },
   trend:              { label: "Activation Trend", icon: "📉", desc: "Daily activation count trend" },
 };
@@ -50,13 +48,6 @@ const ROLE_META: Record<string, { label: string; color: string; bg: string; text
     text: "text-amber-700 dark:text-amber-300",
     ring: "ring-amber-200 dark:ring-amber-500/30",
   },
-  CC: {
-    label: "CC",
-    color: "emerald",
-    bg: "bg-emerald-50 dark:bg-emerald-500/10",
-    text: "text-emerald-700 dark:text-emerald-300",
-    ring: "ring-emerald-200 dark:ring-emerald-500/30",
-  },
 };
 
 type Employee = {
@@ -66,12 +57,12 @@ type Employee = {
   itop_number: string | null;
   personal_number: string | null;
   assisted_retailer_code: string;
-  role: "RSO" | "BP" | "CC";
+  role: "RSO" | "BP";
 };
 
 type EmployeeGroupedResponse = {
-  groups: { rso: Employee[]; bp: Employee[]; cc: Employee[] };
-  counts: { rso: number; bp: number; cc: number };
+  groups: { rso: Employee[]; bp: Employee[] };
+  counts: { rso: number; bp: number };
   total: number;
 };
 
@@ -206,9 +197,9 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
     );
   }
 
-  function toggleRoleGroup(role: "RSO" | "BP" | "CC") {
+  function toggleRoleGroup(role: "RSO" | "BP") {
     if (!employeeGroups) return;
-    const groupKey = role.toLowerCase() as "rso" | "bp" | "cc";
+    const groupKey = role.toLowerCase() as "rso" | "bp";
     const groupEmps = employeeGroups.groups[groupKey];
     const groupIds = groupEmps.map((e) => e.id);
     const allSelected = groupIds.every((id) => selectedEmpIds.includes(id));
@@ -224,7 +215,6 @@ export default function SectionConfigModal({ open, sectionKey, houseId, onClose,
     const allIds = [
       ...employeeGroups.groups.rso.map((e) => e.id),
       ...employeeGroups.groups.bp.map((e) => e.id),
-      ...employeeGroups.groups.cc.map((e) => e.id),
     ];
     setSelectedEmpIds(allIds);
   }
@@ -665,20 +655,20 @@ function EmployeesSection({
   collapsedRoles: Set<string>;
   toggleCollapse: (role: string) => void;
   toggleEmployee: (id: number) => void;
-  toggleRoleGroup: (role: "RSO" | "BP" | "CC") => void;
+  toggleRoleGroup: (role: "RSO" | "BP") => void;
   selectAll: () => void;
   deselectAll: () => void;
   filterEmployees: (emps: Employee[]) => Employee[];
 }) {
   if (!groups) return null;
 
-  const totalSelectedInGroup = (role: "RSO" | "BP" | "CC") => {
-    const g = groups.groups[role.toLowerCase() as "rso" | "bp" | "cc"];
+  const totalSelectedInGroup = (role: "RSO" | "BP") => {
+    const g = groups.groups[role.toLowerCase() as "rso" | "bp"];
     return g.filter((e) => selectedIds.includes(e.id)).length;
   };
 
-  const renderRoleGroup = (role: "RSO" | "BP" | "CC") => {
-    const groupKey = role.toLowerCase() as "rso" | "bp" | "cc";
+  const renderRoleGroup = (role: "RSO" | "BP") => {
+    const groupKey = role.toLowerCase() as "rso" | "bp";
     const emps = groups.groups[groupKey];
     const meta = ROLE_META[role];
     const selectedCount = totalSelectedInGroup(role);
@@ -847,8 +837,8 @@ function EmployeesSection({
         </div>
       ) : (
         <div className="space-y-3">
-          {(["RSO", "BP", "CC"] as const).map((role) => {
-            if (groups.counts[role.toLowerCase() as "rso" | "bp" | "cc"] === 0) return null;
+          {(["RSO", "BP"] as const).map((role) => {
+            if (groups.counts[role.toLowerCase() as "rso" | "bp"] === 0) return null;
             return renderRoleGroup(role);
           })}
         </div>

@@ -7,11 +7,11 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity, Users, UserCheck, Target, Award,
-  BarChart3, RefreshCw, FileSpreadsheet,
+  RefreshCw, FileSpreadsheet,
   Radio, Shield, Building2, UserCog,
-  Smartphone, ChevronDown, ChevronUp, Grid3X3, List,
+  ChevronDown, ChevronUp, Grid3X3, List,
   Sparkles, Medal, Zap, Search, Check, CalendarDays,
-  Pencil, Settings, Play, Square, MessageCircle,
+  Pencil, Settings, Play, Square, Share2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,11 +40,9 @@ interface GaLiveData {
     active_supervisors: number;
     active_rso: number;
     active_bp: number;
-    active_cc: number;
     total_supervisors: number;
     total_rso: number;
     total_bp: number;
-    total_cc: number;
   };
   distribution: {
     employee_activation: number;
@@ -54,6 +52,7 @@ interface GaLiveData {
   };
   supervisors: Array<{
     id: number;
+    employee_id: number | null;
     name: string;
     dms_code: string;
     pool_number: string;
@@ -61,9 +60,8 @@ interface GaLiveData {
     employee_activation: number;
     market_activation: number;
     contribution: number;
-    active_rso: number;
-    active_bp: number;
-    active_cc: number;
+    rso_count: number;
+    bp_count: number;
   }>;
   rsos: Array<{
     id: number;
@@ -96,18 +94,10 @@ interface GaLiveData {
     rank: number;
     yesterday_activation: number;
   }>;
-  ccs: Array<{
-    id: number;
-    name: string;
-    dms_code: string;
-    own_activation: number;
-    contribution: number;
-  }>;
   top_performers: {
     supervisor: Record<string, unknown> | null;
     rso: Record<string, unknown> | null;
     bp: Record<string, unknown> | null;
-    cc: Record<string, unknown> | null;
   };
   insights: string[];
   trend: Array<{ date: string; count: number }>;
@@ -303,24 +293,6 @@ function LoadingSkeleton() {
                 <Skeleton className="h-4 w-16" />
                 <Skeleton className="h-4 w-12" />
               </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* CC section */}
-      <div>
-        <Skeleton className="h-5 w-28" />
-        <Skeleton className="h-3.5 w-44 mt-1" />
-        <div className="space-y-2 mt-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 px-5 py-4 bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50">
-              <Skeleton className="h-8 w-8 rounded-lg shrink-0" />
-              <div className="flex-1 space-y-1.5">
-                <Skeleton className="h-3.5 w-36" />
-                <Skeleton className="h-3 w-20" />
-              </div>
-              <Skeleton className="h-4 w-16" />
             </div>
           ))}
         </div>
@@ -575,6 +547,11 @@ export default function GaLiveReportPage() {
     return `${y}-${m}-${day}`;
   }
   const today = todayStr();
+  const todayDisplay = (() => {
+    const d = new Date();
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+    return `${String(d.getDate()).padStart(2, "0")} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  })();
 
   const assignedHouses = useMemo(() => user?.houses ?? [], [user]);
 
@@ -689,7 +666,6 @@ export default function GaLiveReportPage() {
         summary,
         rsos: data.rsos,
         bps: data.bps,
-        ccs: data.ccs,
         supervisors: data.supervisors,
       });
     } catch (err: unknown) {
@@ -741,17 +717,8 @@ export default function GaLiveReportPage() {
       iconColor: "text-teal-300/50 dark:text-teal-400/20",
       textColor: "text-teal-600 dark:text-teal-400", activationKey: "own_activation",
     });
-    if (data?.top_performers.cc) cards.push({
-      key: "cc", performer: data!.top_performers.cc,
-      label: "Top CC", icon: BarChart3,
-      from: "from-rose-50", to: "to-rose-100",
-      darkFrom: "dark:from-rose-500/10", darkTo: "dark:to-rose-600/5",
-      border: "border-rose-200", darkBorder: "dark:border-rose-500/20",
-      iconColor: "text-rose-300/50 dark:text-rose-400/20",
-      textColor: "text-rose-600 dark:text-rose-400", activationKey: "own_activation",
-    });
     return cards;
-  }, [data?.top_performers.supervisor, data?.top_performers.rso, data?.top_performers.bp, data?.top_performers.cc]);
+  }, [data?.top_performers.supervisor, data?.top_performers.rso, data?.top_performers.bp]);
 
   /* auth guard */
   if (authLoading) return <LoadingSkeleton />;
@@ -796,7 +763,7 @@ export default function GaLiveReportPage() {
 
   if (!data) return <EmptyState onRefresh={fetchData} />;
 
-  const { summary, distribution, supervisors, rsos, bps, ccs, top_performers, insights, trend } = data;
+  const { summary, distribution, supervisors, rsos, bps, top_performers, insights, trend } = data;
   const totalActivation = summary.total_activations;
 
   const now = new Date();
@@ -831,50 +798,54 @@ export default function GaLiveReportPage() {
             Real-time activation performance overview of your selected house.
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={toggleLiveSync}
-            disabled={liveSyncLoading}
-            className={cn(
-              "px-3 py-2 rounded-xl border text-sm font-medium flex items-center gap-2 transition-all",
-              liveSyncEnabled
-                ? "border-green-300 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/20"
-                : "border-red-300 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20"
-            )}
-            title={liveSyncEnabled ? "Live sync is ON — click to stop" : "Live sync is OFF — click to start"}
-          >
-            {liveSyncEnabled ? <Play className="w-3.5 h-3.5 fill-current" /> : <Square className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">Live Sync</span>
-          </button>
-          <div className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-            <CalendarDays className="w-4 h-4 text-gray-400" />
-            {today}
-          </div>
-          <button
-            onClick={fetchData}
-            className="p-2.5 rounded-xl bg-primary-500 text-white hover:bg-primary-600 transition-colors disabled:opacity-50"
-            disabled={loading}
-            title="Refresh"
-          >
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          </button>
-          <button
-            onClick={handleExport}
-            className="p-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-            title="Export Excel"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-          </button>
-          {hasPermission("live_activations.schedule") && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap">
+          {hasPermission("app_settings.manage") && (
             <button
-              onClick={() => setWsModalOpen(true)}
-              disabled={!effectiveHouseId}
-              className="p-2.5 rounded-xl border border-green-300 dark:border-green-500/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 transition-colors disabled:opacity-50"
-              title="WhatsApp report delivery"
+              onClick={toggleLiveSync}
+              disabled={liveSyncLoading}
+              className={cn(
+                "px-3 py-2 rounded-xl border text-sm font-medium flex items-center justify-center gap-2 transition-all w-full sm:w-auto",
+                liveSyncEnabled
+                  ? "border-green-300 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/20"
+                  : "border-red-300 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20"
+              )}
+              title={liveSyncEnabled ? "Live sync is ON — click to stop" : "Live sync is OFF — click to start"}
             >
-              <MessageCircle className="w-4 h-4" />
+              {liveSyncEnabled ? <Play className="w-3.5 h-3.5 fill-current" /> : <Square className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">Live Sync</span>
             </button>
           )}
+          <div className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 flex items-center justify-center gap-2 w-full sm:w-auto">
+            <CalendarDays className="w-4 h-4 text-gray-400" />
+            {todayDisplay}
+          </div>
+          <div className="flex items-center justify-center gap-2 sm:ml-auto">
+            <button
+              onClick={fetchData}
+              className="p-2.5 rounded-xl bg-primary-500 text-white hover:bg-primary-600 transition-colors disabled:opacity-50"
+              disabled={loading}
+              title="Refresh"
+            >
+              <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+            </button>
+            <button
+              onClick={handleExport}
+              className="p-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+              title="Export Excel"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+            </button>
+            {hasPermission("live_activations.schedule") && (
+              <button
+                onClick={() => setWsModalOpen(true)}
+                disabled={!effectiveHouseId}
+                className="p-2.5 rounded-xl border border-green-300 dark:border-green-500/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 transition-colors disabled:opacity-50"
+                title="WhatsApp report delivery"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1165,15 +1136,11 @@ export default function GaLiveReportPage() {
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between text-sm">
                                   <span className="text-gray-600 dark:text-gray-400">RSO Count</span>
-                                  <span className="font-semibold text-gray-900 dark:text-gray-100">{sup.active_rso}</span>
+                                  <span className="font-semibold text-gray-900 dark:text-gray-100">{sup.rso_count}</span>
                                 </div>
                                 <div className="flex items-center justify-between text-sm">
                                   <span className="text-gray-600 dark:text-gray-400">BP Count</span>
-                                  <span className="font-semibold text-gray-900 dark:text-gray-100">{sup.active_bp}</span>
-                                </div>
-                                <div className="flex items-center justify-between text-sm">
-                                  <span className="text-gray-600 dark:text-gray-400">CC Count</span>
-                                  <span className="font-semibold text-gray-900 dark:text-gray-100">{sup.active_cc}</span>
+                                  <span className="font-semibold text-gray-900 dark:text-gray-100">{sup.bp_count}</span>
                                 </div>
                               </div>
                             </div>
@@ -1617,47 +1584,6 @@ export default function GaLiveReportPage() {
               </div>
             </div>
           )}
-        </section>
-        </div>
-      )}
-
-      {/* ────── CC Performance ────── */}
-      {ccs.length > 0 && (
-        <div className="group relative">
-        <section>
-          <SectionHeader title="CC Performance" subtitle={`${ccs.length} CCs · activation summary`} onEdit={isAdmin ? () => setEditingSection("ccs") : undefined} />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {ccs.map((cc) => (
-              <div
-                key={cc.id}
-                className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5 hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center">
-                    <Smartphone className="w-4.5 h-4.5 text-rose-500" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">{cc.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{cc.dms_code || `ID: ${cc.id}`}</p>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Own Activation</span>
-                  <span className="font-bold text-gray-900 dark:text-gray-100">{cc.own_activation.toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="text-gray-400">Contribution</span>
-                  <span className="font-semibold text-rose-600 dark:text-rose-400">{cc.contribution}%</span>
-                </div>
-                <div className="w-full h-1.5 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-rose-400 to-rose-500 rounded-full"
-                    style={{ width: `${Math.min(cc.contribution, 100)}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
         </section>
         </div>
       )}

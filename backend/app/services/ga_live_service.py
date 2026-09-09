@@ -13,6 +13,7 @@ from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
 from app.models.bp_retailer_code import BpRetailerCode
+from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.ga_section_config import GaSectionConfig
 from app.models.rso_target import RSOTarget
 from app.models.bp_target import BpTarget
@@ -277,10 +278,17 @@ class GaLiveQueryBuilder:
             if uid:
                 emp_user_id_to_emp_id[uid] = eid
 
-        role_uids = {"supervisor": set()}
-        for uid, roles in user_role_map.items():
-            if "supervisor" in roles:
-                role_uids["supervisor"].add(uid)
+        supervisor_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "supervisor"]
+
+        supervisor_rso_pivot_rows = await self.db.execute(
+            select(
+                SupervisorRSOAssignment.supervisor_employee_id,
+                SupervisorRSOAssignment.rso_employee_id,
+            ).where(SupervisorRSOAssignment.house_id == self.house_id)
+        )
+        sup_to_rso_emp_ids: dict[int, set[int]] = {}
+        for sup_emp_id, rso_emp_id in supervisor_rso_pivot_rows.all():
+            sup_to_rso_emp_ids.setdefault(sup_emp_id, set()).add(rso_emp_id)
 
         rso_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "rso"]
         bp_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "bp"]
@@ -313,13 +321,8 @@ class GaLiveQueryBuilder:
 
         retailer_to_emp = {rid: eid for rid, eid in retailer_employee_map.items() if eid}
         active_employee_ids = {retailer_to_emp[rid] for rid in active_emp_retailers if rid in retailer_to_emp}
-        active_user_ids = set()
-        for eid in active_employee_ids:
-            info = emp_id_to_user.get(eid)
-            if info and info[0]:
-                active_user_ids.add(info[0])
 
-        total_counts = {"supervisor": len(role_uids["supervisor"])}
+        total_counts = {"supervisor": len(supervisor_emp_ids_all)}
 
         # ── Yesterday activation counts per retailer for supervisor teams (with section exclusions) ──
         sup_yesterday = self.start_date - timedelta(days=1)
@@ -351,25 +354,53 @@ class GaLiveQueryBuilder:
                 if rid:
                     sup_yest_retailer_counts[rid] = sup_yest_retailer_counts.get(rid, 0) + 1
 
-        supervisor_data = []
-        for sup_uid in role_uids["supervisor"]:
-            sup_user = (await self.db.execute(select(User).where(User.id == sup_uid))).scalar_one_or_none()
-            if not sup_user:
-                continue
-            sup_emp_id = emp_user_id_to_emp_id.get(sup_uid)
+        # ── Yesterday BP breakdown (separate query, no BP code exclusion) ──
+        bp_yest_code_counts: dict[str, int] = {}
+        if sup_yesterday >= date(2020, 1, 1):
+            bp_exc_pcodes, bp_exc_tags = await self._get_exclusions("bps")
+            bp_exc_rids: set[int] = set()
+            for tag in bp_exc_tags:
+                excluded = await self._load_excluded_retailers_by_tag(tag)
+                bp_exc_rids.update(excluded)
 
-            rso_users = (
-                await self.db.execute(
-                    select(User).options(selectinload(User.roles)).where(User.parent_id == sup_uid)
+            bp_yest_q = select(Activation.retailer_code).where(
+                Activation.house_id == self.house_id,
+                Activation.activation_date == sup_yesterday,
+            )
+            if bp_exc_rids:
+                bp_yest_q = bp_yest_q.where(Activation.retailer_id.notin_(bp_exc_rids))
+            if bp_exc_pcodes:
+                bp_yest_q = bp_yest_q.where(
+                    and_(
+                        Activation.product_code != None,
+                        Activation.product_code.notin_(bp_exc_pcodes),
+                    )
                 )
-            ).unique().scalars().all()
-            rso_user_ids = [ru.id for ru in rso_users if "rso" in [r.name.lower() for r in ru.roles]]
+            bp_yest_rows = await self.db.execute(bp_yest_q)
+            for row in bp_yest_rows.all():
+                rcode = row[0]
+                if rcode:
+                    bp_yest_code_counts[rcode] = bp_yest_code_counts.get(rcode, 0) + 1
+
+        supervisor_data = []
+        for sup_emp_id in supervisor_emp_ids_all:
+            sup_info = emp_id_to_user.get(sup_emp_id)
+            sup_uid = sup_info[0] if sup_info else None
 
             sub_employee_ids = set()
-            for ruid in rso_user_ids:
-                eid = emp_user_id_to_emp_id.get(ruid)
-                if eid:
-                    sub_employee_ids.add(eid)
+            if sup_emp_id:
+                sub_employee_ids = set(sup_to_rso_emp_ids.get(sup_emp_id, set()))
+                if sup_uid:
+                    rso_users = (
+                        await self.db.execute(
+                            select(User).options(selectinload(User.roles)).where(User.parent_id == sup_uid)
+                        )
+                    ).unique().scalars().all()
+                    rso_user_ids = [ru.id for ru in rso_users if "rso" in [r.name.lower() for r in ru.roles]]
+                    for ruid in rso_user_ids:
+                        eid = emp_user_id_to_emp_id.get(ruid)
+                        if eid:
+                            sub_employee_ids.add(eid)
 
             sup_own_retailers = set()
             if sup_emp_id:
@@ -406,19 +437,45 @@ class GaLiveQueryBuilder:
             sup_market = sup_total - sup_emp
             sup_y_total = sum(sup_yest_retailer_counts.get(rid, 0) for rid in all_retailers)
 
+            # ── Linked BP subordinates: add their assisted-code activations to the supervisor total ──
+            linked_bp_ids = sub_employee_ids & set(bp_emp_ids_all)
+            linked_bp_codes: list[str] = []
+            for bid in linked_bp_ids:
+                linked_bp_codes.extend(bp_retailer_code_map.get(bid, []))
+
+            sup_bp_today = 0
+            if linked_bp_codes:
+                bp_sup_q = base_act_bps.where(LiveActivation.retailer_code.in_(linked_bp_codes))
+                cnt = (
+                    await self.db.execute(select(func.count()).select_from(bp_sup_q.subquery()))
+                ).scalar() or 0
+                sup_bp_today = cnt
+
+            sup_bp_yest = sum(bp_yest_code_counts.get(c, 0) for c in linked_bp_codes)
+            sup_total += sup_bp_today
+            sup_emp += sup_bp_today
+            sup_y_total += sup_bp_yest
+
+            sup_name = emp_id_to_emp_name.get(sup_emp_id)
+            if not sup_name:
+                sup_name = user_name_map.get(sup_uid) if sup_uid else None
+            if not sup_name:
+                sup_name = (sup_info[1] if sup_info else None) or (sup_info[4] if sup_info else None)
+            sup_name = sup_name or emp_id_to_biz_id.get(sup_emp_id) or f"Supervisor #{sup_emp_id}"
+
             supervisor_data.append({
-                "id": sup_uid,
-                "name": sup_user.name or f"Supervisor #{sup_uid}",
-                "dms_code": emp_id_to_user.get(sup_emp_id, ("", "", "", "", "", ""))[1] if sup_emp_id else "",
-                "pool_number": emp_id_to_user.get(sup_emp_id, ("", "", "", "", "", ""))[5] if sup_emp_id else "",
+                "id": sup_uid if sup_uid else sup_emp_id,
+                "employee_id": sup_emp_id,
+                "name": sup_name,
+                "dms_code": sup_info[1] if sup_info else "",
+                "pool_number": sup_info[5] if sup_info else "",
                 "total_activation": sup_total,
                 "employee_activation": sup_emp,
                 "market_activation": sup_market,
                 "yesterday_total": sup_y_total,
                 "contribution": total_counts["supervisor"] and round((sup_total / (sup_total or 1)) * 100, 1) or 0,
-                "active_rso": len([u for u in rso_user_ids if u in active_user_ids]),
-                "active_bp": 0,
-                "active_cc": 0,
+                "rso_count": len(sub_employee_ids & set(rso_emp_ids_all)),
+                "bp_count": len(linked_bp_ids),
             })
         supervisor_data.sort(key=lambda x: x["total_activation"], reverse=True)
 
@@ -541,7 +598,7 @@ class GaLiveQueryBuilder:
                 "remaining": max(0, rso_target_val - mtd_achievement),
                 "contribution": 0,
             })
-        # ── Yesterday RSO breakdown (with same exclusions as base_act_rso) ──
+# ── Yesterday RSO breakdown (with same exclusions as base_act_rso) ──
         yesterday = self.start_date - timedelta(days=1)
         yest_retailer_counts: dict[int, int] = {}
         yest_code_counts: dict[str, int] = {}
@@ -576,34 +633,6 @@ class GaLiveQueryBuilder:
                     yest_retailer_counts[rid] = yest_retailer_counts.get(rid, 0) + 1
                 if rcode:
                     yest_code_counts[rcode] = yest_code_counts.get(rcode, 0) + 1
-
-        # ── Yesterday BP breakdown (separate query, no BP code exclusion) ──
-        bp_yest_code_counts: dict[str, int] = {}
-        if yesterday >= date(2020, 1, 1):
-            bp_exc_pcodes, bp_exc_tags = await self._get_exclusions("bps")
-            bp_exc_rids: set[int] = set()
-            for tag in bp_exc_tags:
-                excluded = await self._load_excluded_retailers_by_tag(tag)
-                bp_exc_rids.update(excluded)
-
-            bp_yest_q = select(Activation.retailer_code).where(
-                Activation.house_id == self.house_id,
-                Activation.activation_date == yesterday,
-            )
-            if bp_exc_rids:
-                bp_yest_q = bp_yest_q.where(Activation.retailer_id.notin_(bp_exc_rids))
-            if bp_exc_pcodes:
-                bp_yest_q = bp_yest_q.where(
-                    and_(
-                        Activation.product_code != None,
-                        Activation.product_code.notin_(bp_exc_pcodes),
-                    )
-                )
-            bp_yest_rows = await self.db.execute(bp_yest_q)
-            for row in bp_yest_rows.all():
-                rcode = row[0]
-                if rcode:
-                    bp_yest_code_counts[rcode] = bp_yest_code_counts.get(rcode, 0) + 1
 
         for r in rso_data:
             emp_id = r["employee_id"]
@@ -773,7 +802,7 @@ class GaLiveQueryBuilder:
         top_bp = bp_data[0] if bp_data and (len(bp_data) == 1 or bp_data[0]["own_activation"] != bp_data[1]["own_activation"]) else None
         top_cc = cc_data[0] if cc_data and (len(cc_data) == 1 or cc_data[0]["own_activation"] != cc_data[1]["own_activation"]) else None
 
-        active_sup = len([uid for uid in role_uids["supervisor"] if uid in active_user_ids])
+        active_sup = len(set(supervisor_emp_ids_all) & active_employee_ids)
         active_rso = len(set(rso_emp_ids_all) & active_employee_ids)
         active_bp = len(set(bp_emp_ids_all) & active_employee_ids)
         active_cc = len(set(cc_emp_ids_all) & active_employee_ids)
@@ -792,7 +821,7 @@ class GaLiveQueryBuilder:
                 "active_rso": active_rso,
                 "active_bp": active_bp,
                 "active_cc": active_cc,
-                "total_supervisors": len(role_uids["supervisor"]),
+                "total_supervisors": len(supervisor_emp_ids_all),
                 "total_rso": len(rso_emp_ids_all),
                 "total_bp": len(bp_emp_ids_all),
                 "total_cc": len(cc_emp_ids_all),

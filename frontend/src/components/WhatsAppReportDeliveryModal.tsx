@@ -692,11 +692,11 @@ export default function WhatsAppReportDeliveryModal({
             )}
           >
             {!status ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Checking WhatsApp service...</>
+              <><Loader2 className="w-4 h-4 animate-spin hidden sm:block" /> Checking WhatsApp service...</>
             ) : connected ? (
-              <><CheckCircle2 className="w-4 h-4 shrink-0" /> WhatsApp connected</>
+              <><CheckCircle2 className="w-4 h-4 shrink-0 hidden sm:block" /> WhatsApp connected</>
             ) : (
-              <><AlertCircle className="w-4 h-4 shrink-0" /> {status?.error ?? "WhatsApp not connected"}</>
+              <><AlertCircle className="w-4 h-4 shrink-0 hidden sm:block" /> {status?.error ?? "WhatsApp not connected"}</>
             )}
           </p>
           {connected ? (
@@ -721,11 +721,11 @@ export default function WhatsAppReportDeliveryModal({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0 w-full sm:w-auto">
           <button
             onClick={refreshNow}
             disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 text-sm hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50"
+            className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 text-sm hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 w-full sm:w-auto"
           >
             <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
             Refresh
@@ -733,7 +733,7 @@ export default function WhatsAppReportDeliveryModal({
           <button
             onClick={() => setShowConnectModal(true)}
             className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium min-h-[40px]",
+              "flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium min-h-[40px] w-full sm:w-auto",
               connected
                 ? "border border-gray-200 dark:border-slate-600 text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-slate-800"
                 : "bg-green-600 text-white hover:bg-green-700"
@@ -798,8 +798,9 @@ export default function WhatsAppReportDeliveryModal({
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
-            <MessageCircle className="w-3.5 h-3.5" />
-            WhatsApp Groups ({groups.length})
+            <MessageCircle className="w-3.5 h-3.5 hidden sm:block" />
+            <span className="sm:hidden">Groups ({groups.length})</span>
+            <span className="hidden sm:inline">WhatsApp Groups ({groups.length})</span>
           </button>
           <button
             type="button"
@@ -811,14 +812,15 @@ export default function WhatsAppReportDeliveryModal({
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             )}
           >
-            <User className="w-3.5 h-3.5" />
-            Contacts ({contacts.length})
+            <User className="w-3.5 h-3.5 hidden sm:block" />
+            <span className="sm:hidden">Contacts ({contacts.length})</span>
+            <span className="hidden sm:inline">Contacts ({contacts.length})</span>
           </button>
         </div>
 
         {tab === "groups" ? (
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-2">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
@@ -833,7 +835,7 @@ export default function WhatsAppReportDeliveryModal({
                 <button
                   type="button"
                   onClick={toggleAllGroups}
-                  className="px-2.5 min-h-[40px] rounded-xl border border-gray-200 dark:border-slate-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 shrink-0"
+                  className="px-2.5 min-h-[40px] rounded-xl border border-gray-200 dark:border-slate-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 shrink-0 w-full sm:w-auto"
                 >
                   {allGroupsVisibleSelected ? "Deselect all" : "Select all"}
                 </button>
@@ -867,7 +869,7 @@ export default function WhatsAppReportDeliveryModal({
           </div>
         ) : (
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-2">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
@@ -882,7 +884,7 @@ export default function WhatsAppReportDeliveryModal({
                 <button
                   type="button"
                   onClick={toggleAllContacts}
-                  className="px-2.5 min-h-[40px] rounded-xl border border-gray-200 dark:border-slate-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 shrink-0"
+                  className="px-2.5 min-h-[40px] rounded-xl border border-gray-200 dark:border-slate-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 shrink-0 w-full sm:w-auto"
                 >
                   {allContactsVisibleSelected ? "Deselect all" : "Select all"}
                 </button>
@@ -976,7 +978,7 @@ export default function WhatsAppReportDeliveryModal({
         <BellRing className="w-4 h-4" />
         Schedule summary
       </p>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
         <div className="flex justify-between gap-2">
           <dt className="text-gray-500 dark:text-gray-400">Report</dt>
           <dd className="font-medium text-gray-800 dark:text-gray-200 text-right">{reportTitle}</dd>
@@ -1053,7 +1055,7 @@ export default function WhatsAppReportDeliveryModal({
       </p>
       {schedules.length === 0 ? (
         <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-4 text-center">
-          No schedules yet — create one above.
+          No schedules yet — <br className="sm:hidden" /> create one above.
         </p>
       ) : (
         <div className="space-y-2">
@@ -1122,14 +1124,14 @@ export default function WhatsAppReportDeliveryModal({
                   <button
                     onClick={() => setSendNowTarget(s)}
                     disabled={sendingId === s.id}
-                    className="p-2 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 min-h-[36px]"
+                    className="p-2 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 min-h-[44px]"
                     title="Send now"
                   >
                     {sendingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                   </button>
                   <button
                     onClick={() => startEdit(s)}
-                    className="p-2 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 min-h-[36px]"
+                    className="p-2 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 min-h-[44px]"
                     title="Edit"
                   >
                     <Pencil className="w-4 h-4" />
@@ -1138,7 +1140,7 @@ export default function WhatsAppReportDeliveryModal({
                     onClick={() => toggle(s)}
                     disabled={togglingId === s.id}
                     className={cn(
-                      "p-2 rounded-lg border min-h-[36px] disabled:opacity-50",
+                      "p-2 rounded-lg border min-h-[44px] disabled:opacity-50",
                       s.is_active
                         ? "border-green-200 dark:border-green-500/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10"
                         : "border-gray-200 dark:border-slate-700 text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
@@ -1150,14 +1152,14 @@ export default function WhatsAppReportDeliveryModal({
                   <button
                     onClick={() => duplicate(s)}
                     disabled={duplicatingId === s.id}
-                    className="p-2 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 min-h-[36px]"
+                    className="p-2 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 min-h-[44px]"
                     title="Duplicate"
                   >
                     {duplicatingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
                   </button>
                   <button
                     onClick={() => setDeleteTarget(s)}
-                    className="p-2 rounded-lg border border-red-200 dark:border-red-500/40 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 min-h-[36px] ml-auto"
+                    className="p-2 rounded-lg border border-red-200 dark:border-red-500/40 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 min-h-[44px] ml-auto"
                     title="Delete"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1194,7 +1196,7 @@ export default function WhatsAppReportDeliveryModal({
       ) : (
         <div className="rounded-xl border border-gray-200 dark:border-slate-700/60 divide-y divide-gray-100 dark:divide-slate-800">
           {deliveryLogs.slice(0, 12).map((log) => (
-            <div key={log.id} className="px-4 py-2.5 flex items-center gap-3">
+            <div key={log.id} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <span
                 className={cn(
                   "w-2 h-2 rounded-full shrink-0",
@@ -1222,7 +1224,7 @@ export default function WhatsAppReportDeliveryModal({
                   </p>
                 )}
               </div>
-              <div className="text-right shrink-0">
+              <div className="shrink-0 basis-full sm:basis-auto sm:ml-auto text-left sm:text-right flex sm:block items-center gap-1.5">
                 <p className="text-[11px] text-gray-500 dark:text-gray-400">{fmtLogTime(log.created_at)}</p>
                 {log.triggered_by === "manual" && (
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-semibold">
@@ -1257,8 +1259,25 @@ export default function WhatsAppReportDeliveryModal({
             className="w-full max-w-2xl max-h-[92vh] bg-white dark:bg-slate-900 rounded-3xl border border-gray-200 dark:border-slate-700/80 shadow-2xl flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
+            {/* Header — mobile */}
+            <div className="sm:hidden px-4 py-3 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <h3 className="flex-1 min-w-0 font-bold text-base text-gray-900 dark:text-gray-100">
+                  {title}
+                </h3>
+                <button
+                  onClick={closeModal}
+                  className="-mr-1 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 shrink-0"
+                  title="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
+            </div>
+
+            {/* Header — desktop */}
+            <div className="hidden sm:flex px-6 py-4 border-b border-gray-100 dark:border-slate-800 items-center justify-between gap-3">
               <div className="w-11 h-11 rounded-2xl bg-green-50 dark:bg-green-500/10 flex items-center justify-center shrink-0">
                 <MessageCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
               </div>
@@ -1268,7 +1287,7 @@ export default function WhatsAppReportDeliveryModal({
               </div>
               <button
                 onClick={closeModal}
-                className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400"
+                className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 shrink-0"
                 title="Close"
               >
                 <X className="w-5 h-5" />
@@ -1386,7 +1405,7 @@ export default function WhatsAppReportDeliveryModal({
                     <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
                       Schedule
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <button
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, schedule_type: "daily" }))}
@@ -1399,9 +1418,6 @@ export default function WhatsAppReportDeliveryModal({
                       >
                         <Clock className="w-4 h-4" />
                         Daily at a fixed time
-                        <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 ml-auto shrink-0">
-                          Recommended
-                        </span>
                       </button>
                       <button
                         type="button"
@@ -1573,11 +1589,11 @@ export default function WhatsAppReportDeliveryModal({
                     ))}
                   </div>
                 )}
-                <div className="flex items-center justify-end gap-2 mt-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 mt-2">
                   {editingId && (
                     <button
                       onClick={() => { setEditingId(null); setForm(emptyForm); setSelectedGroupIds(new Set()); setSelectedContactIds(new Set()); }}
-                      className="px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
+                      className="px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 w-full sm:w-auto"
                     >
                       Cancel
                     </button>
@@ -1586,7 +1602,7 @@ export default function WhatsAppReportDeliveryModal({
                     <button
                       onClick={() => setShowDirectConfirm(true)}
                       disabled={!canSave || directSending || loading}
-                      className="flex items-center gap-2 px-4 min-h-[44px] rounded-xl border border-green-300 dark:border-green-500/40 bg-white dark:bg-slate-800 text-green-700 dark:text-green-400 text-sm font-medium hover:bg-green-50 dark:hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl border border-green-300 dark:border-green-500/40 bg-white dark:bg-slate-800 text-green-700 dark:text-green-400 text-sm font-medium hover:bg-green-50 dark:hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
                     >
                       {directSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                       Send Now
@@ -1595,7 +1611,7 @@ export default function WhatsAppReportDeliveryModal({
                   <button
                     onClick={save}
                     disabled={!canSave || loading || directSending}
-                    className="flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
                   >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     {editingId ? "Update schedule" : "Save schedule"}
