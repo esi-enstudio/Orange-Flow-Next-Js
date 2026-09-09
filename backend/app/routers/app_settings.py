@@ -112,7 +112,7 @@ async def get_live_sync_status(
 async def toggle_live_sync(
     data: DailySyncToggle,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(has_permission("app_settings.manage")),
+    current_user = Depends(has_permission("live_activations.sync_btn")),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     if house_context:

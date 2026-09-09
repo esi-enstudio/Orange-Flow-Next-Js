@@ -4,7 +4,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from app.services.whatsapp_schedule_service import (
     get_schedule_targets,
     get_schedule_target_names,
 )
+from app.services.report_builders import get_report_builder
 from app.services.whatsapp_token import resolve_house_wa_target
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
@@ -714,6 +715,30 @@ async def send_direct(
     )
 
     return {"success": True, "data": {"sent": True}}
+
+
+@router.get("/whatsapp-schedules/preview")
+async def whatsapp_report_preview(
+    report_type: str = Query("ga_live"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_activations.schedule")),
+    house_context: int = Depends(require_house_context),
+):
+    """Render the current report image for the active house without sending it."""
+    _validate_report_type_value(report_type)
+    await _verify_house_access(current_user, house_context)
+
+    try:
+        builder = get_report_builder(report_type)
+        image_bytes = await builder(db, house_context)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Report preview build failed ({report_type}): {e}")
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
+
+    return Response(content=image_bytes, media_type="image/png",
+                    headers={"Content-Disposition": f'inline; filename="{report_type}_preview.png"'})
 
 
 # ── Delivery history ────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity, Users, UserCheck, Target, Award,
-  RefreshCw, FileSpreadsheet,
+  RefreshCw,
   Radio, Shield, Building2, UserCog,
   ChevronDown, ChevronUp, Grid3X3, List,
   Sparkles, Medal, Zap, Search, Check, CalendarDays,
@@ -799,7 +799,7 @@ export default function GaLiveReportPage() {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap">
-          {hasPermission("app_settings.manage") && (
+          {hasPermission("live_activations.sync_btn") && (
             <button
               onClick={toggleLiveSync}
               disabled={liveSyncLoading}
@@ -833,7 +833,11 @@ export default function GaLiveReportPage() {
               className="p-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
               title="Export Excel"
             >
-              <FileSpreadsheet className="w-4 h-4" />
+              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" aria-hidden="true">
+                <rect width="17" height="17" x="3.5" y="3.5" rx="3" fill="#217346" />
+                <path d="M8 8l8 8" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
+                <path d="M16 8l-8 8" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
+              </svg>
             </button>
             {hasPermission("live_activations.schedule") && (
               <button

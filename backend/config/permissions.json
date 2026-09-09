@@ -161,7 +161,8 @@
         "live_activations.view",
         "live_activations.export",
         "live_activations.import",
-        "live_activations.schedule"
+        "live_activations.schedule",
+        "live_activations.sync_btn"
       ]
     },
     "scratch_card": {
