@@ -41,7 +41,6 @@ interface ExportPayload {
   summary: Summary;
   rso_performance: EmployeeRow[];
   bp_performance: EmployeeRow[];
-  cc_performance: EmployeeRow[];
   supervisor_performance: EmployeeRow[];
   house_name?: string;
   house_code?: string;
@@ -195,7 +194,7 @@ function addDataRow(ws: ExcelJS.Worksheet, row: number, cells: (string | number)
 }
 
 export async function exportActivationsReport(payload: ExportPayload): Promise<void> {
-  const { summary, rso_performance, bp_performance, cc_performance, supervisor_performance, house_name, house_code, month, year, month_name, days_elapsed, total_days } = payload;
+  const { summary, rso_performance, bp_performance, supervisor_performance, house_name, house_code, month, year, month_name, days_elapsed, total_days } = payload;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -293,7 +292,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
   r = 5;
 
   // ── Helper to write a performance section ──
-  const writeSection = (label: string, employees: EmployeeRow[], identLabel: string, identField: "itop_number" | "pool_number" | null) => {
+  const writeSection = (label: string, employees: EmployeeRow[], identLabel: string, identField: "itop_number" | "pool_number") => {
     if (employees.length === 0) return;
     const isRso = label === "RSO PERFORMANCE";
     const isBp = label === "BP PERFORMANCE";
@@ -302,11 +301,9 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
       ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Market", "Own Activation", "Status"]
       : isBp
         ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Day Count", "Status"]
-        : isSupervisor
-          ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Status"]
-          : ["#", "Name", identLabel, "Target", "Ach", "%", "Remaining", "D.Avg", "Projection", "Status"];
+        : ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Status"];
     const fullBorder = isRso || isBp || isSupervisor;
-    const cols = isSupervisor ? 12 : (isRso || isBp) ? 13 : 10;
+    const cols = isSupervisor ? 12 : 13;
     r = addSectionHeader(ws, r, label, cols, fullBorder);
 
     r = addColHeaders(ws, r, headers, 1, fullBorder);
@@ -339,20 +336,13 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
               String(emp.active_days ?? 0),
               projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
             ]
-          : isSupervisor
-            ? [
-                i + 1, emp.name, ident,
-                fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
-                fmt(emp.remaining),
-                `${drrWithoutF} / F:${drrWithF}`,
-                fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
-                fmt(emp.yesterday_activation ?? 0),
-                projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
-              ]
           : [
               i + 1, emp.name, ident,
               fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
-              fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
+              fmt(emp.remaining),
+              `${drrWithoutF} / F:${drrWithF}`,
+              fmt1(emp.daily_average), `${fmt1(emp.projection)} (${Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%)`,
+              fmt(emp.yesterday_activation ?? 0),
               projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
             ];
       addDataRow(ws, r, cells, 1, cells.length - 1, pctIdx, fullBorder);
@@ -431,7 +421,6 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
 
   writeSection("RSO PERFORMANCE", rso_performance, "Itopup Number", "itop_number");
   writeSection("BP PERFORMANCE", bp_performance, "Pool Number", "pool_number");
-  writeSection("CC PERFORMANCE", cc_performance, "Identifier", null);
   writeSection("SUPERVISOR PERFORMANCE", supervisor_performance, "Pool Number", "pool_number");
 
   // ── Generate file ──

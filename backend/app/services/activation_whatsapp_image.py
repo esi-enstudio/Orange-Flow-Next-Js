@@ -193,19 +193,6 @@ def _build_section_rows(employees, section_type: str):
                 _fmt(emp.get("yesterday_activation") or 0),
                 _status_label(status),
             ])
-        else:
-            rows.append([
-                str(i + 1),
-                str(emp.get("name") or "")[:22],
-                "—",
-                _fmt(tgt),
-                _fmt(ach),
-                f"{percentage:g}%",
-                _fmt(emp.get("remaining") or 0),
-                _fmt(emp.get("daily_average") or 0),
-                _fmt(proj),
-                _status_label(status),
-            ])
 
     total = {
         "target": sum(e.get("target") or 0 for e in employees),
@@ -308,8 +295,6 @@ def _render_image(house_name: str, house_code: str, dashboard: dict) -> bytes:
          ["#", "Name", "Itopup", "Target", "Ach", "%", "Remain", "D.Avg", "Proj", "Market", "Own Active", "Status"], 11),
         ("bp", "BP PERFORMANCE", dashboard.get("bp_performance", []),
          ["#", "Name", "Pool", "Target", "Ach", "%", "Remain", "D.Avg", "Proj", "Yesterday", "Day Cnt", "Status"], 11),
-        ("cc", "CC PERFORMANCE", dashboard.get("cc_performance", []),
-         ["#", "Name", "Ident", "Target", "Ach", "%", "Remaining", "D.Avg", "Projection", "Status"], 9),
         ("supervisor", "SUPERVISOR PERFORMANCE", dashboard.get("supervisor_performance", []),
          ["#", "Name", "Pool", "Target", "Ach", "%", "Remain", "D.Avg", "Proj", "Yesterday", "Status"], 10),
     ]

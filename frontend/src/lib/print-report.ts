@@ -37,7 +37,6 @@ interface PrintPayload {
   summary: Summary;
   rso_performance: EmployeeRow[];
   bp_performance: EmployeeRow[];
-  cc_performance: EmployeeRow[];
   supervisor_performance: EmployeeRow[];
   house_name?: string;
   house_code?: string;
@@ -75,7 +74,7 @@ function statusColor(s: string): string {
 }
 
 export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: boolean, imageMode?: boolean): string | void {
-  const { summary, rso_performance, bp_performance, cc_performance, supervisor_performance, house_name, house_code, month, year, month_name, days_elapsed, total_days } = payload;
+  const { summary, rso_performance, bp_performance, supervisor_performance, house_name, house_code, month, year, month_name, days_elapsed, total_days } = payload;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -132,7 +131,6 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
 
   const rsoHeaders = ["#", "Name", "Itopup Number", "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Market", "Own Activation", "Status"];
   const bpHeaders = ["#", "Name", "Pool Number", "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Day Count", "Status"];
-  const ccHeaders = ["#", "Name", "Identifier", "Target", "Ach", "%", "Remain", "D.Avg", "Projection", "Status"];
   const supHeaders = ["#", "Name", "Pool Number", "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Status"];
 
   const rsoHtml = sectionTable("RSO PERFORMANCE", rso_performance, "Itopup Number", rsoHeaders,
@@ -315,35 +313,6 @@ ${imageMode ? `<style>
           }).join('')}
         </tr>`;
       })() : ''}
-    </tbody>
-  </table>` : ''}
-
-  ${cc_performance.length > 0 ? `
-  <h3 style="margin:8px 0 4px;font-size:13px;font-weight:700;color:#1E293B">CC PERFORMANCE</h3>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:2px">
-    <thead>
-      <tr style="background:#F1F5F9">
-        ${ccHeaders.map((h, i) => { const w = ["4%","16%","12%","9%","9%","7%","10%","10%","12%","11%"][i]; return `<th style="width:${w};padding:3px 5px;border:1px solid #E2E8F0;text-align:${i === 1 ? 'left' : 'center'};font-size:11px;font-weight:700;color:#1E293B">${h}</th>`; }).join('')}
-      </tr>
-    </thead>
-    <tbody>
-      ${cc_performance.map((emp, i) => {
-        const cells = [
-          String(i + 1), emp.name, "—",
-          fmt(emp.target), fmt(emp.achievement), `${emp.percentage}%`,
-          fmt(emp.remaining), fmt1(emp.daily_average), fmt1(emp.projection),
-          projectionStatus(emp.percentage, Math.round(emp.projection / Math.max(emp.target, 1) * 100)),
-        ];
-        return `<tr${i % 2 === 1 ? ' style="background:#F8FAFC"' : ''}>
-          ${cells.map((c, ci) => {
-            const isStatus = ci === cells.length - 1;
-            const isPct = ci === 5;
-            const numVal = Number(String(c).replace('%', ''));
-            const color = isStatus ? statusColor(c) : isPct ? (numVal >= 100 ? "#10B981" : numVal >= 70 ? "#3B82F6" : numVal >= 40 ? "#F59E0B" : "#EF4444") : "#1E293B";
-            return `<td style="padding:3px 5px;border:1px solid #E2E8F0;text-align:${ci === 1 ? 'left' : 'center'};font-size:11px;color:${color};font-weight:${isStatus || isPct ? '700' : '400'}">${c}</td>`;
-          }).join('')}
-        </tr>`;
-      }).join('')}
     </tbody>
   </table>` : ''}
 

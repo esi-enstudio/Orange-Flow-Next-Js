@@ -1354,8 +1354,6 @@ async def get_activation_dashboard(
     rso_active_days_threshold: int = Query(1, ge=1, description="Minimum activations per day to count as active day for RSO"),
     bp_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for BP Performance"),
     bp_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for BP Performance"),
-    cc_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for CC Performance"),
-    cc_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for CC Performance"),
     supervisor_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for Supervisor Performance"),
     supervisor_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for Supervisor Performance"),
     db: AsyncSession = Depends(get_db),
@@ -1405,9 +1403,6 @@ async def get_activation_dashboard(
     bp_tag_list = [t.strip() for t in bp_exclude_tags.split(",") if t.strip()] if bp_exclude_tags else []
     bp_code_set = {c.strip() for c in bp_exclude_codes.split(",") if c.strip()} if bp_exclude_codes else await get_excluded_codes(db)
 
-    cc_tag_list = [t.strip() for t in cc_exclude_tags.split(",") if t.strip()] if cc_exclude_tags else []
-    cc_code_set = {c.strip() for c in cc_exclude_codes.split(",") if c.strip()} if cc_exclude_codes else await get_excluded_codes(db)
-
     supervisor_tag_list = [t.strip() for t in supervisor_exclude_tags.split(",") if t.strip()] if supervisor_exclude_tags else []
     supervisor_code_set = {c.strip() for c in supervisor_exclude_codes.split(",") if c.strip()} if supervisor_exclude_codes else await get_excluded_codes(db)
 
@@ -1432,11 +1427,6 @@ async def get_activation_dashboard(
         exclude_tag_names=bp_tag_list,
         exclude_product_codes=bp_code_set,
     )
-    cc_service = ActivationReportService(
-        db, target_house_id, target_month, target_year,
-        exclude_tag_names=cc_tag_list,
-        exclude_product_codes=cc_code_set,
-    )
     supervisor_service = ActivationReportService(
         db, target_house_id, target_month, target_year,
         exclude_tag_names=supervisor_tag_list,
@@ -1444,16 +1434,14 @@ async def get_activation_dashboard(
     )
     rso = await rso_service.get_rso_performance()
     bp = await bp_service.get_bp_performance()
-    cc = await cc_service.get_cc_performance()
     supervisor = await supervisor_service.get_supervisor_performance()
-    top_performers = await rso_service.get_top_performers(rso, bp, cc, supervisor)
+    top_performers = await rso_service.get_top_performers(rso, bp, supervisor)
 
     return {
         "success": True,
         "summary": summary,
         "rso_performance": rso,
         "bp_performance": bp,
-        "cc_performance": cc,
         "supervisor_performance": supervisor,
         "daily_trend": daily_trend,
         "top_performers": top_performers,
@@ -1668,7 +1656,7 @@ async def export_activation_dashboard(
         ws.cell(row=5+i, column=1, value=label).border = thin_border
         ws.cell(row=5+i, column=2, value=val).border = thin_border
 
-    for section_name, section_key in [("RSO Performance", "rso_performance"), ("BP Performance", "bp_performance"), ("CC Performance", "cc_performance"), ("Supervisor Performance", "supervisor_performance")]:
+    for section_name, section_key in [("RSO Performance", "rso_performance"), ("BP Performance", "bp_performance"), ("Supervisor Performance", "supervisor_performance")]:
         items = data.get(section_key, [])
         row_offset = 20
         ws.cell(row=row_offset, column=1, value=section_name).font = Font(bold=True, size=12)

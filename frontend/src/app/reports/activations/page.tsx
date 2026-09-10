@@ -86,13 +86,11 @@ interface DashboardData {
   summary: DashboardSummary;
   rso_performance: EmployeePerformance[];
   bp_performance: EmployeePerformance[];
-  cc_performance: EmployeePerformance[];
   supervisor_performance: EmployeePerformance[];
   daily_trend: DailyTrend[];
   top_performers: {
     rso: EmployeePerformance[];
     bp: EmployeePerformance[];
-    cc: EmployeePerformance[];
     supervisor: EmployeePerformance[];
   };
 }
@@ -231,7 +229,6 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
     const emptyKeys: Record<string, string> = {
       rso: "activation_report.no_data_rso",
       bp: "activation_report.no_data_bp",
-      cc: "activation_report.no_data_cc",
       supervisor: "activation_report.no_data",
     };
     return (
@@ -290,12 +287,10 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.remaining")}</span>
                   <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
                 </div>
-                {type !== "cc" && (
-                  <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                    <span className="text-gray-500 dark:text-gray-400">DRR</span>
-                    <span className="font-semibold text-gray-900 dark:text-gray-100">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                  <span className="text-gray-500 dark:text-gray-400">DRR</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
+                </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.daily_average")}</span>
                   <span className="text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
@@ -304,11 +299,9 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.projection")}</span>
                   <span className="text-right">
                     <div className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(Math.round(emp.projection))}</div>
-                    {type !== "cc" && (
-                      <div className="text-[10px] text-gray-400 leading-tight">
-                        {Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%
-                      </div>
-                    )}
+                    <div className="text-[10px] text-gray-400 leading-tight">
+                      {Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%
+                    </div>
                   </span>
                 </div>
                 {(type === "bp" || type === "supervisor") && (
@@ -368,7 +361,7 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
               <th className="px-4 py-3 text-center">{t("activation_report.achieved")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.percentage")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.remaining")}</th>
-              {type !== "cc" && <th className="px-4 py-3 text-center">DRR</th>}
+              <th className="px-4 py-3 text-center">DRR</th>
               <th className="px-4 py-3 text-center">{t("activation_report.daily_average")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
               {type === "rso" && <th className="px-4 py-3 text-center">Market</th>}
@@ -428,11 +421,9 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                 <td className="px-2 py-1 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
                 </td>
-                  {type !== "cc" && (
                   <td className="px-2 py-1 text-center">
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
-                  </td>
-                )}
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
+                </td>
                 <td className="px-2 py-1 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
                 </td>
@@ -440,11 +431,9 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                   <div className="text-sm font-semibold text-gray-700 dark:text-gray-300 leading-tight">
                     {formatNumber(Math.round(emp.projection))}
                   </div>
-                  {type !== "cc" && (
-                    <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                       {Math.round(emp.projection / Math.max(emp.target, 1) * 100)}%
                     </div>
-                  )}
                 </td>
                   {type === "rso" && (
                   <td className="px-2 py-1 text-center align-middle">
@@ -524,21 +513,17 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                   <td className="px-2 py-1 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(totalRemaining)}</span>
                   </td>
-                  {type !== "cc" && (
-                    <td className="px-2 py-1 text-center">
-                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(totalRemaining / Math.max(daysRemaining, 1))}</span>
-                    </td>
-                  )}
+                  <td className="px-2 py-1 text-center">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(totalRemaining / Math.max(daysRemaining, 1))}</span>
+                  </td>
                   <td className="px-2 py-1 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.round(totalDailyAvg)}</span>
                   </td>
                   <td className="px-2 py-1 text-center align-middle">
                     <div className="text-sm font-bold text-gray-700 dark:text-gray-300 leading-tight">{formatNumber(Math.round(totalProjection))}</div>
-                    {type !== "cc" && (
-                      <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                         {Math.round(totalProjection / Math.max(totalTarget, 1) * 100)}%
                       </div>
-                    )}
                   </td>
                   {type === "rso" && (
                     <td className="px-2 py-1 text-center align-middle">
@@ -642,7 +627,7 @@ export default function ActivationDashboardPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"rso" | "bp" | "cc" | "supervisor">("rso");
+  const [activeTab, setActiveTab] = useState<"rso" | "bp" | "supervisor">("rso");
   const [isDark, setIsDark] = useState(false);
   const [tags, setTags] = useState<{ id: number; name: string }[]>([]);
   const [achievementExcludeTags, setAchievementExcludeTags] = useState<string[]>(() => {
@@ -681,14 +666,6 @@ export default function ActivationDashboardPage() {
     try { return JSON.parse(localStorage.getItem("activation_bp_exclude_codes") || "[]"); }
     catch { return []; }
   });
-  const [ccExcludeTags, setCcExcludeTags] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_cc_exclude_tags") || "[]"); }
-    catch { return []; }
-  });
-  const [ccExcludeCodes, setCcExcludeCodes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_cc_exclude_codes") || "[]"); }
-    catch { return []; }
-  });
   const [supervisorExcludeTags, setSupervisorExcludeTags] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("activation_supervisor_exclude_tags") || "[]"); }
     catch { return []; }
@@ -703,11 +680,9 @@ export default function ActivationDashboardPage() {
   const [rsoShowAchievedConfig, setRsoShowAchievedConfig] = useState(true);
   const [rsoShowMarketConfig, setRsoShowMarketConfig] = useState(true);
   const [showBpConfig, setShowBpConfig] = useState(false);
-  const [showCcConfig, setShowCcConfig] = useState(false);
   const [showSupervisorConfig, setShowSupervisorConfig] = useState(false);
   const rsoConfigRef = useRef<HTMLDivElement>(null);
   const bpConfigRef = useRef<HTMLDivElement>(null);
-  const ccConfigRef = useRef<HTMLDivElement>(null);
   const supervisorConfigRef = useRef<HTMLDivElement>(null);
   const [excludedProductCodes, setExcludedProductCodes] = useState<{ id: number; product_code: string }[]>([]);
 
@@ -753,8 +728,6 @@ export default function ActivationDashboardPage() {
       params.rso_active_days_threshold = rsoActiveDaysThreshold;
       if (bpExcludeTags.length > 0) params.bp_exclude_tags = bpExcludeTags.join(",");
       if (bpExcludeCodes.length > 0) params.bp_exclude_codes = bpExcludeCodes.join(",");
-      if (ccExcludeTags.length > 0) params.cc_exclude_tags = ccExcludeTags.join(",");
-      if (ccExcludeCodes.length > 0) params.cc_exclude_codes = ccExcludeCodes.join(",");
       if (supervisorExcludeTags.length > 0) params.supervisor_exclude_tags = supervisorExcludeTags.join(",");
       if (supervisorExcludeCodes.length > 0) params.supervisor_exclude_codes = supervisorExcludeCodes.join(",");
       const res = await apiClient.get("reports/activations/dashboard", { params });
@@ -764,7 +737,7 @@ export default function ActivationDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
+  }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
 
   useEffect(() => {
     if (!authLoading && canViewActivationsReport) {
@@ -817,14 +790,6 @@ export default function ActivationDashboardPage() {
   }, [bpExcludeCodes]);
 
   useEffect(() => {
-    localStorage.setItem("activation_cc_exclude_tags", JSON.stringify(ccExcludeTags));
-  }, [ccExcludeTags]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_cc_exclude_codes", JSON.stringify(ccExcludeCodes));
-  }, [ccExcludeCodes]);
-
-  useEffect(() => {
     localStorage.setItem("activation_supervisor_exclude_tags", JSON.stringify(supervisorExcludeTags));
   }, [supervisorExcludeTags]);
 
@@ -866,21 +831,10 @@ export default function ActivationDashboardPage() {
   }, [showBpConfig]);
 
   useEffect(() => {
-    if (!showCcConfig) return;
-    const handler = (e: MouseEvent) => {
-      if (ccConfigRef.current && !ccConfigRef.current.contains(e.target as Node)) {
-        setShowCcConfig(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showCcConfig]);
-
-  useEffect(() => {
     if (!authLoading && canViewActivationsReport) {
       fetchDashboard();
     }
-  }, [authLoading, canViewActivationsReport, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, ccExcludeTags, ccExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
+  }, [authLoading, canViewActivationsReport, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
 
   const handleExport = async () => {
     if (!data) return;
@@ -890,7 +844,6 @@ export default function ActivationDashboardPage() {
         summary: data.summary,
         rso_performance: data.rso_performance,
         bp_performance: data.bp_performance,
-        cc_performance: data.cc_performance,
         supervisor_performance: data.supervisor_performance,
         house_name: house?.name || "All Houses",
         house_code: house?.code || "",
@@ -913,7 +866,6 @@ export default function ActivationDashboardPage() {
       summary: data.summary,
       rso_performance: data.rso_performance,
       bp_performance: data.bp_performance,
-      cc_performance: data.cc_performance,
       supervisor_performance: data.supervisor_performance,
       house_name: house?.name || "All Houses",
       house_code: house?.code || "",
@@ -1286,15 +1238,15 @@ export default function ActivationDashboardPage() {
           </div>
 
           {/* Top Performers Leaderboard */}
-          {top && (top.rso.length > 0 || top.bp.length > 0 || top.cc.length > 0) && (
+          {top && (top.rso.length > 0 || top.bp.length > 0 || top.supervisor?.length > 0) && (
             <div>
               <h2 className="font-bold text-base flex items-center gap-2 dark:text-gray-100 mb-4">
                 <Medal className="w-5 h-5 text-amber-500" />
                 {t("activation_report.top_performers")}
               </h2>
               {(() => {
-                const cardCount = [top.rso.length > 0, top.bp.length > 0, top.cc.length > 0, top.supervisor?.length > 0].filter(Boolean).length;
-                const gridCols = cardCount === 4 ? "md:grid-cols-1 lg:grid-cols-4" : cardCount === 3 ? "md:grid-cols-1 lg:grid-cols-3" : cardCount === 2 ? "md:grid-cols-1 lg:grid-cols-2" : "";
+                const cardCount = [top.rso.length > 0, top.bp.length > 0, top.supervisor?.length > 0].filter(Boolean).length;
+                const gridCols = cardCount === 3 ? "md:grid-cols-1 lg:grid-cols-3" : cardCount === 2 ? "md:grid-cols-1 lg:grid-cols-2" : "";
                 return (
                   <div className={`grid grid-cols-1 ${gridCols} gap-4`}>
                     {top.rso.length > 0 && (
@@ -1312,15 +1264,6 @@ export default function ActivationDashboardPage() {
                         title={t("activation_report.bp_performance")}
                         icon={Users}
                         color="bg-purple-500"
-                        t={t}
-                      />
-                    )}
-                    {top.cc.length > 0 && (
-                      <LeaderboardCard
-                        data={top.cc}
-                        title={t("activation_report.cc_performance")}
-                        icon={Users}
-                        color="bg-emerald-500"
                         t={t}
                       />
                     )}
@@ -1343,30 +1286,26 @@ export default function ActivationDashboardPage() {
           <div>
             <div className="flex items-center gap-1 mb-4">
               <div className="flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-lg p-1 overflow-x-auto flex-1 min-w-0">
-                {(["rso", "bp", "cc", "supervisor"] as const).map((tab) => {
+                {(["rso", "bp", "supervisor"] as const).map((tab) => {
                   const labels: Record<string, string> = {
                     rso: t("activation_report.rso_performance"),
                     bp: t("activation_report.bp_performance"),
-                    cc: t("activation_report.cc_performance"),
                     supervisor: t("activation_report.supervisor_performance"),
                   };
                   const icons: Record<string, any> = {
                     rso: Users,
                     bp: Building2,
-                    cc: BarChart3,
                     supervisor: Users,
                   };
                   const Icon = icons[tab];
                   const badgeCounts: Record<string, number> = {
                     rso: data.rso_performance?.length ?? 0,
                     bp: data.bp_performance?.length ?? 0,
-                    cc: data.cc_performance?.length ?? 0,
                     supervisor: data.supervisor_performance?.length ?? 0,
                   };
                   const badgeColors: Record<string, string> = {
                     rso: "bg-primary-100 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400",
                     bp: "bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400",
-                    cc: "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400",
                     supervisor: "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400",
                   };
                   return (
@@ -1671,111 +1610,6 @@ export default function ActivationDashboardPage() {
                   )}
                 </div>
               )}
-              {activeTab === "cc" && hasPermission("reports.achievement.config") && (
-                <div ref={ccConfigRef} className="relative">
-                  <button
-                    onClick={() => setShowCcConfig(!showCcConfig)}
-                    className={cn(
-                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative",
-                      showCcConfig
-                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
-                        : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                    )}
-                  >
-                    <Settings className="w-4 h-4" />
-                    {(ccExcludeTags.length > 0 || ccExcludeCodes.length > 0) && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
-                    )}
-                  </button>
-                  {showCcConfig && (
-                    <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
-                      {(ccExcludeTags.length > 0 || ccExcludeCodes.length > 0) && (
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
-                          {ccExcludeTags.length + ccExcludeCodes.length} filter{ccExcludeTags.length + ccExcludeCodes.length !== 1 ? 's' : ''} active
-                        </div>
-                      )}
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
-                        {tags.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {tags.map(tag => {
-                              const isSelected = ccExcludeTags.includes(tag.name);
-                              return (
-                                <button
-                                  key={tag.id}
-                                  onClick={() => {
-                                    setCcExcludeTags(prev =>
-                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  <Tag className="w-2.5 h-2.5" />
-                                  {tag.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="border-t border-gray-50 dark:border-slate-800" />
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
-                        {excludedProductCodes.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_excluded_codes")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-                            {excludedProductCodes.map(item => {
-                              const isSelected = ccExcludeCodes.includes(item.product_code);
-                              return (
-                                <button
-                                  key={item.id}
-                                  onClick={() => {
-                                    setCcExcludeCodes(prev =>
-                                      isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  {item.product_code}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
-                        <button
-                          onClick={() => { setCcExcludeTags([]); setCcExcludeCodes([]); }}
-                          className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                        >
-                          {t("common.reset")}
-                        </button>
-                        <button
-                          onClick={() => { setShowCcConfig(false); fetchDashboard(); }}
-                          className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
-                        >
-                          {t("common.save_changes")}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-)}
-
               {activeTab === "supervisor" && hasPermission("reports.achievement.config") && (
                 <div ref={supervisorConfigRef} className="relative shrink-0">
                   <button
@@ -1886,9 +1720,6 @@ export default function ActivationDashboardPage() {
             )}
             {activeTab === "bp" && (
               <PerformanceTable data={data.bp_performance} t={t} type="bp" daysElapsed={data.summary.days_elapsed} daysRemaining={data.summary.days_remaining} />
-            )}
-            {activeTab === "cc" && (
-              <PerformanceTable data={data.cc_performance} t={t} type="cc" daysElapsed={data.summary.days_elapsed} daysRemaining={data.summary.days_remaining} />
             )}
             {activeTab === "supervisor" && (
               <PerformanceTable data={data.supervisor_performance} t={t} type="supervisor" daysElapsed={data.summary.days_elapsed} daysRemaining={data.summary.days_remaining} />

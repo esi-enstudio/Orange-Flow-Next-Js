@@ -6,7 +6,6 @@ from typing import Optional
 
 from sqlalchemy import select, func, and_, false
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.house_target import HouseTarget
 from app.models.rso_target import RSOTarget
@@ -327,6 +326,8 @@ class ActivationReportService:
         return {r[0] for r in res.all()}
 
     async def _get_employee_name(self, emp: Employee) -> str:
+        if emp.employee_name:
+            return emp.employee_name
         if emp.user_id:
             user_res = await self.db.execute(select(User.name).where(User.id == emp.user_id))
             name = user_res.scalar_one_or_none()
@@ -592,62 +593,6 @@ class ActivationReportService:
         results.sort(key=lambda r: r["percentage"], reverse=True)
         return results
 
-    async def get_cc_performance(self) -> list[dict]:
-        cc_users = await self.db.execute(
-            select(User).options(selectinload(User.roles)).where(
-                User.employee_profile.has(Employee.house_id == self.house_id)
-            )
-        )
-        cc_user_ids = []
-        for u in cc_users.unique().scalars().all():
-            role_names = [r.name.lower() for r in u.roles]
-            if "cc" in role_names:
-                cc_user_ids.append(u.id)
-
-        if not cc_user_ids:
-            return []
-
-        emps = await self.db.execute(
-            select(Employee).where(
-                Employee.house_id == self.house_id,
-                Employee.user_id.in_(cc_user_ids),
-                Employee.status == "Active",
-            )
-        )
-        employees = emps.scalars().all()
-        if not employees:
-            return []
-
-        emp_ids = [e.id for e in employees]
-        name_map = {e.id: await self._get_employee_name(e) for e in employees}
-
-        results = []
-        for emp_id in emp_ids:
-            retailer_ids = await self._get_retailer_ids_for_employee(emp_id)
-            achievement = await self._count_activations(retailer_ids=retailer_ids)
-            target_val = 0
-
-            pct = round((achievement / target_val * 100), 1) if target_val else 0
-            remaining = max(0, target_val - achievement)
-            daily_avg = round(achievement / max(self._days_elapsed, 1))
-            projection = round(daily_avg * self._days_in_month, 1)
-            status = "on_track" if achievement > 0 else "behind"
-
-            results.append({
-                "id": emp_id,
-                "name": name_map.get(emp_id, f"#{emp_id}"),
-                "target": target_val,
-                "achievement": achievement,
-                "percentage": pct,
-                "remaining": remaining,
-                "daily_average": daily_avg,
-                "projection": projection,
-                "status": status,
-            })
-
-        results.sort(key=lambda r: r["achievement"], reverse=True)
-        return results
-
     async def get_daily_trend(self) -> list[dict]:
         trend_map: dict[str, int] = {}
         excluded = await self._get_excluded_retailer_ids()
@@ -688,11 +633,10 @@ class ActivationReportService:
             d += timedelta(days=1)
         return result
 
-    async def get_top_performers(self, rso_list: list[dict], bp_list: list[dict], cc_list: list[dict], supervisor_list: Optional[list[dict]] = None) -> dict:
+    async def get_top_performers(self, rso_list: list[dict], bp_list: list[dict], supervisor_list: Optional[list[dict]] = None) -> dict:
         result = {
             "rso": rso_list[:5] if rso_list else [],
             "bp": bp_list[:5] if bp_list else [],
-            "cc": cc_list[:5] if cc_list else [],
         }
         if supervisor_list:
             result["supervisor"] = supervisor_list[:5]
@@ -702,17 +646,15 @@ class ActivationReportService:
         summary = await self.get_summary()
         rso = await self.get_rso_performance()
         bp = await self.get_bp_performance()
-        cc = await self.get_cc_performance()
         supervisor = await self.get_supervisor_performance()
         daily_trend = await self.get_daily_trend()
-        top_performers = await self.get_top_performers(rso, bp, cc, supervisor)
+        top_performers = await self.get_top_performers(rso, bp, supervisor)
 
         return {
             "success": True,
             "summary": summary,
             "rso_performance": rso,
             "bp_performance": bp,
-            "cc_performance": cc,
             "supervisor_performance": supervisor,
             "daily_trend": daily_trend,
             "top_performers": top_performers,
