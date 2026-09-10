@@ -750,6 +750,49 @@ Avoid:
 - Text inputs used for typing (e.g., search boxes) should keep the default text cursor (`cursor-text`) — do not force `cursor-pointer` on them.
 - Disabled controls keep the default `cursor-not-allowed` behavior; do not add `cursor-pointer` when the element is disabled.
 
+## Select Field (Dropdown) Design — Reusable Standard
+
+All **select-like fields** (single-value `<select>` replaced by a styled button, and searchable multi-select dropdowns) must follow this exact design language. Reference implementation: GA Query page filters (`frontend/src/app/reports/ga-query/page.tsx` — Select Retailers, Employees, Product).
+
+### Use the Existing Reusable Component
+
+Prefer the `EntitySelector` component (`frontend/src/app/zoom-in/_components/EntitySelector.tsx`) for any searchable multi-select dropdown. Do NOT hand-build a new trigger/label/menu — feed items and wire the handlers:
+
+```tsx
+<EntitySelector
+  label={t("...label...")}
+  items={options.map((o) => ({
+    id: o.id,                       // string | number
+    label: o.name,                  // main line
+    sublabel: "...",                // optional secondary line (text-[11px])
+    badge: o.type?.toUpperCase(),   // optional chip e.g. "RSO" / "BP"
+  }))}
+  selectedIds={selectedIds}
+  onChange={(ids) => onChange(ids.map(String))}
+  placeholder={t("..._placeholder")}
+  searchPlaceholder={t("..._search")}
+  emptyMessage={t("...empty...")}
+  noResultsMessage={t("...no_results...")}
+  onSearchChange={(q) => setSearch(q)}   // use for server-side search (e.g. retailers)
+  disabled={!selectedHouseId}
+  selectAllLabel={t("common.select_all")}
+  clearLabel={t("common.clear")}
+  selectedLabel={t("...selected...")}    // localizes "N selected"
+/>
+```
+
+### Built-in Design (do not restyle)
+
+- **Label** — `block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5`. No icon inside the label.
+- **Trigger button** — `rounded-xl`, `bg-white dark:bg-slate-900`, `border-gray-200 dark:border-slate-800`, `text-sm`, `outline-none`, `focus:ring-2 focus:ring-primary-500`, `disabled:opacity-50`. No conditional per-state border/background colors.
+- **Placeholder** — muted `text-gray-400` when nothing selected; dedicated `_placeholder` translation key.
+- **Selected** — single truncated line `"{N} {selectedLabel}"` plus a primary-500 count badge next to the chevron (wrapped in `<div className="flex items-center gap-1.5 shrink-0">`).
+- **Dropdown menu** — `absolute z-50 mt-1.5 w-full rounded-xl` with animated search input (Search icon), "Select All" / "Clear" header row, `border-2` checkboxes, sublabels + badges, `max-h-48` scrollable list. Handles outside-click close itself.
+- **Cursor** — `cursor-pointer` on the trigger, `disabled:cursor-not-allowed` (see Cursor Feedback section).
+- **i18n** — always pass `selectedLabel`, `selectAllLabel`, `clearLabel`, and all text through `useTranslations()`/`t()` keys, never hardcode English.
+
+The GA Query page is the reference implementation. Use this exact component for every new select field; do not invent new button/label styles.
+
 ---
 
 # Loading / Skeleton Guidelines

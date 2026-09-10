@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
   Search, Download, Building2, Calendar, Package,
   RotateCcw, ChevronDown, ChevronLeft, ChevronRight,
-  Inbox, TrendingUp, BarChart3, CalendarDays, Hash, Store,
+  Inbox, TrendingUp, BarChart3, CalendarDays, Hash,
+  ArrowUp, ArrowDown, ChevronsUpDown, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -78,6 +80,14 @@ interface ProductCodeItem {
   count: number;
 }
 
+interface RsoOption {
+  value: string;
+  dms_code: string | null;
+  itop_number: string | null;
+  employee_type: string | null;
+  count: number;
+}
+
 interface SummaryData {
   total_activations: number;
   product_breakdown: ProductCodeItem[];
@@ -121,18 +131,77 @@ const SkeletonCard = () => (
   </div>
 );
 
-const SkeletonRow = () => (
-  <div className="flex items-center gap-4 px-4 sm:px-6 py-4 animate-pulse border-b border-gray-50 dark:border-slate-800">
-    <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-slate-700 shrink-0" />
-    <div className="space-y-2 flex-1">
-      <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md" />
-      <div className="h-2.5 w-20 bg-gray-100 dark:bg-slate-800 rounded-md" />
+const SkeletonTable = () => (
+  <>
+    <div className="hidden lg:block overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 dark:border-slate-800">
+            {[20, 28, 24, 28, 24, 16].map((w, i) => (
+              <th key={i} className="px-2 py-3 text-left">
+                <div
+                  className="h-3 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse"
+                  style={{ width: `${w * 4}px` }}
+                />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
+          {Array.from({ length: 8 }).map((_, r) => (
+            <tr key={r}>
+              <td className="px-2 py-1">
+                <div className="space-y-1.5 animate-pulse">
+                  <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+              </td>
+              <td className="px-2 py-1">
+                <div className="space-y-1.5 animate-pulse">
+                  <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-20 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+              </td>
+              <td className="px-2 py-1">
+                <div className="space-y-1.5 animate-pulse">
+                  <div className="h-3 w-24 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-12 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+              </td>
+              <td className="px-2 py-1">
+                <div className="space-y-1.5 animate-pulse">
+                  <div className="h-3 w-28 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+              </td>
+              <td className="px-2 py-1">
+                <div className="space-y-1.5 animate-pulse">
+                  <div className="h-4 w-20 bg-primary-100 dark:bg-primary-500/20 rounded-md" />
+                  <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+              </td>
+              <td className="px-2 py-1">
+                <div className="h-3 w-14 bg-gray-200 dark:bg-slate-700 rounded-md animate-pulse" />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
-    <div className="hidden sm:block flex-1 space-y-2">
-      <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
+
+    <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-4 py-3 animate-pulse">
+          <div className="w-9 h-9 rounded-lg bg-gray-200 dark:bg-slate-700 shrink-0" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+            <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+          </div>
+          <div className="h-4 w-4 bg-gray-100 dark:bg-slate-800 rounded" />
+        </div>
+      ))}
     </div>
-    <div className="w-20 h-6 rounded-md bg-gray-200 dark:bg-slate-700" />
-  </div>
+  </>
 );
 
 // ── Main Component ──
@@ -154,8 +223,6 @@ export default function GAQueryPage() {
 
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
   const [retailerSearch, setRetailerSearch] = useState("");
-  const [retailerOpen, setRetailerOpen] = useState(false);
-  const [retailerMenu, setRetailerMenu] = useState<{ top: number; left: number; width: number } | null>(null);
   const [selectedRetailerIds, setSelectedRetailerIds] = useState<string[]>([]);
   const [loadingRetailers, setLoadingRetailers] = useState(false);
 
@@ -165,15 +232,21 @@ export default function GAQueryPage() {
   const [searchText, setSearchText] = useState("");
 
   const [productCodes, setProductCodes] = useState<ProductCodeItem[]>([]);
-  const [selectedProductCode, setSelectedProductCode] = useState<string>("");
   const [loadingProducts, setLoadingProducts] = useState(false);
+
+  const [rsoOptions, setRsoOptions] = useState<RsoOption[]>([]);
+  const [rsoSelected, setRsoSelected] = useState<string[]>([]);
+  const [loadingRso, setLoadingRso] = useState(false);
+
+  const [selectedProductCodes, setSelectedProductCodes] = useState<string[]>([]);
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
 
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const retailerDropdownRef = useRef<HTMLDivElement>(null);
-  const retailerTriggerRef = useRef<HTMLButtonElement>(null);
+  const [sortBy, setSortBy] = useState<string>("");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
 
   // ── Permission check ──
   const canView = hasPermission("ga_query.view");
@@ -219,42 +292,30 @@ export default function GAQueryPage() {
     return () => clearTimeout(timer);
   }, [retailerSearch, fetchRetailers]);
 
-  // ── Close dropdown on outside click / scroll / resize ──
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (retailerDropdownRef.current && !retailerDropdownRef.current.contains(e.target as Node)) {
-        setRetailerOpen(false);
+  // ── Fetch RSO options ──
+  const fetchRsoOptions = useCallback(
+    async (retIds: string[]) => {
+      setLoadingRso(true);
+      try {
+        const headers: Record<string, string> = {};
+        if (selectedHouseId) headers["X-House-ID"] = selectedHouseId;
+        const res = await apiClient.get("ga-query/rso-options", {
+          params: {
+            ...(retIds.length > 0 ? { retailer_ids: retIds.join(",") } : {}),
+            start_date: startDate,
+            end_date: endDate,
+          },
+          headers,
+        });
+        setRsoOptions(res.data || []);
+      } catch {
+        setRsoOptions([]);
+      } finally {
+        setLoadingRso(false);
       }
-    };
-    const onCloseAny = () => setRetailerOpen(false);
-    document.addEventListener("mousedown", onClick);
-    window.addEventListener("scroll", onCloseAny, true);
-    window.addEventListener("resize", onCloseAny);
-    return () => {
-      document.removeEventListener("mousedown", onClick);
-      window.removeEventListener("scroll", onCloseAny, true);
-      window.removeEventListener("resize", onCloseAny);
-    };
-  }, []);
-
-  // ── Toggle retailer menu (fixed-position, viewport-aware) ──
-  const toggleRetailerMenu = () => {
-    if (!selectedHouseId) return;
-    if (retailerOpen) {
-      setRetailerOpen(false);
-      return;
-    }
-    const el = retailerTriggerRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const menuW = Math.min(Math.max(rect.width, 300), window.innerWidth - 24);
-    const menuH = Math.min(window.innerHeight * 0.5, 360);
-    const left = Math.max(Math.min(rect.left, window.innerWidth - menuW - 12), 12);
-    const below = rect.bottom + 6 + menuH <= window.innerHeight;
-    const top = below ? rect.bottom + 6 : Math.max(rect.top - menuH - 6, 12);
-    setRetailerMenu({ top, left, width: menuW });
-    setRetailerOpen(true);
-  };
+    },
+    [selectedHouseId, startDate, endDate]
+  );
 
   // ── Fetch product codes ──
   const fetchProductCodes = useCallback(
@@ -281,9 +342,22 @@ export default function GAQueryPage() {
     [selectedHouseId, startDate, endDate]
   );
 
+  // ── Load RSO & product options when house / date range changes ──
+  useEffect(() => {
+    if (selectedHouseId) {
+      fetchProductCodes([]);
+      fetchRsoOptions([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHouseId, startDate, endDate]);
+
   // ── Fetch activations ──
   const fetchActivations = useCallback(
-    async (retIds: string[], page: number = 1) => {
+    async (
+      retIds: string[],
+      page: number = 1,
+      overrides?: { sortBy?: string; sortOrder?: "asc" | "desc"; filters?: Record<string, string> }
+    ) => {
       setLoading(true);
       try {
         const params: Record<string, string | number> = {
@@ -291,10 +365,16 @@ export default function GAQueryPage() {
           end_date: endDate,
           page,
           per_page: 50,
+          sort_order: overrides?.sortOrder ?? sortOrder,
         };
+        if (overrides?.sortBy ?? sortBy) params.sort_by = overrides?.sortBy ?? sortBy;
         if (retIds.length > 0) params.retailer_ids = retIds.join(",");
-        if (selectedProductCode) params.product_code = selectedProductCode;
         if (searchText) params.search = searchText;
+
+        const activeFilters = overrides?.filters ?? columnFilters;
+        Object.entries(activeFilters).forEach(([key, value]) => {
+          if (value) params[`f_${key}`] = value;
+        });
 
         const headers: Record<string, string> = {};
         if (selectedHouseId) headers["X-House-ID"] = selectedHouseId;
@@ -310,7 +390,7 @@ export default function GAQueryPage() {
         setLoading(false);
       }
     },
-    [selectedHouseId, startDate, endDate, selectedProductCode, searchText, t]
+    [selectedHouseId, startDate, endDate, searchText, sortBy, sortOrder, columnFilters, t]
   );
 
   // ── Fetch summary ──
@@ -341,10 +421,12 @@ export default function GAQueryPage() {
       toast.error(t("ga_query.select_house_required"));
       return;
     }
-    setSelectedProductCode("");
     setSearchText("");
+    setSortBy("");
+    setSortOrder("desc");
     fetchProductCodes(selectedRetailerIds);
-    fetchActivations(selectedRetailerIds, 1);
+    fetchRsoOptions(selectedRetailerIds);
+    fetchActivations(selectedRetailerIds, 1, { sortBy: "", sortOrder: "desc", filters: columnFilters });
     fetchSummary(selectedRetailerIds);
   };
 
@@ -352,6 +434,36 @@ export default function GAQueryPage() {
   const handlePageChange = (newPage: number) => {
     fetchActivations(selectedRetailerIds, newPage);
     setExpandedId(null);
+  };
+
+  // ── Sort handler ──
+  const handleSortBy = (key: string) => {
+    let nextBy = key;
+    let nextOrder: "asc" | "desc" = "asc";
+    if (sortBy === key) {
+      if (sortOrder === "asc") {
+        nextOrder = "desc";
+      } else {
+        nextBy = "";
+      }
+    }
+    setSortBy(nextBy);
+    setSortOrder(nextOrder);
+    fetchActivations(selectedRetailerIds, 1, {
+      sortBy: nextBy,
+      sortOrder: nextOrder,
+      filters: columnFilters,
+    });
+  };
+
+  // ── Column filter handler (stages the filter; applied on Apply) ──
+  const handleColumnFilter = (key: string, value: string) => {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      if (value) next[key] = value;
+      else delete next[key];
+      return next;
+    });
   };
 
   // ── Export ──
@@ -364,7 +476,6 @@ export default function GAQueryPage() {
           ...(selectedRetailerIds.length > 0 ? { retailer_ids: selectedRetailerIds.join(",") } : {}),
           start_date: startDate,
           end_date: endDate,
-          ...(selectedProductCode ? { product_code: selectedProductCode } : {}),
         },
         headers,
         responseType: "blob",
@@ -383,18 +494,17 @@ export default function GAQueryPage() {
     }
   };
 
-  // ── Product filter ──
-  useEffect(() => {
-    if (activations.length > 0) {
-      fetchActivations(selectedRetailerIds, pagination?.page || 1);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProductCode]);
+  // ── RSO multi-select change (staged until Apply) ──
+  const handleRsoChange = (vals: string[]) => {
+    setRsoSelected(vals);
+    handleColumnFilter("rso", vals.join(","));
+  };
 
-  const selectedRetailers = useMemo(
-    () => retailers.filter((r) => selectedRetailerIds.includes(String(r.id))),
-    [retailers, selectedRetailerIds]
-  );
+  // ── Product multi-select change (staged until Apply) ──
+  const handleProductChange = (vals: string[]) => {
+    setSelectedProductCodes(vals);
+    handleColumnFilter("product", vals.join(","));
+  };
 
   // ── Render ──
   if (authLoading) {
@@ -448,6 +558,8 @@ export default function GAQueryPage() {
                   setRetailers([]);
                   setActivations([]);
                   setProductCodes([]);
+                  setSelectedProductCodes([]);
+                  setRsoSelected([]);
                   setSummary(null);
                   setPagination(null);
                 }}
@@ -491,121 +603,74 @@ export default function GAQueryPage() {
             </div>
 
             {/* Retailer Selector */}
-            <div className="space-y-1.5" ref={retailerDropdownRef}>
-              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <Store className="w-4 h-4 text-primary-500" />
-                {t("ga_query.select_retailer")}
-              </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  ref={retailerTriggerRef}
-                  onClick={toggleRetailerMenu}
-                  disabled={!selectedHouseId}
-                  className={cn(
-                    "w-full px-3 py-2.5 rounded-lg border text-sm text-left flex items-center justify-between gap-2 transition-colors cursor-pointer",
-                    !selectedHouseId
-                      ? "border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900 text-gray-400 cursor-not-allowed"
-                      : selectedRetailers.length > 0
-                        ? "border-primary-300 dark:border-primary-500/60 bg-primary-50/60 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 hover:border-primary-400 dark:hover:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                        : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 hover:border-primary-300 dark:hover:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                  )}
-                >
-                  <span className="flex flex-col min-w-0">
-                    {selectedRetailers.length > 0 ? (
-                      <>
-                        <span className={cn("truncate font-medium", selectedRetailers.length > 0 ? "text-primary-700 dark:text-primary-300" : "text-gray-900 dark:text-gray-100")}>
-                          {selectedRetailers.length} {t("ga_query.selected")}
-                        </span>
-                        <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                          {selectedRetailers.map((r) => r.retailer_code).join(", ")}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="truncate text-gray-400 dark:text-gray-500">{t("ga_query.retailer_search")}</span>
-                    )}
-                  </span>
-                  <ChevronDown className={cn("w-4 h-4 shrink-0 transition-transform", retailerOpen && "rotate-180")} />
-                </button>
+            <EntitySelector
+              label={t("ga_query.select_retailer")}
+              items={retailers.map((r) => ({
+                id: String(r.id),
+                label: r.name,
+                sublabel: `${r.retailer_code}${r.itop_number ? ` • ${r.itop_number}` : ""}`,
+              }))}
+              selectedIds={selectedRetailerIds}
+              onChange={(ids) => setSelectedRetailerIds(ids.map(String))}
+              placeholder={t("ga_query.select_retailer_placeholder")}
+              searchPlaceholder={t("ga_query.retailer_search")}
+              emptyMessage={loadingRetailers ? t("ga_query.loading_retailers") : t("ga_query.type_to_search")}
+              noResultsMessage={t("ga_query.no_retailers")}
+              onSearchChange={(q) => setRetailerSearch(q)}
+              disabled={!selectedHouseId}
+              selectAllLabel={t("common.select_all")}
+              clearLabel={t("common.clear")}
+              selectedLabel={t("ga_query.selected")}
+            />
 
-                {retailerOpen && selectedHouseId && (
-                  <div
-                    className="fixed z-50 flex flex-col bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg shadow-xl"
-                    style={{ top: retailerMenu?.top ?? 0, left: retailerMenu?.left ?? 0, width: retailerMenu?.width ?? 300 }}
-                  >
-                    <div className="p-2 border-b border-gray-100 dark:border-slate-800">
-                      <input
-                        type="text"
-                        value={retailerSearch}
-                        onChange={(e) => setRetailerSearch(e.target.value)}
-                        placeholder={t("ga_query.retailer_search")}
-                        className="w-full px-3 py-2 rounded-md border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary-500/40"
-                        autoFocus
-                      />
-                    </div>
-                    <div className="overflow-y-auto max-h-[min(50vh,360px)]">
-                      {loadingRetailers ? (
-                        <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">{t("ga_query.loading_retailers")}</div>
-                      ) : retailerSearch.trim().length === 0 ? (
-                        <div className="px-3 py-4 text-sm text-gray-400 dark:text-gray-500 text-center">{t("ga_query.type_to_search")}</div>
-                      ) : retailers.length === 0 ? (
-                        <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">{t("ga_query.no_retailers")}</div>
-                      ) : (
-                        retailers.map((r) => {
-                          const isSelected = selectedRetailerIds.includes(String(r.id));
-                          return (
-                            <button
-                              key={r.id}
-                              onClick={() => {
-                                setSelectedRetailerIds((prev) =>
-                                  isSelected
-                                    ? prev.filter((id) => id !== String(r.id))
-                                    : [...prev, String(r.id)]
-                                );
-                              }}
-                              className={cn(
-                                "w-full px-3 py-2.5 text-left text-sm transition-colors flex items-start gap-2.5",
-                                isSelected
-                                  ? "bg-primary-50 dark:bg-primary-500/15 text-primary-600 dark:text-primary-300"
-                                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700/60"
-                              )}
-                            >
-                              <span
-                                className={cn(
-                                  "mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors",
-                                  isSelected
-                                    ? "bg-primary-500 dark:bg-primary-400 border-primary-500 dark:border-primary-400 text-white dark:text-primary-900"
-                                    : "border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800"
-                                )}
-                              >
-                                {isSelected && (
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-3 h-3">
-                                    <polyline points="20 6 9 17 4 12" />
-                                  </svg>
-                                )}
-                              </span>
-                              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-                                <span className={cn("block font-medium leading-snug", isSelected ? "text-primary-700 dark:text-primary-200" : "text-gray-900 dark:text-gray-100")}>
-                                  {r.name}
-                                  {r.rso_itop_number && (
-                                    <span className="text-gray-400 dark:text-gray-500 font-normal">
-                                      {" "}({String(r.rso_itop_number).slice(-3)})
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="block text-[11px] text-gray-500 dark:text-gray-400 [overflow-wrap:anywhere]">
-                                  {r.retailer_code}
-                                  {r.itop_number && <span> • {r.itop_number}</span>}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+            {/* RSO Multi-Select */}
+            <EntitySelector
+              label={t("ga_query.select_rso")}
+              items={rsoOptions.map((o) => ({
+                id: o.value,
+                label: o.value,
+                sublabel: `DMS: ${o.dms_code ?? "—"}${o.itop_number ? ` • ITop: ${o.itop_number}` : ""}`,
+                badge: o.employee_type ? o.employee_type.toUpperCase() : undefined,
+              }))}
+              selectedIds={rsoSelected}
+              onChange={(ids) => handleRsoChange(ids.map(String))}
+              placeholder={t("ga_query.select_rso_placeholder")}
+              searchPlaceholder={t("ga_query.rso_search")}
+              emptyMessage={loadingRso ? t("ga_query.loading_rso") : t("ga_query.no_rso")}
+              noResultsMessage={t("ga_query.no_rso")}
+              disabled={!selectedHouseId}
+              selectAllLabel={t("common.select_all")}
+              clearLabel={t("common.clear")}
+              selectedLabel={t("ga_query.selected")}
+            />
+
+            {/* Product Multi-Select */}
+            <EntitySelector
+              label={t("ga_query.table.product")}
+              items={productCodes.map((p) => ({
+                id: p.code,
+                label: p.code,
+                sublabel: `• ${p.count}`,
+              }))}
+              selectedIds={selectedProductCodes}
+              onChange={(ids) => handleProductChange(ids.map(String))}
+              placeholder={t("ga_query.select_product_placeholder")}
+              searchPlaceholder={t("ga_query.product_search")}
+              emptyMessage={loadingProducts ? t("ga_query.loading_products") : t("ga_query.no_product_codes")}
+              noResultsMessage={t("ga_query.no_product_codes")}
+              disabled={!selectedHouseId}
+              selectAllLabel={t("common.select_all")}
+              clearLabel={t("common.clear")}
+              selectedLabel={t("ga_query.selected")}
+            />
+
+            {/* SIM / MSISDN Filter */}
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+                <Hash className="w-4 h-4 text-primary-500" />
+                {t("ga_query.table.sim_msisdn")}
+              </label>
+              <FilterInput value={columnFilters.sim_msisdn ?? ""} onApply={(v) => handleColumnFilter("sim_msisdn", v)} placeholder={t("ga_query.table.filter_placeholder")} />
             </div>
           </div>
 
@@ -702,22 +767,6 @@ export default function GAQueryPage() {
                   </button>
                 )}
 
-                {/* Product Code Filter */}
-                {productCodes.length > 0 && (
-                  <select
-                    value={selectedProductCode}
-                    onChange={(e) => setSelectedProductCode(e.target.value)}
-                    className="px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 transition-colors max-w-[180px] sm:max-w-xs cursor-pointer"
-                  >
-                    <option value="">{t("ga_query.all_product_codes")}</option>
-                    {productCodes.map((p) => (
-                      <option key={p.code} value={p.code}>
-                        {p.code} ({p.count})
-                      </option>
-                    ))}
-                  </select>
-                )}
-
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
@@ -737,11 +786,7 @@ export default function GAQueryPage() {
             </div>
 
           {/* Loading skeleton */}
-          {loading && (
-            <div className="divide-y divide-gray-50 dark:divide-slate-800">
-              {Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} />)}
-            </div>
-          )}
+          {loading && <SkeletonTable />}
 
           {/* Empty state */}
           {!loading && activations.length === 0 && (
@@ -759,14 +804,51 @@ export default function GAQueryPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50/80 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-800">
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.activation_date")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.retailer")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.rso")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.sim_no")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.msisdn")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.product_code")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.product_name")}</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">{t("ga_query.table.selling_price")}</th>
+                      <ColumnHeader
+                        sortKey="activation_date"
+                        label={t("ga_query.table.activation_date")}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSortBy}
+                      />
+                      <ColumnHeader
+                        sortKey="retailer"
+                        label={t("ga_query.table.retailer")}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSortBy}
+                        className="min-w-[160px]"
+                      />
+                      <ColumnHeader
+                        sortKey="rso"
+                        label={t("ga_query.table.rso")}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSortBy}
+                      />
+                      <ColumnHeader
+                        sortKey="sim_msisdn"
+                        label={t("ga_query.table.sim_msisdn")}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSortBy}
+                        className="min-w-[160px]"
+                      />
+                      <ColumnHeader
+                        sortKey="product"
+                        label={t("ga_query.table.product")}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSortBy}
+                        className="min-w-[140px]"
+                      />
+                      <ColumnHeader
+                        sortKey="selling_price"
+                        label={t("ga_query.table.selling_price")}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSortBy}
+                      />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -795,17 +877,19 @@ export default function GAQueryPage() {
                           )}
                         </td>
                         <td className="px-2 py-1">
-                          <p className="font-mono text-xs font-medium text-gray-900 dark:text-gray-100">{a.sim_no}</p>
-                        </td>
-                        <td className="px-2 py-1">
-                          <p className="font-mono text-xs text-gray-900 dark:text-gray-100">{a.msisdn || "-"}</p>
+                          <p className="font-mono text-xs font-medium text-gray-900 dark:text-gray-100">{a.sim_no || "-"}</p>
+                          {a.msisdn && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">{a.msisdn}</p>
+                          )}
                         </td>
                         <td className="px-2 py-1">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300">
                             {a.product_code || "-"}
                           </span>
+                          {a.product_name && a.product_name !== a.product_code && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{a.product_name}</p>
+                          )}
                         </td>
-                        <td className="px-2 py-1 text-gray-600 dark:text-gray-400 max-w-[150px] truncate">{a.product_name || "-"}</td>
                         <td className="px-2 py-1 text-gray-600 dark:text-gray-400">{a.selling_price || "-"}</td>
                       </tr>
                     ))}
@@ -826,8 +910,11 @@ export default function GAQueryPage() {
                         <div className="w-9 h-9 rounded-lg bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
                           <Hash className="w-4 h-4 text-primary-600 dark:text-primary-400" />
                         </div>
-                        <div className="flex-1 min-w-0">
+                                                  <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{a.sim_no}</p>
+                          {a.msisdn && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{a.msisdn}</p>
+                          )}
                           <p className="text-[11px] text-gray-500 dark:text-gray-400">
                             {formatDate(a.activation_date, language)} · {a.product_code || "-"}
                           </p>
@@ -851,7 +938,10 @@ export default function GAQueryPage() {
                             </div>
                           </div>
                           <DetailRow label={t("ga_query.table.rso")} value={a.rso_name} sub={a.rso_dms_code} />
-                          <DetailRow label={t("ga_query.table.msisdn")} value={a.msisdn} />
+                          <DetailRow
+                            label={t("ga_query.table.sim_msisdn")}
+                            value={[a.sim_no, a.msisdn].filter(Boolean).join(" / ") || null}
+                          />
                           <DetailRow label={t("ga_query.table.product_name")} value={a.product_name} />
                           <DetailRow label={t("ga_query.table.selling_price")} value={a.selling_price} />
                           <DetailRow label={t("ga_query.table.subscription_type")} value={a.subscription_type} />
@@ -941,5 +1031,98 @@ function DetailRow({ label, value, sub }: { label: string; value: string | null;
         {sub && <span className="block text-[11px] text-gray-500 dark:text-gray-400">{sub}</span>}
       </div>
     </div>
+  );
+}
+
+// ── Filter input with draft (Enter to apply, date applies on change) ──
+function FilterInput({
+  value,
+  onApply,
+  type = "text",
+  placeholder,
+}: {
+  value: string;
+  onApply: (v: string) => void;
+  type?: "text" | "date";
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+
+  if (type === "date") {
+    return (
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onApply(e.target.value)}
+        className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
+      />
+    );
+  }
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            onApply(draft.trim());
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        placeholder={placeholder ?? "Filter..."}
+        className="w-full pl-3 pr-8 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors"
+      />
+      {draft && (
+        <button
+          type="button"
+          onClick={() => { setDraft(""); onApply(""); }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Sortable column header (filter lives in the top Filters Panel) ──
+function ColumnHeader({
+  label,
+  sortKey,
+  sortBy,
+  sortOrder,
+  onSort,
+  className,
+}: {
+  label: string;
+  sortKey: string;
+  sortBy: string;
+  sortOrder: "asc" | "desc";
+  onSort: (key: string) => void;
+  className?: string;
+}) {
+  const active = sortBy === sortKey;
+  return (
+    <th className={cn("px-4 py-3 text-left", className)}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors cursor-pointer"
+      >
+        {label}
+        {active ? (
+          sortOrder === "asc" ? (
+            <ArrowUp className="w-3.5 h-3.5" />
+          ) : (
+            <ArrowDown className="w-3.5 h-3.5" />
+          )
+        ) : (
+          <ChevronsUpDown className="w-3.5 h-3.5 opacity-40" />
+        )}
+      </button>
+    </th>
   );
 }

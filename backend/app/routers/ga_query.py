@@ -5,7 +5,7 @@ from datetime import datetime, date
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, contains_eager
 
 from app.routers.deps import get_db, has_permission, get_house_context, get_current_user
 from app.models.activation import Activation
@@ -92,16 +92,32 @@ async def get_ga_query_activations(
     search: Optional[str] = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
+    sort_by: Optional[str] = Query(None, description="Column to sort by: activation_date, retailer, rso, sim_msisdn, product, selling_price"),
+    sort_order: str = Query("desc", description="asc or desc"),
+    f_rso: Optional[str] = None,
+    f_sim_msisdn: Optional[str] = None,
+    f_product: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("ga_query.view")),
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
-    """Get activations for one or more retailers (or all, when no retailer given) within date range."""
+    """Get activations for one or more retailers (or all, when no retailer given) within date range.
+
+    Supports server-side sorting (sort_by / sort_order) and per-column filtering
+    (f_<column> params) over the activated-on page's visible columns.
+    """
     ids = _parse_ids(retailer_ids)
 
-    query = select(Activation).options(
-        joinedload(Activation.house),
-        joinedload(Activation.retailer).joinedload(Retailer.employee).joinedload(Employee.user),
+    query = (
+        select(Activation)
+        .outerjoin(Activation.house)
+        .outerjoin(Activation.retailer)
+        .outerjoin(Retailer.employee)
+        .outerjoin(Employee.user)
+        .options(
+            contains_eager(Activation.house),
+            contains_eager(Activation.retailer).contains_eager(Retailer.employee).contains_eager(Employee.user),
+        )
     )
 
     if header_house_id:
@@ -150,15 +166,52 @@ async def get_ga_query_activations(
             )
         )
 
+    # ── Per-column filters (server-side) ──
+    if f_rso:
+        rso_values = [v.strip() for v in f_rso.split(",") if v.strip()]
+        if rso_values:
+            query = query.where(
+                or_(
+                    Employee.employee_name.in_(rso_values),
+                    Employee.dms_code.in_(rso_values),
+                    User.name.in_(rso_values),
+                )
+            )
+
+    if f_sim_msisdn:
+        pattern = f"%{f_sim_msisdn}%"
+        query = query.where(
+            or_(Activation.sim_no.ilike(pattern), Activation.msisdn.ilike(pattern))
+        )
+
+    if f_product:
+        codes_list = [c.strip() for c in f_product.split(",") if c.strip()]
+        if codes_list:
+            query = query.where(Activation.product_code.in_(codes_list))
+
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
     offset = (page - 1) * per_page
+
+    sort_map = {
+        "activation_date": Activation.activation_date,
+        "retailer": Activation.retailer_name,
+        "rso": func.coalesce(Employee.employee_name, User.name, Employee.dms_code),
+        "sim_msisdn": Activation.sim_no,
+        "product": Activation.product_code,
+        "selling_price": Activation.selling_price,
+    }
+    sort_col = sort_map.get(sort_by)
+    if sort_col is not None:
+        primary = sort_col.desc().nulls_last() if sort_order == "desc" else sort_col.asc().nulls_last()
+        order = (primary, Activation.id.desc())
+    else:
+        order = (Activation.activation_date.desc(), Activation.id.desc())
+
     result = await db.execute(
-        query.order_by(Activation.activation_date.desc(), Activation.id.desc())
-        .offset(offset)
-        .limit(per_page)
+        query.order_by(*order).offset(offset).limit(per_page)
     )
     records = result.unique().scalars().all()
 
@@ -266,6 +319,80 @@ async def get_ga_query_product_codes(
 
     return [
         {"code": row[0], "count": row[1]}
+        for row in rows
+    ]
+
+
+@router.get("/rso-options")
+async def get_ga_query_rso_options(
+    retailer_id: Optional[int] = None,
+    retailer_code: Optional[str] = None,
+    retailer_ids: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("ga_query.view")),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    """Get distinct RSO options (name + DMS code) for the filter dropdown."""
+    ids = _parse_ids(retailer_ids)
+
+    effective_name = func.coalesce(Employee.employee_name, User.name, Employee.dms_code)
+
+    query = (
+        select(
+            effective_name.label("rso_name"),
+            Employee.dms_code,
+            Employee.itop_number,
+            Employee.employee_type,
+            func.count(Activation.id).label("count"),
+        )
+        .outerjoin(Activation.retailer)
+        .outerjoin(Retailer.employee)
+        .outerjoin(Employee.user)
+        .where(Activation.retailer_id.isnot(None), effective_name.isnot(None))
+    )
+
+    if header_house_id:
+        query = query.where(Activation.house_id == header_house_id)
+    elif not is_admin_user(current_user):
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            query = query.where(Activation.house_id.in_(user_house_ids))
+
+    if ids:
+        query = query.where(Activation.retailer_id.in_(ids))
+    elif retailer_id:
+        query = query.where(Activation.retailer_id == retailer_id)
+    elif retailer_code:
+        query = query.where(Activation.retailer_code == retailer_code)
+
+    if start_date:
+        try:
+            sd = datetime.strptime(start_date, "%Y-%m-%d").date()
+            query = query.where(Activation.activation_date >= sd)
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            ed = datetime.strptime(end_date, "%Y-%m-%d").date()
+            query = query.where(Activation.activation_date <= ed)
+        except ValueError:
+            pass
+
+    query = query.group_by(effective_name, Employee.dms_code, Employee.itop_number, Employee.employee_type).order_by(effective_name)
+    result = await db.execute(query)
+    rows = result.all()
+
+    return [
+        {
+            "value": row[0],
+            "dms_code": row[1],
+            "itop_number": row[2],
+            "employee_type": row[3],
+            "count": row[4],
+        }
         for row in rows
     ]
 

@@ -24,6 +24,8 @@ interface EntitySelectorProps {
   required?: boolean;
   selectAllLabel?: string;
   clearLabel?: string;
+  selectedLabel?: string;
+  onSearchChange?: (q: string) => void;
 }
 
 export default function EntitySelector({
@@ -40,6 +42,8 @@ export default function EntitySelector({
   required = false,
   selectAllLabel = "Select All",
   clearLabel = "Clear",
+  selectedLabel = "selected",
+  onSearchChange,
 }: EntitySelectorProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -107,7 +111,7 @@ export default function EntitySelector({
         <span className={`truncate ${selectedIds.length === 0 ? "text-gray-400" : "text-gray-900 dark:text-gray-100"}`}>
           {selectedIds.length === 0
             ? placeholder
-            : `${selectedIds.length} selected`}
+            : `${selectedIds.length} ${selectedLabel}`}
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
           {selectedIds.length > 0 && (
@@ -123,7 +127,7 @@ export default function EntitySelector({
 
       {open && (
         <div className="absolute z-50 mt-1.5 w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl shadow-lg animate-in fade-in slide-in-from-top-1 duration-150">
-          {items.length > 0 && (
+          {(items.length > 0 || onSearchChange) && (
             <>
               <div className="relative p-2 pb-0">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
@@ -131,13 +135,17 @@ export default function EntitySelector({
                   ref={searchRef}
                   type="text"
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    onSearchChange?.(e.target.value);
+                  }}
                   placeholder={searchPlaceholder}
                   className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
                 />
               </div>
 
-              <div className="flex items-center gap-1 px-2 pt-2 pb-1 border-b border-gray-100 dark:border-slate-800">
+              {items.length > 0 && (
+                <div className="flex items-center gap-1 px-2 pt-2 pb-1 border-b border-gray-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={selectAll}
@@ -160,6 +168,7 @@ export default function EntitySelector({
                   </span>
                 )}
               </div>
+              )}
             </>
           )}
 
