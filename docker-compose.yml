@@ -71,6 +71,7 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/ngrok-bin:/app/ngrok-bin
+      - ./backend/backups:/app/backups
     deploy:
       resources:
         limits:

@@ -464,6 +464,15 @@
         "system_logs.view"
       ]
     },
+    "database_backup": {
+      "display_name": "Database Backup",
+      "permissions": [
+        "database_backup.view",
+        "database_backup.create",
+        "database_backup.download",
+        "database_backup.delete"
+      ]
+    },
     "subscription": {
       "display_name": "Subscription",
       "permissions": [

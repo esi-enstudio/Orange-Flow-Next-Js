@@ -64,3 +64,4 @@ from app.models.payment import Payment, PaymentAttempt, Refund
 from app.models.payment_method import PaymentMethod
 from app.models.webhook_event import WebhookEvent
 from app.models.subscription_change_log import SubscriptionChangeLog
+from app.models.database_backup import DatabaseBackup

@@ -267,6 +267,7 @@ export const navItems: NavItem[] = [
       { title: "Product Exclusions", translationKey: "nav.product_exclusions", href: "/product-exclusions", permission: "reports.view" },
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
       { title: "Server Deploy", translationKey: "nav.deploy", href: "/deploy", permission: "app_settings.manage" },
+      { title: "Database Backup", translationKey: "nav.database_backups", href: "/database-backups", permissions: ["database_backup.view", "database_backup.create", "database_backup.download", "database_backup.delete"] },
     ]
   },
   {

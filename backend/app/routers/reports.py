@@ -1388,12 +1388,27 @@ async def get_activation_dashboard(
     target_month = month or today.month
     target_year = year or today.year
 
+    total_act_cfg = None
+    if exclude_tags is None or exclude_codes is None:
+        from app.models.ga_section_config import GaSectionConfig
+        cfg_res = await db.execute(
+            select(GaSectionConfig).where(
+                GaSectionConfig.house_id == target_house_id,
+                GaSectionConfig.section_key == "total_activation",
+            )
+        )
+        total_act_cfg = cfg_res.scalar_one_or_none()
+
     achievement_tag_list = [t.strip() for t in exclude_tags.split(",") if t.strip()] if exclude_tags else []
+    if exclude_tags is None and total_act_cfg and total_act_cfg.exclude_retailer_tags:
+        achievement_tag_list = [t for t in (total_act_cfg.exclude_retailer_tags or []) if t]
 
     if exclude_codes:
         achievement_code_set = {c.strip() for c in exclude_codes.split(",") if c.strip()}
     else:
         achievement_code_set = await get_excluded_codes(db)
+        if total_act_cfg and total_act_cfg.exclude_product_codes:
+            achievement_code_set = achievement_code_set | set(total_act_cfg.exclude_product_codes)
 
     rso_tag_list = [t.strip() for t in rso_exclude_tags.split(",") if t.strip()] if rso_exclude_tags else []
     rso_code_set = {c.strip() for c in rso_exclude_codes.split(",") if c.strip()} if rso_exclude_codes else await get_excluded_codes(db)

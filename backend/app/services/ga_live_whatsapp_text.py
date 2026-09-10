@@ -9,9 +9,13 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.house import House
 from app.models.ga_section_config import GaSectionConfig
+from app.models.employee import Employee
+from app.models.supervisor_assignment import SupervisorRSOAssignment
+from app.models.user import User
 from app.services.ga_live_service import GaLiveQueryBuilder
 from app.services.activation_report_service import ActivationReportService
 from app.utils.activation_rules import get_excluded_codes
@@ -51,6 +55,85 @@ def _table_lines(header: list[str], rows: list[list[str]], widths: list[int]) ->
     return lines
 
 
+async def _attach_supervisor_attribution(db: AsyncSession, house_id: int, data: dict):
+    """Group RSO/BP employees under their supervisors.
+
+    The ``supervisor_rso_assignments`` pivot table is the source of truth;
+    ``User.parent_id`` is used as a fallback for RSO/BP employees that are not
+    explicitly assigned. Mutates ``data`` in place.
+    """
+    if not data.get("supervisors"):
+        return data
+
+    emp_rows = (
+        await db.execute(
+            select(Employee.id, Employee.user_id, Employee.employee_type).where(
+                Employee.house_id == house_id,
+                Employee.status == "Active",
+            )
+        )
+    ).all()
+    emp_type: dict[int, str] = {}
+    emp_user_id: dict[int, int] = {}
+    user_to_emp_id: dict[int, int] = {}
+    for eid, uid, etype in emp_rows:
+        emp_type[eid] = (etype or "").lower()
+        if uid:
+            emp_user_id[eid] = uid
+            user_to_emp_id[uid] = eid
+
+    member_to_sup: dict[int, int] = {}
+    pivot_rows = (
+        await db.execute(
+            select(
+                SupervisorRSOAssignment.supervisor_employee_id,
+                SupervisorRSOAssignment.rso_employee_id,
+            ).where(SupervisorRSOAssignment.house_id == house_id)
+        )
+    ).all()
+    for sup_emp_id, member_emp_id in pivot_rows:
+        if sup_emp_id and member_emp_id:
+            member_to_sup[member_emp_id] = sup_emp_id
+
+    sup_user_ids = [
+        emp_user_id.get(s.get("employee_id")) for s in data["supervisors"] if s.get("employee_id")
+    ]
+    sup_user_ids = [uid for uid in sup_user_ids if uid]
+
+    if sup_user_ids:
+        child_users = (
+            (
+                await db.execute(
+                    select(User)
+                    .options(selectinload(User.roles))
+                    .where(User.parent_id.in_(sup_user_ids))
+                )
+            )
+            .unique()
+            .scalars()
+            .all()
+        )
+        for u in child_users:
+            roles = {r.name.lower() for r in u.roles}
+            if not (roles & {"rso", "bp"}):
+                continue
+            member_eid = user_to_emp_id.get(u.id)
+            sup_eid = user_to_emp_id.get(u.parent_id)
+            if member_eid and sup_eid and member_eid not in member_to_sup:
+                member_to_sup[member_eid] = sup_eid
+
+    for s in data["supervisors"]:
+        seid = s.get("employee_id")
+        team = [m for m, sup_eid in member_to_sup.items() if sup_eid == seid]
+        s["team_rso_ids"] = [m for m in team if emp_type.get(m) == "rso"]
+        s["team_bp_ids"] = [m for m in team if emp_type.get(m) == "bp"]
+
+    for item in data.get("rsos", []):
+        item["supervisor_employee_id"] = member_to_sup.get(item.get("employee_id"))
+    for item in data.get("bps", []):
+        item["supervisor_employee_id"] = member_to_sup.get(item.get("employee_id"))
+
+
 async def _load_report_data(db: AsyncSession, house_id: int, today: date):
     house_res = await db.execute(select(House).where(House.id == house_id))
     house = house_res.scalar_one_or_none()
@@ -59,6 +142,7 @@ async def _load_report_data(db: AsyncSession, house_id: int, today: date):
 
     builder = GaLiveQueryBuilder(db, house_id, today, today)
     data = await builder.build_all()
+    await _attach_supervisor_attribution(db, house_id, data)
 
     excluded_codes = await get_excluded_codes(db)
     cfg_res = await db.execute(

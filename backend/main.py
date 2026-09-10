@@ -92,6 +92,7 @@ from app.routers.billing import router as billing_router
 from app.routers.admin_billing import router as admin_billing_router
 from app.routers.gateway_webhooks import router as gateway_webhooks_router
 from app.routers.deploy import router as deploy_router
+from app.routers.database_backups import router as database_backups_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -160,6 +161,7 @@ app.include_router(billing_router)
 app.include_router(admin_billing_router)
 app.include_router(gateway_webhooks_router)
 app.include_router(deploy_router)
+app.include_router(database_backups_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)

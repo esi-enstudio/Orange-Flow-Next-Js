@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     libpq-dev \
     gcc \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install
