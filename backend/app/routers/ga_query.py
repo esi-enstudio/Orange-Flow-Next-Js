@@ -195,7 +195,7 @@ async def get_ga_query_activations(
         }
         if r.retailer and r.retailer.employee:
             emp = r.retailer.employee
-            item["rso_name"] = emp.user.name if emp.user else emp.dms_code
+            item["rso_name"] = emp.employee_name or (emp.user.name if emp.user else emp.dms_code)
             item["rso_dms_code"] = emp.dms_code
         data.append(item)
 

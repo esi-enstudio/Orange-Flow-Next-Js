@@ -198,7 +198,7 @@ async def get_activations(
             item["house"] = {"id": r.house.id, "name": r.house.name, "code": r.house.code}
         if r.retailer and r.retailer.employee:
             emp = r.retailer.employee
-            item["rso_name"] = emp.user.name if emp.user else emp.dms_code
+            item["rso_name"] = emp.employee_name or (emp.user.name if emp.user else emp.dms_code)
             item["rso_employee_id"] = emp.id
             item["rso_dms_code"] = emp.dms_code
             item["rso_itop_number"] = emp.itop_number
