@@ -40,6 +40,59 @@ After `git pull`, re-apply the three changes above (grep for `ClientPayload_User
 to verify). The `cat <<` search marker:
 `grep -n "ClientPayload_UserAgent_MACOS" pkg/whatsapp/whatsapp.go`
 
+## Patch: sender-key purge must never wipe every session (CRITICAL — do not lose)
+
+### Symptom
+
+Group sends periodically fail with:
+
+```
+WA_GATEWAY_ERROR: failed to create sender key distribution message to send <ID>
+  to <groupJID>: failed to store sender key from <lid> for <groupJID>:
+  ERROR: insert or update on table "whatsmeow_sender_keys" violates foreign key
+  constraint "whatsmeow_sender_keys_our_jid_fkey" (SQLSTATE 23503)
+```
+
+### Root cause
+
+`whatsmeow_sender_keys.our_jid` has a foreign key to `whatsmeow_device(jid)`.
+Any sender-key write requires the sending device's row to exist.
+
+The old `purgeDeviceSession()` iterated over every device and deleted **all of
+them** when the routing JID was unknown/empty:
+
+```go
+// OLD (buggy)
+storedJID, _, err := GetWhatsMeowJID(ctx, deviceID) // device_routing
+...
+if storedJID != "" && dev.ID.String() != storedJID { continue } // guard defeated when storedJID == ""
+...DeleteDevice(ctx, dev)
+```
+
+`device_routing.whatsmeow_jid` is cleared (`NULL`) by `DeleteDeviceRouting`
+*before* `purgeDeviceSession` runs in the `LoggedOut` handler, so `storedJID`
+was always empty and **every** session's `whatsmeow_device` row was deleted on
+any single logout/remote-removal. Remaining in-memory clients stayed connected
+and kept sending, but their sender-key inserts then violated the FK.
+
+### Fix applied
+
+File: `pkg/whatsapp/whatsapp.go`
+
+1. `LoggedOut` handler captures `client.Store.ID` (full own JID) before the
+   client is removed and before routing/status cleanup, and passes it to
+   `purgeDeviceSession`.
+2. `purgeDeviceSession(ctx, deviceID, targetJID)` now deletes **only** the
+   session whose JID equals `targetJID`. If the JID is empty it resolves it
+   from (in-memory client → `devices` table → `device_routing`); if it still
+   can't be pinned to one session it does nothing.
+3. New `resolvePurgeJID()` helper.
+4. Removed the now-unused `database/sql` import.
+
+Verify after any upstream re-pull:
+`grep -n "func purgeDeviceSession" pkg/whatsapp/whatsapp.go`
+must show a signature with `targetJID string`.
+
 ## How the image gets built
 
 `docker-compose.yml` (root of the orange_flow project):

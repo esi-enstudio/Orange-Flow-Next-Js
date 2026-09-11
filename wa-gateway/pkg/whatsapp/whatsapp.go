@@ -3,7 +3,6 @@ package whatsapp
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -925,8 +924,15 @@ func handleWhatsAppEvents(jid string, deviceID string) func(interface{}) {
 				"error":         fmt.Sprintf("%v", e.Error),
 			})
 		case *events.LoggedOut:
+			loggedOutJID := ""
 			client, err := currentClient(jid, deviceID)
 			if err == nil {
+				// Capture the full own JID BEFORE the client is removed from the
+				// map and the routing entry is cleared so that session purge is
+				// scoped to exactly this device (see CRITICAL purge fix).
+				if client != nil && client.Store != nil && client.Store.ID != nil {
+					loggedOutJID = client.Store.ID.String()
+				}
 				client.Disconnect()
 			}
 			deleteClient(jid, deviceID)
@@ -940,7 +946,7 @@ func handleWhatsAppEvents(jid string, deviceID string) func(interface{}) {
 				"jid": currentJID,
 			})
 			cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 10*time.Second)
-			purgeDeviceSession(cleanupCtx, deviceID)
+			purgeDeviceSession(cleanupCtx, deviceID, loggedOutJID)
 			cancelCleanup()
 			WhatsAppInitClient(nil, "", deviceID)
 		case *events.StreamReplaced:
@@ -1745,17 +1751,53 @@ func autoMarkMessageAsRead(jid string, deviceID string, evt *events.Message) {
 	}
 }
 
-func purgeDeviceSession(ctx context.Context, deviceID string) {
+// resolvePurgeJID determines the full own JID of a device when the caller did
+// not supply one. Lookup order: in-memory client, devices table, device_routing.
+func resolvePurgeJID(ctx context.Context, deviceID string) (string, error) {
+	if client := getClientByDeviceID(deviceID); client != nil && client.Store != nil && client.Store.ID != nil {
+		return client.Store.ID.String(), nil
+	}
+	if jid, err := GetJIDByDeviceID(ctx, deviceID); err == nil && jid != "" {
+		return jid, nil
+	}
+	if jid, _, err := GetWhatsMeowJID(ctx, deviceID); err == nil && jid != "" {
+		return jid, nil
+	}
+	return "", errors.New("device JID not found")
+}
+
+// purgeDeviceSession removes ONLY the WhatsApp session identified by targetJID.
+//
+// CRITICAL: the OLD implementation iterated over every device in the store and
+// deleted ALL of them whenever the routing JID was unknown/empty. Because the
+// LoggedOut flow clears device_routing.whatsmeow_jid before calling this, the
+// guard never matched and EVERY session's row was wiped from whatsmeow_device.
+// Other clients still connected in memory then kept sending, but their sender
+// key writes failed with:
+//
+//	whatsmeow_sender_keys violates foreign key constraint
+//	"whatsmeow_sender_keys_our_jid_fkey" (SQLSTATE 23503)
+//
+// `whatsmeow_sender_keys.our_jid` references `whatsmeow_device.jid`, and after
+// the wipe there was no row for the still-connected device. This function now
+// refuses to run unless it can pin the JID to exactly one session.
+func purgeDeviceSession(ctx context.Context, deviceID string, targetJID string) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if WhatsAppDatastore == nil {
 		return
 	}
-	storedJID, _, err := GetWhatsMeowJID(ctx, deviceID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.EvtErr("cleanup", "get-jid", deviceID, err)
+
+	if targetJID == "" {
+		resolved, err := resolvePurgeJID(ctx, deviceID)
+		if err != nil || resolved == "" {
+			log.EvtErr("cleanup", "purge-skip-no-jid", deviceID, nil)
+			return
+		}
+		targetJID = resolved
 	}
+
 	devices, err := WhatsAppDatastore.GetAllDevices(ctx)
 	if err != nil {
 		log.EvtErr("cleanup", "list-devices", deviceID, err)
@@ -1765,7 +1807,8 @@ func purgeDeviceSession(ctx context.Context, deviceID string) {
 		if dev.ID == nil {
 			continue
 		}
-		if storedJID != "" && dev.ID.String() != storedJID {
+		// Only ever delete the targeted session, never any other device.
+		if dev.ID.String() != targetJID {
 			continue
 		}
 		if err := WhatsAppDatastore.DeleteDevice(ctx, dev); err != nil {
