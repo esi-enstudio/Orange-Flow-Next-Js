@@ -61,6 +61,7 @@ class ScheduleCreate(BaseModel):
     ends_on: Optional[date] = None  # schedule inactive after this date (null = never expires)
     timezone_name: Optional[str] = None
     caption: Optional[str] = None
+    send_as: str = "image"  # image | document | pdf
 
     @field_validator("schedule_type")
     @classmethod
@@ -74,6 +75,13 @@ class ScheduleCreate(BaseModel):
     def _validate_channel(cls, v: str) -> str:
         if v not in ("whatsapp", "telegram"):
             raise ValueError("channel must be 'whatsapp' or 'telegram'")
+        return v
+
+    @field_validator("send_as")
+    @classmethod
+    def _validate_send_as(cls, v: str) -> str:
+        if v not in ("image", "document", "pdf"):
+            raise ValueError("send_as must be 'image', 'document' or 'pdf'")
         return v
 
     @field_validator("report_type")
@@ -127,6 +135,7 @@ class ScheduleUpdate(BaseModel):
     ends_on: Optional[date] = None
     timezone_name: Optional[str] = None
     caption: Optional[str] = None
+    send_as: Optional[str] = None  # image | document | pdf
     is_active: Optional[bool] = None
 
     @field_validator("schedule_type")
@@ -141,6 +150,13 @@ class ScheduleUpdate(BaseModel):
     def _validate_channel(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in ("whatsapp", "telegram"):
             raise ValueError("channel must be 'whatsapp' or 'telegram'")
+        return v
+
+    @field_validator("send_as")
+    @classmethod
+    def _validate_send_as(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("image", "document", "pdf"):
+            raise ValueError("send_as must be 'image', 'document' or 'pdf'")
         return v
 
     @field_validator("report_type")
@@ -181,12 +197,20 @@ class DirectSendPayload(BaseModel):
     whatsapp_chat_ids: Optional[list[str]] = None  # multi-recipient chat ids
     whatsapp_chat_names: Optional[list[str]] = None
     caption: Optional[str] = None
+    send_as: str = "image"  # image | document | pdf
 
     @field_validator("channel")
     @classmethod
     def _validate_channel(cls, v: str) -> str:
         if v not in ("whatsapp", "telegram"):
             raise ValueError("channel must be 'whatsapp' or 'telegram'")
+        return v
+
+    @field_validator("send_as")
+    @classmethod
+    def _validate_send_as(cls, v: str) -> str:
+        if v not in ("image", "document", "pdf"):
+            raise ValueError("send_as must be 'image', 'document' or 'pdf'")
         return v
 
     @field_validator("report_type")
@@ -232,6 +256,7 @@ def _serialize_schedule(s: WhatsAppSchedule) -> dict:
         "end_time": getattr(s, "end_time", None),
         "channel": getattr(s, "channel", "whatsapp") or "whatsapp",
         "report_type": getattr(s, "report_type", "ga_live") or "ga_live",
+        "send_as": getattr(s, "send_as", "image") or "image",
         "whatsapp_chat_id": s.whatsapp_chat_id,
         "whatsapp_chat_name": s.whatsapp_chat_name,
         "target_ids": [t[0] for t in targets],
@@ -393,6 +418,7 @@ async def create_schedule(
         end_time=end_time,
         channel=channel,
         report_type=data.report_type or "ga_live",
+        send_as=data.send_as or "image",
         whatsapp_chat_id=chat_id or "-",
         whatsapp_chat_name=chat_name or "-",
         target_ids=ids_json or None,
@@ -483,6 +509,9 @@ async def update_schedule(
     if data.report_type is not None:
         schedule.report_type = data.report_type
         new_values["report_type"] = data.report_type
+    if data.send_as is not None:
+        schedule.send_as = data.send_as
+        new_values["send_as"] = data.send_as
     if data.starts_on is not None:
         schedule.starts_on = data.starts_on
         new_values["starts_on"] = str(data.starts_on)
@@ -690,6 +719,7 @@ async def send_direct(
             whatsapp_chat_ids=data.whatsapp_chat_ids,
             whatsapp_chat_names=data.whatsapp_chat_names,
             caption=data.caption,
+            send_as=data.send_as,
         )
     except WhatsAppServiceError as e:
         raise HTTPException(status_code=503, detail=f"{e.code}: {e.message}")

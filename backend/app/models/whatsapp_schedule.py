@@ -27,6 +27,7 @@ class WhatsAppSchedule(Base):
     timezone_name = Column(String(50), nullable=True, default="Asia/Dhaka")  # schedule_time is interpreted in this zone
     caption = Column(Text, nullable=True)
     report_type = Column(String(50), nullable=False, default="ga_live", server_default="ga_live")  # ga_live | active_lso | active_sso | ...
+    send_as = Column(String(10), nullable=False, default="image", server_default="image")  # image | document | pdf
 
     is_active = Column(Boolean, default=True, nullable=False)
     last_run_date = Column(Date, nullable=True)

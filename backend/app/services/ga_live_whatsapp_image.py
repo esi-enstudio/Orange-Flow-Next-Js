@@ -18,6 +18,10 @@ from datetime import date
 from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# We deliberately generate very large (multi-thousand pixel) report images at
+# RENDER_SCALE below — the size is intended, not a decompression bomb.
+Image.MAX_IMAGE_PIXELS = None
+
 from app.services.ga_live_whatsapp_text import _load_report_data, _fmt, _pct
 from app.utils.timezone import now_naive
 
@@ -38,9 +42,9 @@ TOTAL_INK = "#08773D"
 DD_BORDER = "#1688DF"
 DD_G1 = "#0870C9"
 DD_G2 = "#12A5DC"
-TEAM_BORDER = "#15A8A4"
-TEAM_G1 = "#087D78"
-TEAM_G2 = "#16AAA6"
+TEAM_BORDER = "#008FA3"          # matches TeamSummary.html .summary-card border
+TEAM_G1 = "#00838F"              # header gradient start (#00838f)
+TEAM_G2 = "#00ACC1"              # header gradient end (#00acc1)
 SECTION_BORDER = "#176CC0"
 SECTION_G1 = "#095DA4"
 SECTION_G2 = "#248BD0"
@@ -62,6 +66,13 @@ SUBPANEL_WHITE = "#DCEBFF"
 
 SUP_HEAD_COLORS = ["#0879C9", "#139B69", "#F18B14", "#E73A4C"]
 SUP_BORDER_COLORS = ["#0D79CB", "#16A76D", "#F08A16", "#E73B50"]
+
+# TEAM SUMMARY card palette (mirrors TeamSummary.html)
+TEAM_TH_BG = "#F0FAFF"           # thead background
+TEAM_TH_INK = "#0D47A1"          # header cell text + first-col alignment
+TEAM_TD_BORDER = "#B3E5FC"       # column/row borders
+TEAM_TD_INK = "#0F3D73"          # body cell text
+TEAM_LIVE_DOT = "#4CAF50"        # Live GA status dot
 
 # ── Layout ──
 IMG_W = 1080
@@ -87,6 +98,71 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return _FONTS[key]
 
 
+# ── Native high-resolution rendering ──
+# All layout math stays in the 1080-wide design space; ScaledDraw renders every
+# coordinate and font natively at RENDER_SCALE so text stays crisp when zoomed,
+# instead of LANCZOS-upsampling a low-res canvas.
+RENDER_SCALE = 12
+
+_FONTS_SCALED: dict = {}
+
+
+def _scaled_font(font: ImageFont.FreeTypeFont) -> ImageFont.FreeTypeFont:
+    key = (font.path, int(font.size * RENDER_SCALE))
+    f = _FONTS_SCALED.get(key)
+    if f is None:
+        f = ImageFont.truetype(font.path, int(font.size * RENDER_SCALE))
+        _FONTS_SCALED[key] = f
+    return f
+
+
+class ScaledDraw:
+    """Wrap ImageDraw so every coordinate/font renders at RENDER_SCALE.
+
+    ``textlength`` is intentionally NOT scaled so layout math stays in design
+    units (proxy position + font both scale together, keeping the ratio).
+    """
+
+    def __init__(self, draw: ImageDraw.ImageDraw, scale: int = RENDER_SCALE):
+        self._draw = draw
+        self.s = scale
+
+    @staticmethod
+    def _sc(p):
+        if isinstance(p, (list, tuple)):
+            return type(p)(ScaledDraw._sc(x) for x in p)
+        return int(p * RENDER_SCALE)
+
+    def text(self, xy, text: str, font=None, fill=None, anchor=None, **kw):
+        self._draw.text(
+            self._sc(xy), text, font=_scaled_font(font) if font is not None else None,
+            fill=fill, anchor=anchor, **kw,
+        )
+
+    def textlength(self, text: str, font=None, **kw):
+        return self._draw.textlength(text, font=font, **kw)
+
+    def line(self, xy, fill=None, width=1, **kw):
+        self._draw.line(self._sc(xy), fill=fill, width=int(width * self.s), **kw)
+
+    def rectangle(self, xy, fill=None, outline=None, width=1, **kw):
+        self._draw.rectangle(self._sc(xy), fill=fill, outline=outline,
+                             width=int(width * self.s), **kw)
+
+    def rounded_rectangle(self, xy, radius=0, fill=None, outline=None, width=1, **kw):
+        self._draw.rounded_rectangle(self._sc(xy), radius=radius * self.s,
+                                     fill=fill, outline=outline,
+                                     width=int(width * self.s), **kw)
+
+    def ellipse(self, xy, fill=None, outline=None, width=1, **kw):
+        self._draw.ellipse(self._sc(xy), fill=fill, outline=outline,
+                           width=int(width * self.s), **kw)
+
+    def arc(self, xy, start, end, fill=None, width=1, **kw):
+        self._draw.arc(self._sc(xy), start, end, fill=fill,
+                       width=int(width * self.s), **kw)
+
+
 # ── Colour / gradient helpers ──
 def _hex(c: str):
     c = c.lstrip("#")
@@ -103,9 +179,12 @@ def _blend(c1: str, c2: str, f: float) -> str:
 
 def _grad(img: Image.Image, box, c1: str, c2: str, r: int = 0, top_only: bool = False):
     """Paint a horizontal gradient c1→c2 into ``box`` with optional rounded
-    corners; when ``top_only`` the radius only applies to the two top corners."""
+    corners; when ``top_only`` the radius only applies to the two top corners.
+    Rendered natively at RENDER_SCALE (gradients are smooth, so only the size
+    of the strip and the paste coordinates are scaled)."""
     x0, y0, x1, y1 = box
-    w, h = int(x1 - x0), int(y1 - y0)
+    w = int((x1 - x0) * RENDER_SCALE)
+    h = int((y1 - y0) * RENDER_SCALE)
     grad = Image.new("RGB", (w, h))
     d = ImageDraw.Draw(grad)
     for xx in range(w):
@@ -113,10 +192,11 @@ def _grad(img: Image.Image, box, c1: str, c2: str, r: int = 0, top_only: bool = 
         d.line([(xx, 0), (xx, h)], fill=_blend(c1, c2, f))
     mask = Image.new("L", (w, h), 0)
     dm = ImageDraw.Draw(mask)
-    dm.rounded_rectangle([0, 0, w, h], radius=r, fill=255)
-    if top_only and r:
-        dm.rectangle([0, int(r), w, h], fill=255)
-    img.paste(grad, (int(x0), int(y0)), mask)
+    r_s = int(r * RENDER_SCALE)
+    dm.rounded_rectangle([0, 0, w, h], radius=r_s, fill=255)
+    if top_only and r_s:
+        dm.rectangle([0, r_s, w, h], fill=255)
+    img.paste(grad, (int(x0 * RENDER_SCALE), int(y0 * RENDER_SCALE)), mask)
 
 
 def _ellipsize(draw, text, font, max_w: float) -> str:
@@ -182,6 +262,39 @@ def _table_heights(f_head, f_cell):
     return head_h, row_h
 
 
+def _live_display(ci, text, live_cols):
+    """Mirror the '● N' decoration applied to live columns."""
+    if ci in live_cols:
+        num = str(text).replace("●", "").strip()
+        if num in ("0", "", "-", "0%", "None"):
+            return num or ""
+        return f"● {num}"
+    return str(text)
+
+
+def _content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_total=None):
+    """Compute integer column weights sized to the widest label/cell text.
+
+    Each column is sized to fit its widest content (plus ``margin``), so every
+    value stays fully visible instead of being ellipsized away. ``max_total``
+    caps the combined weight when content cannot otherwise fit.
+    """
+    n = len(labels)
+    if n == 0:
+        return []
+    req = [0.0] * n
+    for ci in range(n):
+        w = f_head.getlength(str(labels[ci]))
+        for r in rows:
+            v = r[ci] if ci < len(r) else ""
+            w = max(w, f_cell.getlength(_live_display(ci, v, live_cols)))
+        req[ci] = math.ceil(w + margin)
+    if max_total and sum(req) > max_total:
+        scale = max_total / sum(req)
+        req = [max(1, int(r * scale)) for r in req]
+    return [max(1, r) for r in req]
+
+
 def _draw_table(
     draw,
     x: int,
@@ -198,6 +311,10 @@ def _draw_table(
     f_cell,
     borderless=False,
     border_color=None,
+    th_bg: str | None = None,
+    th_ink: str | None = None,
+    cell_ink: str | None = None,
+    live_dot: str | None = None,
 ) -> int:
     """Draw a bordered table starting at (x, y). Returns the height used."""
     n = len(labels)
@@ -210,6 +327,11 @@ def _draw_table(
     head_h, row_h = _table_heights(f_head, f_cell)
     all_rows = rows if total_row is None else rows + [total_row]
 
+    th_bg = th_bg or TH_BG
+    th_ink = th_ink or TH_INK
+    cell_ink = cell_ink or INK
+    live_dot = live_dot or LIVE_INK
+
     def _live_text(ci, text):
         if ci in live_cols:
             num = str(text).replace("●", "").strip()
@@ -219,14 +341,14 @@ def _draw_table(
         return str(text)
 
     # header
-    draw.rectangle([x, y, x + width, y + head_h], fill=TH_BG)
+    draw.rectangle([x, y, x + width, y + head_h], fill=th_bg)
     for ci, lab in enumerate(labels):
         cw = widths[ci]
         tx = x + sum(widths[:ci])
         if ci in left_cols:
-            draw.text((tx + 5, y + head_h / 2), str(lab), font=f_head, fill=TH_INK, anchor="lm")
+            draw.text((tx + 5, y + head_h / 2), str(lab), font=f_head, fill=th_ink, anchor="lm")
         else:
-            draw.text((tx + cw / 2, y + head_h / 2), str(lab), font=f_head, fill=TH_INK, anchor="mm")
+            draw.text((tx + cw / 2, y + head_h / 2), str(lab), font=f_head, fill=th_ink, anchor="mm")
 
     yy = y + head_h
     for ri, row in enumerate(all_rows):
@@ -234,13 +356,13 @@ def _draw_table(
         if is_total:
             draw.rectangle([x, yy, x + width, yy + row_h], fill=TOTAL_ROW_BG)
         font = f_head if is_total else f_cell
-        color = LIVE_INK if is_total else INK
+        color = LIVE_INK if is_total else cell_ink
         for ci in range(n):
             val = row[ci] if ci < len(row) else ""
             txt = _live_text(ci, val)
             cw = widths[ci]
             tx = x + sum(widths[:ci])
-            cell_color = LIVE_INK if (ci in live_cols and txt.startswith("●")) else color
+            cell_color = live_dot if (ci in live_cols and txt.startswith("●")) else color
             disp = _ellipsize(draw, txt, font, cw - 8)
             if ci in left_cols:
                 draw.text((tx + 5, yy + row_h / 2), disp, font=font, fill=cell_color, anchor="lm")
@@ -278,10 +400,16 @@ def _today_target(item: dict, days_remaining: int) -> int:
     return 0
 
 
-def _sup_metrics(sup: dict, team_rso: list, team_bp: list, days_remaining: int):
-    target = sum(r.get("target", 0) or 0 for r in team_rso) + sum(
-        b.get("target", 0) or 0 for b in team_bp
-    )
+def _sup_metrics(sup: dict, team_rso: list, team_bp: list, days_remaining: int,
+                 target_override: int = None) -> tuple[int, int, float, int, int]:
+    # Target comes from the authoritative supervisor_targets.total_ga when
+    # available; otherwise fall back to the sum of individual member targets.
+    if target_override is not None:
+        target = target_override
+    else:
+        target = sum(r.get("target", 0) or 0 for r in team_rso) + sum(
+            b.get("target", 0) or 0 for b in team_bp
+        )
     ach = sum(max(0, (r.get("target", 0) or 0) - (r.get("remaining", 0) or 0)) for r in team_rso) + sum(
         max(0, (b.get("target", 0) or 0) - (b.get("remaining", 0) or 0)) for b in team_bp
     )
@@ -304,26 +432,35 @@ def _team_by_supervisor(sup: dict, data: dict) -> tuple[list, list]:
 def _team_summary_rows(data: dict, summary: dict) -> list[list]:
     s = data.get("summary", {})
     monthly_target = summary.get("monthly_target", 0)
+    supervisor_target = summary.get("supervisor_target", monthly_target)
+    rso_target = summary.get("rso_target", monthly_target)
     achievement = summary.get("achievement", 0)
     daily_required = summary.get("daily_required_with_friday", 0)
     remaining = summary.get("remaining", 0)
     bp_ach = sum(b.get("own_activation", 0) for b in data.get("bps", []))
-    active_sup = sum(1 for sup in data.get("supervisors", [])
-                     if (sup.get("total_activation", 0) or 0) > 0)
+    bp_target = summary.get("bp_target", 0)
+    bp_remain = max(0, bp_target - bp_ach)
+    sup_live = sum(sup.get("total_activation", 0) or 0 for sup in data.get("supervisors", []))
+    rso_live = sum(r.get("total_activation", 0) or 0 for r in data.get("rsos", []))
+    bp_live = bp_ach
     return [
         [
-            "Supervisor", _n(s.get("total_supervisors", 0)), _fmt(monthly_target),
-            _fmt(achievement), _pct(achievement, monthly_target), _fmt(remaining),
-            _fmt(daily_required), _n(active_sup),
+            "Supervisor", _n(s.get("total_supervisors", 0)), _fmt(supervisor_target),
+            _fmt(achievement), _pct(achievement, supervisor_target), _fmt(remaining),
+            _fmt(daily_required), _n(sup_live),
         ],
         [
-            "RSO", _n(s.get("total_rso", 0)), _fmt(monthly_target),
-            _fmt(achievement), _pct(achievement, monthly_target), _fmt(remaining),
-            _fmt(daily_required), _n(s.get("active_rso", 0)),
+            "RSO", _n(s.get("total_rso", 0)), _fmt(rso_target),
+            _fmt(achievement), _pct(achievement, rso_target), _fmt(remaining),
+            _fmt(daily_required), _n(rso_live),
         ],
         [
-            "BP", _n(s.get("total_bp", 0)), "-", _fmt(bp_ach), "-", "-", "-",
-            _n(s.get("active_bp", 0)),
+            "BP", _n(s.get("total_bp", 0)),
+            _fmt(bp_target) if bp_target else "-",
+            _fmt(bp_ach), _pct(bp_ach, bp_target) if bp_target else "-",
+            _fmt(bp_remain) if bp_remain else "-",
+            "-",
+            _n(bp_live),
         ],
     ]
 
@@ -436,7 +573,9 @@ def _render_top_grid(img, draw, x, y, data, summary) -> int:
     _draw_table(
         draw, cx + 8, y + TBAR_H + 7, team_w - 16, labels, rows,
         weights=weights, left_cols=[0], live_cols=[7], f_head=f_head, f_cell=f_cell,
-        borderless=False, border_color=SEP_INK,
+        borderless=False, border_color=TEAM_TD_BORDER,
+        th_bg=TEAM_TH_BG, th_ink=TEAM_TH_INK, cell_ink=TEAM_TD_INK,
+        live_dot=TEAM_LIVE_DOT,
     )
 
     return y + top_h
@@ -446,30 +585,39 @@ def _render_supervisor_section(img, draw, x, y, data, summary) -> int:
     w = INNER
     supervisors = data.get("supervisors", [])
     days_remaining = summary.get("days_remaining", 0)
-    total_rso = int(data.get("summary", {}).get("total_rso", 0))
-    total_bp = int(data.get("summary", {}).get("total_bp", 0))
+    sup_target_map = summary.get("supervisor_target_map", {}) or {}
 
     rows = []
-    sums = {"target": 0, "ach": 0, "remain": 0, "drr": 0}
+    sums = {"rso": 0, "bp": 0, "target": 0, "ach": 0, "remain": 0, "drr": 0, "live": 0}
     for idx, sup in enumerate(supervisors):
         team_rso, team_bp = _team_by_supervisor(sup, data)
-        target, ach, pct, remain, drr = _sup_metrics(sup, team_rso, team_bp, days_remaining)
+        target, ach, pct, remain, drr = _sup_metrics(
+            sup, team_rso, team_bp, days_remaining,
+            target_override=sup_target_map.get(sup.get("employee_id")),
+        )
+        live = sup.get("total_activation", 0) or 0
+        rso_c = len(team_rso)
+        bp_c = len(team_bp)
+        sums["rso"] += rso_c
+        sums["bp"] += bp_c
         sums["target"] += target
         sums["ach"] += ach
         sums["remain"] += remain
         sums["drr"] += drr
+        sums["live"] += live
         rows.append([
             _n(idx + 1), sup.get("name", ""), sup.get("pool_number", "") or "-",
-            _n(sup.get("rso_count", len(team_rso))),
-            _n(sup.get("bp_count", len(team_bp))),
+            _n(rso_c), _n(bp_c),
             _fmt(target), _fmt(ach), _pct(ach, target), _fmt(remain), _fmt(drr),
-            _n(len(team_rso)),
+            _n(live),
         ])
     total_row = [
-        "", "Total", "-", _n(total_rso), _n(total_bp),
+        "", "Total", "-",
+        _n(sums["rso"]), _n(sums["bp"]),
         _fmt(sums["target"]), _fmt(sums["ach"]),
-        _pct(sums["ach"], sums["target"]), _fmt(sums["remain"]), _fmt(sums["drr"]),
-        _n(total_rso),
+        _pct(sums["ach"], sums["target"]) if sums["target"] else "0%",
+        _fmt(sums["remain"]), _fmt(sums["drr"]),
+        _n(sums["live"]),
     ]
 
     labels = ["#", "Name", "Pool", "RSO", "BP", "Target", "Ach", "%", "Remain", "DRR", "Live GA"]
@@ -493,8 +641,8 @@ def _render_supervisor_section(img, draw, x, y, data, summary) -> int:
 
 
 def _panel_height(team_rso: list, team_bp: list) -> int:
-    f_head = _font(10, True)
-    f_cell = _font(10, True)
+    f_head = _font(8, True)
+    f_cell = _font(8, True)
     hh, rh = _table_heights(f_head, f_cell)
     rso_table_h = hh + rh * (len(team_rso) + 1) if team_rso else 16
     bp_table_h = hh + rh * (len(team_bp) + 1) if team_bp else 0
@@ -502,7 +650,8 @@ def _panel_height(team_rso: list, team_bp: list) -> int:
     return 6 + PANEL_HEAD_H + 7 + rso_table_h + bp_block + 6
 
 
-def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remaining) -> int:
+def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remaining,
+                  target_override: int = None) -> int:
     h = _panel_height(team_rso, team_bp)
     border = SUP_BORDER_COLORS[idx % 4]
     head_color = SUP_HEAD_COLORS[idx % 4]
@@ -513,7 +662,8 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
           r=8, top_only=True)
     _icon(draw, x + TITLE_ICON_X, y + PANEL_HEAD_H / 2 - 4, "person", "#FFFFFF")
 
-    sup_t, sup_a, sup_p, _, _ = _sup_metrics(sup, team_rso, team_bp, days_remaining)
+    sup_t, sup_a, sup_p, _, _ = _sup_metrics(sup, team_rso, team_bp, days_remaining,
+                                             target_override=target_override)
     badge_text = f"Target {_fmt(sup_t)} | Ach {_fmt(sup_a)} | {_pct(sup_a, sup_t)}"
     badge_font = _font(10, True)
     badge_w = draw.textlength(badge_text, font=badge_font) + 18
@@ -537,48 +687,49 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
     pad = 7
     yy = y + PANEL_HEAD_H + pad
     inner_w = w - pad * 2
-    f_head = _font(10, True)
-    f_cell = _font(10, True)
+    f_head = _font(8, True)
+    f_cell = _font(8, True)
     hh, rh = _table_heights(f_head, f_cell)
 
     # RSO mini-table
-    rso_labels = ["#", "RSO Name", "Pool", "AC", "Trgt", "Own", "Mkt", "Total", "%",
-                  "Rem", "YOwn", "YMkt", "YTot", "Live"]
-    rso_weights = [3, 15, 9, 8, 5, 5, 5, 6, 6, 5, 5, 5, 6, 7]
+    rso_labels = ["#", "RSO Name", "ITop No", "Own Code",
+                  "TGT", "Ach", "%", "Remain", "DRR", "Own", "Market"]
+    rso_live_cols = [9, 10]
     rso_rows = []
-    su = {"trg": 0, "own": 0, "mkt": 0, "tot": 0, "rem": 0, "yown": 0, "ymkt": 0, "ytot": 0}
+    su = {"trg": 0, "ach": 0, "rem": 0, "own": 0, "mkt": 0}
     for i, r in enumerate(team_rso):
-        trg = _today_target(r, days_remaining)
-        total = r.get("total_activation", 0) or 0
+        monthly_target = r.get("target", 0) or 0
+        remaining = r.get("remaining", 0) or 0
+        ach = max(0, monthly_target - remaining)
+        pct_val = _pct(ach, monthly_target) if monthly_target else "0%"
+        remain = max(0, remaining)
+        drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
         own = r.get("own_activation", 0) or 0
         mkt = r.get("market_activation", 0) or 0
-        rem = max(0, trg - total)
-        yown = r.get("yesterday_own", 0) or 0
-        ymkt = r.get("yesterday_market", 0) or 0
-        ytot = r.get("yesterday_total", 0) or 0
-        su["trg"] += trg
+        su["trg"] += monthly_target
+        su["ach"] += ach
+        su["rem"] += remain
         su["own"] += own
         su["mkt"] += mkt
-        su["tot"] += total
-        su["rem"] += rem
-        su["yown"] += yown
-        su["ymkt"] += ymkt
-        su["ytot"] += ytot
         rso_rows.append([
             _n(i + 1), r.get("name", ""), r.get("itop_number", "") or "-",
-            r.get("assisted_code", "") or "-", _n(trg), _n(own), _n(mkt), _n(total),
-            _pct(total, trg) if trg else "0%", _n(rem), _n(yown), _n(ymkt), _n(ytot),
-            _n(total),
+            r.get("assisted_code", "") or "-",
+            _fmt(monthly_target), _fmt(ach), pct_val, _fmt(remain), _fmt(drr),
+            _n(own), _n(mkt),
         ])
     if team_rso:
+        su_pct = _pct(su["ach"], su["trg"]) if su["trg"] else "0%"
+        su_drr = math.ceil(su["rem"] / max(days_remaining, 1)) if su["rem"] > 0 else 0
         rso_total = [
-            f"Total ({len(team_rso)} RSO)", "", "", "", _n(su["trg"]), _n(su["own"]),
-            _n(su["mkt"]), _n(su["tot"]), _pct(su["tot"], su["trg"]) if su["trg"] else "0%",
-            _n(su["rem"]), _n(su["yown"]), _n(su["ymkt"]), _n(su["ytot"]),
-            _n(len(team_rso)),
+            f"Total ({len(team_rso)} RSO)", "", "", "",
+            _fmt(su["trg"]), _fmt(su["ach"]), su_pct, _fmt(su["rem"]), _fmt(su_drr),
+            _n(su["own"]), _n(su["mkt"]),
         ]
+        rso_weights = _content_weights(
+            rso_labels, rso_rows, f_head, f_cell, rso_live_cols, max_total=inner_w,
+        )
         yy += _draw_table(draw, x + pad, yy, inner_w, rso_labels, rso_rows,
-                          weights=rso_weights, left_cols=[1], live_cols=[13],
+                          weights=rso_weights, left_cols=[1], live_cols=rso_live_cols,
                           total_row=rso_total, f_head=f_head, f_cell=f_cell)
     else:
         draw.text((x + pad + 4, yy), "No RSO assigned", font=_font(11), fill=MUTED, anchor="lm")
@@ -586,41 +737,51 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
 
     yy += 9
 
-    # BP block
+    # BP block (hidden entirely when the supervisor has no BPs)
     if team_bp:
-        bp_labels = ["#", "BP Name", "Pool", "AC", "Trgt", "Ach", "%", "Rem", "YGA", "Live"]
-        bp_weights = [3, 15, 10, 8, 7, 6, 7, 6, 6, 7]
+        bp_labels = ["#", "BP Name", "Pool No", "Own Code",
+                     "TGT", "Ach", "%", "Remain", "DRR", "Own", "Market"]
+        bp_live_cols = [9, 10]
         draw.line([(x + pad, yy), (x + w - pad, yy)], fill=SEP_INK)
         yy += 6
         draw.text((x + pad + 2, yy), f"BP ({len(team_bp)})", font=_font(14, True),
                   fill=BP_TITLE_INK, anchor="lm")
         yy += 18
         bp_rows = []
-        su2 = {"trg": 0, "ach": 0, "rem": 0, "yga": 0}
+        su2 = {"trg": 0, "ach": 0, "rem": 0, "own": 0, "mkt": 0}
         for i, b in enumerate(team_bp):
-            trg = _today_target(b, days_remaining)
-            ach = b.get("own_activation", 0) or 0
-            rem = max(0, trg - ach)
-            yga = b.get("yesterday_activation", 0) or 0
-            su2["trg"] += trg
+            monthly_target = b.get("target", 0) or 0
+            remaining = b.get("remaining", 0) or 0
+            ach = max(0, monthly_target - remaining)
+            pct_val = _pct(ach, monthly_target) if monthly_target else "0%"
+            remain = max(0, remaining)
+            drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
+            own = b.get("own_activation", 0) or 0
+            mkt = b.get("market_activation", 0) or 0
+            su2["trg"] += monthly_target
             su2["ach"] += ach
-            su2["rem"] += rem
-            su2["yga"] += yga
+            su2["rem"] += remain
+            su2["own"] += own
+            su2["mkt"] += mkt
             bp_rows.append([
                 _n(i + 1), b.get("name", ""), b.get("pool_number", "") or "-",
-                b.get("assisted_code", "") or "-", _n(trg), _n(ach),
-                _pct(ach, trg) if trg else "0%", _n(rem), _n(yga), _n(ach),
+                b.get("assisted_code", "") or "-",
+                _fmt(monthly_target), _fmt(ach), pct_val, _fmt(remain), _fmt(drr),
+                _n(own), _n(mkt),
             ])
+        su2_pct = _pct(su2["ach"], su2["trg"]) if su2["trg"] else "0%"
+        su2_drr = math.ceil(su2["rem"] / max(days_remaining, 1)) if su2["rem"] > 0 else 0
         bp_total = [
-            f"Total ({len(team_bp)} BP)", "", "", "", _n(su2["trg"]), _n(su2["ach"]),
-            _pct(su2["ach"], su2["trg"]) if su2["trg"] else "0%",
-            _n(su2["rem"]), _n(su2["yga"]), _n(len(team_bp)),
+            f"Total ({len(team_bp)} BP)", "", "", "",
+            _fmt(su2["trg"]), _fmt(su2["ach"]), su2_pct, _fmt(su2["rem"]), _fmt(su2_drr),
+            _n(su2["own"]), _n(su2["mkt"]),
         ]
+        bp_weights = _content_weights(
+            bp_labels, bp_rows, f_head, f_cell, bp_live_cols, max_total=inner_w,
+        )
         yy += _draw_table(draw, x + pad, yy, inner_w, bp_labels, bp_rows,
-                          weights=bp_weights, left_cols=[1], live_cols=[9],
+                          weights=bp_weights, left_cols=[1], live_cols=bp_live_cols,
                           total_row=bp_total, f_head=f_head, f_cell=f_cell)
-    else:
-        draw.text((x + pad + 4, yy), "No BP assigned", font=_font(11), fill=MUTED, anchor="lm")
     return yy
 
 
@@ -632,9 +793,9 @@ def _render_footer(img, draw, x, y, today: date) -> int:
     _grad(img, [x, y, x + w, y + h], HEADER_G1, HEADER_G2, r=10)
     f = _font(12, True)
     _icon(draw, x + 16, y + h / 2, "chart", "#FFFFFF")
-    draw.text((x + 34, y + h / 2), "Together We Grow  |  Target Today  |  Success Tomorrow",
+    draw.text((x + 34, y + h / 2), "Together We Grow  |  Success Tomorrow",
               font=f, fill="#FFFFFF", anchor="lm")
-    right = f"Generated by (এখানে প্রজেক্টের নাম হবে)  |  {date_str}, {time_str}"
+    right = f"Generated by OrangeFlow  |  {date_str}, {time_str}"
     draw.text((x + w - 16, y + h / 2), right, font=f, fill="#FFFFFF", anchor="rm")
     return y + h
 
@@ -671,8 +832,8 @@ def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
         + 44
         + PAGE_PAD + CARD_PAD
     )
-    img = Image.new("RGB", (IMG_W, max(total_h, 60)), PAGE_BG)
-    draw = ImageDraw.Draw(img)
+    img = Image.new("RGB", (IMG_W * RENDER_SCALE, max(total_h, 60) * RENDER_SCALE), PAGE_BG)
+    draw = ScaledDraw(ImageDraw.Draw(img))
 
     # white report card
     draw.rounded_rectangle(
@@ -692,16 +853,15 @@ def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
         y += GAP
     y = _render_footer(img, draw, cx, y, today)
 
-    iw, ih = img.size
-    img = img.resize((iw * 2, ih * 2), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
 
 
 def _render_supervisor_grid(img, x, y, data, summary, grid_rows) -> int:
-    draw = ImageDraw.Draw(img)
+    draw = ScaledDraw(ImageDraw.Draw(img))
     days_remaining = summary.get("days_remaining", 0)
+    sup_target_map = summary.get("supervisor_target_map", {}) or {}
     supervisors = data.get("supervisors", [])
     cols = 1 if len(supervisors) == 1 else 2
     w = INNER
@@ -713,7 +873,8 @@ def _render_supervisor_grid(img, x, y, data, summary, grid_rows) -> int:
         for ci, (sup, (team_rso, team_bp)) in enumerate(row):
             idx = supervisors.index(sup)
             px = x + ci * (panel_w + GAP) if cols > 1 else x
-            _render_panel(img, draw, px, yy, panel_w, sup, team_rso, team_bp, idx, days_remaining)
+            _render_panel(img, draw, px, yy, panel_w, sup, team_rso, team_bp, idx,
+                          days_remaining, target_override=sup_target_map.get(sup.get("employee_id")))
         yy += row_h + GAP
     return yy - GAP
 

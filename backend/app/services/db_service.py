@@ -1,3 +1,4 @@
+import json
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import text
@@ -277,6 +278,50 @@ async def _migrate_ga_section_config_employee_ids():
     except Exception as e:
         logger.warning(f"Migration warning (ga_section_configs.selected_employee_ids): {e}")
 
+async def _migrate_ga_section_config_self_exclusion():
+    """Remove a role section's own role tag from exclude_retailer_tags.
+
+    Role sections (rsos/bps/ccs/supervisors) must never exclude their own
+    employees' assisted-code/owned retailers. E.g. house 1 `rsos` config had
+    `["RSO"]` in exclude_retailer_tags, which zeroed out RSO assisted-code
+    activations in the RSO Performance section.
+    """
+    mapping = {"rsos": "RSO", "bps": "BP", "ccs": "CC"}
+    try:
+        async with engine.begin() as conn:
+            fixed_rows = 0
+            for section_key, tag in mapping.items():
+                result = await conn.execute(
+                    text(
+                        "SELECT id, exclude_retailer_tags FROM ga_section_configs "
+                        "WHERE section_key = :sk"
+                    ),
+                    {"sk": section_key},
+                )
+                for row in result.fetchall():
+                    cfg_id = row[0]
+                    tags = row[1] or []
+                    if not isinstance(tags, list):
+                        tags = []
+                    if tag in tags:
+                        new_tags = [t for t in tags if t != tag]
+                        await conn.execute(
+                            text(
+                                "UPDATE ga_section_configs SET exclude_retailer_tags = CAST(:tags AS jsonb) "
+                                "WHERE id = :id"
+                            ),
+                            {"tags": json.dumps(new_tags), "id": cfg_id},
+                        )
+                        fixed_rows += 1
+                        logger.info(
+                            "Self-heal: removed '%s' from %s exclude_retailer_tags (config %s)",
+                            tag, section_key, cfg_id,
+                        )
+            if fixed_rows:
+                logger.info(f"Migration complete: stripped {fixed_rows} role-section self-exclusion(s)")
+    except Exception as e:
+        logger.warning(f"Migration warning (ga_section_configs self-exclusion): {e}")
+
 async def _migrate_employee_sr_no():
     try:
         async with engine.begin() as conn:
@@ -521,6 +566,22 @@ async def _migrate_whatsapp_schedule_time_window():
     except Exception as e:
         logger.warning(f"Migration warning (whatsapp schedule time window): {e}")
 
+async def _migrate_whatsapp_schedule_send_as():
+    """Add send_as column to whatsapp_schedules (image | document | pdf)."""
+    try:
+        async with engine.begin() as conn:
+            exists = await conn.execute(text(
+                "SELECT to_regclass('public.whatsapp_schedules') IS NOT NULL AS exists"
+            ))
+            if not exists.scalar():
+                return
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS send_as VARCHAR(10) NOT NULL DEFAULT 'image'"
+            ))
+            logger.info("Migration complete: whatsapp_schedules send_as ensured")
+    except Exception as e:
+        logger.warning(f"Migration warning (whatsapp schedule send_as): {e}")
+
 async def _migrate_ga_report_events_config():
     try:
         async with engine.begin() as conn:
@@ -758,6 +819,7 @@ async def init_db():
         await _migrate_app_settings_favicon()
         await _migrate_live_activation_date_type()
         await _migrate_ga_section_config_employee_ids()
+        await _migrate_ga_section_config_self_exclusion()
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_stock_added()
@@ -766,6 +828,7 @@ async def init_db():
         await _migrate_whatsapp_schedule_report_type()
         await _migrate_whatsapp_schedule_delivery_columns()
         await _migrate_whatsapp_schedule_time_window()
+        await _migrate_whatsapp_schedule_send_as()
         await _migrate_ga_report_events_config()
         await _migrate_house_whatsapp_columns()
         await _migrate_telegram_columns()

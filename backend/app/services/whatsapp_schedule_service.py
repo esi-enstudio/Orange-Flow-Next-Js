@@ -27,6 +27,75 @@ def _today_bst() -> datetime:
     return now_naive()
 
 
+def _png_to_pdf(image_bytes: bytes) -> bytes:
+    """Convert a single PNG image into PDF bytes.
+
+    Uses reportlab to embed the PNG pixels losslessly (no JPEG2000
+    recompression), keeping the image crisp when zoomed in.
+    """
+    import io as _io
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    img = ImageReader(_io.BytesIO(image_bytes))
+    iw, ih = img.getSize()
+    buf = _io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(iw, ih))
+    c.drawImage(img, 0, 0, width=iw, height=ih)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _ensure_min_size_png(image_bytes: bytes, min_bytes: int = 2 * 1024 * 1024) -> bytes:
+    """Guarantee a high-resolution PNG payload of at least ``min_bytes``.
+
+    Small/native-res report renders (e.g. active_lso at ~550px) are upscaled
+    with LANCZOS until the PNG exceeds the minimum size (capped at 8x). Large
+    renders (e.g. ga_live at 4320px) pass through untouched.
+    """
+    if len(image_bytes) >= min_bytes:
+        return image_bytes
+
+    from PIL import Image
+    import io as _io
+
+    im = Image.open(_io.BytesIO(image_bytes))
+    im.load()
+    base_w, base_h = im.size
+    best = image_bytes
+    best_size = len(image_bytes)
+    scale = 2
+    while scale <= 8:
+        out = im.convert("RGB").resize((base_w * scale, base_h * scale), Image.LANCZOS)
+        buf = _io.BytesIO()
+        out.save(buf, format="PNG")
+        if buf.tell() > best_size:
+            best_size = buf.tell()
+            best = buf.getvalue()
+        if best_size >= min_bytes:
+            return best
+        scale *= 2
+    return best
+
+
+def _payload_for_send_as(send_as: str, report_type: str, image_bytes: bytes) -> tuple[bytes, str, str]:
+    """Return (file_bytes, filename, mimetype) for the requested send_as format.
+
+    - image    -> PNG bytes, sent as a photo (WhatsApp compresses)
+    - document -> PNG bytes (high-res, >= 2MB), documents endpoint (no compression)
+    - pdf      -> PDF bytes from the high-res PNG (crisp zooming)
+    """
+    mode = send_as or "image"
+    if mode == "pdf":
+        hi = _ensure_min_size_png(image_bytes)
+        return _png_to_pdf(hi), f"{report_type}_report.pdf", "application/pdf"
+    if mode == "document":
+        hi = _ensure_min_size_png(image_bytes)
+        return hi, f"{report_type}_report.png", "image/png"
+    return image_bytes, f"{report_type}_report.png", "image/png"
+
+
 def _parse_schedule_time(value: str | None) -> time | None:
     """Parse an HH:MM string into a time, or None when absent/invalid."""
     if not value:
@@ -275,6 +344,7 @@ async def send_direct_report(
     whatsapp_chat_ids: list[str] | None = None,
     whatsapp_chat_names: list[str] | None = None,
     caption: str | None = None,
+    send_as: str = "image",
 ) -> tuple[bool, str | None]:
     """Send a report image immediately without creating a schedule.
 
@@ -326,13 +396,24 @@ async def send_direct_report(
         bot = await telegram_service.resolve_house_tg_bot(db, house)
         if not bot:
             return False, "No Telegram bot assigned to this house"
+        file_bytes, filename, mimetype = _payload_for_send_as(send_as, report_type, image_bytes)
         try:
-            await telegram_service.send_photo(
-                token=bot.bot_token,
-                chat_id=house.telegram_chat_id,
-                image_bytes=image_bytes,
-                caption=final_caption,
-            )
+            if send_as == "image":
+                await telegram_service.send_photo(
+                    token=bot.bot_token,
+                    chat_id=house.telegram_chat_id,
+                    image_bytes=file_bytes,
+                    caption=final_caption,
+                )
+            else:
+                await telegram_service.send_document(
+                    token=bot.bot_token,
+                    chat_id=house.telegram_chat_id,
+                    file_bytes=file_bytes,
+                    filename=filename,
+                    mimetype=mimetype,
+                    caption=final_caption,
+                )
         except TelegramError as e:
             error = e.description
             await log_activity(
@@ -361,19 +442,34 @@ async def send_direct_report(
                 error=error, chat_names=[n for _, n in targets], user_id=user_id,
             )
             return False, error
+        file_bytes, filename, mimetype = _payload_for_send_as(send_as, report_type, image_bytes)
         for chat_id, chat_name in targets:
             try:
-                await with_target_token(
-                    db,
-                    target,
-                    lambda token, jid=chat_id: whatsapp_service_client.send_image(
-                        jwt_token=token,
-                        chat_jid=jid,
-                        filename=f"{report_type}_report.png",
-                        image_bytes=image_bytes,
-                        caption=final_caption,
-                    ),
-                )
+                if send_as == "image":
+                    await with_target_token(
+                        db,
+                        target,
+                        lambda token, jid=chat_id: whatsapp_service_client.send_image(
+                            jwt_token=token,
+                            chat_jid=jid,
+                            filename=filename,
+                            image_bytes=file_bytes,
+                            caption=final_caption,
+                        ),
+                    )
+                else:
+                    await with_target_token(
+                        db,
+                        target,
+                        lambda token, jid=chat_id: whatsapp_service_client.send_file(
+                            jwt_token=token,
+                            chat_jid=jid,
+                            filename=filename,
+                            file_bytes=file_bytes,
+                            caption=final_caption,
+                            mimetype=mimetype,
+                        ),
+                    )
                 delivered += 1
             except WhatsAppServiceError as e:
                 error = f"{e.code}: {e.message} (in {chat_name})"
@@ -421,11 +517,11 @@ async def send_direct_report(
             "channel": channel,
             "chat": sent_to,
             "mode": "direct",
-            "format": "image",
+            "format": send_as,
         },
         status_code=200,
     )
-    logger.info(f"Direct report sent: house={house_id} type={report_type} to={sent_to}")
+    logger.info(f"Direct report sent: house={house_id} type={report_type} to={sent_to} format={send_as}")
     return True, None
 
 
@@ -491,13 +587,25 @@ async def _send_telegram_report(
         return False
 
     chat_name = house.telegram_chat_name or house.telegram_chat_id
+    send_as = getattr(schedule, "send_as", "image") or "image"
+    file_bytes, filename, mimetype = _payload_for_send_as(send_as, report_type, image_bytes)
     try:
-        await telegram_service.send_photo(
-            token=bot.bot_token,
-            chat_id=house.telegram_chat_id,
-            image_bytes=image_bytes,
-            caption=caption,
-        )
+        if send_as == "image":
+            await telegram_service.send_photo(
+                token=bot.bot_token,
+                chat_id=house.telegram_chat_id,
+                image_bytes=file_bytes,
+                caption=caption,
+            )
+        else:
+            await telegram_service.send_document(
+                token=bot.bot_token,
+                chat_id=house.telegram_chat_id,
+                file_bytes=file_bytes,
+                filename=filename,
+                mimetype=mimetype,
+                caption=caption,
+            )
     except TelegramError as e:
         _mark_run_status(schedule, triggered_by, "failed", e.description)
         await db.commit()
@@ -531,12 +639,12 @@ async def _send_telegram_report(
             "bot": bot.name,
             "schedule_time": schedule.schedule_time,
             "messages": 1,
-            "format": "image",
+            "format": send_as,
         },
     )
     logger.info(
         f"Telegram report sent: house={schedule.house_id} chat={house.telegram_chat_id} "
-        f"bot={bot.name} schedule={schedule.schedule_time} format=image"
+        f"bot={bot.name} schedule={schedule.schedule_time} format={send_as}"
     )
     return True
 
@@ -612,19 +720,35 @@ async def _send_whatsapp_report(
 
     delivered = 0
     first_error: str | None = None
+    send_as = getattr(schedule, "send_as", "image") or "image"
+    file_bytes, filename, mimetype = _payload_for_send_as(send_as, report_type, image_bytes)
     for chat_id, chat_name in targets:
         try:
-            await with_target_token(
-                db,
-                target,
-                lambda token, jid=chat_id: whatsapp_service_client.send_image(
-                    jwt_token=token,
-                    chat_jid=jid,
-                    filename=f"{report_type}_report.png",
-                    image_bytes=image_bytes,
-                    caption=caption,
-                ),
-            )
+            if send_as == "image":
+                await with_target_token(
+                    db,
+                    target,
+                    lambda token, jid=chat_id: whatsapp_service_client.send_image(
+                        jwt_token=token,
+                        chat_jid=jid,
+                        filename=filename,
+                        image_bytes=file_bytes,
+                        caption=caption,
+                    ),
+                )
+            else:
+                await with_target_token(
+                    db,
+                    target,
+                    lambda token, jid=chat_id: whatsapp_service_client.send_file(
+                        jwt_token=token,
+                        chat_jid=jid,
+                        filename=filename,
+                        file_bytes=file_bytes,
+                        caption=caption,
+                        mimetype=mimetype,
+                    ),
+                )
             delivered += 1
         except WhatsAppServiceError as e:
             if first_error is None:
@@ -656,7 +780,7 @@ async def _send_whatsapp_report(
             "schedule_time": schedule.schedule_time,
             "delivered": delivered,
             "targets": total,
-            "format": "image",
+            "format": send_as,
         },
     )
     ok = delivered == total
@@ -668,7 +792,7 @@ async def _send_whatsapp_report(
         )
     logger.info(
         f"WhatsApp report sent: house={schedule.house_id} targets={delivered}/{total} "
-        f"schedule={schedule.schedule_time} format=image"
+        f"schedule={schedule.schedule_time} format={send_as}"
     )
     return ok
 

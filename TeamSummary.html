@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Team Summary</title>
+  <!-- Font import to match the clean sans-serif typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@600;700&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f4f7f6;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    /* Outer Container */
+    .summary-card {
+      width: 100%;
+      max-width: 650px;
+      border: 2px solid #008fa3;
+      border-radius: 12px;
+      background-color: #ffffff;
+      overflow: hidden;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+    }
+
+    /* Banner Header */
+    .card-header {
+      background: linear-gradient(90deg, #00838f 0%, #00acc1 100%);
+      color: #ffffff;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-icon {
+      width: 28px;
+      height: 28px;
+      fill: #ffffff;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    /* Table Styles */
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: center;
+      background-color: #f6fcff;
+    }
+
+    /* Header Row */
+    .summary-table th {
+      color: #0d47a1;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 10px 8px;
+      border-right: 1px solid #b3e5fc;
+      border-bottom: 1px solid #b3e5fc;
+      background-color: #f0faff;
+    }
+
+    .summary-table th:first-child {
+      text-align: left;
+      padding-left: 16px;
+    }
+
+    .summary-table th:last-child {
+      border-right: none;
+    }
+
+    /* Table Data Cells */
+    .summary-table td {
+      color: #0f3d73;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 10px 8px;
+      border-right: 1px solid #b3e5fc;
+      border-bottom: 1px solid #b3e5fc;
+      background-color: #ffffff;
+    }
+
+    .summary-table td:first-child {
+      text-align: left;
+      padding-left: 16px;
+    }
+
+    .summary-table td:last-child {
+      border-right: none;
+    }
+
+    .summary-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Live GA Column Styling */
+    .live-ga {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      background-color: #4caf50;
+      border-radius: 50%;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="summary-card">
+    <!-- Card Header Banner -->
+    <div class="card-header">
+      <!-- SVG Team Icon -->
+      <svg class="header-icon" viewBox="0 0 24 24">
+        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+      </svg>
+      <span class="card-title">TEAM SUMMARY</span>
+    </div>
+
+    <!-- Data Table -->
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>Team</th>
+          <th>Total</th>
+          <th>Target</th>
+          <th>Ach</th>
+          <th>%</th>
+          <th>Remain</th>
+          <th>DRR</th>
+          <th>Live GA</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Supervisor</td>
+          <td>4</td>
+          <td>10,500</td>
+          <td>3,250</td>
+          <td>31.0%</td>
+          <td>7,250</td>
+          <td>330</td>
+          <td>
+            <div class="live-ga">
+              <span class="status-dot"></span> 32
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td>RSO</td>
+          <td>50</td>
+          <td>10,500</td>
+          <td>3,250</td>
+          <td>31.0%</td>
+          <td>7,250</td>
+          <td>330</td>
+          <td>
+            <div class="live-ga">
+              <span class="status-dot"></span> 50
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td>BP</td>
+          <td>10</td>
+          <td>-</td>
+          <td>185</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>
+            <div class="live-ga">
+              <span class="status-dot"></span> 10
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</body>
+</html>

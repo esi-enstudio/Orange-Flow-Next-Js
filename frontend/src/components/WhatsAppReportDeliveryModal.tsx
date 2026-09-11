@@ -9,7 +9,7 @@ import {
   Plus, Trash2, Power, CalendarCheck, AlertCircle, Smartphone,
   Pencil, CheckCircle2, User, Search, Copy, History, BellRing,
   Lock, ChevronDown, ChevronUp, CalendarDays, Wifi, WifiOff, ListChecks, Zap,
-  Sunrise, Sunset, Eye,
+  Sunrise, Sunset, Eye, FileText, FileType2, Image as ImageIcon,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -67,6 +67,7 @@ interface ScheduleItem {
   end_time: string | null;
   channel: string;
   report_type: string;
+  send_as: string;
   whatsapp_chat_id: string;
   whatsapp_chat_name: string;
   target_ids: string[];
@@ -105,6 +106,7 @@ interface FormState {
   start_time: string;
   end_time: string;
   channel: "whatsapp" | "telegram";
+  send_as: "image" | "document" | "pdf";
   caption: string;
   starts_on: string;
   ends_on: string;
@@ -145,6 +147,7 @@ const emptyForm: FormState = {
   start_time: "08:00",
   end_time: "21:00",
   channel: "whatsapp",
+  send_as: "image",
   caption: "",
   starts_on: "",
   ends_on: "",
@@ -536,6 +539,7 @@ export default function WhatsAppReportDeliveryModal({
             : "23:59",
         channel: form.channel,
         report_type: reportType,
+        send_as: form.send_as,
         caption: form.caption || null,
         starts_on: form.starts_on || null,
         ends_on: form.ends_never || !form.ends_on ? null : form.ends_on,
@@ -579,6 +583,7 @@ export default function WhatsAppReportDeliveryModal({
       const payload: Record<string, unknown> = {
         channel: form.channel,
         report_type: reportType,
+        send_as: form.send_as,
         caption: form.caption || null,
       };
       if (form.channel === "whatsapp") {
@@ -614,6 +619,7 @@ export default function WhatsAppReportDeliveryModal({
       start_time: s.start_time || "08:00",
       end_time: s.end_time || "21:00",
       channel: s.channel === "telegram" ? "telegram" : "whatsapp",
+      send_as: s.send_as === "pdf" || s.send_as === "document" ? s.send_as : "image",
       caption: s.caption ?? "",
       starts_on: s.starts_on ?? "",
       ends_on: s.ends_on ?? "",
@@ -997,6 +1003,49 @@ export default function WhatsAppReportDeliveryModal({
         placeholder={REPORT_DEFAULT_CAPTIONS[reportType] || `Daily ${reportTitle}`}
         className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
       />
+    </div>
+  );
+
+  const SEND_AS_OPTIONS: Array<{ key: "image" | "document" | "pdf"; icon: typeof ImageIcon; label: string; hint: string }> = [
+    { key: "image", icon: ImageIcon, label: "Image", hint: "WhatsApp photo (may compress)" },
+    { key: "document", icon: FileText, label: "Document", hint: "PNG as file, no compression" },
+    { key: "pdf", icon: FileType2, label: "PDF", hint: "Sharp zooming" },
+  ];
+
+  const renderSendAsSelector = ({ compact = false }: { compact?: boolean } = {}) => (
+    <div>
+      <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+        Send as
+      </label>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {SEND_AS_OPTIONS.map(({ key, icon: Icon, label, hint }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setForm((f) => ({ ...f, send_as: key }))}
+            className={cn(
+              "flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-xl border text-sm transition-colors cursor-pointer",
+              form.send_as === key
+                ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 font-medium"
+                : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
+            )}
+          >
+            <Icon className="w-4 h-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {!compact && (
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+          {
+            form.send_as === "image"
+              ? "Sent as a photo — WhatsApp may compress it."
+              : form.send_as === "document"
+                ? "Sent as a PNG file — WhatsApp keeps the original quality."
+                : "Converted to PDF and sent as a document — best zoom quality."
+          }
+        </p>
+      )}
     </div>
   );
 
@@ -1433,6 +1482,9 @@ export default function WhatsAppReportDeliveryModal({
                 <div className={cn("space-y-4", formLocked && "opacity-50 pointer-events-none select-none")}>
                   {form.channel === "whatsapp" && renderRecipientPicker()}
 
+                  {/* Send as */}
+                  {renderSendAsSelector()}
+
                   {/* Frequency */}
                   <div>
                     <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
@@ -1840,6 +1892,7 @@ export default function WhatsAppReportDeliveryModal({
                   </p>
                 </div>
               </div>
+              <div className="mt-4">{renderSendAsSelector({ compact: true })}</div>
               <div className="flex items-center justify-end gap-2 mt-5">
                 <button
                   onClick={() => setShowDirectConfirm(false)}

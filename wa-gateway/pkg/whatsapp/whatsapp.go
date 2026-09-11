@@ -204,6 +204,7 @@ var (
 		"text/plain":               true,
 		"application/zip":          true,
 		"application/octet-stream": true,
+		"image/png":                true,
 	}
 
 	allowedStickerMimes = map[string]bool{

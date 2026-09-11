@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.retailer import Retailer
 from app.models.retailer_marking import RetailerMarking, RetailerMarkingAssignment
+from app.models.employee import Employee
 
 
 async def get_active_retailer_ids_for_markings(
@@ -79,3 +80,51 @@ async def get_marking_id_by_name(db: AsyncSession, name: str) -> Optional[int]:
         )
     ).scalar_one_or_none()
     return int(row) if row is not None else None
+
+
+async def get_employee_owned_retailer_ids(
+    db: AsyncSession,
+    house_id: int,
+    employee_roles: Optional[Sequence[str]] = None,
+) -> set[int]:
+    """Return retailer ids (within a house) that belong to employees of the given
+    roles (or any role when `employee_roles` is None).
+
+    A retailer counts as employee-owned when:
+      - `retailer.retailer_code` equals an employee's `assisted_retailer_code`, or
+      - `retailer.employee_id` points to one of those employees.
+
+    These ids must never be filtered out by tag-based exclusions — an employee's own
+    assisted-code / owned shop always counts for them (assisted-code ownership takes
+    priority).
+    """
+    if not employee_roles:
+        return set()
+    role_cond = Employee.employee_type.in_(list(employee_roles))
+    q = (
+        select(Retailer.id)
+        .join(Employee, Retailer.employee_id == Employee.id)
+        .where(
+            Employee.house_id == house_id,
+            Employee.status == "Active",
+            role_cond,
+        )
+    )
+    res = await db.execute(q)
+    linked = {row[0] for row in res.all()}
+
+    q2 = (
+        select(Retailer.id)
+        .join(Employee, Retailer.retailer_code == Employee.assisted_retailer_code)
+        .where(
+            Employee.house_id == house_id,
+            Employee.status == "Active",
+            role_cond,
+            Employee.assisted_retailer_code != None,
+            Employee.assisted_retailer_code != "",
+        )
+    )
+    res2 = await db.execute(q2)
+    owned = {row[0] for row in res2.all()}
+
+    return linked | owned

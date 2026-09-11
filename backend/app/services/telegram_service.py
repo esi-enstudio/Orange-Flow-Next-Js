@@ -83,6 +83,30 @@ async def send_photo(
     return payload.get("result", {})
 
 
+async def send_document(
+    token: str,
+    chat_id: str,
+    file_bytes: bytes,
+    filename: str,
+    mimetype: str = "application/pdf",
+    caption: str = "",
+) -> dict:
+    """Upload a file (PDF/PNG) as a document to a chat/group/channel."""
+    files = {"document": (filename, file_bytes, mimetype)}
+    data = {"chat_id": str(chat_id)}
+    if caption:
+        data["caption"] = caption
+    url = f"{API_BASE}/bot{token}/sendDocument"
+    try:
+        resp = await _get_client().post(url, data=data, files=files)
+        payload = resp.json()
+    except Exception as e:
+        raise TelegramError(f"Telegram service unreachable: {e}", code=503)
+    if not payload.get("ok"):
+        raise TelegramError(payload.get("description", "Unknown Telegram error"))
+    return payload.get("result", {})
+
+
 async def resolve_house_tg_bot(db: AsyncSession, house: House) -> Optional[TelegramBot]:
     """Binding first: the house's assigned shared bot (oldest binding wins).
 

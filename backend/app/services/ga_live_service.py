@@ -17,11 +17,22 @@ from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.ga_section_config import GaSectionConfig
 from app.models.rso_target import RSOTarget
 from app.models.bp_target import BpTarget
-from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
+from app.services.retailer_marking_service import (
+    get_active_retailer_ids_for_marking,
+    get_employee_owned_retailer_ids,
+)
 from app.utils.activation_rules import get_excluded_codes, exclude_clause
 from app.services.cache_service import cache_service
 
 logger = logging.getLogger("app.services.GaLive")
+
+# Role skill sections never exclude their own employees' owned/assisted-code retailers.
+SECTION_EMPLOYEE_ROLES = {
+    "supervisors": ["supervisor"],
+    "rsos": ["rso"],
+    "bps": ["bp"],
+    "ccs": ["cc"],
+}
 
 
 class GaLiveQueryBuilder:
@@ -40,6 +51,20 @@ class GaLiveQueryBuilder:
         self._excluded_codes: set[str] | None = None
         self._excluded_retailers: dict[str, set[int]] = {}
         self._section_configs: dict[str, dict] = {}
+        self._owned_retailers: dict[str, set[int]] = {}
+
+    async def _owned_retailer_ids(self, section_key: str) -> set[int]:
+        """Ids of retailers owned by (or assisted-code of) the section's role employees.
+        These must never be excluded from the section."""
+        roles = SECTION_EMPLOYEE_ROLES.get(section_key)
+        if not roles:
+            return set()
+        cache_key = ",".join(sorted(roles))
+        if cache_key not in self._owned_retailers:
+            self._owned_retailers[cache_key] = await get_employee_owned_retailer_ids(
+                self.db, self.house_id, roles
+            )
+        return self._owned_retailers[cache_key]
 
     async def _load_section_configs(self):
         result = await self.db.execute(
@@ -86,6 +111,8 @@ class GaLiveQueryBuilder:
 
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
 
+        owned_ids = await self._owned_retailer_ids(section_key)
+
         all_excluded = await self._effective_excluded_codes(section_key)
 
         if all_excluded:
@@ -95,6 +122,8 @@ class GaLiveQueryBuilder:
 
         for tag in exclude_retailer_tags:
             excluded_ids = await self._load_excluded_retailers_by_tag(tag)
+            if owned_ids:
+                excluded_ids = excluded_ids - owned_ids
             if excluded_ids:
                 query = query.where(
                     and_(
@@ -130,8 +159,12 @@ class GaLiveQueryBuilder:
             if clause is not None:
                 query = query.where(clause)
 
+        owned_ids = await self._owned_retailer_ids(section_key)
+
         for tag in exclude_retailer_tags:
             excluded_ids = await self._load_excluded_retailers_by_tag(tag)
+            if owned_ids:
+                excluded_ids = excluded_ids - owned_ids
             if excluded_ids:
                 query = query.where(
                     and_(
@@ -329,9 +362,12 @@ class GaLiveQueryBuilder:
         sup_yest_retailer_counts: dict[int, int] = {}
         if sup_yesterday >= date(2020, 1, 1):
             sup_exc_pcodes, sup_exc_tags = await self._get_exclusions("supervisors")
+            sup_owned_ids = await self._owned_retailer_ids("supervisors")
             sup_exc_rids: set[int] = set()
             for tag in sup_exc_tags:
                 excluded = await self._load_excluded_retailers_by_tag(tag)
+                if sup_owned_ids:
+                    excluded = excluded - sup_owned_ids
                 sup_exc_rids.update(excluded)
 
             sup_yest_q = select(Activation.retailer_id).where(
@@ -358,9 +394,12 @@ class GaLiveQueryBuilder:
         bp_yest_code_counts: dict[str, int] = {}
         if sup_yesterday >= date(2020, 1, 1):
             bp_exc_pcodes, bp_exc_tags = await self._get_exclusions("bps")
+            bp_owned_ids = await self._owned_retailer_ids("bps")
             bp_exc_rids: set[int] = set()
             for tag in bp_exc_tags:
                 excluded = await self._load_excluded_retailers_by_tag(tag)
+                if bp_owned_ids:
+                    excluded = excluded - bp_owned_ids
                 bp_exc_rids.update(excluded)
 
             bp_yest_q = select(Activation.retailer_code).where(
@@ -524,9 +563,12 @@ class GaLiveQueryBuilder:
         if all_rso_retailer_ids and yesterday_for_mtd >= month_start:
             # Apply section exclusions (product codes + retailer tags)
             mtd_exclude_product_codes, mtd_exclude_retailer_tags = await self._get_exclusions("rsos")
+            rso_owned_ids = await self._owned_retailer_ids("rsos")
             mtd_excluded_retailer_ids: set[int] = set()
             for tag in mtd_exclude_retailer_tags:
                 excluded = await self._load_excluded_retailers_by_tag(tag)
+                if rso_owned_ids:
+                    excluded = excluded - rso_owned_ids
                 mtd_excluded_retailer_ids.update(excluded)
             mtd_filtered_retailer_ids = [rid for rid in all_rso_retailer_ids if rid not in mtd_excluded_retailer_ids]
 
@@ -604,9 +646,12 @@ class GaLiveQueryBuilder:
         yest_code_counts: dict[str, int] = {}
         if yesterday >= date(2020, 1, 1):
             yest_exclude_product_codes, yest_exclude_retailer_tags = await self._get_exclusions("rsos")
+            rso_owned_ids = await self._owned_retailer_ids("rsos")
             yest_excluded_retailer_ids: set[int] = set()
             for tag in yest_exclude_retailer_tags:
                 excluded = await self._load_excluded_retailers_by_tag(tag)
+                if rso_owned_ids:
+                    excluded = excluded - rso_owned_ids
                 yest_excluded_retailer_ids.update(excluded)
 
             yest_q = select(Activation.retailer_id, Activation.retailer_code).where(
@@ -836,6 +881,7 @@ class GaLiveQueryBuilder:
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
 
         all_excluded = await self._effective_excluded_codes(section_key)
+        owned_ids = await self._owned_retailer_ids(section_key)
 
         trend_map: dict[str, int] = {}
 
@@ -852,6 +898,8 @@ class GaLiveQueryBuilder:
                     act_q = act_q.where(clause)
             for tag in exclude_retailer_tags:
                 excluded_ids = await self._load_excluded_retailers_by_tag(tag)
+                if owned_ids:
+                    excluded_ids = excluded_ids - owned_ids
                 if excluded_ids:
                     act_q = act_q.where(
                         and_(
@@ -875,6 +923,8 @@ class GaLiveQueryBuilder:
                 live_q = live_q.where(clause)
         for tag in exclude_retailer_tags:
             excluded_ids = await self._load_excluded_retailers_by_tag(tag)
+            if owned_ids:
+                excluded_ids = excluded_ids - owned_ids
             if excluded_ids:
                 live_q = live_q.where(
                     and_(

@@ -3,7 +3,7 @@ const path = require("path");
 
 const nextConfig = {
   turbopack: {
-    root: path.resolve(__dirname, ".."),
+    root: __dirname,
   },
   allowedDevOrigins: ["165.99.219.177"],
   devIndicators: { position: "bottom-right" },

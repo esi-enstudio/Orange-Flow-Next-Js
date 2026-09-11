@@ -17,7 +17,10 @@ from app.models.bp_target import BpTarget
 from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.ga_section_config import GaSectionConfig
 from app.models.role import Role
-from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
+from app.services.retailer_marking_service import (
+    get_active_retailer_ids_for_marking,
+    get_employee_owned_retailer_ids,
+)
 from app.utils.activation_rules import exclude_clause
 
 # ── Style constants (matching frontend activations export) ──
@@ -66,6 +69,15 @@ async def _get_excluded_retailer_ids_by_tags(
     excluded: set[int] = set()
     for tag_name in tag_names:
         excluded |= await get_active_retailer_ids_for_marking(db, house_id, tag_name)
+    # Never exclude employee-owned / assisted-code retailers (ownership takes priority).
+    try:
+        owned = await get_employee_owned_retailer_ids(
+            db, house_id, ["supervisor", "rso", "bp", "cc"]
+        )
+        if owned:
+            excluded -= owned
+    except Exception:
+        pass
     return excluded
 
 

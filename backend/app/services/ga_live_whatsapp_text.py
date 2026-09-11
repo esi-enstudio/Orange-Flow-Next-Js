@@ -16,6 +16,9 @@ from app.models.ga_section_config import GaSectionConfig
 from app.models.employee import Employee
 from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.user import User
+from app.models.supervisor_target import SupervisorTarget
+from app.models.rso_target import RSOTarget
+from app.models.bp_target import BpTarget
 from app.services.ga_live_service import GaLiveQueryBuilder
 from app.services.activation_report_service import ActivationReportService
 from app.utils.activation_rules import get_excluded_codes
@@ -166,6 +169,54 @@ async def _load_report_data(db: AsyncSession, house_id: int, today: date):
         exclude_product_codes=exclude_product_codes,
     )
     summary = await service.get_summary()
+
+    # Supervisor team target — sourced from the supervisor_targets table
+    # (total_ga per supervisor for the target month).
+    month_start = today.replace(day=1)
+    sup_target_res = await db.execute(
+        select(
+            SupervisorTarget.employee_id,
+            SupervisorTarget.total_ga,
+        ).where(
+            SupervisorTarget.house_id == house_id,
+            SupervisorTarget.target_date >= month_start,
+            SupervisorTarget.target_date <= today,
+            SupervisorTarget.total_ga.isnot(None),
+        )
+    )
+    sup_target_map: dict[int, int] = {}
+    for emp_id, total_ga in sup_target_res.all():
+        if emp_id:
+            sup_target_map[emp_id] = int(total_ga or 0)
+    summary["supervisor_target"] = sum(sup_target_map.values())
+    summary["supervisor_target_map"] = sup_target_map
+
+    # RSO team target — sourced from the rso_targets table (sum of `ga`
+    # across the house's RSOs for the target month).
+    rso_target_res = await db.execute(
+        select(RSOTarget.ga).where(
+            RSOTarget.house_id == house_id,
+            RSOTarget.target_date >= month_start,
+            RSOTarget.target_date <= today,
+            RSOTarget.ga.isnot(None),
+        )
+    )
+    rso_target = sum((row[0] or 0) for row in rso_target_res.all())
+    summary["rso_target"] = rso_target
+
+    # BP team target — sourced from the bp_targets table (sum of `ga_target`
+    # across the house's BPs for the target month).
+    bp_target_res = await db.execute(
+        select(BpTarget.ga_target).where(
+            BpTarget.house_id == house_id,
+            BpTarget.target_date >= month_start,
+            BpTarget.target_date <= today,
+            BpTarget.ga_target.isnot(None),
+        )
+    )
+    bp_target = sum((row[0] or 0) for row in bp_target_res.all())
+    summary["bp_target"] = bp_target
+
     return house, data, summary
 
 
