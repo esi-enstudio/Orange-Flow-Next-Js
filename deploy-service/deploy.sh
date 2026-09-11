@@ -87,6 +87,8 @@ cd "$PROJECT_DIR"
 # delivers a newer version of deploy.sh itself (see self-restart below).
 PULL_SCRIPT="$PROJECT_DIR/deploy-service/deploy.sh"
 PRE_PULL_MD5=$(md5sum "$PULL_SCRIPT" 2>/dev/null | awk '{print $1}')
+PRE_PULL_DOCKERFILE_MD5=$(md5sum "$PROJECT_DIR/backend/Dockerfile" 2>/dev/null | awk '{print $1}')
+PRE_PULL_COMPOSE_MD5=$(md5sum "$PROJECT_DIR/docker-compose.yml" 2>/dev/null | awk '{print $1}')
 
 # Fetch + explicit single-branch merge. Plain `git pull --ff-only` derives its
 # merge heads from FETCH_HEAD, which races with the background workers also
@@ -192,11 +194,42 @@ case "$FIS" in
   *) echo "    (built/build completed at START_TIME=$START_TIME seq)" ;;
 esac
 
+# ── Backend: rebuild image if Dockerfile/docker-compose changed ──────────────
+# `docker restart` only restarts the existing container — it does NOT pick up
+# Dockerfile changes (e.g. adding apt packages). We snapshot the md5 of
+# Dockerfile and docker-compose.yml BEFORE git pull, compare AFTER, and rebuild
+# only when they actually changed. This keeps fast-path restarts fast (~1s)
+# while ensuring infra changes are applied.
+NEED_BACKEND_REBUILD=false
+POST_PULL_DOCKERFILE_MD5=$(md5sum "$PROJECT_DIR/backend/Dockerfile" 2>/dev/null | awk '{print $1}')
+POST_PULL_COMPOSE_MD5=$(md5sum "$PROJECT_DIR/docker-compose.yml" 2>/dev/null | awk '{print $1}')
+
+if [ -n "${PRE_PULL_DOCKERFILE_MD5:-}" ] && [ "$PRE_PULL_DOCKERFILE_MD5" != "${POST_PULL_DOCKERFILE_MD5:-}" ]; then
+  echo "    Dockerfile changed — backend image rebuild required"
+  NEED_BACKEND_REBUILD=true
+fi
+if [ -n "${PRE_PULL_COMPOSE_MD5:-}" ] && [ "$PRE_PULL_COMPOSE_MD5" != "${POST_PULL_COMPOSE_MD5:-}" ]; then
+  echo "    docker-compose.yml changed — backend image rebuild required"
+  NEED_BACKEND_REBUILD=true
+fi
+
 echo "--> Restarting backend (docker: orange_flow_backend)"
+if [ "$NEED_BACKEND_REBUILD" = true ]; then
+  echo "    Rebuilding backend image (Dockerfile or docker-compose.yml changed)..."
+  if docker compose -f "$PROJECT_DIR/docker-compose.yml" build backend; then
+    echo "    Backend image rebuilt successfully"
+  else
+    echo "ERROR: Backend image rebuild failed" >&2
+    write_status "failed" 5 "backend image rebuild failed"
+    echo "[DEPLOY_FAILED:backend_build_failed]"
+    exit 5
+  fi
+fi
+
 if docker restart orange_flow_backend; then
   echo "==> Backend restarted"
 else
-  echo "WARNING: Failed to restart backend container" >&2
+  echo "WARNING: Failed to restart backend container"
 fi
 
 # ── Step 5: Verify ──────────────────────────────────────────────────────────
