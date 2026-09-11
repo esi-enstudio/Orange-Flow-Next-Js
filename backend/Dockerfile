@@ -4,6 +4,22 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
+# Debian trixie-updates rollout can carry a signature that apt rejects
+# ("Not live until ...") on some dates. Exclude that suite so apt works reliably.
+RUN cat > /etc/apt/sources.list.d/debian.sources <<EOF
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: trixie
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+
+Types: deb
+URIs: http://deb.debian.org/debian-security
+Suites: trixie-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+EOF
+
 # Install system dependencies for Playwright and PostgreSQL
 RUN apt-get update && apt-get install -y \
     curl \
