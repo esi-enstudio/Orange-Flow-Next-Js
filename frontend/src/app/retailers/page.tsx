@@ -19,12 +19,15 @@ import {
   FileSpreadsheet,
   Eye,
   X,
-  ArrowUpDown
+  ArrowUpDown,
+  SlidersHorizontal
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
+import { motion, AnimatePresence } from "framer-motion";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
+import RetailerMasterFilter, { RetailerFilters, defaultFilters } from "@/components/retailers/RetailerMasterFilter";
 
 interface Retailer {
   id: number;
@@ -62,13 +65,21 @@ interface PaginationMeta {
   has_prev: boolean;
 }
 
+interface House {
+  id: number;
+  name: string;
+  code: string;
+}
+
 export default function RetailersPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
   const router = useRouter();
   const { t } = useLanguage();
   const [retailers, setRetailers] = useState<Retailer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<RetailerFilters>({ ...defaultFilters });
+  const [showFilters, setShowFilters] = useState(false);
+  const [houses, setHouses] = useState<House[]>([]);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
   const [sortBy, setSortBy] = useState("id");
@@ -89,7 +100,16 @@ export default function RetailersPage() {
   const [importProgress, setImportProgress] = useState(0);
   const [viewingRetailer, setViewingRetailer] = useState<Retailer | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const prevFiltersRef = useRef("");
+
+  useEffect(() => {
+    const key = JSON.stringify(filters);
+    if (prevFiltersRef.current !== "" && prevFiltersRef.current !== key) {
+      setPage(1);
+    }
+    prevFiltersRef.current = key;
+  }, [filters]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -100,7 +120,17 @@ export default function RetailersPage() {
         sort_by: sortBy,
         sort_order: sortOrder,
       };
-      if (search) params.search = search;
+      if (filters.search) params.search = filters.search;
+      if (filters.house_id) params.house_id = filters.house_id;
+      if (filters.retailer_type) params.retailer_type = filters.retailer_type;
+      if (filters.enabled) params.enabled = filters.enabled;
+      if (filters.sim_seller) params.sim_seller = filters.sim_seller;
+      if (filters.category) params.category = filters.category;
+      if (filters.district) params.district = filters.district;
+      if (filters.thana) params.thana = filters.thana;
+      if (filters.route) params.route = filters.route;
+      if (filters.has_employee !== null) params.has_employee = filters.has_employee;
+      if (filters.employee_id) params.employee_id = filters.employee_id;
       const retRes = await apiClient.get("retailers", { params });
       setRetailers(retRes.data.data || []);
       setPagination(retRes.data.pagination || null);
@@ -109,7 +139,7 @@ export default function RetailersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, sortBy, sortOrder]);
+  }, [page, filters, sortBy, sortOrder]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("retailers.view")) {
@@ -117,13 +147,15 @@ export default function RetailersPage() {
     }
   }, [selectedHouse, page, sortBy, sortOrder, authLoading, hasPermission, fetchData]);
 
-  const handleSearch = (value: string) => {
-    setSearch(value);
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    searchTimeoutRef.current = setTimeout(() => {
-      setPage(1);
-    }, 400);
-  };
+  useEffect(() => {
+    if (authLoading || !hasPermission("retailers.view")) return;
+    apiClient.get("houses/accessible")
+      .then((res) => {
+        const data = res.data?.data || res.data || [];
+        setHouses(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {});
+  }, [authLoading, hasPermission]);
 
   const toggleSort = (field: string) => {
     if (sortBy === field) {
@@ -248,17 +280,55 @@ export default function RetailersPage() {
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
         <div className="p-4 border-b border-gray-50 dark:border-slate-800">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input
-              type="text"
-              placeholder={t('retailers.search_placeholder')}
-              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
-              value={search}
-              onChange={(e) => handleSearch(e.target.value)}
-            />
+          <div className="flex flex-row gap-2 md:gap-4 justify-between items-center">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                title={t('retailers.filters_title')}
+                className={cn(
+                  "p-2.5 rounded-xl border transition-all active:scale-95 shrink-0",
+                  showFilters
+                    ? "bg-primary-500 text-white border-primary-500 shadow-sm"
+                    : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
+                )}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+              <div className="relative flex-1 md:max-w-md group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500 transition-colors group-focus-within:text-primary-500" />
+                <input
+                  type="text"
+                  placeholder={t('retailers.search_placeholder')}
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
+                  value={filters.search}
+                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                />
+              </div>
+            </div>
           </div>
         </div>
+
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden border-b border-gray-50 dark:border-slate-800"
+            >
+              <div className="p-4">
+                <RetailerMasterFilter
+                  filters={filters}
+                  onChange={setFilters}
+                  onClear={() => setFilters({ ...defaultFilters })}
+                  houses={houses}
+                  selectedHouseId={selectedHouse?.id ?? null}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {loading ? (
           <div className="divide-y divide-gray-50 dark:divide-slate-800">

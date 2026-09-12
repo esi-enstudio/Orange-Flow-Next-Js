@@ -917,12 +917,22 @@ BP/CC assisted retailer codes (e.g., `R344412 "BP Assisted Code - Jasim Uddin Su
 
 4. **Startup self-healing** — `backend/app/services/db_service.py` `_migrate_retailer_employee_link()` re-links any retailer whose `employee_id` does not match its assisted-code owner. Keep this idempotent migration registered in `init_db()`.
 
-5. **Sanity check during development/QA** — Run this query to detect mis-assignments after any retailer import or employee update:
+5. **Resigned/Inactive owner transfers to the successor (Active) RSO** — If an employee's status is not `Active`, their retailers (iTop-linked AND assisted-code-linked) must be reassigned to the **Active successor RSO** that now owns the same `itop_number` (or, for assisted codes of a resigned BP/CC without an iTop successor, the Active employee owning the retailer's `itop_sr_number`). Active owners always win over non-active owners when they share an iTop number or assisted code. Implemented in:
+   - `retailer_excel.py` — `active_map`/`active_assisted_map` (active wins the dict) plus the successor redirect for non-active assisted owners.
+   - `db_service.py` — the iTop re-link + resigned-owner re-link migration passes.
+
+6. **Sanity check during development/QA** — Run this query to detect mis-assignments after any retailer import or employee update. Rows are allowed **only** when the assisted-code owner is not `Active` and an Active successor RSO owns the retailer's `itop_sr_number` (an intentional takeover):
    ```sql
-   SELECT r.retailer_code, r.name, r.employee_id, e.id AS owner_id, e.employee_type
+   SELECT r.retailer_code, r.name, r.employee_id, e.id AS owner_id, e.status AS owner_status, e.employee_type
    FROM retailers r
    JOIN employees e ON e.assisted_retailer_code = r.retailer_code
-   WHERE r.employee_id IS DISTINCT FROM e.id;
+   WHERE r.employee_id IS DISTINCT FROM e.id
+     AND NOT (e.status <> 'Active'
+              AND EXISTS (
+                SELECT 1 FROM employees a
+                WHERE a.status = 'Active' AND a.id <> e.id
+                  AND (a.itop_number = e.itop_number OR a.itop_number = r.itop_sr_number)
+              ));
    ```
    Expected result: **0 rows**. Any row means attribution is broken and must be fixed before shipping.
 

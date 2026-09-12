@@ -23,7 +23,16 @@ async def get_retailers(
     pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("retailers.view")),
-    house_id: Optional[int] = Depends(get_house_context)
+    house_id: Optional[int] = Depends(get_house_context),
+    retailer_type: Optional[str] = None,
+    enabled: Optional[str] = None,
+    sim_seller: Optional[str] = None,
+    category: Optional[str] = None,
+    district: Optional[str] = None,
+    thana: Optional[str] = None,
+    route: Optional[str] = None,
+    has_employee: Optional[bool] = None,
+    employee_id: Optional[int] = None,
 ):
     base_query = select(Retailer).options(
         joinedload(Retailer.house),
@@ -47,6 +56,27 @@ async def get_retailers(
             (Retailer.retailer_code.ilike(search_pattern)) |
             (Retailer.itop_number.ilike(search_pattern))
         )
+    if retailer_type:
+        base_query = base_query.where(Retailer.type == retailer_type)
+    if enabled:
+        base_query = base_query.where(Retailer.enabled == enabled)
+    if sim_seller:
+        base_query = base_query.where(Retailer.sim_seller == sim_seller)
+    if category:
+        base_query = base_query.where(Retailer.category.ilike(f"%{category}%"))
+    if district:
+        base_query = base_query.where(Retailer.district.ilike(f"%{district}%"))
+    if thana:
+        base_query = base_query.where(Retailer.thana.ilike(f"%{thana}%"))
+    if route:
+        base_query = base_query.where(Retailer.route.ilike(f"%{route}%"))
+    if employee_id:
+        base_query = base_query.where(Retailer.employee_id == employee_id)
+    elif has_employee is not None:
+        if has_employee:
+            base_query = base_query.where(Retailer.employee_id.isnot(None))
+        else:
+            base_query = base_query.where(Retailer.employee_id.is_(None))
 
     count_query = select(func.count()).select_from(base_query.subquery())
     total_result = await db.execute(count_query)

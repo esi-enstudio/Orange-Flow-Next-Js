@@ -214,6 +214,7 @@ export default function EmployeesPage() {
   const [formData, setFormData] = useState({
     user_id: undefined as number | undefined,
     house_id: undefined as number | undefined,
+    employee_name: "",
     dms_code: "",
     itop_number: "",
     personal_number: "",
@@ -423,6 +424,7 @@ export default function EmployeesPage() {
     setFormData({
       user_id: undefined,
       house_id: selectedHouse?.id || undefined,
+      employee_name: "",
       dms_code: "",
       itop_number: "",
       personal_number: "",
@@ -469,6 +471,7 @@ export default function EmployeesPage() {
     setFormData({
       user_id: m.user_id,
       house_id: m.house_id,
+      employee_name: m.employee_name || "",
       dms_code: m.dms_code,
       itop_number: m.itop_number,
       personal_number: m.personal_number,
@@ -1504,19 +1507,18 @@ export default function EmployeesPage() {
                   <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_personal')}</h4>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  <InputField label={t('employees.field_nid')} icon={CreditCard} value={formData.nid} onChange={(v: string) => setFormData({...formData, nid: v})} />
+                  <InputField label={t('employees.field_full_name')} icon={User} value={formData.employee_name} onChange={(v: string) => setFormData({...formData, employee_name: v})} error={formErrors.employee_name} />
+                  <InputField label={t('employees.field_father_name')} icon={User} value={formData.fathers_name} onChange={(v: string) => setFormData({...formData, fathers_name: v})} />
+                  <InputField label={t('employees.field_mother_name')} icon={User} value={formData.mothers_name} onChange={(v: string) => setFormData({...formData, mothers_name: v})} />
                   <InputField label={t('employees.field_dob')} icon={Calendar} type="date" value={formData.dob} onChange={(v: string) => setFormData({...formData, dob: v})} error={formErrors.dob} />
+                  <InputField label={t('employees.field_nid')} icon={CreditCard} value={formData.nid} onChange={(v: string) => setFormData({...formData, nid: v})} />
+                  <InputField label={t('employees.field_present_address')} icon={MapPin} value={formData.present_address} onChange={(v: string) => setFormData({...formData, present_address: v})} />
+                  <InputField label={t('employees.field_permanent_address')} icon={MapPin} value={formData.permanent_address} onChange={(v: string) => setFormData({...formData, permanent_address: v})} />
                   <InputField label={t('employees.field_blood_group')} icon={Activity} value={formData.blood_group} onChange={(v: string) => setFormData({...formData, blood_group: v})} />
                   <InputField label={t('employees.field_religion')} icon={User} value={formData.religion} onChange={(v: string) => setFormData({...formData, religion: v})} />
                   <InputField label={t('employees.field_home_town')} icon={Home} value={formData.home_town} onChange={(v: string) => setFormData({...formData, home_town: v})} />
-                  <InputField label={t('employees.field_father_name')} icon={User} value={formData.fathers_name} onChange={(v: string) => setFormData({...formData, fathers_name: v})} />
-                  <InputField label={t('employees.field_mother_name')} icon={User} value={formData.mothers_name} onChange={(v: string) => setFormData({...formData, mothers_name: v})} />
                   <InputField label={t('employees.field_education')} icon={Briefcase} value={formData.last_education} onChange={(v: string) => setFormData({...formData, last_education: v})} />
                   <InputField label={t('employees.field_institution')} icon={Store} value={formData.institution_name} onChange={(v: string) => setFormData({...formData, institution_name: v})} />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <InputField label={t('employees.field_present_address')} icon={MapPin} value={formData.present_address} onChange={(v: string) => setFormData({...formData, present_address: v})} />
-                  <InputField label={t('employees.field_permanent_address')} icon={MapPin} value={formData.permanent_address} onChange={(v: string) => setFormData({...formData, permanent_address: v})} />
                 </div>
               </div>
 

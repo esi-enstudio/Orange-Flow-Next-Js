@@ -97,10 +97,25 @@ async def process_retailer_excel(file_path, progress_callback=None):
             house_map = {h.code.upper(): h.id for h in house_res.all() if h.code}
             logger.info(f"🏠 Loaded {len(house_map)} houses by code")
             
-            emp_res = await session.execute(select(Employee.itop_number, Employee.assisted_retailer_code, Employee.id))
+            emp_res = await session.execute(select(Employee.itop_number, Employee.assisted_retailer_code, Employee.id, Employee.status))
             emp_rows = emp_res.all()
-            rso_map = {f.itop_number: f.id for f in emp_rows if f.itop_number}
-            assisted_map = {f.assisted_retailer_code: f.id for f in emp_rows if f.assisted_retailer_code}
+
+            def _is_active_emp(status) -> bool:
+                return (status or "").strip().lower() == "active"
+
+            # A resigned/inactive RSO may have its iTopUp SR number reassigned to a
+            # successor (Active) RSO — both share the same itop_number. Never let a
+            # non-active record overwrite an active owner in the map.
+            active_map = {f.itop_number: f.id for f in emp_rows if f.itop_number and _is_active_emp(f.status)}
+            inactive_map = {f.itop_number: f.id for f in emp_rows if f.itop_number and not _is_active_emp(f.status)}
+            rso_map = {**inactive_map, **active_map}  # active wins for shared itop_number
+
+            active_assisted_map = {f.assisted_retailer_code: f.id for f in emp_rows if f.assisted_retailer_code and _is_active_emp(f.status)}
+            inactive_assisted_map = {f.assisted_retailer_code: f.id for f in emp_rows if f.assisted_retailer_code and not _is_active_emp(f.status)}
+            assisted_map = {**inactive_assisted_map, **active_assisted_map}
+
+            emp_by_id = {f.id: f for f in emp_rows}
+            active_itop_owner = {f.itop_number: f.id for f in emp_rows if f.itop_number and _is_active_emp(f.status)}
 
             count = 0
             skipped_count = 0
@@ -121,7 +136,20 @@ async def process_retailer_excel(file_path, progress_callback=None):
                 # carry the RSO's iTopUp SR number, so itop_number matching would
                 # wrongly attribute BP/CC codes to the RSO). Fall back to itop_number.
                 linked_emp_id = assisted_map.get(r_code)
-                if linked_emp_id is None:
+                if linked_emp_id is not None:
+                    # If the assisted-code owner resigned/went inactive, redirect their
+                    # retailers to the Active successor. Prefer the Active owner of the
+                    # retailer's own iTopUp SR number, else the Active RSO now holding
+                    # the owner's iTop number.
+                    owner = emp_by_id.get(linked_emp_id)
+                    if owner and not _is_active_emp(owner.status):
+                        itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
+                        successor_id = active_itop_owner.get(itop_sr_no) if itop_sr_no else None
+                        if successor_id is None:
+                            successor_id = active_itop_owner.get(owner.itop_number)
+                        if successor_id:
+                            linked_emp_id = successor_id
+                else:
                     itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
                     linked_emp_id = rso_map.get(itop_sr_no) if itop_sr_no else None
                 

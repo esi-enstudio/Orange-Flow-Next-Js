@@ -458,6 +458,11 @@ async def _migrate_retailer_employee_link():
     BP/CC assisted codes carry the RSO's iTopUp SR number, so the legacy import
     logic wrongly assigned them to the RSO. The correct owner is the employee
     whose assisted_retailer_code equals the retailer code.
+
+    Also re-links retailers that were assigned to a resigned/inactive RSO when an
+    Active RSO owns the same iTopUp SR number (successor RSO since the iTop number
+    was reassigned). The successor takes over the resigned RSO's retailers too,
+    including the ones linked via the resigned RSO's assisted_retailer_code.
     """
     try:
         async with engine.begin() as conn:
@@ -474,6 +479,49 @@ async def _migrate_retailer_employee_link():
                 logger.info(f"Migration complete: re-linked {fixed.rowcount} retailer(s) to their assisted-code owner")
     except Exception as e:
         logger.warning(f"Migration warning (retailer employee link): {e}")
+
+    try:
+        async with engine.begin() as conn:
+            fixed = await conn.execute(text(
+                """
+                UPDATE retailers r
+                SET employee_id = a.id
+                FROM employees e
+                JOIN employees a
+                  ON a.itop_number = e.itop_number
+                 AND a.status = 'Active'
+                 AND e.status <> 'Active'
+                WHERE r.employee_id = e.id
+                  AND a.id <> e.id
+                  AND r.employee_id IS DISTINCT FROM a.id
+                  AND (r.itop_sr_number = e.itop_number
+                       OR r.retailer_code = e.assisted_retailer_code)
+                """
+            ))
+            if fixed.rowcount:
+                logger.info(f"Migration complete: re-linked {fixed.rowcount} retailer(s) to their active iTop owner")
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer itop re-link): {e}")
+
+    try:
+        async with engine.begin() as conn:
+            fixed = await conn.execute(text(
+                """
+                UPDATE retailers r
+                SET employee_id = a.id
+                FROM employees a, employees e
+                WHERE r.employee_id = e.id
+                  AND r.itop_sr_number = a.itop_number
+                  AND a.status = 'Active'
+                  AND e.status <> 'Active'
+                  AND a.id <> e.id
+                  AND r.employee_id IS DISTINCT FROM a.id
+                """
+            ))
+            if fixed.rowcount:
+                logger.info(f"Migration complete: re-linked {fixed.rowcount} retailer(s) from resigned owners to active iTop owner")
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer resigned-owner re-link): {e}")
 
 async def _migrate_whatsapp_schedule_report_type():
     """Add report_type column to whatsapp_schedules."""
