@@ -237,7 +237,7 @@ export default function SupervisorsPage() {
         apiClient.get("/employees/supervisors/unassigned-rsos", { headers }),
         apiClient.get("/employees/supervisors/unassigned-bps", { headers }),
       ]);
-      setSupervisors(supRes.data?.data ?? []);
+      setSupervisors((supRes.data?.data ?? []).filter((s: Supervisor) => s.status === "Active"));
       setUnassigned(unRes.data?.data ?? []);
       setUnassignedBps(bpRes.data?.data ?? []);
     } catch {

@@ -938,6 +938,44 @@ BP/CC assisted retailer codes (e.g., `R344412 "BP Assisted Code - Jasim Uddin Su
 
 ---
 
+# Supervisor Team Handoff Rules
+
+## Problem Background
+
+A supervisor owns RSO/BP team members through the `supervisor_rso_assignments` pivot table (model `SupervisorRSOAssignment`, unique on `rso_employee_id`). `User.parent_id` is kept in sync for backward compatibility. When a supervisor becomes **Resigned/Inactive**, their team must not stay tagged to them — it must move to the new (active successor) supervisor.
+
+## Mandatory Rules
+
+1. **Pivot is the source of truth** — team membership lives in `supervisor_rso_assignments`, not `Employee.supervisor_id` (which does not exist). Always update the pivot and sync `User.parent_id`.
+
+2. **Resigning a supervisor requires team transfer** — In the Employees UI, setting a supervisor to `Resigned`/`Inactive` must first check `GET /api/employees/{emp_id}/team-count`; if > 0, prompt for the new supervisor and call `POST /api/employees/{emp_id}/reassign-team` with `{ new_supervisor_id, status }`. Never silently resign a supervisor who still owns a team.
+
+3. **Successor rules** — The new supervisor must be `Active`, `employee_type = 'supervisor'`, and in the **same house** as the outgoing supervisor. Cross-house transfers are rejected (`422`).
+
+4. **Startup self-healing** — `backend/app/services/db_service.py` `_migrate_supervisor_team_link()` re-points team rows from a non-active supervisor to an Active supervisor in the same house sharing the same `itop_number` or `pool_number`, and syncs `users.parent_id`. It is idempotent and registered in `init_db()`. Keep it registered.
+
+5. **Reference implementation** — `backend/app/routers/employees.py`:
+   - `GET /{emp_id}/team-count` — count of pivot rows owned by the employee.
+   - `POST /{emp_id}/reassign-team` — moves all pivot rows to the new supervisor, syncs each member's `parent_id`, sets the outgoing supervisor's status, and writes an `reassign_team` activity log.
+
+6. **Sanity check during development/QA** — Run this query to detect a non-active supervisor still owning a team when an active successor exists:
+   ```sql
+   SELECT a.supervisor_employee_id, s.dms_code, s.status, a.rso_employee_id
+   FROM supervisor_rso_assignments a
+   JOIN employees s ON s.id = a.supervisor_employee_id
+   WHERE s.status <> 'Active'
+     AND EXISTS (
+       SELECT 1 FROM employees a2
+       WHERE a2.employee_type = 'supervisor' AND a2.status = 'Active'
+         AND a2.house_id = s.house_id AND a2.id <> s.id
+         AND ((a2.itop_number IS NOT NULL AND a2.itop_number = s.itop_number)
+              OR (a2.pool_number IS NOT NULL AND a2.pool_number = s.pool_number))
+     );
+   ```
+   Expected result: **0 rows**.
+
+---
+
 # Security Rules
 
 Always protect against:

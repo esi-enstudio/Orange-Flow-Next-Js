@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Users2, 
+  Users2, Users, 
   Plus, 
   Search, 
   Trash2, 
@@ -296,6 +296,13 @@ export default function EmployeesPage() {
   const [reassignTargets, setReassignTargets] = useState<Employee[]>([]);
   const [reassignTargetsLoading, setReassignTargetsLoading] = useState(false);
 
+  // Reassign Supervisor Team
+  const [reassignTeamData, setReassignTeamData] = useState<{ emp: Employee; newStatus: string; memberCount: number } | null>(null);
+  const [reassignTeamTargetId, setReassignTeamTargetId] = useState<number>(0);
+  const [reassignTeamLoading, setReassignTeamLoading] = useState(false);
+  const [reassignTeamTargets, setReassignTeamTargets] = useState<any[]>([]);
+  const [reassignTeamTargetsLoading, setReassignTeamTargetsLoading] = useState(false);
+
   // Import/Export Progress
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -530,6 +537,16 @@ export default function EmployeesPage() {
               return;
             }
           }
+          const isSupervisor = editingMember.employee_type?.toLowerCase() === "supervisor";
+          if (isSupervisor) {
+            const res = await apiClient.get(`employees/${editingMember.id}/team-count`);
+            const count = res.data.count;
+            if (count > 0) {
+              setReassignTeamData({ emp: editingMember as any, newStatus, memberCount: count });
+              setFormLoading(false);
+              return;
+            }
+          }
         }
         await apiClient.put(`employees/${editingMember.id}`, formData);
         toast.success(t('employees.toast_update_success'));
@@ -634,6 +651,21 @@ export default function EmployeesPage() {
       }
     }
 
+    if ((newStatus === "Resigned" || newStatus === "Inactive") && emp.employee_type?.toLowerCase() === "supervisor") {
+      try {
+        const res = await apiClient.get(`employees/${empId}/team-count`);
+        const count = res.data.count;
+        if (count > 0) {
+          setReassignTeamData({ emp, newStatus, memberCount: count });
+          setReassignTeamTargetId(0);
+          return;
+        }
+      } catch {
+        toast.error(t('common.action_failed'));
+        return;
+      }
+    }
+
     try {
       const updatedData = { ...emp, status: newStatus };
       await apiClient.put(`employees/${empId}`, updatedData);
@@ -663,6 +695,51 @@ export default function EmployeesPage() {
       setReassignLoading(false);
     }
   };
+
+  const handleReassignTeamConfirm = async () => {
+    if (!reassignTeamData || !reassignTeamTargetId) return;
+    setReassignTeamLoading(true);
+    try {
+      await apiClient.post(`employees/${reassignTeamData.emp.id}/reassign-team`, {
+        new_supervisor_id: reassignTeamTargetId,
+        status: reassignTeamData.newStatus
+      });
+      toast.success(`Transferred ${reassignTeamData.memberCount} team members and status set to ${reassignTeamData.newStatus}`);
+      setReassignTeamData(null);
+      setReassignTeamTargetId(0);
+      setIsFormModalOpen(false);
+      fetchData();
+    } catch {
+      toast.error(t('common.action_failed'));
+    } finally {
+      setReassignTeamLoading(false);
+    }
+  };
+
+  const fetchReassignTeamTargets = async (emp: Employee) => {
+    setReassignTeamTargetsLoading(true);
+    setReassignTeamTargets([]);
+    try {
+      const headers: Record<string, string> = {};
+      if (emp.house_id) headers["X-House-ID"] = String(emp.house_id);
+      const res = await apiClient.get("employees/supervisors", { headers });
+      const list = (res.data.data || [])
+        .filter((m: any) => m.id != null && m.id !== emp.id)
+        .filter((m: any) => m.status === "Active");
+      setReassignTeamTargets(list);
+    } catch {
+      toast.error(t('common.action_failed'));
+    } finally {
+      setReassignTeamTargetsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (reassignTeamData?.emp) {
+      setReassignTeamTargetId(0);
+      fetchReassignTeamTargets(reassignTeamData.emp);
+    }
+  }, [reassignTeamData?.emp?.id]);
 
   const fetchReassignTargets = async (emp: Employee) => {
     setReassignTargetsLoading(true);
@@ -1716,6 +1793,74 @@ export default function EmployeesPage() {
                 <button
                   onClick={() => { setReassignData(null); setReassignTargetId(0); }}
                   disabled={reassignLoading}
+                  className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reassign Supervisor Team Modal */}
+      <AnimatePresence>
+        {reassignTeamData && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex flex-col items-center text-center mb-6">
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-violet-100 dark:bg-violet-500/20">
+                    <Users className="w-10 h-10 text-violet-600 dark:text-violet-400" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Reassign Supervisor Team</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                    This supervisor has <strong className="text-gray-700 dark:text-gray-200">{reassignTeamData.memberCount} team member(s)</strong> assigned. 
+                    Reassign them to another supervisor before setting status to {reassignTeamData.newStatus}.
+                  </p>
+                </div>
+
+                <div className="space-y-2 mb-6">
+                  <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Transfer to</label>
+                  <select
+                    value={reassignTeamTargetId}
+                    onChange={e => setReassignTeamTargetId(Number(e.target.value))}
+                    className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 appearance-none"
+                  >
+                    <option value={0} disabled>Select a supervisor...</option>
+                    {reassignTeamTargets.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.name || `#${m.id}`} — {m.dms_code || "N/A"} {m.pool_number ? `(${m.pool_number})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {reassignTeamTargetsLoading ? (
+                    <div className="flex items-center gap-2 mt-1 animate-pulse">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary-500" />
+                      <p className="text-xs text-gray-400">Loading active supervisors...</p>
+                    </div>
+                  ) : reassignTeamTargets.length === 0 && (
+                    <p className="text-xs text-red-500 mt-1">No active supervisors available in this house to transfer to.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-8 pb-6 flex flex-col gap-3">
+                <button
+                  onClick={handleReassignTeamConfirm}
+                  disabled={!reassignTeamTargetId || reassignTeamLoading}
+                  className="w-full py-4 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-50"
+                >
+                  {reassignTeamLoading ? "Processing..." : `Transfer & Set ${reassignTeamData.newStatus}`}
+                </button>
+                <button
+                  onClick={() => { setReassignTeamData(null); setReassignTeamTargetId(0); }}
+                  disabled={reassignTeamLoading}
                   className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
                 >
                   Cancel

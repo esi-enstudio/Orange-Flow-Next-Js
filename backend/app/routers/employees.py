@@ -551,6 +551,11 @@ class ReassignRequest(BaseModel):
     new_employee_id: int
     status: str
 
+
+class ReassignSupervisorTeamRequest(BaseModel):
+    new_supervisor_id: int
+    status: str
+
 @router.get("/{emp_id}/retailer-count")
 async def get_employee_retailer_count(
     emp_id: int,
@@ -597,6 +602,98 @@ async def reassign_employee_retailers(
     await db.commit()
     await db.refresh(emp)
     return {"message": f"Transferred retailers to {new_emp.dms_code or new_emp.id} and status set to {req.status}"}
+
+@router.get("/{emp_id}/team-count")
+async def get_supervisor_team_count(
+    emp_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.view")),
+):
+    result = await db.execute(select(Employee).where(Employee.id == emp_id))
+    emp = result.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    count_result = await db.execute(
+        select(SupervisorRSOAssignment.id).where(
+            SupervisorRSOAssignment.supervisor_employee_id == emp_id
+        )
+    )
+    return {"count": len(count_result.all())}
+
+@router.post("/{emp_id}/reassign-team")
+async def reassign_supervisor_team(
+    emp_id: int,
+    req: ReassignSupervisorTeamRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.edit")),
+):
+    result = await db.execute(
+        select(Employee).options(selectinload(Employee.user)).where(Employee.id == emp_id)
+    )
+    emp = result.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    if emp.employee_type != "supervisor":
+        raise HTTPException(status_code=422, detail="Employee is not a supervisor")
+
+    new_sup_result = await db.execute(
+        select(Employee).options(selectinload(Employee.user)).where(Employee.id == req.new_supervisor_id)
+    )
+    new_sup = new_sup_result.scalar_one_or_none()
+    if not new_sup:
+        raise HTTPException(status_code=404, detail="New supervisor not found")
+    if new_sup.employee_type != "supervisor":
+        raise HTTPException(status_code=422, detail="Target employee is not a supervisor")
+    if new_sup.status != "Active":
+        raise HTTPException(status_code=422, detail="Target supervisor is not active")
+    if emp.house_id != new_sup.house_id:
+        raise HTTPException(status_code=422, detail="Supervisors must be in the same house")
+    if req.status not in ("Active", "Resigned", "Suspended", "Inactive"):
+        raise HTTPException(status_code=422, detail="Invalid status")
+
+    assignments = (
+        await db.execute(
+            select(SupervisorRSOAssignment).where(
+                SupervisorRSOAssignment.supervisor_employee_id == emp_id
+            )
+        )
+    ).scalars().all()
+
+    new_sup_user = new_sup.user
+    for assignment in assignments:
+        assignment.supervisor_employee_id = new_sup.id
+        assignment.assigned_by = current_user.id
+        member_result = await db.execute(
+            select(Employee.user_id).where(Employee.id == assignment.rso_employee_id)
+        )
+        member_user_id = member_result.scalar_one_or_none()
+        if member_user_id:
+            member_user = await db.get(User, member_user_id)
+            if member_user is not None:
+                member_user.parent_id = new_sup_user.id if new_sup_user else None
+
+    emp.status = req.status
+    if emp.status == "Resigned" and not emp.resigned_date:
+        emp.resigned_date = now_naive().strftime("%Y-%m-%d")
+
+    await db.commit()
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "reassign_team",
+        record_id=emp.id,
+        record_identifier=emp.employee_id or emp.dms_code,
+        old_values={"resigned_supervisor_id": emp_id},
+        new_values={
+            "new_supervisor_id": new_sup.id,
+            "status": req.status,
+            "member_count": len(assignments),
+        },
+        request=request, status_code=200,
+    )
+    return {
+        "message": f"Transferred {len(assignments)} member(s) to supervisor {new_sup.employee_id or new_sup.dms_code} and status set to {req.status}",
+        "transferred": len(assignments),
+    }
 
 @router.delete("/{emp_id}")
 async def delete_employee(emp_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.delete"))):
@@ -823,7 +920,7 @@ async def get_supervisors_with_teams(
     sup_query = (
         select(Employee)
         .options(selectinload(Employee.user).selectinload(User.roles))
-        .where(Employee.employee_type == "supervisor")
+        .where(Employee.employee_type == "supervisor", Employee.status == "Active")
     )
     if house_id:
         sup_query = sup_query.where(Employee.house_id == house_id)
@@ -852,7 +949,7 @@ async def get_supervisors_with_teams(
             await db.execute(
                 select(Employee)
                 .options(selectinload(Employee.user).selectinload(User.roles))
-                .where(Employee.id.in_(member_ids))
+                .where(Employee.id.in_(member_ids), Employee.status == "Active")
             )
         ).unique().scalars().all()
         member_by_id = {e.id: e for e in member_emps}
@@ -918,7 +1015,10 @@ async def _list_unassigned_members(
     emp_query = (
         select(Employee)
         .options(selectinload(Employee.user))
-        .where(or_(Employee.employee_type == employee_type, Employee.user_id.in_(role_user_subq)))
+        .where(
+            or_(Employee.employee_type == employee_type, Employee.user_id.in_(role_user_subq)),
+            Employee.status == "Active",
+        )
     )
     if house_id:
         emp_query = emp_query.where(Employee.house_id == house_id)

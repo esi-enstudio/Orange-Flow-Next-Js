@@ -523,6 +523,54 @@ async def _migrate_retailer_employee_link():
     except Exception as e:
         logger.warning(f"Migration warning (retailer resigned-owner re-link): {e}")
 
+async def _migrate_supervisor_team_link():
+    """Re-tag a supervisor's team (RSO/BP pivot rows) to an active successor
+    supervisor when the current supervisor is Resigned/Inactive.
+
+    Successor = active supervisor in the same house sharing the resigned
+    supervisor's itop_number or pool_number (mirrors the retailer auto
+    handoff). Also keeps users.parent_id in sync with the pivot table.
+    """
+    try:
+        async with engine.begin() as conn:
+            fixed = await conn.execute(text(
+                """
+                UPDATE supervisor_rso_assignments a
+                SET supervisor_employee_id = s2.id
+                FROM employees s1
+                JOIN employees s2
+                  ON s1.house_id = s2.house_id
+                 AND s2.employee_type = 'supervisor'
+                 AND s2.status = 'Active'
+                 AND s2.id <> s1.id
+                 AND ((s2.itop_number IS NOT NULL AND s2.itop_number = s1.itop_number)
+                      OR (s2.pool_number IS NOT NULL AND s2.pool_number = s1.pool_number))
+                WHERE a.supervisor_employee_id = s1.id
+                  AND s1.employee_type = 'supervisor'
+                  AND s1.status <> 'Active'
+                """
+            ))
+            if fixed.rowcount:
+                logger.info(f"Migration complete: re-tagged {fixed.rowcount} team member(s) to an active successor supervisor")
+
+        async with engine.begin() as conn:
+            synced = await conn.execute(text(
+                """
+                UPDATE users u
+                SET parent_id = ns.id
+                FROM supervisor_rso_assignments a
+                JOIN employees m ON m.id = a.rso_employee_id
+                JOIN employees s2 ON s2.id = a.supervisor_employee_id
+                JOIN users ns ON ns.id = s2.user_id
+                WHERE m.user_id = u.id
+                  AND u.parent_id IS DISTINCT FROM ns.id
+                """
+            ))
+            if synced.rowcount:
+                logger.info(f"Migration complete: synced parent_id for {synced.rowcount} user(s)")
+    except Exception as e:
+        logger.warning(f"Migration warning (supervisor team link): {e}")
+
 async def _migrate_whatsapp_schedule_report_type():
     """Add report_type column to whatsapp_schedules."""
     try:
@@ -859,6 +907,7 @@ async def init_db():
         await _migrate_employee_name()
         await _migrate_supervisor_rso_pivot()
         await _migrate_retailer_employee_link()
+        await _migrate_supervisor_team_link()
         await _migrate_retailer_filter_tag_id()
         await _migrate_retailer_markings()
         await _migrate_retailer_markings_hard_delete()
