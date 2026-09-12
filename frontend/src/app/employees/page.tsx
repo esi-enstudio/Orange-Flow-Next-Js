@@ -1004,7 +1004,11 @@ export default function EmployeesPage() {
                           )}>{m.employee_type}</span>
                         )}
                       </div>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{m.dms_code}</p>
+                      <div className="flex items-center gap-1 min-w-0">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{m.dms_code}</p>
+                        <span className="text-[12px] text-gray-500 dark:text-gray-400 shrink-0 leading-none">•</span>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{m.itop_number || "N/A"}</p>
+                      </div>
                     </div>
                     <ChevronDown className={cn(
                       "w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200",
