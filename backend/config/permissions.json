@@ -109,7 +109,8 @@
         "reports.dms_access",
         "reports.target_achievement",
         "reports.achievement.config",
-        "reports.whatsapp_share"
+        "reports.whatsapp_share",
+        "reports.supervisor.config"
       ]
     },
     "products": {

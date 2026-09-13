@@ -17,6 +17,7 @@ from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.ga_section_config import GaSectionConfig
 from app.models.rso_target import RSOTarget
 from app.models.bp_target import BpTarget
+from app.models.supervisor_target import SupervisorTarget
 from app.services.retailer_marking_service import (
     get_active_retailer_ids_for_marking,
     get_employee_owned_retailer_ids,
@@ -421,6 +422,23 @@ class GaLiveQueryBuilder:
                 if rcode:
                     bp_yest_code_counts[rcode] = bp_yest_code_counts.get(rcode, 0) + 1
 
+        # ── Load supervisor targets for current month (active supervisors) ──
+        today_for_target = self.start_date
+        month_start = date(today_for_target.year, today_for_target.month, 1)
+        _, last_day = monthrange(today_for_target.year, today_for_target.month)
+        month_end = date(today_for_target.year, today_for_target.month, last_day)
+        supervisor_target_map: dict[int, int] = {}
+        if supervisor_emp_ids_all:
+            sup_target_rows = await self.db.execute(
+                select(SupervisorTarget).where(
+                    SupervisorTarget.employee_id.in_(supervisor_emp_ids_all),
+                    SupervisorTarget.target_date >= month_start,
+                    SupervisorTarget.target_date <= month_end,
+                )
+            )
+            for t in sup_target_rows.scalars().all():
+                supervisor_target_map[t.employee_id] = t.total_ga or 0
+
         supervisor_data = []
         for sup_emp_id in supervisor_emp_ids_all:
             sup_info = emp_id_to_user.get(sup_emp_id)
@@ -515,6 +533,7 @@ class GaLiveQueryBuilder:
                 "contribution": total_counts["supervisor"] and round((sup_total / (sup_total or 1)) * 100, 1) or 0,
                 "rso_count": len(sub_employee_ids & set(rso_emp_ids_all)),
                 "bp_count": len(linked_bp_ids),
+                "target": supervisor_target_map.get(sup_emp_id, 0),
             })
         supervisor_data.sort(key=lambda x: x["total_activation"], reverse=True)
 
@@ -870,6 +889,10 @@ class GaLiveQueryBuilder:
                 "total_rso": len(rso_emp_ids_all),
                 "total_bp": len(bp_emp_ids_all),
                 "total_cc": len(cc_emp_ids_all),
+                "supervisor_target_map": supervisor_target_map,
+                "supervisor_target": sum(supervisor_target_map.values()),
+                "rso_target": sum(rso_target_map.values()),
+                "bp_target": sum(bp_target_map.values()),
             },
         )
 

@@ -13,6 +13,7 @@ supervisor-wise section in one column, multiple supervisors render two columns.
 """
 import io
 import math
+from contextlib import contextmanager
 from datetime import date
 
 from PIL import Image, ImageDraw, ImageFont
@@ -62,7 +63,6 @@ SEP_INK = "#D6E2ED"
 BP_TITLE_INK = "#176C9F"
 BADGE_INK = "#164B78"
 FADE_WHITE = "#DFEFFF"
-SUBPANEL_WHITE = "#DCEBFF"
 
 SUP_HEAD_COLORS = ["#0879C9", "#139B69", "#F18B14", "#E73A4C"]
 SUP_BORDER_COLORS = ["#0D79CB", "#16A76D", "#F08A16", "#E73B50"]
@@ -75,7 +75,7 @@ TEAM_TD_INK = "#0F3D73"          # body cell text
 TEAM_LIVE_DOT = "#4CAF50"        # Live GA status dot
 
 # ── Layout ──
-IMG_W = 1080
+IMG_W = 1152
 PAGE_PAD = 12            # page background margin around the white report card
 CARD_PAD = 14            # inner padding of the report card
 CARD_R = 14              # report card corner radius
@@ -99,19 +99,39 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
 
 
 # ── Native high-resolution rendering ──
-# All layout math stays in the 1080-wide design space; ScaledDraw renders every
+# All layout math stays in the IMG_W-wide design space; ScaledDraw renders every
 # coordinate and font natively at RENDER_SCALE so text stays crisp when zoomed,
 # instead of LANCZOS-upsampling a low-res canvas.
 RENDER_SCALE = 12
 
+# The active render scale. Defaults to RENDER_SCALE; ``_temp_scale`` swaps it
+# for lighter (faster) preview renders — e.g. the WhatsApp Report Delivery
+# preview renders at a reduced scale since it is only shown on screen.
+_override_scale: int | None = None
+
 _FONTS_SCALED: dict = {}
 
 
+def _active_scale() -> int:
+    return _override_scale if _override_scale is not None else RENDER_SCALE
+
+
+@contextmanager
+def _temp_scale(scale: int):
+    global _override_scale
+    prev = _override_scale
+    _override_scale = scale
+    try:
+        yield
+    finally:
+        _override_scale = prev
+
+
 def _scaled_font(font: ImageFont.FreeTypeFont) -> ImageFont.FreeTypeFont:
-    key = (font.path, int(font.size * RENDER_SCALE))
+    key = (font.path, int(font.size * _active_scale()))
     f = _FONTS_SCALED.get(key)
     if f is None:
-        f = ImageFont.truetype(font.path, int(font.size * RENDER_SCALE))
+        f = ImageFont.truetype(font.path, int(font.size * _active_scale()))
         _FONTS_SCALED[key] = f
     return f
 
@@ -123,15 +143,15 @@ class ScaledDraw:
     units (proxy position + font both scale together, keeping the ratio).
     """
 
-    def __init__(self, draw: ImageDraw.ImageDraw, scale: int = RENDER_SCALE):
+    def __init__(self, draw: ImageDraw.ImageDraw, scale: int | None = None):
         self._draw = draw
-        self.s = scale
+        self.s = _active_scale() if scale is None else scale
 
     @staticmethod
     def _sc(p):
         if isinstance(p, (list, tuple)):
             return type(p)(ScaledDraw._sc(x) for x in p)
-        return int(p * RENDER_SCALE)
+        return int(p * _active_scale())
 
     def text(self, xy, text: str, font=None, fill=None, anchor=None, **kw):
         self._draw.text(
@@ -183,8 +203,9 @@ def _grad(img: Image.Image, box, c1: str, c2: str, r: int = 0, top_only: bool = 
     Rendered natively at RENDER_SCALE (gradients are smooth, so only the size
     of the strip and the paste coordinates are scaled)."""
     x0, y0, x1, y1 = box
-    w = int((x1 - x0) * RENDER_SCALE)
-    h = int((y1 - y0) * RENDER_SCALE)
+    s = _active_scale()
+    w = int((x1 - x0) * s)
+    h = int((y1 - y0) * s)
     grad = Image.new("RGB", (w, h))
     d = ImageDraw.Draw(grad)
     for xx in range(w):
@@ -192,11 +213,11 @@ def _grad(img: Image.Image, box, c1: str, c2: str, r: int = 0, top_only: bool = 
         d.line([(xx, 0), (xx, h)], fill=_blend(c1, c2, f))
     mask = Image.new("L", (w, h), 0)
     dm = ImageDraw.Draw(mask)
-    r_s = int(r * RENDER_SCALE)
+    r_s = int(r * s)
     dm.rounded_rectangle([0, 0, w, h], radius=r_s, fill=255)
     if top_only and r_s:
         dm.rectangle([0, r_s, w, h], fill=255)
-    img.paste(grad, (int(x0 * RENDER_SCALE), int(y0 * RENDER_SCALE)), mask)
+    img.paste(grad, (int(x0 * s), int(y0 * s)), mask)
 
 
 def _ellipsize(draw, text, font, max_w: float) -> str:
@@ -272,11 +293,14 @@ def _live_display(ci, text, live_cols):
     return str(text)
 
 
-def _content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_total=None):
+def _content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_total=None,
+                     total_row=None):
     """Compute integer column weights sized to the widest label/cell text.
 
     Each column is sized to fit its widest content (plus ``margin``), so every
-    value stays fully visible instead of being ellipsized away. ``max_total``
+    value stays fully visible instead of being ellipsized away. ``total_row``
+    (when given) is measured too, so wide summary labels such as
+    "Total (9 RSO)" get a column wide enough to display fully. ``max_total``
     caps the combined weight when content cannot otherwise fit.
     """
     n = len(labels)
@@ -288,6 +312,8 @@ def _content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_tota
         for r in rows:
             v = r[ci] if ci < len(r) else ""
             w = max(w, f_cell.getlength(_live_display(ci, v, live_cols)))
+        if total_row is not None:
+            w = max(w, f_head.getlength(str(total_row[ci]) if ci < len(total_row) else ""))
         req[ci] = math.ceil(w + margin)
     if max_total and sum(req) > max_total:
         scale = max_total / sum(req)
@@ -432,11 +458,32 @@ def _team_by_supervisor(sup: dict, data: dict) -> tuple[list, list]:
 def _team_summary_rows(data: dict, summary: dict) -> list[list]:
     s = data.get("summary", {})
     monthly_target = summary.get("monthly_target", 0)
+    days_remaining = summary.get("days_remaining", 0)
     supervisor_target = summary.get("supervisor_target", monthly_target)
     rso_target = summary.get("rso_target", monthly_target)
-    achievement = summary.get("achievement", 0)
-    daily_required = summary.get("daily_required_with_friday", 0)
-    remaining = summary.get("remaining", 0)
+    sup_target_map = summary.get("supervisor_target_map", {}) or {}
+
+    # Supervisor team: achievement = sum of each supervisor's team achievement
+    # (RSO + BP member targets minus their remaining).
+    sup_ach = 0
+    for sup in data.get("supervisors", []):
+        team_rso, team_bp = _team_by_supervisor(sup, data)
+        _, a, _, _, _ = _sup_metrics(
+            sup, team_rso, team_bp, days_remaining,
+            target_override=sup_target_map.get(sup.get("employee_id")),
+        )
+        sup_ach += a
+    sup_remain = max(0, supervisor_target - sup_ach)
+    sup_drr = math.ceil(sup_remain / max(days_remaining, 1)) if sup_remain > 0 else 0
+
+    # RSO team: achievement = sum of per-RSO achievement (target − remaining).
+    rso_ach = sum(
+        max(0, (r.get("target", 0) or 0) - (r.get("remaining", 0) or 0))
+        for r in data.get("rsos", [])
+    )
+    rso_remain = max(0, rso_target - rso_ach)
+    rso_drr = math.ceil(rso_remain / max(days_remaining, 1)) if rso_remain > 0 else 0
+
     bp_ach = sum(b.get("own_activation", 0) for b in data.get("bps", []))
     bp_target = summary.get("bp_target", 0)
     bp_remain = max(0, bp_target - bp_ach)
@@ -446,13 +493,13 @@ def _team_summary_rows(data: dict, summary: dict) -> list[list]:
     return [
         [
             "Supervisor", _n(s.get("total_supervisors", 0)), _fmt(supervisor_target),
-            _fmt(achievement), _pct(achievement, supervisor_target), _fmt(remaining),
-            _fmt(daily_required), _n(sup_live),
+            _fmt(sup_ach), _pct(sup_ach, supervisor_target), _fmt(sup_remain),
+            _fmt(sup_drr), _n(sup_live),
         ],
         [
             "RSO", _n(s.get("total_rso", 0)), _fmt(rso_target),
-            _fmt(achievement), _pct(achievement, rso_target), _fmt(remaining),
-            _fmt(daily_required), _n(rso_live),
+            _fmt(rso_ach), _pct(rso_ach, rso_target), _fmt(rso_remain),
+            _fmt(rso_drr), _n(rso_live),
         ],
         [
             "BP", _n(s.get("total_bp", 0)),
@@ -641,8 +688,8 @@ def _render_supervisor_section(img, draw, x, y, data, summary) -> int:
 
 
 def _panel_height(team_rso: list, team_bp: list) -> int:
-    f_head = _font(8, True)
-    f_cell = _font(8, True)
+    f_head = _font(9, True)
+    f_cell = _font(9, True)
     hh, rh = _table_heights(f_head, f_cell)
     rso_table_h = hh + rh * (len(team_rso) + 1) if team_rso else 16
     bp_table_h = hh + rh * (len(team_bp) + 1) if team_bp else 0
@@ -660,7 +707,8 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
     # head bar
     _grad(img, [x + 1, y + 1, x + w - 1, y + PANEL_HEAD_H + 1], head_color, head_color,
           r=8, top_only=True)
-    _icon(draw, x + TITLE_ICON_X, y + PANEL_HEAD_H / 2 - 4, "person", "#FFFFFF")
+    _icon(draw, x + TITLE_ICON_X + TITLE_ICON_W / 2 - 2, y + PANEL_HEAD_H / 2,
+          "person", "#FFFFFF")
 
     sup_t, sup_a, sup_p, _, _ = _sup_metrics(sup, team_rso, team_bp, days_remaining,
                                              target_override=target_override)
@@ -673,11 +721,8 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
     name_avail = badge_x - name_x - 6
     name = _ellipsize(draw, f"Supervisor {idx + 1}: {sup.get('name', '')}",
                       _font(13, True), name_avail)
-    draw.text((name_x, y + PANEL_HEAD_H / 2 - 5), name, font=_font(13, True),
+    draw.text((name_x, y + PANEL_HEAD_H / 2), name, font=_font(13, True),
               fill="#FFFFFF", anchor="lm")
-    draw.text((name_x, y + PANEL_HEAD_H / 2 + 10),
-              f"({len(team_rso)} RSO | {len(team_bp)} BP)", font=_font(10, True),
-              fill=SUBPANEL_WHITE, anchor="lm")
     draw.rounded_rectangle([badge_x, y + (PANEL_HEAD_H - badge_h) / 2,
                             badge_x + badge_w, y + (PANEL_HEAD_H + badge_h) / 2],
                            radius=12, fill="#FFFFFF")
@@ -687,8 +732,8 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
     pad = 7
     yy = y + PANEL_HEAD_H + pad
     inner_w = w - pad * 2
-    f_head = _font(8, True)
-    f_cell = _font(8, True)
+    f_head = _font(9, True)
+    f_cell = _font(9, True)
     hh, rh = _table_heights(f_head, f_cell)
 
     # RSO mini-table
@@ -726,7 +771,8 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
             _n(su["own"]), _n(su["mkt"]),
         ]
         rso_weights = _content_weights(
-            rso_labels, rso_rows, f_head, f_cell, rso_live_cols, max_total=inner_w,
+            rso_labels, rso_rows, f_head, f_cell, rso_live_cols,
+            max_total=inner_w, total_row=rso_total,
         )
         yy += _draw_table(draw, x + pad, yy, inner_w, rso_labels, rso_rows,
                           weights=rso_weights, left_cols=[1], live_cols=rso_live_cols,
@@ -777,7 +823,8 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
             _n(su2["own"]), _n(su2["mkt"]),
         ]
         bp_weights = _content_weights(
-            bp_labels, bp_rows, f_head, f_cell, bp_live_cols, max_total=inner_w,
+            bp_labels, bp_rows, f_head, f_cell, bp_live_cols,
+            max_total=inner_w, total_row=bp_total,
         )
         yy += _draw_table(draw, x + pad, yy, inner_w, bp_labels, bp_rows,
                           weights=bp_weights, left_cols=[1], live_cols=bp_live_cols,
@@ -832,7 +879,8 @@ def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
         + 44
         + PAGE_PAD + CARD_PAD
     )
-    img = Image.new("RGB", (IMG_W * RENDER_SCALE, max(total_h, 60) * RENDER_SCALE), PAGE_BG)
+    s = _active_scale()
+    img = Image.new("RGB", (IMG_W * s, max(total_h, 60) * s), PAGE_BG)
     draw = ScaledDraw(ImageDraw.Draw(img))
 
     # white report card
@@ -879,8 +927,39 @@ def _render_supervisor_grid(img, x, y, data, summary, grid_rows) -> int:
     return yy - GAP
 
 
-async def build_ga_live_report_image(db: AsyncSession, house_id: int) -> bytes:
-    """Build the full GA live report as a PNG image."""
+PREVIEW_SCALE = 4
+
+
+def _render_preview_image(house, data, summary, today: date) -> bytes:
+    """Full GA Live report rendered at a reduced (fast) scale for on-screen
+    preview only — proportions/layout are identical to the full-res render."""
+    with _temp_scale(PREVIEW_SCALE):
+        return _render_image(house, data, summary, today)
+
+
+async def build_ga_live_report_image(
+    db: AsyncSession, house_id: int, scale: int | None = None
+) -> bytes:
+    """Build the GA live report as a PNG image.
+
+    ``scale`` overrides the default RENDER_SCALE — used for fast, reduced-size
+    preview renders. ``None`` produces the full-resolution send-quality image.
+    """
     today = now_naive().date()
     house, data, summary = await _load_report_data(db, house_id, today)
-    return _render_image(house, data, summary, today)
+    if scale is None:
+        return _render_image(house, data, summary, today)
+    with _temp_scale(scale):
+        return _render_image(house, data, summary, today)
+
+
+async def build_ga_live_report_image_preview(db: AsyncSession, house_id: int) -> bytes:
+    """Build the GA live report at a reduced scale for the WhatsApp preview modal.
+
+    Runs significantly faster than the full-res build (~1s vs ~10s) and
+    produces a much smaller PNG — the preview only needs to be viewable on
+    screen, while scheduled/directed sends keep the full-resolution render.
+    """
+    today = now_naive().date()
+    house, data, summary = await _load_report_data(db, house_id, today)
+    return _render_preview_image(house, data, summary, today)

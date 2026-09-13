@@ -24,8 +24,8 @@ from app.services.whatsapp_schedule_service import (
     compute_next_run,
     get_schedule_targets,
     get_schedule_target_names,
+    get_report_image,
 )
-from app.services.report_builders import get_report_builder
 from app.services.whatsapp_token import resolve_house_wa_target
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
@@ -759,8 +759,14 @@ async def whatsapp_report_preview(
     await _verify_house_access(current_user, house_context)
 
     try:
-        builder = get_report_builder(report_type)
-        image_bytes = await builder(db, house_context)
+        # GA Live preview renders at a reduced scale (~1s, ~200KB instead of
+        # ~10s / 2.4MB) since it is only displayed on screen. Scheduled/direct
+        # sends keep the full-resolution image. Both are cached for 60s so
+        # repeat previews and preview→send are instant.
+        image_bytes = await get_report_image(
+            db, report_type, house_context,
+            scale=4 if report_type == "ga_live" else None,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

@@ -16,6 +16,7 @@ from app.services.whatsapp_service_client import (
 from app.services import telegram_service
 from app.services.telegram_service import TelegramError
 from app.services.report_builders import get_report_builder, get_report_title
+from app.services import report_image_cache
 from app.services.whatsapp_token import resolve_house_wa_target, with_target_token
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
@@ -25,6 +26,42 @@ logger = logging.getLogger(__name__)
 
 def _today_bst() -> datetime:
     return now_naive()
+
+
+async def get_report_image(
+    db: AsyncSession,
+    report_type: str,
+    house_id: int,
+    *,
+    scale: int | None = None,
+) -> bytes:
+    """Build (or reuse a cached copy of) the report image for the house.
+
+    Images are cached for a short TTL keyed by (report_type, house_id, date,
+    scale) so preview, Send Now, direct sends and scheduled deliveries share
+    one build instead of paying the ~10s GA Live render every time.
+
+    ``scale`` only affects report types that support lighter renders (GA Live).
+    """
+    day = _today_bst().date()
+    cache_scale = scale if report_type == "ga_live" else None
+    cached = report_image_cache.get(report_type, house_id, day, cache_scale)
+    if cached is not None:
+        return cached
+
+    if report_type == "ga_live":
+        if scale is not None:
+            from app.services.ga_live_whatsapp_image import build_ga_live_report_image
+            image_bytes = await build_ga_live_report_image(db, house_id, scale=scale)
+        else:
+            builder = get_report_builder(report_type)
+            image_bytes = await builder(db, house_id)
+    else:
+        builder = get_report_builder(report_type)
+        image_bytes = await builder(db, house_id)
+
+    report_image_cache.set(report_type, house_id, day, cache_scale, image_bytes)
+    return image_bytes
 
 
 def _png_to_pdf(image_bytes: bytes) -> bytes:
@@ -371,8 +408,7 @@ async def send_direct_report(
 
     # 1. Build the report image
     try:
-        builder = get_report_builder(report_type)
-        image_bytes = await builder(db, house_id)
+        image_bytes = await get_report_image(db, report_type, house_id)
     except ValueError as e:
         return False, f"Unknown report type: {report_type}"
     except Exception as e:
@@ -533,8 +569,7 @@ async def _send_telegram_report(
     """Post the report image to the house's linked Telegram group."""
     report_type = getattr(schedule, "report_type", None) or "ga_live"
     try:
-        builder = get_report_builder(report_type)
-        image_bytes = await builder(db, schedule.house_id)
+        image_bytes = await get_report_image(db, report_type, schedule.house_id)
     except ValueError as e:
         _mark_run_status(schedule, triggered_by, "failed", f"Unknown report type: {report_type}")
         await db.commit()
@@ -661,8 +696,7 @@ async def _send_whatsapp_report(
     chat_names = [n for _, n in targets]
 
     try:
-        builder = get_report_builder(report_type)
-        image_bytes = await builder(db, schedule.house_id)
+        image_bytes = await get_report_image(db, report_type, schedule.house_id)
     except ValueError as e:
         _mark_run_status(schedule, triggered_by, "failed", f"Unknown report type: {report_type}")
         await db.commit()

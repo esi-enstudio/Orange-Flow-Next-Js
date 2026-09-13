@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 from typing import Optional
 
@@ -26,7 +27,7 @@ from app.models.active_lso_config import ActiveLsoConfig
 from app.models.active_sso_config import ActiveSsoConfig
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.role import Role
-from app.utils.access_control import is_admin_user
+from app.utils.access_control import is_admin_user, is_admin_role
 from app.utils.activity_logger import log_activity
 from app.services.whatsapp_service_client import whatsapp_service_client, WhatsAppServiceError
 from app.services.whatsapp_token import resolve_house_wa_target
@@ -1356,6 +1357,7 @@ async def get_activation_dashboard(
     bp_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for BP Performance"),
     supervisor_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for Supervisor Performance"),
     supervisor_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for Supervisor Performance"),
+    supervisor_configs: Optional[str] = Query(None, description="JSON map of per-supervisor configs: {\"<emp_id>\": {\"exclude_tags\": [...], \"exclude_codes\": [...], \"enabled_employee_ids\": [...]}}"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_any_permission(["reports.view", "activations.view"])),
     house_id: Optional[int] = Depends(get_house_context),
@@ -1388,27 +1390,30 @@ async def get_activation_dashboard(
     target_month = month or today.month
     target_year = year or today.year
 
-    total_act_cfg = None
-    if exclude_tags is None or exclude_codes is None:
-        from app.models.ga_section_config import GaSectionConfig
-        cfg_res = await db.execute(
-            select(GaSectionConfig).where(
-                GaSectionConfig.house_id == target_house_id,
-                GaSectionConfig.section_key == "total_activation",
+    parsed_supervisor_configs: dict = {}
+    if supervisor_configs is not None:
+        user_permissions = set()
+        for role in current_user.roles:
+            if is_admin_role([role.name.lower()]):
+                break
+            for perm in role.permissions:
+                user_permissions.add(perm.name)
+        if not is_admin_user(current_user) and "reports.supervisor.config" not in user_permissions:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to configure supervisor sections",
             )
-        )
-        total_act_cfg = cfg_res.scalar_one_or_none()
+        try:
+            parsed_raw = json.loads(supervisor_configs)
+            if isinstance(parsed_raw, dict):
+                parsed_supervisor_configs = parsed_raw
+            else:
+                raise HTTPException(status_code=400, detail="supervisor_configs must be a JSON object")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="supervisor_configs is not valid JSON")
 
-    achievement_tag_list = [t.strip() for t in exclude_tags.split(",") if t.strip()] if exclude_tags else []
-    if exclude_tags is None and total_act_cfg and total_act_cfg.exclude_retailer_tags:
-        achievement_tag_list = [t for t in (total_act_cfg.exclude_retailer_tags or []) if t]
-
-    if exclude_codes:
-        achievement_code_set = {c.strip() for c in exclude_codes.split(",") if c.strip()}
-    else:
-        achievement_code_set = await get_excluded_codes(db)
-        if total_act_cfg and total_act_cfg.exclude_product_codes:
-            achievement_code_set = achievement_code_set | set(total_act_cfg.exclude_product_codes)
+    achievement_tag_list = [t.strip() for t in exclude_tags.split(",") if t.strip()] if exclude_tags is not None else []
+    achievement_code_set = {c.strip() for c in exclude_codes.split(",") if c.strip()} if exclude_codes is not None else set()
 
     rso_tag_list = [t.strip() for t in rso_exclude_tags.split(",") if t.strip()] if rso_exclude_tags else []
     rso_code_set = {c.strip() for c in rso_exclude_codes.split(",") if c.strip()} if rso_exclude_codes else await get_excluded_codes(db)
@@ -1449,7 +1454,7 @@ async def get_activation_dashboard(
     )
     rso = await rso_service.get_rso_performance()
     bp = await bp_service.get_bp_performance()
-    supervisor = await supervisor_service.get_supervisor_performance()
+    supervisor = await supervisor_service.get_supervisor_performance(parsed_supervisor_configs)
     top_performers = await rso_service.get_top_performers(rso, bp, supervisor)
 
     return {

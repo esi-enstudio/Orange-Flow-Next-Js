@@ -10,6 +10,7 @@ import {
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
   Settings, Tag, X as XIcon, CheckCircle2, AlertTriangle, Flag, ChevronDown,
+  Pencil,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis,
@@ -72,6 +73,14 @@ interface EmployeePerformance {
   yesterday_activation?: number;
   month_total_activation?: number;
   active_days?: number;
+  team?: {
+    employee_id: number;
+    name: string;
+    employee_type?: string;
+    dms_code?: string;
+    itop_number?: string;
+    pool_number?: string;
+  }[];
 }
 
 interface DailyTrend {
@@ -79,6 +88,12 @@ interface DailyTrend {
   actual: number | null;
   target: number;
   is_future: boolean;
+}
+
+interface SupervisorConfig {
+  exclude_tags: string[];
+  exclude_codes: string[];
+  enabled_employee_ids: number[];
 }
 
 interface DashboardData {
@@ -560,8 +575,9 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
   );
 }
 
-function LeaderboardCard({ data, title, icon: Icon, color, t }: {
-  data: EmployeePerformance[]; title: string; icon: any; color: string; t: (key: string) => string
+function LeaderboardCard({ data, title, icon: Icon, color, t, onEdit, canEdit }: {
+  data: EmployeePerformance[]; title: string; icon: any; color: string; t: (key: string) => string;
+  onEdit?: (emp: EmployeePerformance) => void; canEdit?: boolean;
 }) {
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-5">
@@ -576,7 +592,7 @@ function LeaderboardCard({ data, title, icon: Icon, color, t }: {
       ) : (
         <div className="space-y-2">
           {data.map((emp, idx) => (
-            <div key={emp.id} className="flex items-center gap-3 py-1.5">
+            <div key={emp.id} className="group flex items-center gap-3 py-1.5">
               <div className={cn(
                 "w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-black shrink-0",
                 idx === 0 ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400" :
@@ -587,7 +603,18 @@ function LeaderboardCard({ data, title, icon: Icon, color, t }: {
                 {idx + 1}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
+                  {canEdit && onEdit && (
+                    <button
+                      onClick={() => onEdit(emp)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-gray-400 hover:text-primary-500"
+                      title={t("activation_report.supervisor_config_title")}
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 text-[10px] text-gray-400">
                   <span>{formatNumber(emp.achievement)} / {formatNumber(emp.target)}</span>
                 </div>
@@ -674,6 +701,13 @@ export default function ActivationDashboardPage() {
     try { return JSON.parse(localStorage.getItem("activation_supervisor_exclude_codes") || "[]"); }
     catch { return []; }
   });
+  const [supervisorConfigs, setSupervisorConfigs] = useState<Record<string, SupervisorConfig>>(() => {
+    try { return JSON.parse(localStorage.getItem("activation_supervisor_configs") || "{}"); }
+    catch { return {}; }
+  });
+  const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePerformance | null>(null);
+  const [supervisorDraft, setSupervisorDraft] = useState<SupervisorConfig | null>(null);
+  const [supDirty, setSupDirty] = useState(false);
   const [showReportDelivery, setShowReportDelivery] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRsoConfig, setShowRsoConfig] = useState(false);
@@ -719,8 +753,8 @@ export default function ActivationDashboardPage() {
     try {
       const params: Record<string, any> = { month, year };
       if (selectedHouseId) params.house_id = selectedHouseId;
-      if (achievementExcludeTags.length > 0) params.exclude_tags = achievementExcludeTags.join(",");
-      if (achievementExcludeCodes.length > 0) params.exclude_codes = achievementExcludeCodes.join(",");
+      params.exclude_tags = achievementExcludeTags.join(",");
+      params.exclude_codes = achievementExcludeCodes.join(",");
       if (rsoExcludeTags.length > 0) params.rso_exclude_tags = rsoExcludeTags.join(",");
       if (rsoExcludeCodes.length > 0) params.rso_exclude_codes = rsoExcludeCodes.join(",");
       if (rsoAchievedExcludeTags.length > 0) params.rso_achieved_exclude_tags = rsoAchievedExcludeTags.join(",");
@@ -730,6 +764,7 @@ export default function ActivationDashboardPage() {
       if (bpExcludeCodes.length > 0) params.bp_exclude_codes = bpExcludeCodes.join(",");
       if (supervisorExcludeTags.length > 0) params.supervisor_exclude_tags = supervisorExcludeTags.join(",");
       if (supervisorExcludeCodes.length > 0) params.supervisor_exclude_codes = supervisorExcludeCodes.join(",");
+      if (Object.keys(supervisorConfigs).length > 0) params.supervisor_configs = JSON.stringify(supervisorConfigs);
       const res = await apiClient.get("reports/activations/dashboard", { params });
       setData(res.data);
     } catch {
@@ -737,7 +772,7 @@ export default function ActivationDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
+  }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes, supervisorConfigs]);
 
   useEffect(() => {
     if (!authLoading && canViewActivationsReport) {
@@ -798,6 +833,10 @@ export default function ActivationDashboardPage() {
   }, [supervisorExcludeCodes]);
 
   useEffect(() => {
+    localStorage.setItem("activation_supervisor_configs", JSON.stringify(supervisorConfigs));
+  }, [supervisorConfigs]);
+
+  useEffect(() => {
     if (!showSupervisorConfig) return;
     const handler = (e: MouseEvent) => {
       if (supervisorConfigRef.current && !supervisorConfigRef.current.contains(e.target as Node)) {
@@ -834,7 +873,7 @@ export default function ActivationDashboardPage() {
     if (!authLoading && canViewActivationsReport) {
       fetchDashboard();
     }
-  }, [authLoading, canViewActivationsReport, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes]);
+  }, [authLoading, canViewActivationsReport, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes, supervisorConfigs]);
 
   const handleExport = async () => {
     if (!data) return;
@@ -1274,6 +1313,18 @@ export default function ActivationDashboardPage() {
                         icon={Users}
                         color="bg-orange-500"
                         t={t}
+                        canEdit={hasPermission("reports.supervisor.config")}
+                        onEdit={(emp) => {
+                        setSupervisorDraft(
+                          supervisorConfigs[String(emp.id)] ?? {
+                            exclude_tags: [],
+                            exclude_codes: [],
+                            enabled_employee_ids: (emp.team ?? []).map(m => m.employee_id),
+                          }
+                        );
+                        setSupDirty(false);
+                        setSupervisorConfigTarget(emp);
+                      }}
                       />
                     )}
                   </div>
@@ -1737,6 +1788,203 @@ export default function ActivationDashboardPage() {
         </div>
       ) : null}
 
+      {/* Supervisor Config Modal */}
+      {hasPermission("reports.supervisor.config") && supervisorConfigTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSupervisorConfigTarget(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-50 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-orange-500/10 flex items-center justify-center">
+                  <Pencil className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{t("activation_report.supervisor_config_title")}</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{supervisorConfigTarget.name} • {t("activation_report.supervisor_config_desc")}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSupervisorConfigTarget(null)}
+                className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+              >
+                <XIcon className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1 min-h-0 space-y-6">
+              {(() => {
+                const allIds = (supervisorConfigTarget.team ?? []).map(x => x.employee_id);
+                const draftTags = supervisorDraft?.exclude_tags ?? [];
+                const draftCodes = supervisorDraft?.exclude_codes ?? [];
+                const draftEmps = supervisorDraft?.enabled_employee_ids ?? allIds;
+                const updateSup = (patch: Partial<SupervisorConfig>) => {
+                  setSupervisorDraft(prev => prev ? { ...prev, ...patch } : { exclude_tags: [], exclude_codes: [], enabled_employee_ids: allIds, ...patch });
+                  setSupDirty(true);
+                };
+                return (
+                  <>
+                    {/* Tags Section */}
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.exclude_tags_hint")}</p>
+                      {tags.length === 0 ? (
+                        <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.no_tags")}</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {tags.map(tag => {
+                            const isSelected = draftTags.includes(tag.name);
+                            return (
+                              <button
+                                key={tag.id}
+                                onClick={() => updateSup({ exclude_tags: isSelected ? draftTags.filter(x => x !== tag.name) : [...draftTags, tag.name] })}
+                                className={cn(
+                                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer",
+                                  isSelected
+                                    ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                                    : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                )}
+                              >
+                                <Tag className="w-3 h-3" />
+                                {tag.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Product Codes Section */}
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.exclude_product_codes_hint")}</p>
+                      {excludedProductCodes.length === 0 ? (
+                        <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.no_excluded_codes")}</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {excludedProductCodes.map(item => {
+                            const isSelected = draftCodes.includes(item.product_code);
+                            return (
+                              <button
+                                key={item.id}
+                                onClick={() => updateSup({ exclude_codes: isSelected ? draftCodes.filter(x => x !== item.product_code) : [...draftCodes, item.product_code] })}
+                                className={cn(
+                                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer",
+                                  isSelected
+                                    ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
+                                    : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                )}
+                              >
+                                {item.product_code}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tagged Employees Section */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.supervisor_team_title")}</p>
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.supervisor_team_hint")}</p>
+                        </div>
+                      </div>
+                      {(supervisorConfigTarget.team ?? []).length === 0 ? (
+                        <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.supervisor_no_team")}</p>
+                      ) : (
+                        (() => {
+                          const team = supervisorConfigTarget.team ?? [];
+                          const groups: { type: string; members: NonNullable<EmployeePerformance["team"]> }[] = [];
+                          for (const member of team) {
+                            const type = member.employee_type?.toLowerCase() || "other";
+                            const group = groups.find(g => g.type === type);
+                            if (group) group.members.push(member);
+                            else groups.push({ type, members: [member] });
+                          }
+                          return (
+                            <div className={cn("grid gap-2.5", groups.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
+                              {groups.map(group => (
+                                <div key={group.type} className="rounded-xl border border-gray-100 dark:border-slate-800 p-2 min-w-0">
+                                  <p className="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 pb-1.5">
+                                    {group.type.toUpperCase()} ({group.members.length})
+                                  </p>
+                                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                    {group.members.map(member => {
+                                      const enabled = draftEmps.includes(member.employee_id);
+                                      const isRso = member.employee_type?.toLowerCase() === "rso";
+                                      return (
+                                        <button
+                                          key={member.employee_id}
+                                          onClick={() => updateSup({ enabled_employee_ids: enabled ? draftEmps.filter(x => x !== member.employee_id) : [...draftEmps, member.employee_id] })}
+                                          className={cn(
+                                            "w-full flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all border cursor-pointer text-left",
+                                            enabled
+                                              ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                                              : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 opacity-60 hover:opacity-100"
+                                          )}
+                                        >
+                                          {enabled ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <XIcon className="w-4 h-4 shrink-0 mt-0.5" />}
+                                          <span className="min-w-0">
+                                            <span className="block font-bold truncate">{member.name}</span>
+                                            <span className="block text-[11px] font-medium text-gray-400 dark:text-gray-500 truncate">{member.dms_code}</span>
+                                            <span className="block text-[11px] font-medium text-gray-400 dark:text-gray-500 truncate">
+                                              {isRso ? member.itop_number : member.pool_number}
+                                            </span>
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+            <div className="flex items-center justify-between gap-3 p-5 border-t border-gray-50 dark:border-slate-800">
+              <button
+                onClick={() => {
+                  if (supervisorConfigTarget) {
+                    const key = String(supervisorConfigTarget.id);
+                    setSupervisorConfigs(prev => {
+                      const next = { ...prev };
+                      delete next[key];
+                      return next;
+                    });
+                    setSupervisorDraft(null);
+                    setSupDirty(false);
+                    setSupervisorConfigTarget(null);
+                  }
+                }}
+                className="px-4 py-2 text-sm font-bold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors cursor-pointer"
+              >
+                {t("common.reset")}
+              </button>
+              <button
+                onClick={() => {
+                  if (supervisorConfigTarget && supervisorDraft && supDirty) {
+                    setSupervisorConfigs(prev => ({
+                      ...prev,
+                      [String(supervisorConfigTarget.id)]: supervisorDraft,
+                    }));
+                  }
+                  setSupervisorDraft(null);
+                  setSupDirty(false);
+                  setSupervisorConfigTarget(null);
+                }}
+                className="px-5 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm cursor-pointer"
+              >
+                {t("common.done")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* WhatsApp Report Delivery Modal */}
       {hasPermission("reports.whatsapp_share") && (
         <WhatsAppReportDeliveryModal
@@ -1846,10 +2094,10 @@ export default function ActivationDashboardPage() {
                 {t("common.reset")}
               </button>
               <button
-                onClick={() => { setShowConfigModal(false); fetchDashboard(); }}
+                onClick={() => setShowConfigModal(false)}
                 className="px-5 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm"
               >
-                {t("common.save_changes")}
+                {t("common.done")}
               </button>
             </div>
           </div>
