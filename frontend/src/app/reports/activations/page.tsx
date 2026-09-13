@@ -307,7 +307,7 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                   <span className="font-semibold text-gray-900 dark:text-gray-100">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                  <span className="text-gray-500 dark:text-gray-400">{t("activation_report.daily_average")}</span>
+                  <span className="text-gray-500 dark:text-gray-400">{type === "rso" ? t("activation_report.daily_average_short") : t("activation_report.daily_average")}</span>
                   <span className="text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
@@ -377,7 +377,7 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
               <th className="px-4 py-3 text-center">{t("activation_report.percentage")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.remaining")}</th>
               <th className="px-4 py-3 text-center">DRR</th>
-              <th className="px-4 py-3 text-center">{t("activation_report.daily_average")}</th>
+              <th className="px-4 py-3 text-center">{type === "rso" ? t("activation_report.daily_average_short") : t("activation_report.daily_average")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
               {type === "rso" && <th className="px-4 py-3 text-center">Market</th>}
               {type === "rso" && <th className="px-4 py-3 text-center">Own Activation</th>}
