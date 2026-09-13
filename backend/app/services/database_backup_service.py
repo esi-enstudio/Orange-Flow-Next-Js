@@ -114,6 +114,7 @@ async def _do_backup(db: AsyncSession, record: DatabaseBackup) -> None:
             raise RuntimeError("pg_dump produced an empty backup")
 
         shutil.move(tmp_path, record.file_path)
+        os.chmod(record.file_path, 0o644)
         record.file_size = file_size
         record.pg_version = "custom-compressed"
         record.status = "success"

@@ -44,8 +44,13 @@ async def create_backup(
         "backup": {
             "id": record.id,
             "file_name": record.file_name,
+            "file_size": record.file_size,
+            "db_name": record.db_name,
+            "pg_version": record.pg_version,
             "status": record.status,
+            "error_message": record.error_message,
             "created_at": record.created_at.isoformat() + "+06:00" if record.created_at else None,
+            "created_by": record.created_by,
         },
     }
 

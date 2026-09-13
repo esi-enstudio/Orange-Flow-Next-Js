@@ -229,12 +229,41 @@ export default function DatabaseBackupsPage() {
     };
   }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!mounted || authLoading || !hasPermission("database_backup.view")) return;
+    if (!data.some((item) => item.status === "running")) return;
+    const id = window.setInterval(() => {
+      void fetchBackups(page, true);
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [mounted, authLoading, hasPermission, data, page, fetchBackups]);
+
   const handleCreate = async () => {
     setCreating(true);
     try {
-      await apiClient.post("v1/database-backups");
+      const res = await apiClient.post("v1/database-backups");
       toast.success(t("database_backups.backup_started"));
-      setTimeout(() => fetchBackups(1, false), 500);
+      const created = res.data?.backup;
+      if (created?.id) {
+        setData((prev) => {
+          if (prev.some((x) => x.id === created.id)) return prev;
+          return [
+            {
+              id: created.id,
+              file_name: created.file_name,
+              file_size: created.file_size ?? 0,
+              db_name: created.db_name ?? "",
+              pg_version: created.pg_version ?? null,
+              status: created.status ?? "running",
+              error_message: created.error_message ?? null,
+              created_at: created.created_at ?? null,
+              created_by: created.created_by ?? null,
+            },
+            ...prev,
+          ];
+        });
+      }
+      setTimeout(() => fetchBackups(1, true), 500);
     } catch {
       toast.error(t("database_backups.backup_failed"));
     } finally {
