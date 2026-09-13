@@ -1416,15 +1416,15 @@ async def get_activation_dashboard(
     achievement_code_set = {c.strip() for c in exclude_codes.split(",") if c.strip()} if exclude_codes is not None else set()
 
     rso_tag_list = [t.strip() for t in rso_exclude_tags.split(",") if t.strip()] if rso_exclude_tags else []
-    rso_code_set = {c.strip() for c in rso_exclude_codes.split(",") if c.strip()} if rso_exclude_codes else await get_excluded_codes(db)
+    rso_code_set = {c.strip() for c in rso_exclude_codes.split(",") if c.strip()} if rso_exclude_codes is not None else await get_excluded_codes(db)
     rso_achieved_tag_list = [t.strip() for t in rso_achieved_exclude_tags.split(",") if t.strip()] if rso_achieved_exclude_tags else []
     rso_market_tag_list = [t.strip() for t in rso_market_exclude_tags.split(",") if t.strip()] if rso_market_exclude_tags else []
 
     bp_tag_list = [t.strip() for t in bp_exclude_tags.split(",") if t.strip()] if bp_exclude_tags else []
-    bp_code_set = {c.strip() for c in bp_exclude_codes.split(",") if c.strip()} if bp_exclude_codes else await get_excluded_codes(db)
+    bp_code_set = {c.strip() for c in bp_exclude_codes.split(",") if c.strip()} if bp_exclude_codes is not None else await get_excluded_codes(db)
 
     supervisor_tag_list = [t.strip() for t in supervisor_exclude_tags.split(",") if t.strip()] if supervisor_exclude_tags else []
-    supervisor_code_set = {c.strip() for c in supervisor_exclude_codes.split(",") if c.strip()} if supervisor_exclude_codes else await get_excluded_codes(db)
+    supervisor_code_set = {c.strip() for c in supervisor_exclude_codes.split(",") if c.strip()} if supervisor_exclude_codes is not None else await get_excluded_codes(db)
 
     achievement_service = ActivationReportService(
         db, target_house_id, target_month, target_year,

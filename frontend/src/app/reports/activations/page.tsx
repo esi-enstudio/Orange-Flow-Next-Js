@@ -705,7 +705,20 @@ export default function ActivationDashboardPage() {
     try { return JSON.parse(localStorage.getItem("activation_supervisor_configs") || "{}"); }
     catch { return {}; }
   });
-  const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePerformance | null>(null);
+  // ---- Draft (uncommitted) filter state - applied only on Save ----
+const [draftRsoExcludeTags, setDraftRsoExcludeTags] = useState<string[]>(rsoExcludeTags);
+const [draftRsoExcludeCodes, setDraftRsoExcludeCodes] = useState<string[]>(rsoExcludeCodes);
+const [draftRsoAchievedExcludeTags, setDraftRsoAchievedExcludeTags] = useState<string[]>(rsoAchievedExcludeTags);
+const [draftRsoMarketExcludeTags, setDraftRsoMarketExcludeTags] = useState<string[]>(rsoMarketExcludeTags);
+const [draftRsoActiveDaysThreshold, setDraftRsoActiveDaysThreshold] = useState<number>(rsoActiveDaysThreshold);
+const [draftBpExcludeTags, setDraftBpExcludeTags] = useState<string[]>(bpExcludeTags);
+const [draftBpExcludeCodes, setDraftBpExcludeCodes] = useState<string[]>(bpExcludeCodes);
+const [draftSupervisorExcludeTags, setDraftSupervisorExcludeTags] = useState<string[]>(supervisorExcludeTags);
+const [draftSupervisorExcludeCodes, setDraftSupervisorExcludeCodes] = useState<string[]>(supervisorExcludeCodes);
+const [draftAchievementExcludeTags, setDraftAchievementExcludeTags] = useState<string[]>(achievementExcludeTags);
+const [draftAchievementExcludeCodes, setDraftAchievementExcludeCodes] = useState<string[]>(achievementExcludeCodes);
+const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePerformance | null>(null);
+
   const [supervisorDraft, setSupervisorDraft] = useState<SupervisorConfig | null>(null);
   const [supDirty, setSupDirty] = useState(false);
   const [showReportDelivery, setShowReportDelivery] = useState(false);
@@ -1069,7 +1082,10 @@ export default function ActivationDashboardPage() {
                     pct: Math.round((s.previous_month_achievement / s.previous_month_target) * 100),
                   })
                 : t("activation_report.last_month_achievement", { count: s.previous_month_achievement, pct: 0 })}
-              onConfig={hasPermission("reports.achievement.config") ? () => setShowConfigModal(true) : undefined}
+              onConfig={hasPermission("reports.achievement.config") ? () => {
+    setDraftAchievementExcludeTags(achievementExcludeTags); setDraftAchievementExcludeCodes(achievementExcludeCodes);
+    setShowConfigModal(true);
+  } : undefined}
             />
             <KpiCard
               icon={Award}
@@ -1384,7 +1400,12 @@ export default function ActivationDashboardPage() {
               {activeTab === "rso" && hasPermission("reports.achievement.config") && (
                 <div ref={rsoConfigRef} className="relative shrink-0">
                   <button
-                    onClick={() => setShowRsoConfig(!showRsoConfig)}
+                    onClick={() => {
+                          setDraftRsoExcludeTags(rsoExcludeTags); setDraftRsoExcludeCodes(rsoExcludeCodes);
+                          setDraftRsoAchievedExcludeTags(rsoAchievedExcludeTags); setDraftRsoMarketExcludeTags(rsoMarketExcludeTags);
+                          setDraftRsoActiveDaysThreshold(rsoActiveDaysThreshold);
+                          setShowRsoConfig(!showRsoConfig);
+                        }}
                     className={cn(
                       "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative bg-gray-100 dark:bg-slate-800",
                       showRsoConfig
@@ -1424,12 +1445,12 @@ export default function ActivationDashboardPage() {
                               {tags.length === 0 ? (
                                 <p className="text-xs text-gray-400 py-1">{t("activation_report.no_tags")}</p>
                               ) : tags.map(tag => {
-                                const isSelected = rsoAchievedExcludeTags.includes(tag.name);
+                                const isSelected = draftRsoAchievedExcludeTags.includes(tag.name);
                                 return (
                                   <button
                                     key={tag.id}
                                     onClick={() => {
-                                      setRsoAchievedExcludeTags(prev =>
+                                      setDraftRsoAchievedExcludeTags(prev =>
                                         isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
                                       );
                                     }}
@@ -1468,12 +1489,12 @@ export default function ActivationDashboardPage() {
                               {tags.length === 0 ? (
                                 <p className="text-xs text-gray-400 py-1">{t("activation_report.no_tags")}</p>
                               ) : tags.map(tag => {
-                                const isSelected = rsoMarketExcludeTags.includes(tag.name);
+                                const isSelected = draftRsoMarketExcludeTags.includes(tag.name);
                                 return (
                                   <button
                                     key={tag.id}
                                     onClick={() => {
-                                      setRsoMarketExcludeTags(prev =>
+                                      setDraftRsoMarketExcludeTags(prev =>
                                         isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
                                       );
                                     }}
@@ -1494,6 +1515,39 @@ export default function ActivationDashboardPage() {
                         )}
                       </div>
 
+                      {/* Exclude Tags */}
+                      <div className="border-t border-gray-50 dark:border-slate-800" />
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
+                        {tags.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {tags.map(tag => {
+                              const isSelected = draftRsoExcludeTags.includes(tag.name);
+                              return (
+                                <button
+                                  key={tag.id}
+                                  onClick={() => {
+                                    setDraftRsoExcludeTags(prev =>
+                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
+                                    );
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
+                                    isSelected
+                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
+                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
+                                  )}
+                                >
+                                  <Tag className="w-2.5 h-2.5" />
+                                  {tag.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                       <div className="border-t border-gray-50 dark:border-slate-800" />
                       <div className="space-y-2">
                         <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
@@ -1502,12 +1556,12 @@ export default function ActivationDashboardPage() {
                         ) : (
                           <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                             {excludedProductCodes.map(item => {
-                              const isSelected = rsoExcludeCodes.includes(item.product_code);
+                              const isSelected = draftRsoExcludeCodes.includes(item.product_code);
                               return (
                                 <button
                                   key={item.id}
                                   onClick={() => {
-                                    setRsoExcludeCodes(prev =>
+                                    setDraftRsoExcludeCodes(prev =>
                                       isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
                                     );
                                   }}
@@ -1532,8 +1586,8 @@ export default function ActivationDashboardPage() {
                           <input
                             type="number"
                             min={1}
-                            value={rsoActiveDaysThreshold}
-                            onChange={e => setRsoActiveDaysThreshold(Math.max(1, parseInt(e.target.value) || 1))}
+                            value={draftRsoActiveDaysThreshold}
+                            onChange={e => setDraftRsoActiveDaysThreshold(Math.max(1, parseInt(e.target.value) || 1))}
                             className="w-16 px-2 py-1.5 text-xs font-bold text-center bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/50"
                           />
                           <span className="text-xs text-gray-400">Min. activations/day to count as active</span>
@@ -1541,13 +1595,18 @@ export default function ActivationDashboardPage() {
                       </div>
                       <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
                         <button
-                          onClick={() => { setRsoExcludeTags([]); setRsoExcludeCodes([]); setRsoAchievedExcludeTags([]); setRsoMarketExcludeTags([]); setRsoActiveDaysThreshold(1); }}
+                          onClick={() => { setDraftRsoExcludeTags(rsoExcludeTags); setDraftRsoExcludeCodes(rsoExcludeCodes); setDraftRsoAchievedExcludeTags(rsoAchievedExcludeTags); setDraftRsoMarketExcludeTags(rsoMarketExcludeTags); setDraftRsoActiveDaysThreshold(rsoActiveDaysThreshold); }}
                           className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
                         >
                           {t("common.reset")}
                         </button>
                         <button
-                          onClick={() => { setShowRsoConfig(false); fetchDashboard(); }}
+                          onClick={() => {
+                        setRsoExcludeTags(draftRsoExcludeTags); setRsoExcludeCodes(draftRsoExcludeCodes);
+                        setRsoAchievedExcludeTags(draftRsoAchievedExcludeTags); setRsoMarketExcludeTags(draftRsoMarketExcludeTags);
+                        setRsoActiveDaysThreshold(draftRsoActiveDaysThreshold);
+                        setShowRsoConfig(false);
+                      }}
                           className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
                         >
                           {t("common.save_changes")}
@@ -1560,7 +1619,10 @@ export default function ActivationDashboardPage() {
               {activeTab === "bp" && hasPermission("reports.achievement.config") && (
                 <div ref={bpConfigRef} className="relative">
                   <button
-                    onClick={() => setShowBpConfig(!showBpConfig)}
+                    onClick={() => {
+                          setDraftBpExcludeTags(bpExcludeTags); setDraftBpExcludeCodes(bpExcludeCodes);
+                          setShowBpConfig(!showBpConfig);
+                        }}
                     className={cn(
                       "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative",
                       showBpConfig
@@ -1588,12 +1650,12 @@ export default function ActivationDashboardPage() {
                         ) : (
                           <div className="flex flex-wrap gap-1.5">
                             {tags.map(tag => {
-                              const isSelected = bpExcludeTags.includes(tag.name);
+                              const isSelected = draftBpExcludeTags.includes(tag.name);
                               return (
                                 <button
                                   key={tag.id}
                                   onClick={() => {
-                                    setBpExcludeTags(prev =>
+                                    setDraftBpExcludeTags(prev =>
                                       isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
                                     );
                                   }}
@@ -1620,12 +1682,12 @@ export default function ActivationDashboardPage() {
                         ) : (
                           <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                             {excludedProductCodes.map(item => {
-                              const isSelected = bpExcludeCodes.includes(item.product_code);
+                              const isSelected = draftBpExcludeCodes.includes(item.product_code);
                               return (
                                 <button
                                   key={item.id}
                                   onClick={() => {
-                                    setBpExcludeCodes(prev =>
+                                    setDraftBpExcludeCodes(prev =>
                                       isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
                                     );
                                   }}
@@ -1645,13 +1707,16 @@ export default function ActivationDashboardPage() {
                       </div>
                       <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
                         <button
-                          onClick={() => { setBpExcludeTags([]); setBpExcludeCodes([]); }}
+                          onClick={() => { setDraftBpExcludeTags(bpExcludeTags); setDraftBpExcludeCodes(bpExcludeCodes); }}
                           className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
                         >
                           {t("common.reset")}
                         </button>
                         <button
-                          onClick={() => { setShowBpConfig(false); fetchDashboard(); }}
+                          onClick={() => {
+                        setBpExcludeTags(draftBpExcludeTags); setBpExcludeCodes(draftBpExcludeCodes);
+                        setShowBpConfig(false);
+                      }}
                           className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
                         >
                           {t("common.save_changes")}
@@ -1664,7 +1729,10 @@ export default function ActivationDashboardPage() {
               {activeTab === "supervisor" && hasPermission("reports.achievement.config") && (
                 <div ref={supervisorConfigRef} className="relative shrink-0">
                   <button
-                    onClick={() => setShowSupervisorConfig(!showSupervisorConfig)}
+                    onClick={() => {
+                          setDraftSupervisorExcludeTags(supervisorExcludeTags); setDraftSupervisorExcludeCodes(supervisorExcludeCodes);
+                          setShowSupervisorConfig(!showSupervisorConfig);
+                        }}
                     className={cn(
                       "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative bg-gray-100 dark:bg-slate-800",
                       showSupervisorConfig
@@ -1692,12 +1760,12 @@ export default function ActivationDashboardPage() {
                         ) : (
                           <div className="flex flex-wrap gap-1.5">
                             {tags.map(tag => {
-                              const isSelected = supervisorExcludeTags.includes(tag.name);
+                              const isSelected = draftSupervisorExcludeTags.includes(tag.name);
                               return (
                                 <button
                                   key={tag.id}
                                   onClick={() => {
-                                    setSupervisorExcludeTags(prev =>
+                                    setDraftSupervisorExcludeTags(prev =>
                                       isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
                                     );
                                   }}
@@ -1723,12 +1791,12 @@ export default function ActivationDashboardPage() {
                         ) : (
                           <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                             {excludedProductCodes.map(item => {
-                              const isSelected = supervisorExcludeCodes.includes(item.product_code);
+                              const isSelected = draftSupervisorExcludeCodes.includes(item.product_code);
                               return (
                                 <button
                                   key={item.id}
                                   onClick={() => {
-                                    setSupervisorExcludeCodes(prev =>
+                                    setDraftSupervisorExcludeCodes(prev =>
                                       isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
                                     );
                                   }}
@@ -1748,13 +1816,16 @@ export default function ActivationDashboardPage() {
                       </div>
                       <div className="border-t border-gray-100 dark:border-slate-800 flex items-center justify-between pt-2">
                         <button
-                          onClick={() => { setSupervisorExcludeTags([]); setSupervisorExcludeCodes([]); }}
+                          onClick={() => { setDraftSupervisorExcludeTags(supervisorExcludeTags); setDraftSupervisorExcludeCodes(supervisorExcludeCodes); }}
                           className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
                         >
                           {t("common.reset")}
                         </button>
                         <button
-                          onClick={() => { setShowSupervisorConfig(false); fetchDashboard(); }}
+                          onClick={() => {
+                        setSupervisorExcludeTags(draftSupervisorExcludeTags); setSupervisorExcludeCodes(draftSupervisorExcludeCodes);
+                        setShowSupervisorConfig(false);
+                      }}
                           className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
                         >
                           {t("common.save_changes")}
@@ -2028,12 +2099,12 @@ export default function ActivationDashboardPage() {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {tags.map(tag => {
-                      const isSelected = achievementExcludeTags.includes(tag.name);
+                      const isSelected = draftAchievementExcludeTags.includes(tag.name);
                       return (
                         <button
                           key={tag.id}
                           onClick={() => {
-                            setAchievementExcludeTags(prev =>
+                            setDraftAchievementExcludeTags(prev =>
                               isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
                             );
                           }}
@@ -2062,12 +2133,12 @@ export default function ActivationDashboardPage() {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {excludedProductCodes.map(item => {
-                      const isSelected = achievementExcludeCodes.includes(item.product_code);
+                      const isSelected = draftAchievementExcludeCodes.includes(item.product_code);
                       return (
                         <button
                           key={item.id}
                           onClick={() => {
-                            setAchievementExcludeCodes(prev =>
+                            setDraftAchievementExcludeCodes(prev =>
                               isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
                             );
                           }}
@@ -2088,13 +2159,17 @@ export default function ActivationDashboardPage() {
             </div>
             <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-50 dark:border-slate-800">
               <button
-                onClick={() => { setAchievementExcludeTags([]); setAchievementExcludeCodes([]); }}
+                onClick={() => { setDraftAchievementExcludeTags(achievementExcludeTags); setDraftAchievementExcludeCodes(achievementExcludeCodes); }}
                 className="px-4 py-2 text-sm font-bold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
               >
                 {t("common.reset")}
               </button>
               <button
-                onClick={() => setShowConfigModal(false)}
+                onClick={() => {
+                  setAchievementExcludeTags(draftAchievementExcludeTags);
+                  setAchievementExcludeCodes(draftAchievementExcludeCodes);
+                  setShowConfigModal(false);
+                }}
                 className="px-5 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm"
               >
                 {t("common.done")}
