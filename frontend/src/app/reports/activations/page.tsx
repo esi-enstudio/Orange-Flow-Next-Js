@@ -67,6 +67,7 @@ interface EmployeePerformance {
   status: string;
   employee_type?: string;
   itop_number?: string;
+  dms_code?: string;
   pool_number?: string;
   market_activation?: number;
   market_yesterday?: number;
@@ -275,8 +276,8 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
-                {emp.employee_type === "rso" && emp.itop_number && (
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500">{emp.itop_number}</p>
+                {emp.employee_type === "rso" && (emp.dms_code || emp.itop_number) && (
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">{[emp.dms_code, emp.itop_number].filter(Boolean).join(" · ")}</p>
                 )}
                 {(emp.employee_type === "bp" || emp.employee_type === "supervisor") && emp.pool_number && (
                   <p className="text-[10px] text-gray-400 dark:text-gray-500">{emp.pool_number}</p>
@@ -336,7 +337,7 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                 {type === "rso" && (
                   <>
                     <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                      <span className="text-gray-500 dark:text-gray-400">Market</span>
+                      <span className="text-gray-500 dark:text-gray-400">{t("activation_report.market_ga")}</span>
                       <span className="text-right">
                         <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
                           {formatNumber(emp.market_yesterday ?? 0)}
@@ -347,7 +348,7 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                       </span>
                     </div>
                     <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                      <span className="text-gray-500 dark:text-gray-400">Own Activation</span>
+                      <span className="text-gray-500 dark:text-gray-400">{t("activation_report.own_ga")}</span>
                       <span className="text-right">
                         <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
                           {formatNumber(emp.yesterday_activation ?? 0)}
@@ -379,8 +380,8 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
               <th className="px-4 py-3 text-center">DRR</th>
               <th className="px-4 py-3 text-center">{type === "rso" ? t("activation_report.daily_average_short") : t("activation_report.daily_average")}</th>
               <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
-              {type === "rso" && <th className="px-4 py-3 text-center">Market</th>}
-              {type === "rso" && <th className="px-4 py-3 text-center">Own Activation</th>}
+              {type === "rso" && <th className="px-4 py-3 text-center">{t("activation_report.market_ga")}</th>}
+              {type === "rso" && <th className="px-4 py-3 text-center">{t("activation_report.own_ga")}</th>}
               {(type === "bp" || type === "supervisor") && <th className="px-4 py-3 text-center">{t("activation_report.yesterday")}</th>}
               {type === "bp" && <th className="px-4 py-3 text-center">{t("activation_report.day_count")}</th>}
               <th className="px-4 py-3 text-center">{t("activation_report.status")}</th>
@@ -402,8 +403,10 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                 </td>
                 <td className="px-2 py-1 whitespace-nowrap">
                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{emp.name}</p>
-                  {emp.employee_type === "rso" && emp.itop_number && (
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{emp.itop_number}</p>
+                  {emp.employee_type === "rso" && (emp.dms_code || emp.itop_number) && (
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      {[emp.dms_code, emp.itop_number].filter(Boolean).join(" · ")}
+                    </p>
                   )}
                   {(emp.employee_type === "bp" || emp.employee_type === "supervisor") && emp.pool_number && (
                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{emp.pool_number}</p>

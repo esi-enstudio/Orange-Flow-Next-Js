@@ -298,7 +298,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
     const isBp = label === "BP PERFORMANCE";
     const isSupervisor = label === "SUPERVISOR PERFORMANCE";
     const headers = isRso
-      ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Market", "Own Activation", "Status"]
+      ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Market GA", "Own GA", "Status"]
       : isBp
         ? ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Day Count", "Status"]
         : ["#", "Name", identLabel, "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Status"];

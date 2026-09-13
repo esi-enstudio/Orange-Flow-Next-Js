@@ -371,9 +371,11 @@ class ActivationReportService:
             assisted_code_map=assisted_code_map,
         )
         itop_map = {e.id: e.itop_number for e in employees}
+        dms_map = {e.id: e.dms_code for e in employees}
         for r in results:
             r["employee_type"] = "rso"
             r["itop_number"] = itop_map.get(r["id"])
+            r["dms_code"] = dms_map.get(r["id"])
         return results
 
     async def get_bp_performance(self) -> list[dict]:

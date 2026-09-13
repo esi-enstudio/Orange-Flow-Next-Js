@@ -129,7 +129,7 @@ export function printActivationsReport(payload: PrintPayload, returnHtmlOnly?: b
     `;
   }
 
-  const rsoHeaders = ["#", "Name", "Itopup Number", "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Market", "Own Activation", "Status"];
+  const rsoHeaders = ["#", "Name", "Itopup Number", "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Market GA", "Own GA", "Status"];
   const bpHeaders = ["#", "Name", "Pool Number", "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Day Count", "Status"];
   const supHeaders = ["#", "Name", "Pool Number", "Target", "Ach", "%", "Remain", "DRR", "D.Avg", "Projection", "Yesterday", "Status"];
 
