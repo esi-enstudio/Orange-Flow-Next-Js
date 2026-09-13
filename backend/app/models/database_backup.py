@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
+from sqlalchemy.orm import relationship
 
 from app.models.base import Base
 from app.utils.timezone import now_naive
@@ -17,6 +18,8 @@ class DatabaseBackup(Base):
     error_message = Column(String(1000), nullable=True)
     created_at = Column(DateTime, default=now_naive, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    creator = relationship("User", foreign_keys=[created_by])
 
     is_deleted = Column(Boolean, default=False, index=True)
     deleted_at = Column(DateTime, nullable=True)

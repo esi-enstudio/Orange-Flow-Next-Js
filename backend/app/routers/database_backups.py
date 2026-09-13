@@ -51,6 +51,7 @@ async def create_backup(
             "error_message": record.error_message,
             "created_at": record.created_at.isoformat() + "+06:00" if record.created_at else None,
             "created_by": record.created_by,
+            "created_by_name": current_user.name,
         },
     }
 

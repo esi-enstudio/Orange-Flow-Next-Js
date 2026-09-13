@@ -36,6 +36,7 @@ interface BackupItem {
   error_message: string | null;
   created_at: string | null;
   created_by: number | null;
+  created_by_name?: string | null;
 }
 
 interface Pagination {
@@ -258,6 +259,7 @@ export default function DatabaseBackupsPage() {
               error_message: created.error_message ?? null,
               created_at: created.created_at ?? null,
               created_by: created.created_by ?? null,
+              created_by_name: created.created_by_name ?? null,
             },
             ...prev,
           ];
@@ -459,7 +461,7 @@ export default function DatabaseBackupsPage() {
                     <td className="px-2 py-1">
                       <p className="text-sm text-gray-600 dark:text-gray-400">{formatDate(item.created_at)}</p>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                        {t("database_backups.field_created_by")}: {item.created_by ?? "—"}
+                        {t("database_backups.field_created_by")}: {item.created_by_name ?? item.created_by ?? "—"}
                       </p>
                     </td>
                     <td className="px-2 py-1 text-right">
@@ -530,7 +532,7 @@ export default function DatabaseBackupsPage() {
                       </div>
                       <div>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("database_backups.field_created_by")}</p>
-                        <p className="font-medium text-gray-800 dark:text-gray-200">{item.created_by ?? "—"}</p>
+                        <p className="font-medium text-gray-800 dark:text-gray-200">{item.created_by_name ?? item.created_by ?? "—"}</p>
                       </div>
                       <div>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("database_backups.field_size")}</p>

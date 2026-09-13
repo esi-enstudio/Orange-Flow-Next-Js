@@ -136,6 +136,7 @@ async def list_backups(
     sort_order: str = "desc",
 ):
     from sqlalchemy import func, select
+    from sqlalchemy.orm import selectinload
 
     base_q = select(DatabaseBackup).where(DatabaseBackup.is_deleted.is_(False))
     if search:
@@ -151,7 +152,11 @@ async def list_backups(
     else:
         base_q = base_q.order_by(order_col.desc())
 
-    rows = (await db.execute(base_q.offset((page - 1) * per_page).limit(per_page))).scalars().all()
+    rows = (
+        (await db.execute(base_q.options(selectinload(DatabaseBackup.creator)).offset((page - 1) * per_page).limit(per_page)))
+        .scalars()
+        .all()
+    )
 
     total_pages = (total + per_page - 1) // per_page if per_page else 0
     return {
@@ -167,6 +172,7 @@ async def list_backups(
                 "error_message": r.error_message,
                 "created_at": r.created_at.isoformat() + "+06:00" if r.created_at else None,
                 "created_by": r.created_by,
+                "created_by_name": r.creator.name if r.creator else None,
             }
             for r in rows
         ],
