@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -15,7 +16,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import SectionConfigModal from "./SectionConfigModal";
 import LiveActivationDetailModal from "./LiveActivationDetailModal";
 import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 import { exportLiveReport } from "@/lib/export-ga-live-report";
@@ -510,6 +510,7 @@ function ChartTooltip({ active, payload, label }: any) {
 /* ─────────── Main Page ─────────── */
 export default function GaLiveReportPage() {
   const { user, hasPermission, loading: authLoading } = useAuth();
+  const router = useRouter();
 
   const [data, setData] = useState<GaLiveData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -519,14 +520,12 @@ export default function GaLiveReportPage() {
   const [bpView, setBpView] = useState<"grid" | "table">("grid");
   const [selectedHouseId, setSelectedHouseId] = useState<number | null>(null);
   const [allHouses, setAllHouses] = useState<Array<{ id: number; name: string; code: string }> | null>(null);
-  const [editingSection, setEditingSection] = useState<string | null>(null);
   const [targetData, setTargetData] = useState<{
     total_target: number;
     total_achieved: number;
     overall_percentage: number;
     days_remaining: number;
   } | null>(null);
-  const [configVersion, setConfigVersion] = useState(0);
   const [liveSyncEnabled, setLiveSyncEnabled] = useState(true);
   const [liveSyncLoading, setLiveSyncLoading] = useState(false);
   const [wsModalOpen, setWsModalOpen] = useState(false);
@@ -537,7 +536,7 @@ export default function GaLiveReportPage() {
     employeeName: string;
   }>({ open: false, employeeId: null, roleType: "rso", employeeName: "" });
 
-  const isAdmin = hasPermission("ga_section_configs.edit");
+  const isAdmin = hasPermission("rule_config.create") || hasPermission("rule_config.edit");
 
   function todayStr() {
     const d = new Date();
@@ -592,7 +591,7 @@ export default function GaLiveReportPage() {
     } finally {
       setLoading(false);
     }
-  }, [effectiveHouseId, today, configVersion]);
+  }, [effectiveHouseId, today]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -900,7 +899,7 @@ export default function GaLiveReportPage() {
             />
             {isAdmin && (
               <button
-                onClick={() => setEditingSection("total_activation")}
+                onClick={() => router.push("/rule-config?context=ga_live&role=HOUSE")}
                 className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
                 title="Configure exclusions"
               >
@@ -918,7 +917,7 @@ export default function GaLiveReportPage() {
             />
             {isAdmin && (
               <button
-                onClick={() => setEditingSection("employee_activation")}
+                onClick={() => router.push("/rule-config?context=ga_live&role=HOUSE")}
                 className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
                 title="Configure product exclusions"
               >
@@ -936,7 +935,7 @@ export default function GaLiveReportPage() {
             />
             {isAdmin && (
               <button
-                onClick={() => setEditingSection("market_activation")}
+                onClick={() => router.push("/rule-config?context=ga_live&role=HOUSE")}
                 className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
                 title="Configure product exclusions"
               >
@@ -982,7 +981,7 @@ export default function GaLiveReportPage() {
             </div>
             {isAdmin && (
               <button
-                onClick={() => setEditingSection("distribution")}
+                onClick={() => router.push("/rule-config?context=ga_live&role=HOUSE")}
                 className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
                 title="Configure Employee vs Market"
               >
@@ -1011,7 +1010,7 @@ export default function GaLiveReportPage() {
             )}
             {isAdmin && (
               <button
-                onClick={() => setEditingSection("rsos")}
+                onClick={() => router.push("/rule-config?context=ga_live&role=RSO")}
                 className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
                 title="Configure RSO Contribution"
               >
@@ -1040,7 +1039,7 @@ export default function GaLiveReportPage() {
             )}
             {isAdmin && (
               <button
-                onClick={() => setEditingSection("bps")}
+                onClick={() => router.push("/rule-config?context=ga_live&role=BP")}
                 className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
                 title="Configure BP Contribution"
               >
@@ -1057,7 +1056,7 @@ export default function GaLiveReportPage() {
       {trend.length > 0 && (
         <div className="group relative">
         <section>
-          <SectionHeader title="Activation Trend" subtitle="Daily activation count for the selected period" onEdit={isAdmin ? () => setEditingSection("total_activation") : undefined} />
+          <SectionHeader title="Activation Trend" subtitle="Daily activation count for the selected period" onEdit={isAdmin ? () => router.push("/rule-config?context=ga_live&role=HOUSE") : undefined} />
           <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={trend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -1080,7 +1079,7 @@ export default function GaLiveReportPage() {
           <SectionHeader
             title="Supervisor Performance"
             subtitle={`${supervisors.length} supervisors · showing contribution and team breakdown`}
-            onEdit={isAdmin ? () => setEditingSection("supervisors") : undefined}
+            onEdit={isAdmin ? () => router.push("/rule-config?context=ga_live&role=SUPERVISOR") : undefined}
           />
           <div className="space-y-3">
             {supervisors.map((sup) => {
@@ -1210,7 +1209,7 @@ export default function GaLiveReportPage() {
           <SectionHeader
             title="RSO Performance"
             subtitle={`${rsos.length} RSOs · view grid or table`}
-            onEdit={isAdmin ? () => setEditingSection("rsos") : undefined}
+            onEdit={isAdmin ? () => router.push("/rule-config?context=ga_live&role=RSO") : undefined}
             action={
               <div className="flex items-center border border-gray-200 dark:border-slate-600 rounded-xl overflow-hidden">
                 <button
@@ -1399,7 +1398,7 @@ export default function GaLiveReportPage() {
           <SectionHeader
             title="BP Performance"
             subtitle={`${bps.length} BPs · leaderboard ranking`}
-            onEdit={isAdmin ? () => setEditingSection("bps") : undefined}
+            onEdit={isAdmin ? () => router.push("/rule-config?context=ga_live&role=BP") : undefined}
             action={
               <div className="flex items-center border border-gray-200 dark:border-slate-600 rounded-xl overflow-hidden">
                 <button
@@ -1596,7 +1595,7 @@ export default function GaLiveReportPage() {
       {insights.length > 0 && (
         <div className="group relative">
         <section>
-          <SectionHeader title="Smart Insights" subtitle="Automated analysis of your activation data" onEdit={isAdmin ? () => setEditingSection("insights") : undefined} />
+          <SectionHeader title="Smart Insights" subtitle="Automated analysis of your activation data" />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {insights.map((insight, i) => (
               <div
@@ -1613,24 +1612,6 @@ export default function GaLiveReportPage() {
         </section>
         </div>
       )}
-
-      {/* ────── Section Config Modal ────── */}
-      <SectionConfigModal
-        open={editingSection !== null}
-        sectionKey={editingSection as any}
-        houseId={effectiveHouseId!}
-        onClose={() => setEditingSection(null)}
-        onSaved={() => setConfigVersion((v) => v + 1)}
-        mode={
-          editingSection === "total_activation" || editingSection === "market_activation" || editingSection === "distribution"
-            ? "full"
-            : editingSection === "employee_activation"
-              ? "employees_only"
-              : editingSection === "rsos" || editingSection === "bps"
-                ? "full"
-              : "products_only"
-        }
-      />
 
       {/* ────── RSO/BP Detail Modal ────── */}
       <LiveActivationDetailModal

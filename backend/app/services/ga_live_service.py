@@ -14,7 +14,6 @@ from app.models.employee import Employee
 from app.models.user import User
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.supervisor_assignment import SupervisorRSOAssignment
-from app.models.ga_section_config import GaSectionConfig
 from app.models.rso_target import RSOTarget
 from app.models.bp_target import BpTarget
 from app.models.supervisor_target import SupervisorTarget
@@ -22,7 +21,8 @@ from app.services.retailer_marking_service import (
     get_active_retailer_ids_for_marking,
     get_employee_owned_retailer_ids,
 )
-from app.utils.activation_rules import get_excluded_codes, exclude_clause
+from app.services.rule_config_service import get_effective_rule_conditions
+from app.utils.activation_rules import exclude_clause
 from app.services.cache_service import cache_service
 
 logger = logging.getLogger("app.services.GaLive")
@@ -33,6 +33,20 @@ SECTION_EMPLOYEE_ROLES = {
     "rsos": ["rso"],
     "bps": ["bp"],
     "ccs": ["cc"],
+}
+
+# GA Live sections → rule engine target_role (context_key="ga_live").
+SECTION_ROLE = {
+    "total_activation": "HOUSE",
+    "employee_activation": "HOUSE",
+    "market_activation": "HOUSE",
+    "distribution": "HOUSE",
+    "insights": "HOUSE",
+    "trend": "HOUSE",
+    "supervisors": "SUPERVISOR",
+    "rsos": "RSO",
+    "bps": "BP",
+    "ccs": "CC",
 }
 
 
@@ -49,9 +63,8 @@ class GaLiveQueryBuilder:
         self.house_id = house_id
         self.start_date = start_date
         self.end_date = end_date
-        self._excluded_codes: set[str] | None = None
         self._excluded_retailers: dict[str, set[int]] = {}
-        self._section_configs: dict[str, dict] = {}
+        self._conditions: dict[str, dict] = {}
         self._owned_retailers: dict[str, set[int]] = {}
 
     async def _owned_retailer_ids(self, section_key: str) -> set[int]:
@@ -67,34 +80,49 @@ class GaLiveQueryBuilder:
             )
         return self._owned_retailers[cache_key]
 
-    async def _load_section_configs(self):
-        result = await self.db.execute(
-            select(GaSectionConfig).where(GaSectionConfig.house_id == self.house_id)
-        )
-        for cfg in result.scalars().all():
-            self._section_configs[cfg.section_key] = {
-                "exclude_product_codes": cfg.exclude_product_codes or [],
-                "exclude_retailer_tags": cfg.exclude_retailer_tags or [],
-                "selected_employee_ids": cfg.selected_employee_ids or [],
-            }
+    async def _load_rule_conditions(self):
+        """Load effective rule conditions for every GA Live section.
+
+        Product-code exclusions are the union across all active ga_live rules
+        (global); retailer-type exclusions and included employees come from the
+        active rule matching each section's target_role.
+        """
+        for section_key, role in SECTION_ROLE.items():
+            cond = await get_effective_rule_conditions(
+                self.db, self.house_id, "ga_live", role
+            )
+            self._conditions[section_key] = cond
 
     async def _get_exclusions(self, section_key: str) -> tuple[list[str], list[str]]:
-        cfg = self._section_configs.get(section_key)
-        if cfg is None:
-            return [], []
-        return cfg["exclude_product_codes"], cfg["exclude_retailer_tags"]
+        cond = self._conditions.get(section_key) or {}
+        return (
+            sorted(cond.get("excluded_product_codes") or []),
+            cond.get("excluded_retailer_types") or [],
+        )
 
     async def _effective_excluded_codes(self, section_key: str) -> set[str]:
-        """Section config authoritative; global excluded codes = fallback only when no config."""
-        cfg = self._section_configs.get(section_key)
-        if cfg is not None:
-            return set(cfg["exclude_product_codes"] or [])
-        await self._load_excluded_codes()
-        return set(self._excluded_codes or [])
+        """Union of product codes excluded across all active ga_live rules."""
+        cond = self._conditions.get(section_key) or {}
+        return set(cond.get("excluded_product_codes") or [])
 
-    async def _load_excluded_codes(self):
-        if self._excluded_codes is None:
-            self._excluded_codes = await get_excluded_codes(self.db)
+    async def _selected_employee_db_ids(self, section_key: str) -> list[int]:
+        """Employee IDs selected via the section rule's included_employee_ids.
+
+        Rule rows store user IDs; GA Live filters by Employee.id, so map
+        user_id → employee_id for this house's active employees.
+        """
+        cond = self._conditions.get(section_key) or {}
+        user_ids = cond.get("included_employee_ids") or []
+        if not user_ids:
+            return []
+        res = await self.db.execute(
+            select(Employee.id).where(
+                Employee.house_id == self.house_id,
+                Employee.status == "Active",
+                Employee.user_id.in_(user_ids),
+            )
+        )
+        return [r[0] for r in res.all()]
 
     async def _load_excluded_retailers_by_tag(self, tag_name: str) -> set[int]:
         if tag_name not in self._excluded_retailers:
@@ -201,9 +229,7 @@ class GaLiveQueryBuilder:
     async def get_employee_activation_by_code(self, section_key: str) -> int:
         base = await self._build_base_query(section_key)
 
-        cfg = self._section_configs.get(section_key, {})
-        selected_emp_ids: list[int] = cfg.get("selected_employee_ids") or []
-
+        selected_emp_ids = await self._selected_employee_db_ids(section_key)
         if not selected_emp_ids:
             return 0
 
@@ -327,6 +353,20 @@ class GaLiveQueryBuilder:
         rso_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "rso"]
         bp_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "bp"]
         cc_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "cc"]
+
+        # Rule-based employee inclusion per role section (included_employee_ids).
+        sup_selected = set(await self._selected_employee_db_ids("supervisors"))
+        if sup_selected:
+            supervisor_emp_ids_all = [eid for eid in supervisor_emp_ids_all if eid in sup_selected]
+        rso_selected = set(await self._selected_employee_db_ids("rsos"))
+        if rso_selected:
+            rso_emp_ids_all = [eid for eid in rso_emp_ids_all if eid in rso_selected]
+        bp_selected = set(await self._selected_employee_db_ids("bps"))
+        if bp_selected:
+            bp_emp_ids_all = [eid for eid in bp_emp_ids_all if eid in bp_selected]
+        cc_selected = set(await self._selected_employee_db_ids("ccs"))
+        if cc_selected:
+            cc_emp_ids_all = [eid for eid in cc_emp_ids_all if eid in cc_selected]
 
         # ── Load BP retailer codes ──
         bp_code_rows = await self.db.execute(
@@ -969,8 +1009,7 @@ class GaLiveQueryBuilder:
         return result
 
     async def _get_employee_participation_counts(self) -> dict:
-        cfg = self._section_configs.get("employee_activation", {})
-        emp_ids: list[int] = cfg.get("selected_employee_ids") or []
+        emp_ids = await self._selected_employee_db_ids("employee_activation")
         if not emp_ids:
             return {"total_selected": 0, "activated_count": 0}
 
@@ -1004,7 +1043,7 @@ class GaLiveQueryBuilder:
         return {"total_selected": total_selected, "activated_count": activated_count}
 
     async def build_all(self) -> dict:
-        await self._load_section_configs()
+        await self._load_rule_conditions()
 
         total = await self.get_total_count("total_activation")
         yesterday_total = await self.get_yesterday_total_count("total_activation")

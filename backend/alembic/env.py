@@ -33,7 +33,7 @@ from app.models.subscription import HouseSubscription
 from app.models.sync_history import SyncHistory
 from app.models.mela import Mela, MelaActivity, MelaType, MelaEligibleBTS, MelaAssignment
 from app.models.product import Product
-from app.models.ga_section_config import GaSectionConfig
+from app.models.rule_config import *
 from app.models.app_setting import AppSetting
 from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,

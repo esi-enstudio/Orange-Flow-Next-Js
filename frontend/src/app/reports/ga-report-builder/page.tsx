@@ -502,7 +502,7 @@ function ColumnPicker({
 function EventManagerModal({
   open, onClose, houseId, events, onSaved, canCreate, canEdit, canDelete, canPermanentDelete,
   columnsMeta, rsoItems, bpItems, fetchAllEntities,
-  productCodes, tags,
+  tags,
 }: {
   open: boolean;
   onClose: () => void;
@@ -517,7 +517,6 @@ function EventManagerModal({
   rsoItems: EntityOption[];
   bpItems: EntityOption[];
   fetchAllEntities: (type: "rso" | "bp" | "retailer") => Promise<EntityOption[]>;
-  productCodes: string[];
   tags: TagOption[];
 }) {
   const { t } = useLanguage();
@@ -672,17 +671,6 @@ function EventManagerModal({
       const all = await fetchAllEntities("bp");
       if (all.length > 0) setLocalBpItems(all);
     }
-  };
-
-  const productToggle = (code: string) => {
-    const codes = config.filters?.exclude_product_codes ?? [];
-    const tags = config.filters?.exclude_retailer_tags ?? [];
-    updateConfig({
-      filters: {
-        exclude_product_codes: codes.includes(code) ? codes.filter((x) => x !== code) : [...codes, code],
-        exclude_retailer_tags: tags,
-      },
-    });
   };
 
   const tagToggle = (name: string) => {
@@ -1184,18 +1172,6 @@ function EventManagerModal({
                 {/* Exclusions */}
                 <div className="space-y-3">
                       <SearchableMulti
-                        label={t("ga_report_builder.filters.exclude_products")}
-                        placeholder={t("ga_report_builder.filters.exclude_products_placeholder")}
-                        items={productCodes.map((code) => ({ id: 0, code, name: code, itop_number: "" }))}
-                        selectedKeys={config.filters?.exclude_product_codes ?? []}
-                        onToggle={productToggle}
-                        onSearch={() => {}}
-                        loading={false}
-                        searchable={false}
-                        displayField="code"
-                        keyField="code"
-                      />
-                      <SearchableMulti
                         label={t("ga_report_builder.filters.exclude_tags")}
                         placeholder={t("ga_report_builder.filters.exclude_tags_placeholder")}
                         items={tags}
@@ -1445,7 +1421,6 @@ export default function GaReportBuilderPage() {
   const [columnsMeta, setColumnsMeta] = useState<ColumnOption[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
-  const [productCodes, setProductCodes] = useState<string[]>([]);
   const [tags, setTags] = useState<TagOption[]>([]);
 
   const [rsoItems, setRsoItems] = useState<EntityOption[]>([]);
@@ -1545,7 +1520,6 @@ export default function GaReportBuilderPage() {
     try {
       const res = await apiClient.get("/ga-report-builder/exclusions", { params: { house_id: houseId } });
       const d = res.data?.data;
-      setProductCodes(d?.product_codes ?? []);
       setTags(d?.retailer_tags ?? []);
     } catch { /* silent */ }
   }, []);
@@ -2354,25 +2328,6 @@ export default function GaReportBuilderPage() {
                   <Filter className="w-3.5 h-3.5" /> {t("ga_report_builder.filters.exclusions")}
                 </p>
                 <SearchableMulti
-                  label={t("ga_report_builder.filters.exclude_products")}
-                  placeholder={t("ga_report_builder.filters.exclude_products_placeholder")}
-                  items={productCodes.map((code) => ({ id: 0, code, name: code, itop_number: "" }))}
-                  selectedKeys={payload.filters.exclude_product_codes}
-                  onToggle={(code) => updatePayload({
-                    filters: {
-                      ...payload.filters,
-                      exclude_product_codes: payload.filters.exclude_product_codes.includes(code)
-                        ? payload.filters.exclude_product_codes.filter((c) => c !== code)
-                        : [...payload.filters.exclude_product_codes, code],
-                    },
-                  })}
-                  onSearch={() => {}}
-                  loading={false}
-                  searchable={false}
-                  displayField="code"
-                  keyField="code"
-                />
-                <SearchableMulti
                   label={t("ga_report_builder.filters.exclude_tags")}
                   placeholder={t("ga_report_builder.filters.exclude_tags_placeholder")}
                   items={tags}
@@ -2462,7 +2417,6 @@ export default function GaReportBuilderPage() {
         rsoItems={rsoItems}
         bpItems={bpItems}
         fetchAllEntities={fetchAllEntities}
-        productCodes={productCodes}
         tags={tags}
       />
       <ConfirmationModal

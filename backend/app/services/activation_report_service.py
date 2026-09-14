@@ -1,6 +1,6 @@
 import logging
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from calendar import monthrange
 from typing import Optional
 
@@ -17,29 +17,22 @@ from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.user import User
-from app.models.role import Role
-from app.models.product_exclusion import ExcludedProductCode
-from app.services.retailer_marking_service import get_active_retailer_ids_for_markings
+from app.services.retailer_marking_service import (
+    get_active_retailer_ids_for_marking,
+    get_employee_owned_retailer_ids,
+)
+from app.services.rule_config_service import get_effective_rule_conditions
+from app.utils.activation_rules import exclude_clause
 
 logger = logging.getLogger("app.services.ActivationReport")
 
 class ActivationReportService:
-    def __init__(self, db: AsyncSession, house_id: int, month: int, year: int,
-                 exclude_tag_names: Optional[list[str]] = None,
-                 exclude_product_codes: Optional[set[str]] = None,
-                 achieved_exclude_tag_names: Optional[list[str]] = None,
-                 market_exclude_tag_names: Optional[list[str]] = None,
-                 active_days_threshold: int = 1):
+    def __init__(self, db: AsyncSession, house_id: int, month: int, year: int, target_role: Optional[str] = None):
         self.db = db
         self.house_id = house_id
         self.month = month
         self.year = year
-        self.exclude_tag_names = exclude_tag_names or []
-        self.exclude_product_codes = exclude_product_codes or set()
-        self.achieved_exclude_tag_names = achieved_exclude_tag_names or []
-        self.market_exclude_tag_names = market_exclude_tag_names or []
-        self.active_days_threshold = active_days_threshold
-        self._cached_excluded_ids: Optional[set[int]] = None
+        self.target_role = target_role
         self.month_start = date(year, month, 1)
         _, last_day = monthrange(year, month)
         self.month_end = date(year, month, last_day)
@@ -51,6 +44,62 @@ class ActivationReportService:
             self._days_elapsed = 0
         self._days_remaining = max(0, self._days_in_month - self._days_elapsed)
         self._remaining_fridays = self._count_fridays_in_range(self.today, self.month_end) if self._days_remaining > 0 else 0
+        self._rule_conditions: dict[str, tuple] = {}
+
+    # Role of a rule owns the retailers of that employee type; those must never
+    # be excluded from that role's own section (mirrors GA Live SECTION_EMPLOYEE_ROLES).
+    ROLE_OWNED_TYPES = {
+        "HOUSE": [],
+        "SUPERVISOR": ["supervisor"],
+        "RSO": ["rso"],
+        "BP": ["bp"],
+    }
+
+    async def _load_rule_conditions(self, role: Optional[str] = None) -> tuple[list[str], set[int], list[int]]:
+        """Effective activation_report rule conditions for this house per role.
+
+        Product codes = union across all active activation_report rules;
+        retailer-type exclusions resolved to retailer IDs (the rule's own role
+        employees' retailers are exempt, matching GA Live semantics); HOUSE has
+        no exemption. `role` defaults to ``self.target_role``.
+        """
+        key = role or self.target_role
+        if key in self._rule_conditions:
+            return self._rule_conditions[key]
+        cond = await get_effective_rule_conditions(self.db, self.house_id, "activation_report", key)
+        excluded_product_codes = cond.get("excluded_product_codes") or []
+        included_user_ids: list[int] = cond.get("included_employee_ids") or []
+        excluded_retailer_ids: set[int] = set()
+        for tag in cond.get("excluded_retailer_types") or []:
+            excluded_retailer_ids |= await get_active_retailer_ids_for_marking(
+                self.db, self.house_id, tag
+            )
+        owned_roles = self.ROLE_OWNED_TYPES.get(key or "", [])
+        if owned_roles and excluded_retailer_ids:
+            try:
+                owned = await get_employee_owned_retailer_ids(
+                    self.db, self.house_id, owned_roles
+                )
+                excluded_retailer_ids -= owned
+            except Exception:
+                pass
+        self._rule_conditions[key] = (excluded_product_codes, excluded_retailer_ids, included_user_ids)
+        return self._rule_conditions[key]
+
+    async def _apply_rule_filters(self, q, model, role: Optional[str] = None):
+        product_codes, excluded_retailer_ids, _ = await self._load_rule_conditions(role)
+        if product_codes:
+            clause = exclude_clause(model, set(product_codes))
+            if clause is not None:
+                q = q.where(clause)
+        if excluded_retailer_ids:
+            q = q.where(
+                and_(
+                    model.retailer_id != None,
+                    model.retailer_id.notin_(excluded_retailer_ids),
+                )
+            )
+        return q
 
     def _count_fridays_in_range(self, start: date, end: date) -> int:
         count = 0
@@ -61,56 +110,26 @@ class ActivationReportService:
             d += timedelta(days=1)
         return count
 
-    async def _get_excluded_retailer_ids(self) -> set[int]:
-        if self._cached_excluded_ids is not None:
-            return self._cached_excluded_ids
-        if not self.exclude_tag_names:
-            self._cached_excluded_ids = set()
-            return self._cached_excluded_ids
-        self._cached_excluded_ids = await get_active_retailer_ids_for_markings(
-            self.db, self.house_id, self.exclude_tag_names
-        )
-        return self._cached_excluded_ids
-
-    async def _get_excluded_retailer_ids_for_tags(self, tag_names: list[str]) -> set[int]:
-        if not tag_names:
-            return set()
-        return await get_active_retailer_ids_for_markings(self.db, self.house_id, tag_names)
-
     async def _count_activations(
         self,
         retailer_ids: Optional[set[int]] = None,
         retailer_codes: Optional[list[str]] = None,
-        exclude_ids: Optional[set[int]] = None,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
-        exclude_tags: bool = True,
-        exclude_codes: Optional[set[str]] = None,
+        role: Optional[str] = None,
     ) -> int:
-        total = 0
-        excluded = exclude_ids if exclude_ids is not None else (await self._get_excluded_retailer_ids() if exclude_tags else set())
-        excluded_codes = self.exclude_product_codes if exclude_codes is None else exclude_codes
-
         q = select(func.count()).select_from(Activation).where(
             Activation.house_id == self.house_id,
             Activation.activation_date >= (start_date or self.month_start),
             Activation.activation_date <= (end_date or self.month_end),
         )
+        q = await self._apply_rule_filters(q, Activation, role)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
             q = q.where(Activation.retailer_code.in_(retailer_codes))
-        if excluded:
-            q = q.where(
-                Activation.retailer_id.notin_(excluded),
-                Activation.retailer_id != None,
-            )
-        if excluded_codes:
-            q = q.where(Activation.product_code.notin_(excluded_codes))
         res = await self.db.execute(q)
-        total = res.scalar() or 0
-
-        return total
+        return res.scalar() or 0
 
     async def _get_house_target(self) -> Optional[HouseTarget]:
         res = await self.db.execute(
@@ -122,43 +141,30 @@ class ActivationReportService:
         )
         return res.scalar_one_or_none()
 
-    async def _count_activations_for_date(self, target_date: date, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, exclude_ids: Optional[set[int]] = None, exclude_tags: bool = True, exclude_codes: Optional[set[str]] = None) -> int:
-        excluded = exclude_ids if exclude_ids is not None else (await self._get_excluded_retailer_ids() if exclude_tags else set())
-        excluded_codes = self.exclude_product_codes if exclude_codes is None else exclude_codes
+    async def _count_activations_for_date(self, target_date: date, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, role: Optional[str] = None) -> int:
         q = select(func.count()).select_from(Activation).where(
             Activation.house_id == self.house_id,
             Activation.activation_date == target_date,
         )
+        q = await self._apply_rule_filters(q, Activation, role)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
             q = q.where(Activation.retailer_code.in_(retailer_codes))
-        if excluded and exclude_tags:
-            q = q.where(
-                Activation.retailer_id.notin_(excluded),
-                Activation.retailer_id != None,
-            )
-        if excluded_codes:
-            q = q.where(Activation.product_code.notin_(excluded_codes))
         res = await self.db.execute(q)
         return res.scalar() or 0
 
-    async def _count_active_days(self, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, exclude_tags: bool = True, start_date: Optional[date] = None, end_date: Optional[date] = None, threshold: int = 1, exclude_ids: Optional[set[int]] = None, exclude_codes: Optional[set[str]] = None) -> int:
-        excluded = exclude_ids if exclude_ids is not None else (await self._get_excluded_retailer_ids() if exclude_tags else set())
-        excluded_codes = self.exclude_product_codes if exclude_codes is None else exclude_codes
+    async def _count_active_days(self, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, threshold: int = 1, role: Optional[str] = None) -> int:
         q = select(Activation.activation_date, func.count()).where(
             Activation.house_id == self.house_id,
             Activation.activation_date >= (start_date or self.month_start),
             Activation.activation_date <= (end_date or self.month_end),
         )
+        q = await self._apply_rule_filters(q, Activation, role)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
             q = q.where(Activation.retailer_code.in_(retailer_codes))
-        if excluded and exclude_tags:
-            q = q.where(Activation.retailer_id.notin_(excluded))
-        if excluded_codes:
-            q = q.where(Activation.product_code.notin_(excluded_codes))
         q = q.group_by(Activation.activation_date)
         if threshold > 1:
             q = q.having(func.count() >= threshold)
@@ -184,21 +190,16 @@ class ActivationReportService:
         prev_target = prev_target_row.scalar_one_or_none()
         previous_month_target = prev_target.total_ga_target or 0 if prev_target else 0
 
-        achievement = await self._count_activations()
+        achievement = await self._count_activations(role="HOUSE")
         yesterday_date = self.today - timedelta(days=1)
-        yesterday_activation = await self._count_activations_for_date(yesterday_date) if yesterday_date >= self.month_start else 0
+        yesterday_activation = await self._count_activations_for_date(yesterday_date, role="HOUSE") if yesterday_date >= self.month_start else 0
 
-        excluded_for_prev = await self._get_excluded_retailer_ids()
-        excluded_codes = self.exclude_product_codes
         prev_act_q = select(func.count()).select_from(Activation).where(
             Activation.house_id == self.house_id,
             Activation.activation_date >= prev_start,
             Activation.activation_date <= prev_end,
         )
-        if excluded_for_prev:
-            prev_act_q = prev_act_q.where(Activation.retailer_id.notin_(excluded_for_prev), Activation.retailer_id != None)
-        if excluded_codes:
-            prev_act_q = prev_act_q.where(Activation.product_code.notin_(excluded_codes))
+        prev_act_q = await self._apply_rule_filters(prev_act_q, Activation, role="HOUSE")
         prev_act_res = await self.db.execute(prev_act_q)
         previous_month_achievement = prev_act_res.scalar() or 0
 
@@ -236,36 +237,18 @@ class ActivationReportService:
         target_map: dict,
         name_map: dict[int, str],
         type_label: str,
-        achieved_exclude_tag_names: Optional[list[str]] = None,
-        market_exclude_tag_names: Optional[list[str]] = None,
         assisted_code_map: Optional[dict[int, Optional[str]]] = None,
+        role: str = "RSO",
     ) -> list[dict]:
         results = []
         yesterday_date = self.today - timedelta(days=1)
-        achieved_tag_list = achieved_exclude_tag_names or []
-        market_tag_list = market_exclude_tag_names or []
-        achieved_excluded_ids = await self._get_excluded_retailer_ids_for_tags(achieved_tag_list) if achieved_tag_list else None
-        market_excluded_ids = await self._get_excluded_retailer_ids_for_tags(market_tag_list) if market_tag_list else None
-
         for emp_id in employee_ids:
             target_val = target_map.get(emp_id, 0)
             retailer_ids = await self._get_retailer_ids_for_employee(emp_id)
 
-            if achieved_excluded_ids is not None:
-                achievement = await self._count_activations(retailer_ids=retailer_ids, exclude_ids=achieved_excluded_ids)
-            else:
-                achievement = await self._count_activations(retailer_ids=retailer_ids)
-
-            if market_excluded_ids is not None:
-                if yesterday_date >= self.month_start:
-                    market_activation = await self._count_activations(retailer_ids=retailer_ids, exclude_ids=market_excluded_ids, end_date=yesterday_date)
-                    market_yesterday = await self._count_activations_for_date(yesterday_date, retailer_ids=retailer_ids, exclude_ids=market_excluded_ids)
-                else:
-                    market_activation = 0
-                    market_yesterday = 0
-            else:
-                market_activation = achievement
-                market_yesterday = await self._count_activations_for_date(yesterday_date, retailer_ids=retailer_ids) if yesterday_date >= self.month_start else 0
+            achievement = await self._count_activations(retailer_ids=retailer_ids, role=role)
+            market_activation = achievement
+            market_yesterday = await self._count_activations_for_date(yesterday_date, retailer_ids=retailer_ids, role=role) if yesterday_date >= self.month_start else 0
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
@@ -285,16 +268,16 @@ class ActivationReportService:
             # the assisted retailer code. RSOs without an assisted code show zero.
             assisted_code = assisted_code_map.get(emp_id) if assisted_code_map else None
             if type_label == "rso" and assisted_code and yesterday_date >= self.month_start:
-                yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_codes=[assisted_code], exclude_tags=False)
+                yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_codes=[assisted_code], role=role)
             else:
                 yesterday_activation = 0
 
             if type_label == "rso" and assisted_code and yesterday_date >= self.month_start:
-                month_total = await self._count_activations(retailer_codes=[assisted_code], end_date=yesterday_date, exclude_tags=False)
+                month_total = await self._count_activations(retailer_codes=[assisted_code], end_date=yesterday_date, role=role)
             else:
                 month_total = 0
             if type_label == "rso" and assisted_code:
-                active_days = await self._count_active_days(retailer_codes=[assisted_code], exclude_tags=False, end_date=yesterday_date, threshold=self.active_days_threshold)
+                active_days = await self._count_active_days(retailer_codes=[assisted_code], end_date=yesterday_date, role=role)
             else:
                 active_days = 0
 
@@ -338,13 +321,15 @@ class ActivationReportService:
         return emp.dms_code or emp.employee_id or f"#{emp.id}"
 
     async def get_rso_performance(self) -> list[dict]:
-        emps = await self.db.execute(
-            select(Employee).where(
-                Employee.house_id == self.house_id,
-                Employee.employee_type == "rso",
-                Employee.status == "Active",
-            )
+        _, _, included_user_ids = await self._load_rule_conditions("RSO")
+        emp_q = select(Employee).where(
+            Employee.house_id == self.house_id,
+            Employee.employee_type == "rso",
+            Employee.status == "Active",
         )
+        if included_user_ids:
+            emp_q = emp_q.where(Employee.user_id.in_(included_user_ids))
+        emps = await self.db.execute(emp_q)
         employees = emps.scalars().all()
         if not employees:
             return []
@@ -366,9 +351,8 @@ class ActivationReportService:
         assisted_code_map = {e.id: e.assisted_retailer_code for e in employees}
         results = await self._get_employee_performance(
             emp_ids, target_map, name_map, "rso",
-            achieved_exclude_tag_names=self.achieved_exclude_tag_names,
-            market_exclude_tag_names=self.market_exclude_tag_names,
             assisted_code_map=assisted_code_map,
+            role="RSO",
         )
         itop_map = {e.id: e.itop_number for e in employees}
         dms_map = {e.id: e.dms_code for e in employees}
@@ -379,13 +363,15 @@ class ActivationReportService:
         return results
 
     async def get_bp_performance(self) -> list[dict]:
-        emps = await self.db.execute(
-            select(Employee).where(
-                Employee.house_id == self.house_id,
-                Employee.employee_type == "bp",
-                Employee.status == "Active",
-            )
+        _, _, included_user_ids = await self._load_rule_conditions("BP")
+        emp_q = select(Employee).where(
+            Employee.house_id == self.house_id,
+            Employee.employee_type == "bp",
+            Employee.status == "Active",
         )
+        if included_user_ids:
+            emp_q = emp_q.where(Employee.user_id.in_(included_user_ids))
+        emps = await self.db.execute(emp_q)
         employees = emps.scalars().all()
         if not employees:
             return []
@@ -419,17 +405,13 @@ class ActivationReportService:
             retailer_codes = [row[0] for row in bp_code_rows.all() if row[0]]
             achievement = 0
             if retailer_codes:
-                excluded = await self._get_excluded_retailer_ids()
                 q = select(func.count()).select_from(Activation).where(
                     Activation.house_id == self.house_id,
                     Activation.activation_date >= self.month_start,
                     Activation.activation_date <= yesterday_date,
                     Activation.retailer_code.in_(retailer_codes),
                 )
-                if excluded:
-                    q = q.where(Activation.retailer_id.notin_(excluded), Activation.retailer_id != None)
-                if self.exclude_product_codes:
-                    q = q.where(Activation.product_code.notin_(self.exclude_product_codes))
+                q = await self._apply_rule_filters(q, Activation, role="BP")
                 res = await self.db.execute(q)
                 achievement = res.scalar() or 0
 
@@ -450,19 +432,19 @@ class ActivationReportService:
             # ── Yesterday, Total GA, Day Count via assisted code ──
             assisted_code = assisted_code_map.get(emp_id)
             if assisted_code and yesterday_date >= self.month_start:
-                yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_codes=[assisted_code], exclude_tags=False)
+                yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_codes=[assisted_code], role="BP")
             else:
                 yesterday_activation = 0
 
             if assisted_code and yesterday_date >= self.month_start:
-                month_total_activation = await self._count_activations(retailer_codes=[assisted_code], end_date=yesterday_date, exclude_tags=False)
+                month_total_activation = await self._count_activations(retailer_codes=[assisted_code], end_date=yesterday_date, role="BP")
             else:
                 month_total_activation = achievement
 
             if assisted_code:
-                active_days = await self._count_active_days(retailer_codes=[assisted_code], exclude_tags=False, end_date=yesterday_date, threshold=self.active_days_threshold)
+                active_days = await self._count_active_days(retailer_codes=[assisted_code], end_date=yesterday_date, role="BP")
             else:
-                active_days = await self._count_active_days(retailer_codes=retailer_codes) if retailer_codes else 0
+                active_days = await self._count_active_days(retailer_codes=retailer_codes, role="BP") if retailer_codes else 0
 
             results.append({
                 "id": emp_id,
@@ -484,15 +466,16 @@ class ActivationReportService:
         results.sort(key=lambda r: r["percentage"], reverse=True)
         return results
 
-    async def get_supervisor_performance(self, supervisor_configs: Optional[dict] = None) -> list[dict]:
-        supervisor_configs = supervisor_configs or {}
-        emps = await self.db.execute(
-            select(Employee).where(
-                Employee.house_id == self.house_id,
-                Employee.employee_type == "supervisor",
-                Employee.status == "Active",
-            )
+    async def get_supervisor_performance(self) -> list[dict]:
+        _, _, included_user_ids = await self._load_rule_conditions("SUPERVISOR")
+        emp_q = select(Employee).where(
+            Employee.house_id == self.house_id,
+            Employee.employee_type == "supervisor",
+            Employee.status == "Active",
         )
+        if included_user_ids:
+            emp_q = emp_q.where(Employee.user_id.in_(included_user_ids))
+        emps = await self.db.execute(emp_q)
         employees = emps.scalars().all()
         if not employees:
             return []
@@ -560,29 +543,14 @@ class ActivationReportService:
                 "pool_number": m.pool_number,
             } for m in rso_emps_for_sup]
 
-            config = supervisor_configs.get(str(emp_id))
-            if config and isinstance(config.get("enabled_employee_ids"), list):
-                enabled_set = {int(x) for x in config["enabled_employee_ids"]}
-                active_emps = [m for m in rso_emps_for_sup if m.id in enabled_set]
-            else:
-                active_emps = rso_emps_for_sup
-
             all_rso_retailer_ids: set[int] = set()
-            for rso_emp in active_emps:
+            for rso_emp in rso_emps_for_sup:
                 rso_retailer_ids = await self._get_retailer_ids_for_employee(rso_emp.id)
                 all_rso_retailer_ids.update(rso_retailer_ids)
 
-            if config is not None:
-                exclude_ids = await self._get_excluded_retailer_ids_for_tags(config.get("exclude_tags") or [])
-                exclude_codes = set(config.get("exclude_codes") or [])
-            else:
-                exclude_ids = None
-                exclude_codes = None
-
             achievement = await self._count_activations(
                 retailer_ids=all_rso_retailer_ids,
-                exclude_ids=exclude_ids,
-                exclude_codes=exclude_codes,
+                role="SUPERVISOR",
             ) if all_rso_retailer_ids else 0
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
@@ -603,14 +571,12 @@ class ActivationReportService:
                 yesterday_activation = await self._count_activations_for_date(
                     yesterday_date,
                     retailer_ids=all_rso_retailer_ids,
-                    exclude_ids=exclude_ids,
-                    exclude_codes=exclude_codes,
+                    role="SUPERVISOR",
                 ) if yesterday_date >= self.month_start else 0
                 month_total_activation = achievement
                 active_days = await self._count_active_days(
                     retailer_ids=all_rso_retailer_ids,
-                    exclude_ids=exclude_ids,
-                    exclude_codes=exclude_codes,
+                    role="SUPERVISOR",
                 )
             else:
                 yesterday_activation = 0
@@ -640,21 +606,12 @@ class ActivationReportService:
 
     async def get_daily_trend(self) -> list[dict]:
         trend_map: dict[str, int] = {}
-        excluded = await self._get_excluded_retailer_ids()
-        excluded_codes = self.exclude_product_codes
-
         q = select(Activation.activation_date, func.count()).where(
             Activation.house_id == self.house_id,
             Activation.activation_date >= self.month_start,
             Activation.activation_date <= self.month_end,
         )
-        if excluded:
-            q = q.where(
-                Activation.retailer_id.notin_(excluded),
-                Activation.retailer_id != None,
-            )
-        if excluded_codes:
-            q = q.where(Activation.product_code.notin_(excluded_codes))
+        q = await self._apply_rule_filters(q, Activation, role="HOUSE")
         q = q.group_by(Activation.activation_date).order_by(Activation.activation_date)
         for row in (await self.db.execute(q)).all():
             d = row.activation_date
@@ -687,11 +644,11 @@ class ActivationReportService:
             result["supervisor"] = supervisor_list[:5]
         return result
 
-    async def build_dashboard(self, supervisor_configs: Optional[dict] = None) -> dict:
+    async def build_dashboard(self) -> dict:
         summary = await self.get_summary()
         rso = await self.get_rso_performance()
         bp = await self.get_bp_performance()
-        supervisor = await self.get_supervisor_performance(supervisor_configs)
+        supervisor = await self.get_supervisor_performance()
         daily_trend = await self.get_daily_trend()
         top_performers = await self.get_top_performers(rso, bp, supervisor)
 

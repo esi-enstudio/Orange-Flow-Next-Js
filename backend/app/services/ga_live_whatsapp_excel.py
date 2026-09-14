@@ -16,10 +16,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.properties import PageSetupProperties
 
 from app.models.house import House
-from app.models.ga_section_config import GaSectionConfig
 from app.services.ga_live_service import GaLiveQueryBuilder
 from app.services.activation_report_service import ActivationReportService
-from app.utils.activation_rules import get_excluded_codes
 from app.utils.timezone import now_naive
 
 # ── Style constants (mirror of frontend export) ──
@@ -122,27 +120,7 @@ def _add_5arrows(ws, col_letter, data_start, data_end):
 
 
 async def _load_monthly_summary(db: AsyncSession, house_id: int, today: date) -> dict:
-    excluded_codes = await get_excluded_codes(db)
-    cfg_res = await db.execute(
-        select(GaSectionConfig).where(
-            GaSectionConfig.house_id == house_id,
-            GaSectionConfig.section_key == "total_activation",
-        )
-    )
-    cfg = cfg_res.scalar_one_or_none()
-    exclude_tag_names = (cfg.exclude_retailer_tags or []) if cfg else []
-    exclude_product_codes = set(excluded_codes)
-    if cfg and cfg.exclude_product_codes:
-        exclude_product_codes |= set(cfg.exclude_product_codes)
-
-    service = ActivationReportService(
-        db,
-        house_id,
-        today.month,
-        today.year,
-        exclude_tag_names=exclude_tag_names,
-        exclude_product_codes=exclude_product_codes,
-    )
+    service = ActivationReportService(db, house_id, today.month, today.year, target_role="HOUSE")
     return await service.get_summary()
 
 

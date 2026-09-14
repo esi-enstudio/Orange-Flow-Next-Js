@@ -16,7 +16,6 @@ from app.models.activation import Activation
 from app.models.live_activation import LiveActivation
 
 from app.utils.access_control import is_admin_user
-from app.utils.activation_rules import get_excluded_codes, exclude_clause
 
 router = APIRouter(prefix="/api", tags=["stats"])
 
@@ -33,7 +32,6 @@ async def get_stats(
         user_house_ids = [h.id for h in current_user.houses]
         if q_house_id not in user_house_ids:
             raise HTTPException(status_code=403, detail="You do not have access to this house")
-    excluded_codes = await get_excluded_codes(db)
     today_d = date.today()
 
     retailer_query = select(func.count()).select_from(Retailer)
@@ -50,9 +48,6 @@ async def get_stats(
         .select_from(LiveActivation)
         .where(LiveActivation.activation_date == today_d)
     )
-    clause = exclude_clause(LiveActivation, excluded_codes)
-    if clause is not None:
-        activation_query = activation_query.where(clause)
 
     is_admin = is_admin_user(current_user)
 
@@ -96,9 +91,6 @@ async def get_stats(
         .where(LiveActivation.activation_date == today_d)
         .group_by(LiveActivation.product_code)
     )
-    clause_p = exclude_clause(LiveActivation, excluded_codes)
-    if clause_p is not None:
-        product_query = product_query.where(clause_p)
     if target_house_id:
         product_query = product_query.where(LiveActivation.house_id == target_house_id)
     elif is_admin:
@@ -152,7 +144,6 @@ async def get_daily_activations(
 
     today = date.today()
     month_start = today.replace(day=1)
-    excluded_codes = await get_excluded_codes(db)
     is_admin = is_admin_user(current_user)
 
     # Past dates (month_start to yesterday) → Activation table
@@ -163,9 +154,6 @@ async def get_daily_activations(
         .group_by(Activation.activation_date)
         .order_by(Activation.activation_date)
     )
-    clause_h = exclude_clause(Activation, excluded_codes)
-    if clause_h is not None:
-        hist_query = hist_query.where(clause_h)
     if target_house_id:
         hist_query = hist_query.where(Activation.house_id == target_house_id)
     elif is_admin:
@@ -194,9 +182,6 @@ async def get_daily_activations(
         .select_from(LiveActivation)
         .where(LiveActivation.activation_date == today)
     )
-    clause_l = exclude_clause(LiveActivation, excluded_codes)
-    if clause_l is not None:
-        live_query = live_query.where(clause_l)
     if target_house_id:
         live_query = live_query.where(LiveActivation.house_id == target_house_id)
     elif is_admin:

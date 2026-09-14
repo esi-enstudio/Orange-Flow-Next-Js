@@ -1,4 +1,3 @@
-import json
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import text
@@ -10,6 +9,7 @@ import app.models.role
 import app.models.live_activation
 import app.models.retailer
 import app.models.retailer_marking
+import app.models.rule_config
 import app.models.employee
 import app.models.supervisor_assignment
 import app.models.bts
@@ -28,7 +28,6 @@ import app.models.active_lso_config
 import app.models.active_sso_config
 import app.models.bp_target
 import app.models.activity_log
-import app.models.product_exclusion
 import app.models.app_setting
 import app.models.scratch_card_serial
 import app.models.lifting
@@ -37,7 +36,6 @@ import app.models.bp_retailer_code
 import app.models.retailer_visit
 import app.models.zoom_in
 import app.models.commission
-import app.models.ga_section_config
 import app.models.product
 import app.models.todo
 import app.models.cv
@@ -260,67 +258,6 @@ async def _migrate_bp_target_remove_soft_delete():
             logger.info("Migration complete: bp_targets soft delete removed")
     except Exception as e:
         logger.warning(f"Migration warning (bp_targets remove soft delete): {e}")
-
-async def _migrate_ga_section_config_employee_ids():
-    try:
-        async with engine.begin() as conn:
-            result = await conn.execute(text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name='ga_section_configs' AND column_name='selected_employee_ids'"
-            ))
-            if result.scalar():
-                return
-            logger.info("Migrating ga_section_configs: adding selected_employee_ids column...")
-            await conn.execute(text(
-                "ALTER TABLE ga_section_configs ADD COLUMN selected_employee_ids JSON"
-            ))
-            logger.info("Migration complete: ga_section_configs.selected_employee_ids")
-    except Exception as e:
-        logger.warning(f"Migration warning (ga_section_configs.selected_employee_ids): {e}")
-
-async def _migrate_ga_section_config_self_exclusion():
-    """Remove a role section's own role tag from exclude_retailer_tags.
-
-    Role sections (rsos/bps/ccs/supervisors) must never exclude their own
-    employees' assisted-code/owned retailers. E.g. house 1 `rsos` config had
-    `["RSO"]` in exclude_retailer_tags, which zeroed out RSO assisted-code
-    activations in the RSO Performance section.
-    """
-    mapping = {"rsos": "RSO", "bps": "BP", "ccs": "CC"}
-    try:
-        async with engine.begin() as conn:
-            fixed_rows = 0
-            for section_key, tag in mapping.items():
-                result = await conn.execute(
-                    text(
-                        "SELECT id, exclude_retailer_tags FROM ga_section_configs "
-                        "WHERE section_key = :sk"
-                    ),
-                    {"sk": section_key},
-                )
-                for row in result.fetchall():
-                    cfg_id = row[0]
-                    tags = row[1] or []
-                    if not isinstance(tags, list):
-                        tags = []
-                    if tag in tags:
-                        new_tags = [t for t in tags if t != tag]
-                        await conn.execute(
-                            text(
-                                "UPDATE ga_section_configs SET exclude_retailer_tags = CAST(:tags AS jsonb) "
-                                "WHERE id = :id"
-                            ),
-                            {"tags": json.dumps(new_tags), "id": cfg_id},
-                        )
-                        fixed_rows += 1
-                        logger.info(
-                            "Self-heal: removed '%s' from %s exclude_retailer_tags (config %s)",
-                            tag, section_key, cfg_id,
-                        )
-            if fixed_rows:
-                logger.info(f"Migration complete: stripped {fixed_rows} role-section self-exclusion(s)")
-    except Exception as e:
-        logger.warning(f"Migration warning (ga_section_configs self-exclusion): {e}")
 
 async def _migrate_employee_sr_no():
     try:
@@ -899,8 +836,23 @@ async def _migrate_billing_tables_extra():
         logger.warning(f"Migration warning (billing tables extra columns): {e}")
 
 
+async def _drop_legacy_ga_section_config_table():
+    """Fresh-start: remove the legacy ga_section_configs table and its data.
+
+    The universal rule-config engine replaces ga_section_configs entirely.
+    No data is migrated — old section configs are discarded.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP TABLE IF EXISTS ga_section_configs CASCADE"))
+            logger.info("Removed legacy table: ga_section_configs")
+    except Exception as e:
+        logger.warning(f"Migration warning (drop ga_section_configs): {e}")
+
+
 async def init_db():
     try:
+        await _drop_legacy_ga_section_config_table()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await _migrate_employee_sr_no()
@@ -915,8 +867,6 @@ async def init_db():
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
         await _migrate_live_activation_date_type()
-        await _migrate_ga_section_config_employee_ids()
-        await _migrate_ga_section_config_self_exclusion()
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_stock_added()
@@ -931,15 +881,6 @@ async def init_db():
         await _migrate_telegram_columns()
         await _migrate_subscription_billing()
         await _migrate_billing_tables_extra()
-        from app.models.product_exclusion import ExcludedProductCode
-        from sqlalchemy import select, func
-        async with async_session() as session:
-            count = (await session.execute(select(func.count()).select_from(ExcludedProductCode))).scalar()
-            if count == 0:
-                defaults = ["SIMSWAP", "EV-SWAP", "ESIMSWAP"]
-                for code in defaults:
-                    session.add(ExcludedProductCode(product_code=code))
-                await session.commit()
     except Exception as e:
         error_msg = str(e).lower()
         if "already exists" in error_msg:

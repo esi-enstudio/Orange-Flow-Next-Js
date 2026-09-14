@@ -35,11 +35,4 @@ class RetailerFilterBulkCreate(BaseModel):
     retailer_ids: List[int]
     tag_id: int
 
-class ExcludedProductSchema(BaseModel):
-    id: int
-    product_code: str
-    created_at: Optional[datetime] = None
-    class Config: from_attributes = True
 
-class ExcludedProductCreate(BaseModel):
-    product_code: str = Field(min_length=1, max_length=50)

@@ -18,7 +18,6 @@ from app.models.employee import Employee
 from app.models.user import User
 from app.models.role import Role
 from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
-from app.utils.activation_rules import get_excluded_codes
 
 logger = logging.getLogger("app.services.TargetAchievement")
 
@@ -58,8 +57,6 @@ class TargetAchievementService:
         house_id_filter: Optional[int] = None,
         retailer_codes: Optional[list[str]] = None,
     ) -> int:
-        excluded_codes = await get_excluded_codes(self.db)
-
         excluded_retailer_ids: set[int] = set()
         if house_id_filter:
             excluded_retailer_ids = await get_active_retailer_ids_for_marking(
@@ -83,8 +80,6 @@ class TargetAchievementService:
                     Activation.retailer_id.notin_(excluded_retailer_ids),
                 )
             )
-        if excluded_codes:
-            q = q.where(Activation.product_code.notin_(excluded_codes))
 
         res = await self.db.execute(q)
         return res.scalar() or 0

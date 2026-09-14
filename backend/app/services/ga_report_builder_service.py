@@ -26,7 +26,6 @@ from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
 from app.models.house import House
-from app.models.product_exclusion import ExcludedProductCode
 from app.models.ga_report_target import GaReportTarget
 from app.services.retailer_marking_service import (
     get_active_markings,
@@ -228,19 +227,12 @@ class GaReportBuilderService:
         ]
 
     async def get_exclusion_options(self) -> dict:
-        prod_res = await self.db.execute(select(ExcludedProductCode.product_code))
-        codes: set[str] = {row[0] for row in prod_res.all()}
         markings = await get_active_markings(self.db)
         return {
-            "product_codes": sorted(codes),
             "retailer_tags": [{"id": m.id, "name": m.name} for m in markings],
         }
 
     # ------------------------------------------------------------ data access
-
-    async def _global_excluded_codes(self) -> set[str]:
-        res = await self.db.execute(select(ExcludedProductCode.product_code))
-        return {row[0] for row in res.all()}
 
     async def _excluded_retailer_ids(self) -> set[int]:
         if not self.cfg.exclude_retailer_tags:

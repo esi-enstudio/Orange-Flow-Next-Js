@@ -21,13 +21,18 @@ from app.models.product import Product, ProductCodeHistory
 from app.models.lifting import LiftingRecord, LiftingProduct
 from app.models.ga_filter import GAProductFilter, FilterTag, RetailerFilter
 from app.models.retailer_marking import RetailerMarking, RetailerMarkingAssignment
+from app.models.rule_config import (
+    ReportRuleMaster,
+    RuleExcludedProductCode,
+    RuleExcludedRetailerType,
+    RuleIncludedEmployeeId,
+)
 from app.models.sync_history import SyncHistory
 from app.models.role import Permission
 from app.models.user import user_houses, user_roles
 from app.models.todo import Todo
-from app.models.product_exclusion import ExcludedProductCode
+
 from app.models.app_setting import AppSetting
-from app.models.ga_section_config import GaSectionConfig
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
 from app.models.retailer_visit import RetailerVisit

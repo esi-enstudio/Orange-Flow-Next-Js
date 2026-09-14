@@ -35,7 +35,6 @@ from app.models.retailer import Retailer
 from app.models.house import House
 from app.models.activation import Activation
 from app.models.live_activation import LiveActivation
-from app.models.product_exclusion import ExcludedProductCode
 from app.models.user import User
 from app.utils.access_control import is_admin_user
 from app.utils.validation import safe_filename, validate_excel
@@ -314,9 +313,6 @@ async def get_retailers_by_rso(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("zoom_in.view")),
 ):
-    excl_result = await db.execute(select(ExcludedProductCode.product_code))
-    excluded_codes = {row[0] for row in excl_result.all()}
-
     today = date.today()
     first_of_month = today.replace(day=1)
     last_month_end = first_of_month - timedelta(days=1)
@@ -365,10 +361,6 @@ async def get_retailers_by_rso(
             Activation.activation_date >= last_month_start,
             Activation.activation_date <= last_month_end,
         )
-        if excluded_codes:
-            count_query = count_query.where(
-                ~Activation.product_code.in_(list(excluded_codes))
-            )
         count_query = count_query.group_by(Activation.retailer_code)
         count_result = await db.execute(count_query)
         for row in count_result.all():
@@ -773,9 +765,6 @@ async def get_dashboard_summary(
             for row in retailer_result.all():
                 event_codes.setdefault(row.zoom_in_event_id, set()).add(row.retailer_code)
 
-            excl_result = await db.execute(select(ExcludedProductCode.product_code))
-            excluded_codes = {row[0] for row in excl_result.all()}
-
             today = date.today()
             for eid, edate in evt_dates.items():
                 codes = event_codes.get(eid, set())
@@ -786,8 +775,6 @@ async def get_dashboard_summary(
                     model.retailer_code.in_(list(codes)),
                     model.activation_date == edate,
                 )
-                if excluded_codes:
-                    q = q.where(~model.product_code.in_(list(excluded_codes)))
                 cnt_result = await db.execute(q)
                 total_activations += cnt_result.scalar() or 0
 
@@ -1018,9 +1005,6 @@ async def get_events(
                 codes.add(code)
         all_retailer_codes_by_event[e.id] = codes
 
-    excl_result = await db.execute(select(ExcludedProductCode.product_code))
-    excluded_codes = {row[0] for row in excl_result.all()}
-
     all_activation_counts: dict[int, int] = {}
     today_events: list[ZoomInEvent] = []
     past_events: list[ZoomInEvent] = []
@@ -1047,8 +1031,6 @@ async def get_events(
             model.retailer_code.in_(list(code_set)),
             model.activation_date.in_(list(dates)),
         )
-        if excluded_codes:
-            query = query.where(~model.product_code.in_(list(excluded_codes)))
         query = query.group_by(model.retailer_code, model.activation_date)
         count_result = await db.execute(query)
         date_code_counts: dict[tuple[date, str], int] = {}
@@ -1210,9 +1192,6 @@ async def export_events(
                 codes.add(code)
         all_ga_code_event[e.id] = codes
 
-    excl_result = await db.execute(select(ExcludedProductCode.product_code))
-    excluded_codes = {row[0] for row in excl_result.all()}
-
     ga_counts: dict[int, int] = {}
     today_events: list[ZoomInEvent] = []
     past_events: list[ZoomInEvent] = []
@@ -1239,8 +1218,6 @@ async def export_events(
             model.retailer_code.in_(list(code_set)),
             model.activation_date.in_(list(dates)),
         )
-        if excluded_codes:
-            query = query.where(~model.product_code.in_(list(excluded_codes)))
         query = query.group_by(model.retailer_code, model.activation_date)
         count_result = await db.execute(query)
         date_code_counts: dict[tuple[date, str], int] = {}
@@ -1467,9 +1444,6 @@ async def get_event(
     event_date = event.date
     ActivationModel = LiveActivation if event_date == today else Activation
 
-    excl_result = await db.execute(select(ExcludedProductCode.product_code))
-    excluded_codes = {row[0] for row in excl_result.all()}
-
     rso_emp_codes: dict[int, str | None] = {}
     if rso_employee_ids:
         emp_result = await db.execute(
@@ -1506,8 +1480,6 @@ async def get_event(
             ActivationModel.activation_date == event_date,
             ActivationModel.retailer_code.in_(all_retailer_codes),
         )
-        if excluded_codes:
-            query = query.where(~ActivationModel.product_code.in_(list(excluded_codes)))
         query = query.group_by(ActivationModel.retailer_code)
         count_result = await db.execute(query)
         for row in count_result.all():

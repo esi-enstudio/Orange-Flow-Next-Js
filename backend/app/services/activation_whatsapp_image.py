@@ -368,7 +368,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict) -> bytes:
 async def build_activation_report_image(db: AsyncSession, house_id: int) -> bytes:
     """Build the current month's Activation Report as a PNG image."""
     today = now_naive().date()
-    svc = ActivationReportService(db, house_id, today.month, today.year)
+    svc = ActivationReportService(db, house_id, today.month, today.year, target_role="HOUSE")
     dashboard = await svc.build_dashboard()
 
     from sqlalchemy import select

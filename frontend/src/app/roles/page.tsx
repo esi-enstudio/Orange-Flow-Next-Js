@@ -75,7 +75,7 @@ const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
   dms: "DMS Automation",
   app_settings: "App Settings",
   bp_retailer_codes: "BP Retailer Codes",
-  ga_section_configs: "Section Configs",
+  rule_config: "Rule Config",
   filters: "Filters",
   automation: "Automation",
   shifts: "Shifts",

@@ -253,10 +253,13 @@
         "bp_retailer_codes.edit"
       ]
     },
-    "ga_section_configs": {
-      "display_name": "Section Configs",
+    "rule_config": {
+      "display_name": "Rule Config",
       "permissions": [
-        "ga_section_configs.edit"
+        "rule_config.view",
+        "rule_config.create",
+        "rule_config.edit",
+        "rule_config.delete"
       ]
     },
     "filters": {

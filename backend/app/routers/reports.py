@@ -27,11 +27,10 @@ from app.models.active_lso_config import ActiveLsoConfig
 from app.models.active_sso_config import ActiveSsoConfig
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.role import Role
-from app.utils.access_control import is_admin_user, is_admin_role
+from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.services.whatsapp_service_client import whatsapp_service_client, WhatsAppServiceError
 from app.services.whatsapp_token import resolve_house_wa_target
-from app.utils.activation_rules import get_excluded_codes, exclude_clause
 from app.services.Automation.activation_excel import export_activations_excel
 from app.services.Automation.dms_report_excel import export_itopup_details_excel
 from app.services.Automation.live_activation_excel import export_live_activations_excel
@@ -813,7 +812,6 @@ async def get_activation_report(
         user_house_ids = [h.id for h in current_user.houses]
         if q_house_id not in user_house_ids:
             raise HTTPException(status_code=403, detail="You do not have access to this house")
-    excluded_codes = await get_excluded_codes(db)
     query = select(Activation)
     is_admin = is_admin_user(current_user)
     effective_house_id = target_house_id
@@ -824,9 +822,6 @@ async def get_activation_report(
             query = query.where(Activation.house_id.in_(user_house_ids))
     elif effective_house_id:
         query = query.where(Activation.house_id == effective_house_id)
-    clause = exclude_clause(Activation, excluded_codes)
-    if clause is not None:
-        query = query.where(clause)
     today_dt = date.today()
     if not start_date:
         start_date = today_dt.replace(day=1).isoformat()
@@ -953,7 +948,6 @@ async def get_activation_daily_stats(
     last_day = monthrange(year, month)[1]
     end_date = date(year, month, last_day)
 
-    excluded_codes = await get_excluded_codes(db)
     query = (
         select(Activation.activation_date, func.count())
         .select_from(Activation)
@@ -969,9 +963,6 @@ async def get_activation_daily_stats(
             query = query.where(Activation.house_id.in_(user_house_ids))
     elif target_house_id:
         query = query.where(Activation.house_id == target_house_id)
-    clause = exclude_clause(Activation, excluded_codes)
-    if clause is not None:
-        query = query.where(clause)
     if search:
         p = f"%{search}%"
         query = query.where((Activation.sim_no.ilike(p)) | (Activation.retailer_code.ilike(p)) | (Activation.retailer_name.ilike(p)) | (Activation.msisdn.ilike(p)))
@@ -1346,18 +1337,6 @@ async def export_target_achievement(
 async def get_activation_dashboard(
     month: int = Query(None, ge=1, le=12),
     year: int = Query(None, ge=2020),
-    exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for Achievement (e.g. DRC,RSP,BSP)"),
-    exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for Achievement (e.g. SIMSWAP,EV-SWAP)"),
-    rso_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for RSO Performance"),
-    rso_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for RSO Performance"),
-    rso_achieved_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for RSO Achieved column"),
-    rso_market_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for RSO Market column"),
-    rso_active_days_threshold: int = Query(1, ge=1, description="Minimum activations per day to count as active day for RSO"),
-    bp_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for BP Performance"),
-    bp_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for BP Performance"),
-    supervisor_exclude_tags: Optional[str] = Query(None, description="Comma-separated tag names to exclude for Supervisor Performance"),
-    supervisor_exclude_codes: Optional[str] = Query(None, description="Comma-separated product codes to exclude for Supervisor Performance"),
-    supervisor_configs: Optional[str] = Query(None, description="JSON map of per-supervisor configs: {\"<emp_id>\": {\"exclude_tags\": [...], \"exclude_codes\": [...], \"enabled_employee_ids\": [...]}}"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_any_permission(["reports.view", "activations.view"])),
     house_id: Optional[int] = Depends(get_house_context),
@@ -1390,71 +1369,16 @@ async def get_activation_dashboard(
     target_month = month or today.month
     target_year = year or today.year
 
-    parsed_supervisor_configs: dict = {}
-    if supervisor_configs is not None:
-        user_permissions = set()
-        for role in current_user.roles:
-            if is_admin_role([role.name.lower()]):
-                break
-            for perm in role.permissions:
-                user_permissions.add(perm.name)
-        if not is_admin_user(current_user) and "reports.supervisor.config" not in user_permissions:
-            raise HTTPException(
-                status_code=403,
-                detail="You do not have permission to configure supervisor sections",
-            )
-        try:
-            parsed_raw = json.loads(supervisor_configs)
-            if isinstance(parsed_raw, dict):
-                parsed_supervisor_configs = parsed_raw
-            else:
-                raise HTTPException(status_code=400, detail="supervisor_configs must be a JSON object")
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="supervisor_configs is not valid JSON")
-
-    achievement_tag_list = [t.strip() for t in exclude_tags.split(",") if t.strip()] if exclude_tags is not None else []
-    achievement_code_set = {c.strip() for c in exclude_codes.split(",") if c.strip()} if exclude_codes is not None else set()
-
-    rso_tag_list = [t.strip() for t in rso_exclude_tags.split(",") if t.strip()] if rso_exclude_tags else []
-    rso_code_set = {c.strip() for c in rso_exclude_codes.split(",") if c.strip()} if rso_exclude_codes is not None else await get_excluded_codes(db)
-    rso_achieved_tag_list = [t.strip() for t in rso_achieved_exclude_tags.split(",") if t.strip()] if rso_achieved_exclude_tags else []
-    rso_market_tag_list = [t.strip() for t in rso_market_exclude_tags.split(",") if t.strip()] if rso_market_exclude_tags else []
-
-    bp_tag_list = [t.strip() for t in bp_exclude_tags.split(",") if t.strip()] if bp_exclude_tags else []
-    bp_code_set = {c.strip() for c in bp_exclude_codes.split(",") if c.strip()} if bp_exclude_codes is not None else await get_excluded_codes(db)
-
-    supervisor_tag_list = [t.strip() for t in supervisor_exclude_tags.split(",") if t.strip()] if supervisor_exclude_tags else []
-    supervisor_code_set = {c.strip() for c in supervisor_exclude_codes.split(",") if c.strip()} if supervisor_exclude_codes is not None else await get_excluded_codes(db)
-
-    achievement_service = ActivationReportService(
-        db, target_house_id, target_month, target_year,
-        exclude_tag_names=achievement_tag_list,
-        exclude_product_codes=achievement_code_set,
-    )
+    achievement_service = ActivationReportService(db, target_house_id, target_month, target_year, target_role="HOUSE")
     summary = await achievement_service.get_summary()
     daily_trend = await achievement_service.get_daily_trend()
 
-    rso_service = ActivationReportService(
-        db, target_house_id, target_month, target_year,
-        exclude_tag_names=rso_tag_list,
-        exclude_product_codes=rso_code_set,
-        achieved_exclude_tag_names=rso_achieved_tag_list,
-        market_exclude_tag_names=rso_market_tag_list,
-        active_days_threshold=rso_active_days_threshold,
-    )
-    bp_service = ActivationReportService(
-        db, target_house_id, target_month, target_year,
-        exclude_tag_names=bp_tag_list,
-        exclude_product_codes=bp_code_set,
-    )
-    supervisor_service = ActivationReportService(
-        db, target_house_id, target_month, target_year,
-        exclude_tag_names=supervisor_tag_list,
-        exclude_product_codes=supervisor_code_set,
-    )
+    rso_service = ActivationReportService(db, target_house_id, target_month, target_year, target_role="RSO")
+    bp_service = ActivationReportService(db, target_house_id, target_month, target_year, target_role="BP")
+    supervisor_service = ActivationReportService(db, target_house_id, target_month, target_year, target_role="SUPERVISOR")
     rso = await rso_service.get_rso_performance()
     bp = await bp_service.get_bp_performance()
-    supervisor = await supervisor_service.get_supervisor_performance(parsed_supervisor_configs)
+    supervisor = await supervisor_service.get_supervisor_performance()
     top_performers = await rso_service.get_top_performers(rso, bp, supervisor)
 
     return {
@@ -1633,8 +1557,7 @@ async def export_activation_dashboard(
     target_month = month or today.month
     target_year = year or today.year
 
-    excluded_product_codes = await get_excluded_codes(db)
-    service = ActivationReportService(db, target_house_id, target_month, target_year, exclude_product_codes=excluded_product_codes)
+    service = ActivationReportService(db, target_house_id, target_month, target_year, target_role="HOUSE")
     data = await service.build_dashboard()
 
     wb = Workbook()

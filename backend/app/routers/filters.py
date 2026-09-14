@@ -6,9 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context, get_current_user
-from app.schemas.filter import FilterTagSchema, FilterTagCreate, FilterTagBulkCreate, RetailerFilterSchema, RetailerFilterCreate, RetailerFilterBulkCreate, ExcludedProductSchema, ExcludedProductCreate
+from app.schemas.filter import FilterTagSchema, FilterTagCreate, FilterTagBulkCreate, RetailerFilterSchema, RetailerFilterCreate, RetailerFilterBulkCreate
 from app.models.ga_filter import FilterTag, RetailerFilter, GAProductFilter
-from app.models.product_exclusion import ExcludedProductCode
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
@@ -217,44 +216,3 @@ async def delete_retailer_filter(
     await db.delete(rf)
     await db.commit()
     return {"message": "Retailer tag removed successfully"}
-
-# --- Product Code Exclusions ---
-
-@router.get("/product-exclusions", response_model=list[ExcludedProductSchema])
-async def list_product_exclusions(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(["reports.view", "activations.view"])),
-):
-    result = await db.execute(select(ExcludedProductCode).order_by(ExcludedProductCode.product_code))
-    return result.scalars().all()
-
-@router.post("/product-exclusions", response_model=ExcludedProductSchema)
-async def create_product_exclusion(
-    data: ExcludedProductCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("filters.edit")),
-):
-    existing = await db.execute(
-        select(ExcludedProductCode).where(ExcludedProductCode.product_code == data.product_code)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail=f"Product code '{data.product_code}' is already excluded")
-    entry = ExcludedProductCode(product_code=data.product_code)
-    db.add(entry)
-    await db.commit()
-    await db.refresh(entry)
-    return entry
-
-@router.delete("/product-exclusions/{exclusion_id}")
-async def delete_product_exclusion(
-    exclusion_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("filters.edit")),
-):
-    result = await db.execute(select(ExcludedProductCode).where(ExcludedProductCode.id == exclusion_id))
-    entry = result.scalar_one_or_none()
-    if not entry:
-        raise HTTPException(status_code=404, detail="Excluded product code not found")
-    await db.delete(entry)
-    await db.commit()
-    return {"message": "Product code exclusion removed"}

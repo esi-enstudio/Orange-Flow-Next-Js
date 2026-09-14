@@ -12,13 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.house import House
-from app.models.ga_section_config import GaSectionConfig
 from app.models.employee import Employee
 from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.user import User
 from app.services.ga_live_service import GaLiveQueryBuilder
 from app.services.activation_report_service import ActivationReportService
-from app.utils.activation_rules import get_excluded_codes
 from app.utils.timezone import now_naive
 
 # Keep each chunk comfortably under WhatsApp's 4096-char limit.
@@ -144,27 +142,7 @@ async def _load_report_data(db: AsyncSession, house_id: int, today: date):
     data = await builder.build_all()
     await _attach_supervisor_attribution(db, house_id, data)
 
-    excluded_codes = await get_excluded_codes(db)
-    cfg_res = await db.execute(
-        select(GaSectionConfig).where(
-            GaSectionConfig.house_id == house_id,
-            GaSectionConfig.section_key == "total_activation",
-        )
-    )
-    cfg = cfg_res.scalar_one_or_none()
-    exclude_tag_names = (cfg.exclude_retailer_tags or []) if cfg else []
-    exclude_product_codes = set(excluded_codes)
-    if cfg and cfg.exclude_product_codes:
-        exclude_product_codes |= set(cfg.exclude_product_codes)
-
-    service = ActivationReportService(
-        db,
-        house_id,
-        today.month,
-        today.year,
-        exclude_tag_names=exclude_tag_names,
-        exclude_product_codes=exclude_product_codes,
-    )
+    service = ActivationReportService(db, house_id, today.month, today.year, target_role="HOUSE")
     summary = await service.get_summary()
 
     # Team targets are computed inside GaLiveQueryBuilder.build_all() from the

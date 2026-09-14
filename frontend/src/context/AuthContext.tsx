@@ -63,7 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return response.data.initialized;
     } catch (error) {
       console.error("Failed to check system status", error);
-      return true; // Default to true to avoid infinite loops if API fails
+      setInitialized(true);
+      return true;
     }
   };
 

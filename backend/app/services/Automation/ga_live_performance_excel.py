@@ -15,12 +15,12 @@ from app.models.user import User
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
 from app.models.supervisor_assignment import SupervisorRSOAssignment
-from app.models.ga_section_config import GaSectionConfig
 from app.models.role import Role
 from app.services.retailer_marking_service import (
     get_active_retailer_ids_for_marking,
     get_employee_owned_retailer_ids,
 )
+from app.services.rule_config_service import get_effective_rule_conditions
 from app.utils.activation_rules import exclude_clause
 
 # ── Style constants (matching frontend activations export) ──
@@ -49,18 +49,22 @@ BODY_FONT = Font(name="Calibri", color=TEXT_DARK, size=10)
 BOLD_FONT = Font(name="Calibri", bold=True, color=TEXT_DARK, size=10)
 
 
-async def _load_export_section_configs(db: AsyncSession, house_id: int) -> dict[str, dict]:
-    result = await db.execute(
-        select(GaSectionConfig).where(GaSectionConfig.house_id == house_id)
-    )
-    configs: dict[str, dict] = {}
-    for cfg in result.scalars().all():
-        configs[cfg.section_key] = {
-            "exclude_product_codes": cfg.exclude_product_codes or [],
-            "exclude_retailer_tags": cfg.exclude_retailer_tags or [],
-            "selected_employee_ids": cfg.selected_employee_ids or [],
-        }
-    return configs
+async def _load_export_rule_conditions(db: AsyncSession, house_id: int) -> dict[str, list[str]]:
+    """Effective GA Live rule exclusions for the Excel export.
+
+    Product-code exclusions are the union across all active ga_live rules;
+    retailer-type exclusions are the union across the roles this export covers
+    (HOUSE/SUPERVISOR/RSO/BP).
+    """
+    product_codes: set[str] = set()
+    tags: list[str] = []
+    for role in ("HOUSE", "SUPERVISOR", "RSO", "BP"):
+        cond = await get_effective_rule_conditions(db, house_id, "ga_live", role)
+        product_codes.update(cond.get("excluded_product_codes") or [])
+        for tag in cond.get("excluded_retailer_types") or []:
+            if tag not in tags:
+                tags.append(tag)
+    return {"exclude_products_total": sorted(product_codes), "exclude_tags_total": tags}
 
 
 async def _get_excluded_retailer_ids_by_tags(
@@ -170,16 +174,9 @@ async def export_ga_live_performance_excel(
 ) -> bytes:
     yesterday = today - timedelta(days=1)
 
-    section_configs = await _load_export_section_configs(db, house_id)
-
-    exclude_products_total: list[str] = []
-    exclude_tags_total: list[str] = []
-
-    for section_key in ["total_activation", "distribution", "supervisors", "rsos", "bps"]:
-        cfg = section_configs.get(section_key)
-        if cfg:
-            exclude_products_total.extend(cfg["exclude_product_codes"])
-            exclude_tags_total.extend(cfg["exclude_retailer_tags"])
+    conditions = await _load_export_rule_conditions(db, house_id)
+    exclude_products_total = conditions["exclude_products_total"]
+    exclude_tags_total = conditions["exclude_tags_total"]
 
     excluded_retailer_ids = await _get_excluded_retailer_ids_by_tags(db, house_id, exclude_tags_total)
 

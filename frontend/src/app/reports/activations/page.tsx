@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -9,8 +9,7 @@ import {
   RotateCcw, Download, Printer, Share2, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
-  Settings, Tag, X as XIcon, CheckCircle2, AlertTriangle, Flag, ChevronDown,
-  Pencil,
+  ChevronDown, Sliders,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis,
@@ -91,12 +90,6 @@ interface DailyTrend {
   is_future: boolean;
 }
 
-interface SupervisorConfig {
-  exclude_tags: string[];
-  exclude_codes: string[];
-  enabled_employee_ids: number[];
-}
-
 interface DashboardData {
   success: boolean;
   summary: DashboardSummary;
@@ -160,21 +153,12 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
-function KpiCard({ icon: Icon, label, value, valueColor, valueExtra, subtitle, trend, onConfig }: {
+function KpiCard({ icon: Icon, label, value, valueColor, valueExtra, subtitle, trend }: {
   icon: any; label: string; value: string | number;
   valueColor?: string; valueExtra?: React.ReactNode; subtitle?: string | React.ReactNode; trend?: { dir: "up" | "down"; text: string };
-  onConfig?: () => void;
 }) {
   return (
     <div className="group bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-shadow relative">
-      {onConfig && (
-        <button
-          onClick={onConfig}
-          className="absolute top-2 right-2 w-7 h-7 rounded-lg bg-gray-100 dark:bg-slate-800 opacity-0 group-hover:opacity-100 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-700 transition-all duration-200 z-10"
-        >
-          <Settings className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-        </button>
-      )}
       <div className="flex items-start justify-between">
         <div className="space-y-1.5">
           <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -578,9 +562,8 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
   );
 }
 
-function LeaderboardCard({ data, title, icon: Icon, color, t, onEdit, canEdit }: {
+function LeaderboardCard({ data, title, icon: Icon, color, t }: {
   data: EmployeePerformance[]; title: string; icon: any; color: string; t: (key: string) => string;
-  onEdit?: (emp: EmployeePerformance) => void; canEdit?: boolean;
 }) {
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-5">
@@ -608,15 +591,6 @@ function LeaderboardCard({ data, title, icon: Icon, color, t, onEdit, canEdit }:
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <p className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
-                  {canEdit && onEdit && (
-                    <button
-                      onClick={() => onEdit(emp)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-gray-400 hover:text-primary-500"
-                      title={t("activation_report.supervisor_config_title")}
-                    >
-                      <Pencil className="w-3 h-3" />
-                    </button>
-                  )}
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-gray-400">
                   <span>{formatNumber(emp.achievement)} / {formatNumber(emp.target)}</span>
@@ -659,82 +633,8 @@ export default function ActivationDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"rso" | "bp" | "supervisor">("rso");
   const [isDark, setIsDark] = useState(false);
-  const [tags, setTags] = useState<{ id: number; name: string }[]>([]);
-  const [achievementExcludeTags, setAchievementExcludeTags] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_achievement_exclude_tags") || "[]"); }
-    catch { return []; }
-  });
-  const [achievementExcludeCodes, setAchievementExcludeCodes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_achievement_exclude_codes") || "[]"); }
-    catch { return []; }
-  });
-  const [rsoExcludeTags, setRsoExcludeTags] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_rso_exclude_tags") || "[]"); }
-    catch { return []; }
-  });
-  const [rsoExcludeCodes, setRsoExcludeCodes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_rso_exclude_codes") || "[]"); }
-    catch { return []; }
-  });
-  const [rsoAchievedExcludeTags, setRsoAchievedExcludeTags] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_rso_achieved_exclude_tags") || "[]"); }
-    catch { return []; }
-  });
-  const [rsoMarketExcludeTags, setRsoMarketExcludeTags] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_rso_market_exclude_tags") || "[]"); }
-    catch { return []; }
-  });
-  const [rsoActiveDaysThreshold, setRsoActiveDaysThreshold] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem("activation_rso_active_days_threshold") || "1"); }
-    catch { return 1; }
-  });
-  const [bpExcludeTags, setBpExcludeTags] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_bp_exclude_tags") || "[]"); }
-    catch { return []; }
-  });
-  const [bpExcludeCodes, setBpExcludeCodes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_bp_exclude_codes") || "[]"); }
-    catch { return []; }
-  });
-  const [supervisorExcludeTags, setSupervisorExcludeTags] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_supervisor_exclude_tags") || "[]"); }
-    catch { return []; }
-  });
-  const [supervisorExcludeCodes, setSupervisorExcludeCodes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_supervisor_exclude_codes") || "[]"); }
-    catch { return []; }
-  });
-  const [supervisorConfigs, setSupervisorConfigs] = useState<Record<string, SupervisorConfig>>(() => {
-    try { return JSON.parse(localStorage.getItem("activation_supervisor_configs") || "{}"); }
-    catch { return {}; }
-  });
-  // ---- Draft (uncommitted) filter state - applied only on Save ----
-const [draftRsoExcludeTags, setDraftRsoExcludeTags] = useState<string[]>(rsoExcludeTags);
-const [draftRsoExcludeCodes, setDraftRsoExcludeCodes] = useState<string[]>(rsoExcludeCodes);
-const [draftRsoAchievedExcludeTags, setDraftRsoAchievedExcludeTags] = useState<string[]>(rsoAchievedExcludeTags);
-const [draftRsoMarketExcludeTags, setDraftRsoMarketExcludeTags] = useState<string[]>(rsoMarketExcludeTags);
-const [draftRsoActiveDaysThreshold, setDraftRsoActiveDaysThreshold] = useState<number>(rsoActiveDaysThreshold);
-const [draftBpExcludeTags, setDraftBpExcludeTags] = useState<string[]>(bpExcludeTags);
-const [draftBpExcludeCodes, setDraftBpExcludeCodes] = useState<string[]>(bpExcludeCodes);
-const [draftSupervisorExcludeTags, setDraftSupervisorExcludeTags] = useState<string[]>(supervisorExcludeTags);
-const [draftSupervisorExcludeCodes, setDraftSupervisorExcludeCodes] = useState<string[]>(supervisorExcludeCodes);
-const [draftAchievementExcludeTags, setDraftAchievementExcludeTags] = useState<string[]>(achievementExcludeTags);
-const [draftAchievementExcludeCodes, setDraftAchievementExcludeCodes] = useState<string[]>(achievementExcludeCodes);
-const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePerformance | null>(null);
-
-  const [supervisorDraft, setSupervisorDraft] = useState<SupervisorConfig | null>(null);
-  const [supDirty, setSupDirty] = useState(false);
   const [showReportDelivery, setShowReportDelivery] = useState(false);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [showRsoConfig, setShowRsoConfig] = useState(false);
-  const [rsoShowAchievedConfig, setRsoShowAchievedConfig] = useState(true);
-  const [rsoShowMarketConfig, setRsoShowMarketConfig] = useState(true);
-  const [showBpConfig, setShowBpConfig] = useState(false);
-  const [showSupervisorConfig, setShowSupervisorConfig] = useState(false);
-  const rsoConfigRef = useRef<HTMLDivElement>(null);
-  const bpConfigRef = useRef<HTMLDivElement>(null);
-  const supervisorConfigRef = useRef<HTMLDivElement>(null);
-  const [excludedProductCodes, setExcludedProductCodes] = useState<{ id: number; product_code: string }[]>([]);
+  const isRuleAdmin = hasPermission("rule_config.create") || hasPermission("rule_config.edit");
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -769,18 +669,6 @@ const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePer
     try {
       const params: Record<string, any> = { month, year };
       if (selectedHouseId) params.house_id = selectedHouseId;
-      params.exclude_tags = achievementExcludeTags.join(",");
-      params.exclude_codes = achievementExcludeCodes.join(",");
-      if (rsoExcludeTags.length > 0) params.rso_exclude_tags = rsoExcludeTags.join(",");
-      if (rsoExcludeCodes.length > 0) params.rso_exclude_codes = rsoExcludeCodes.join(",");
-      if (rsoAchievedExcludeTags.length > 0) params.rso_achieved_exclude_tags = rsoAchievedExcludeTags.join(",");
-      if (rsoMarketExcludeTags.length > 0) params.rso_market_exclude_tags = rsoMarketExcludeTags.join(",");
-      params.rso_active_days_threshold = rsoActiveDaysThreshold;
-      if (bpExcludeTags.length > 0) params.bp_exclude_tags = bpExcludeTags.join(",");
-      if (bpExcludeCodes.length > 0) params.bp_exclude_codes = bpExcludeCodes.join(",");
-      if (supervisorExcludeTags.length > 0) params.supervisor_exclude_tags = supervisorExcludeTags.join(",");
-      if (supervisorExcludeCodes.length > 0) params.supervisor_exclude_codes = supervisorExcludeCodes.join(",");
-      if (Object.keys(supervisorConfigs).length > 0) params.supervisor_configs = JSON.stringify(supervisorConfigs);
       const res = await apiClient.get("reports/activations/dashboard", { params });
       setData(res.data);
     } catch {
@@ -788,108 +676,21 @@ const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePer
     } finally {
       setLoading(false);
     }
-  }, [month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes, supervisorConfigs]);
+  }, [month, year, selectedHouseId]);
 
   useEffect(() => {
     if (!authLoading && canViewActivationsReport) {
       apiClient.get("houses/accessible").then(res => {
         setHouses(res.data);
       }).catch(() => {});
-      apiClient.get("retailer-markings/options").then(res => {
-        setTags(res.data);
-      }).catch(() => {});
-      apiClient.get("product-exclusions").then(res => {
-        setExcludedProductCodes(res.data);
-      }).catch(() => {});
     }
   }, [authLoading, canViewActivationsReport]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_achievement_exclude_tags", JSON.stringify(achievementExcludeTags));
-  }, [achievementExcludeTags]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_achievement_exclude_codes", JSON.stringify(achievementExcludeCodes));
-  }, [achievementExcludeCodes]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_rso_exclude_tags", JSON.stringify(rsoExcludeTags));
-  }, [rsoExcludeTags]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_rso_active_days_threshold", String(rsoActiveDaysThreshold));
-  }, [rsoActiveDaysThreshold]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_rso_exclude_codes", JSON.stringify(rsoExcludeCodes));
-  }, [rsoExcludeCodes]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_rso_achieved_exclude_tags", JSON.stringify(rsoAchievedExcludeTags));
-  }, [rsoAchievedExcludeTags]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_rso_market_exclude_tags", JSON.stringify(rsoMarketExcludeTags));
-  }, [rsoMarketExcludeTags]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_bp_exclude_tags", JSON.stringify(bpExcludeTags));
-  }, [bpExcludeTags]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_bp_exclude_codes", JSON.stringify(bpExcludeCodes));
-  }, [bpExcludeCodes]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_supervisor_exclude_tags", JSON.stringify(supervisorExcludeTags));
-  }, [supervisorExcludeTags]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_supervisor_exclude_codes", JSON.stringify(supervisorExcludeCodes));
-  }, [supervisorExcludeCodes]);
-
-  useEffect(() => {
-    localStorage.setItem("activation_supervisor_configs", JSON.stringify(supervisorConfigs));
-  }, [supervisorConfigs]);
-
-  useEffect(() => {
-    if (!showSupervisorConfig) return;
-    const handler = (e: MouseEvent) => {
-      if (supervisorConfigRef.current && !supervisorConfigRef.current.contains(e.target as Node)) {
-        setShowSupervisorConfig(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showSupervisorConfig]);
-
-  useEffect(() => {
-    if (!showRsoConfig) return;
-    const handler = (e: MouseEvent) => {
-      if (rsoConfigRef.current && !rsoConfigRef.current.contains(e.target as Node)) {
-        setShowRsoConfig(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showRsoConfig]);
-
-  useEffect(() => {
-    if (!showBpConfig) return;
-    const handler = (e: MouseEvent) => {
-      if (bpConfigRef.current && !bpConfigRef.current.contains(e.target as Node)) {
-        setShowBpConfig(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showBpConfig]);
 
   useEffect(() => {
     if (!authLoading && canViewActivationsReport) {
       fetchDashboard();
     }
-  }, [authLoading, canViewActivationsReport, month, year, selectedHouseId, rsoActiveDaysThreshold, achievementExcludeTags, achievementExcludeCodes, rsoExcludeTags, rsoExcludeCodes, rsoAchievedExcludeTags, rsoMarketExcludeTags, bpExcludeTags, bpExcludeCodes, supervisorExcludeTags, supervisorExcludeCodes, supervisorConfigs]);
+  }, [authLoading, canViewActivationsReport, month, year, selectedHouseId]);
 
   const handleExport = async () => {
     if (!data) return;
@@ -1014,6 +815,15 @@ const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePer
           >
             <Printer className="w-4 h-4" />
           </button>
+          {isRuleAdmin && selectedHouseId && (
+            <button
+              onClick={() => router.push("/rule-config?context=activation_report&role=HOUSE")}
+              className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+              title={t("rule_config.list.title")}
+            >
+              <Sliders className="w-4 h-4" />
+            </button>
+          )}
           <div className="relative">
             <button
               onClick={() => setShowReportDelivery(true)}
@@ -1085,10 +895,6 @@ const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePer
                     pct: Math.round((s.previous_month_achievement / s.previous_month_target) * 100),
                   })
                 : t("activation_report.last_month_achievement", { count: s.previous_month_achievement, pct: 0 })}
-              onConfig={hasPermission("reports.achievement.config") ? () => {
-    setDraftAchievementExcludeTags(achievementExcludeTags); setDraftAchievementExcludeCodes(achievementExcludeCodes);
-    setShowConfigModal(true);
-  } : undefined}
             />
             <KpiCard
               icon={Award}
@@ -1332,18 +1138,6 @@ const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePer
                         icon={Users}
                         color="bg-orange-500"
                         t={t}
-                        canEdit={hasPermission("reports.supervisor.config")}
-                        onEdit={(emp) => {
-                        setSupervisorDraft(
-                          supervisorConfigs[String(emp.id)] ?? {
-                            exclude_tags: [],
-                            exclude_codes: [],
-                            enabled_employee_ids: (emp.team ?? []).map(m => m.employee_id),
-                          }
-                        );
-                        setSupDirty(false);
-                        setSupervisorConfigTarget(emp);
-                      }}
                       />
                     )}
                   </div>
@@ -1400,443 +1194,17 @@ const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePer
                   );
                 })}
               </div>
-              {activeTab === "rso" && hasPermission("reports.achievement.config") && (
-                <div ref={rsoConfigRef} className="relative shrink-0">
-                  <button
-                    onClick={() => {
-                          setDraftRsoExcludeTags(rsoExcludeTags); setDraftRsoExcludeCodes(rsoExcludeCodes);
-                          setDraftRsoAchievedExcludeTags(rsoAchievedExcludeTags); setDraftRsoMarketExcludeTags(rsoMarketExcludeTags);
-                          setDraftRsoActiveDaysThreshold(rsoActiveDaysThreshold);
-                          setShowRsoConfig(!showRsoConfig);
-                        }}
-                    className={cn(
-                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative bg-gray-100 dark:bg-slate-800",
-                      showRsoConfig
-                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
-                        : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                    )}
-                  >
-                    <Settings className="w-4 h-4" />
-                    {(rsoExcludeTags.length > 0 || rsoExcludeCodes.length > 0 || rsoAchievedExcludeTags.length > 0 || rsoMarketExcludeTags.length > 0) && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
-                    )}
-                  </button>
-                  {showRsoConfig && (
-                    <div className="absolute right-0 top-full mt-2 z-40 w-80 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
-                      {(rsoExcludeTags.length > 0 || rsoExcludeCodes.length > 0 || rsoAchievedExcludeTags.length > 0 || rsoMarketExcludeTags.length > 0) && (
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
-                          {rsoExcludeTags.length + rsoExcludeCodes.length + rsoAchievedExcludeTags.length + rsoMarketExcludeTags.length} filter{(rsoExcludeTags.length + rsoExcludeCodes.length + rsoAchievedExcludeTags.length + rsoMarketExcludeTags.length) !== 1 ? 's' : ''} active
-                        </div>
-                      )}
-
-                      {/* Achieved Config */}
-                      <div className="border border-gray-100 dark:border-slate-800 rounded-lg overflow-hidden">
-                        <button
-                          onClick={() => setRsoShowAchievedConfig(!rsoShowAchievedConfig)}
-                          className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
-                        >
-                          <span className="flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            {t("activation_report.achieved_config")}
-                          </span>
-                          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", rsoShowAchievedConfig && "rotate-180")} />
-                        </button>
-                        {rsoShowAchievedConfig && (
-                          <div className="px-3 pb-3 space-y-2">
-                            <div className="flex flex-wrap gap-1.5">
-                              {tags.length === 0 ? (
-                                <p className="text-xs text-gray-400 py-1">{t("activation_report.no_tags")}</p>
-                              ) : tags.map(tag => {
-                                const isSelected = draftRsoAchievedExcludeTags.includes(tag.name);
-                                return (
-                                  <button
-                                    key={tag.id}
-                                    onClick={() => {
-                                      setDraftRsoAchievedExcludeTags(prev =>
-                                        isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
-                                      );
-                                    }}
-                                    className={cn(
-                                      "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                      isSelected
-                                        ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                                        : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                    )}
-                                  >
-                                    <Tag className="w-2.5 h-2.5" />
-                                    {tag.name}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Market Config */}
-                      <div className="border border-gray-100 dark:border-slate-800 rounded-lg overflow-hidden">
-                        <button
-                          onClick={() => setRsoShowMarketConfig(!rsoShowMarketConfig)}
-                          className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
-                        >
-                          <span className="flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                            {t("activation_report.market_config")}
-                          </span>
-                          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", rsoShowMarketConfig && "rotate-180")} />
-                        </button>
-                        {rsoShowMarketConfig && (
-                          <div className="px-3 pb-3 space-y-2">
-                            <div className="flex flex-wrap gap-1.5">
-                              {tags.length === 0 ? (
-                                <p className="text-xs text-gray-400 py-1">{t("activation_report.no_tags")}</p>
-                              ) : tags.map(tag => {
-                                const isSelected = draftRsoMarketExcludeTags.includes(tag.name);
-                                return (
-                                  <button
-                                    key={tag.id}
-                                    onClick={() => {
-                                      setDraftRsoMarketExcludeTags(prev =>
-                                        isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
-                                      );
-                                    }}
-                                    className={cn(
-                                      "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                      isSelected
-                                        ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                                        : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                    )}
-                                  >
-                                    <Tag className="w-2.5 h-2.5" />
-                                    {tag.name}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Exclude Tags */}
-                      <div className="border-t border-gray-50 dark:border-slate-800" />
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
-                        {tags.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {tags.map(tag => {
-                              const isSelected = draftRsoExcludeTags.includes(tag.name);
-                              return (
-                                <button
-                                  key={tag.id}
-                                  onClick={() => {
-                                    setDraftRsoExcludeTags(prev =>
-                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  <Tag className="w-2.5 h-2.5" />
-                                  {tag.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="border-t border-gray-50 dark:border-slate-800" />
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
-                        {excludedProductCodes.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_excluded_codes")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-                            {excludedProductCodes.map(item => {
-                              const isSelected = draftRsoExcludeCodes.includes(item.product_code);
-                              return (
-                                <button
-                                  key={item.id}
-                                  onClick={() => {
-                                    setDraftRsoExcludeCodes(prev =>
-                                      isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  {item.product_code}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                       <div className="border-t border-gray-50 dark:border-slate-800" />
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active Days Threshold</p>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min={1}
-                            value={draftRsoActiveDaysThreshold}
-                            onChange={e => setDraftRsoActiveDaysThreshold(Math.max(1, parseInt(e.target.value) || 1))}
-                            className="w-16 px-2 py-1.5 text-xs font-bold text-center bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/50"
-                          />
-                          <span className="text-xs text-gray-400">Min. activations/day to count as active</span>
-                        </div>
-                      </div>
-                      <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
-                        <button
-                          onClick={() => { setDraftRsoExcludeTags(rsoExcludeTags); setDraftRsoExcludeCodes(rsoExcludeCodes); setDraftRsoAchievedExcludeTags(rsoAchievedExcludeTags); setDraftRsoMarketExcludeTags(rsoMarketExcludeTags); setDraftRsoActiveDaysThreshold(rsoActiveDaysThreshold); }}
-                          className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                        >
-                          {t("common.reset")}
-                        </button>
-                        <button
-                          onClick={() => {
-                        setRsoExcludeTags(draftRsoExcludeTags); setRsoExcludeCodes(draftRsoExcludeCodes);
-                        setRsoAchievedExcludeTags(draftRsoAchievedExcludeTags); setRsoMarketExcludeTags(draftRsoMarketExcludeTags);
-                        setRsoActiveDaysThreshold(draftRsoActiveDaysThreshold);
-                        setShowRsoConfig(false);
-                      }}
-                          className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
-                        >
-                          {t("common.save_changes")}
-                        </button>
-                      </div>
-                    </div>
+              {isRuleAdmin && selectedHouseId && (
+                <button
+                  onClick={() => router.push(
+                    `/rule-config?context=activation_report&role=${activeTab === "rso" ? "RSO" : activeTab === "bp" ? "BP" : "SUPERVISOR"}`
                   )}
-                </div>
-              )}
-              {activeTab === "bp" && hasPermission("reports.achievement.config") && (
-                <div ref={bpConfigRef} className="relative">
-                  <button
-                    onClick={() => {
-                          setDraftBpExcludeTags(bpExcludeTags); setDraftBpExcludeCodes(bpExcludeCodes);
-                          setShowBpConfig(!showBpConfig);
-                        }}
-                    className={cn(
-                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative",
-                      showBpConfig
-                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
-                        : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                    )}
-                  >
-                    <Settings className="w-4 h-4" />
-                    {(bpExcludeTags.length > 0 || bpExcludeCodes.length > 0) && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
-                    )}
-                  </button>
-                  {showBpConfig && (
-                    <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
-                      {(bpExcludeTags.length > 0 || bpExcludeCodes.length > 0) && (
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
-                          {bpExcludeTags.length + bpExcludeCodes.length} filter{bpExcludeTags.length + bpExcludeCodes.length !== 1 ? 's' : ''} active
-                        </div>
-                      )}
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
-                        {tags.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {tags.map(tag => {
-                              const isSelected = draftBpExcludeTags.includes(tag.name);
-                              return (
-                                <button
-                                  key={tag.id}
-                                  onClick={() => {
-                                    setDraftBpExcludeTags(prev =>
-                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  <Tag className="w-2.5 h-2.5" />
-                                  {tag.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="border-t border-gray-50 dark:border-slate-800" />
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
-                        {excludedProductCodes.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_excluded_codes")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-                            {excludedProductCodes.map(item => {
-                              const isSelected = draftBpExcludeCodes.includes(item.product_code);
-                              return (
-                                <button
-                                  key={item.id}
-                                  onClick={() => {
-                                    setDraftBpExcludeCodes(prev =>
-                                      isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  {item.product_code}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="border-t border-gray-50 dark:border-slate-800 flex items-center justify-between pt-2">
-                        <button
-                          onClick={() => { setDraftBpExcludeTags(bpExcludeTags); setDraftBpExcludeCodes(bpExcludeCodes); }}
-                          className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                        >
-                          {t("common.reset")}
-                        </button>
-                        <button
-                          onClick={() => {
-                        setBpExcludeTags(draftBpExcludeTags); setBpExcludeCodes(draftBpExcludeCodes);
-                        setShowBpConfig(false);
-                      }}
-                          className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
-                        >
-                          {t("common.save_changes")}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeTab === "supervisor" && hasPermission("reports.achievement.config") && (
-                <div ref={supervisorConfigRef} className="relative shrink-0">
-                  <button
-                    onClick={() => {
-                          setDraftSupervisorExcludeTags(supervisorExcludeTags); setDraftSupervisorExcludeCodes(supervisorExcludeCodes);
-                          setShowSupervisorConfig(!showSupervisorConfig);
-                        }}
-                    className={cn(
-                      "flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all relative bg-gray-100 dark:bg-slate-800",
-                      showSupervisorConfig
-                        ? "bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 shadow-sm"
-                        : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                    )}
-                  >
-                    <Settings className="w-4 h-4" />
-                    {(supervisorExcludeTags.length > 0 || supervisorExcludeCodes.length > 0) && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary-500 ring-2 ring-white dark:ring-slate-800" />
-                    )}
-                  </button>
-                  {showSupervisorConfig && (
-                    <div className="absolute right-0 top-full mt-2 z-40 w-72 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-2xl p-4 space-y-4">
-                      {(supervisorExcludeTags.length > 0 || supervisorExcludeCodes.length > 0) && (
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary-600 dark:text-primary-400">
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
-                          {supervisorExcludeTags.length + supervisorExcludeCodes.length} filter{supervisorExcludeTags.length + supervisorExcludeCodes.length !== 1 ? 's' : ''} active
-                        </div>
-                      )}
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
-                        {tags.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_tags")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {tags.map(tag => {
-                              const isSelected = draftSupervisorExcludeTags.includes(tag.name);
-                              return (
-                                <button
-                                  key={tag.id}
-                                  onClick={() => {
-                                    setDraftSupervisorExcludeTags(prev =>
-                                      isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  {tag.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="border-t border-gray-50 dark:border-slate-800" />
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
-                        {excludedProductCodes.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">{t("activation_report.no_excluded_codes")}</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-                            {excludedProductCodes.map(item => {
-                              const isSelected = draftSupervisorExcludeCodes.includes(item.product_code);
-                              return (
-                                <button
-                                  key={item.id}
-                                  onClick={() => {
-                                    setDraftSupervisorExcludeCodes(prev =>
-                                      isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
-                                    );
-                                  }}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border",
-                                    isSelected
-                                      ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
-                                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                  )}
-                                >
-                                  {item.product_code}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="border-t border-gray-100 dark:border-slate-800 flex items-center justify-between pt-2">
-                        <button
-                          onClick={() => { setDraftSupervisorExcludeTags(supervisorExcludeTags); setDraftSupervisorExcludeCodes(supervisorExcludeCodes); }}
-                          className="text-[11px] font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                        >
-                          {t("common.reset")}
-                        </button>
-                        <button
-                          onClick={() => {
-                        setSupervisorExcludeTags(draftSupervisorExcludeTags); setSupervisorExcludeCodes(draftSupervisorExcludeCodes);
-                        setShowSupervisorConfig(false);
-                      }}
-                          className="px-3 py-1.5 bg-primary-500 text-white rounded-lg text-[11px] font-bold hover:bg-primary-600 transition-colors shadow-sm"
-                        >
-                          {t("common.save_changes")}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  className="inline-flex items-center gap-1 px-3 h-8 rounded-lg text-[11px] md:text-sm font-semibold border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600 transition-all cursor-pointer shrink-0"
+                  title={t("rule_config.list.title")}
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t("rule_config.list.title")}</span>
+                </button>
               )}
             </div>
 
@@ -1862,202 +1230,6 @@ const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePer
         </div>
       ) : null}
 
-      {/* Supervisor Config Modal */}
-      {hasPermission("reports.supervisor.config") && supervisorConfigTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSupervisorConfigTarget(null)}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-5 border-b border-gray-50 dark:border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-orange-500/10 flex items-center justify-center">
-                  <Pencil className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{t("activation_report.supervisor_config_title")}</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{supervisorConfigTarget.name} • {t("activation_report.supervisor_config_desc")}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSupervisorConfigTarget(null)}
-                className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
-              >
-                <XIcon className="w-4 h-4 text-gray-400" />
-              </button>
-            </div>
-            <div className="p-5 overflow-y-auto flex-1 min-h-0 space-y-6">
-              {(() => {
-                const allIds = (supervisorConfigTarget.team ?? []).map(x => x.employee_id);
-                const draftTags = supervisorDraft?.exclude_tags ?? [];
-                const draftCodes = supervisorDraft?.exclude_codes ?? [];
-                const draftEmps = supervisorDraft?.enabled_employee_ids ?? allIds;
-                const updateSup = (patch: Partial<SupervisorConfig>) => {
-                  setSupervisorDraft(prev => prev ? { ...prev, ...patch } : { exclude_tags: [], exclude_codes: [], enabled_employee_ids: allIds, ...patch });
-                  setSupDirty(true);
-                };
-                return (
-                  <>
-                    {/* Tags Section */}
-                    <div className="space-y-3">
-                      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
-                      <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.exclude_tags_hint")}</p>
-                      {tags.length === 0 ? (
-                        <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.no_tags")}</p>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {tags.map(tag => {
-                            const isSelected = draftTags.includes(tag.name);
-                            return (
-                              <button
-                                key={tag.id}
-                                onClick={() => updateSup({ exclude_tags: isSelected ? draftTags.filter(x => x !== tag.name) : [...draftTags, tag.name] })}
-                                className={cn(
-                                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer",
-                                  isSelected
-                                    ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                                    : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                )}
-                              >
-                                <Tag className="w-3 h-3" />
-                                {tag.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Product Codes Section */}
-                    <div className="space-y-3">
-                      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
-                      <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.exclude_product_codes_hint")}</p>
-                      {excludedProductCodes.length === 0 ? (
-                        <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.no_excluded_codes")}</p>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {excludedProductCodes.map(item => {
-                            const isSelected = draftCodes.includes(item.product_code);
-                            return (
-                              <button
-                                key={item.id}
-                                onClick={() => updateSup({ exclude_codes: isSelected ? draftCodes.filter(x => x !== item.product_code) : [...draftCodes, item.product_code] })}
-                                className={cn(
-                                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer",
-                                  isSelected
-                                    ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
-                                    : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                                )}
-                              >
-                                {item.product_code}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Tagged Employees Section */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.supervisor_team_title")}</p>
-                          <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.supervisor_team_hint")}</p>
-                        </div>
-                      </div>
-                      {(supervisorConfigTarget.team ?? []).length === 0 ? (
-                        <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.supervisor_no_team")}</p>
-                      ) : (
-                        (() => {
-                          const team = supervisorConfigTarget.team ?? [];
-                          const groups: { type: string; members: NonNullable<EmployeePerformance["team"]> }[] = [];
-                          for (const member of team) {
-                            const type = member.employee_type?.toLowerCase() || "other";
-                            const group = groups.find(g => g.type === type);
-                            if (group) group.members.push(member);
-                            else groups.push({ type, members: [member] });
-                          }
-                          return (
-                            <div className={cn("grid gap-2.5", groups.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
-                              {groups.map(group => (
-                                <div key={group.type} className="rounded-xl border border-gray-100 dark:border-slate-800 p-2 min-w-0">
-                                  <p className="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 pb-1.5">
-                                    {group.type.toUpperCase()} ({group.members.length})
-                                  </p>
-                                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                                    {group.members.map(member => {
-                                      const enabled = draftEmps.includes(member.employee_id);
-                                      const isRso = member.employee_type?.toLowerCase() === "rso";
-                                      return (
-                                        <button
-                                          key={member.employee_id}
-                                          onClick={() => updateSup({ enabled_employee_ids: enabled ? draftEmps.filter(x => x !== member.employee_id) : [...draftEmps, member.employee_id] })}
-                                          className={cn(
-                                            "w-full flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all border cursor-pointer text-left",
-                                            enabled
-                                              ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
-                                              : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 opacity-60 hover:opacity-100"
-                                          )}
-                                        >
-                                          {enabled ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <XIcon className="w-4 h-4 shrink-0 mt-0.5" />}
-                                          <span className="min-w-0">
-                                            <span className="block font-bold truncate">{member.name}</span>
-                                            <span className="block text-[11px] font-medium text-gray-400 dark:text-gray-500 truncate">{member.dms_code}</span>
-                                            <span className="block text-[11px] font-medium text-gray-400 dark:text-gray-500 truncate">
-                                              {isRso ? member.itop_number : member.pool_number}
-                                            </span>
-                                          </span>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })()
-                      )}
-                    </div>
-                  </>
-                )
-              })()}
-            </div>
-            <div className="flex items-center justify-between gap-3 p-5 border-t border-gray-50 dark:border-slate-800">
-              <button
-                onClick={() => {
-                  if (supervisorConfigTarget) {
-                    const key = String(supervisorConfigTarget.id);
-                    setSupervisorConfigs(prev => {
-                      const next = { ...prev };
-                      delete next[key];
-                      return next;
-                    });
-                    setSupervisorDraft(null);
-                    setSupDirty(false);
-                    setSupervisorConfigTarget(null);
-                  }
-                }}
-                className="px-4 py-2 text-sm font-bold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors cursor-pointer"
-              >
-                {t("common.reset")}
-              </button>
-              <button
-                onClick={() => {
-                  if (supervisorConfigTarget && supervisorDraft && supDirty) {
-                    setSupervisorConfigs(prev => ({
-                      ...prev,
-                      [String(supervisorConfigTarget.id)]: supervisorDraft,
-                    }));
-                  }
-                  setSupervisorDraft(null);
-                  setSupDirty(false);
-                  setSupervisorConfigTarget(null);
-                }}
-                className="px-5 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm cursor-pointer"
-              >
-                {t("common.done")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* WhatsApp Report Delivery Modal */}
       {hasPermission("reports.whatsapp_share") && (
@@ -2071,116 +1243,6 @@ const [supervisorConfigTarget, setSupervisorConfigTarget] = useState<EmployeePer
         />
       )}
 
-      {/* Config Modal */}
-      {hasPermission("reports.achievement.config") && showConfigModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowConfigModal(false)}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-5 border-b border-gray-50 dark:border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center">
-                  <Settings className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{t("activation_report.config_title")}</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{t("activation_report.config_desc")}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowConfigModal(false)}
-                className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
-              >
-                <XIcon className="w-4 h-4 text-gray-400" />
-              </button>
-            </div>
-            <div className="p-5 overflow-y-auto max-h-[calc(80vh-80px)] space-y-6">
-              {/* Tags Section */}
-              <div className="space-y-3">
-                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_tags")}</p>
-                <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.exclude_tags_hint")}</p>
-                {tags.length === 0 ? (
-                  <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.no_tags")}</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {tags.map(tag => {
-                      const isSelected = draftAchievementExcludeTags.includes(tag.name);
-                      return (
-                        <button
-                          key={tag.id}
-                          onClick={() => {
-                            setDraftAchievementExcludeTags(prev =>
-                              isSelected ? prev.filter(t => t !== tag.name) : [...prev, tag.name]
-                            );
-                          }}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
-                            isSelected
-                              ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400"
-                              : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                          )}
-                        >
-                          <Tag className="w-3 h-3" />
-                          {tag.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Product Codes Section */}
-              <div className="space-y-3">
-                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("activation_report.exclude_product_codes")}</p>
-                <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("activation_report.exclude_product_codes_hint")}</p>
-                {excludedProductCodes.length === 0 ? (
-                  <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">{t("activation_report.no_excluded_codes")}</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {excludedProductCodes.map(item => {
-                      const isSelected = draftAchievementExcludeCodes.includes(item.product_code);
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => {
-                            setDraftAchievementExcludeCodes(prev =>
-                              isSelected ? prev.filter(c => c !== item.product_code) : [...prev, item.product_code]
-                            );
-                          }}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
-                            isSelected
-                              ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 line-through"
-                              : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-slate-600"
-                          )}
-                        >
-                          {item.product_code}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-50 dark:border-slate-800">
-              <button
-                onClick={() => { setDraftAchievementExcludeTags(achievementExcludeTags); setDraftAchievementExcludeCodes(achievementExcludeCodes); }}
-                className="px-4 py-2 text-sm font-bold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
-              >
-                {t("common.reset")}
-              </button>
-              <button
-                onClick={() => {
-                  setAchievementExcludeTags(draftAchievementExcludeTags);
-                  setAchievementExcludeCodes(draftAchievementExcludeCodes);
-                  setShowConfigModal(false);
-                }}
-                className="px-5 py-2 bg-primary-500 text-white rounded-lg text-sm font-bold hover:bg-primary-600 transition-colors shadow-sm"
-              >
-                {t("common.done")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
