@@ -20,11 +20,12 @@ import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import PageGuideModal from "@/components/PageGuideModal";
+import EntitySelector from "../../zoom-in/_components/EntitySelector";
 import { useLanguage } from "@/i18n/useLanguage";
 
 interface AssignedMember {
-  rso_employee_id: number;
-  rso_user_id: number | null;
+  member_employee_id: number;
+  member_user_id: number | null;
   name: string;
   employee_id: string | null;
   employee_type: string | null;
@@ -51,8 +52,8 @@ interface Supervisor {
 }
 
 interface UnassignedMember {
-  rso_employee_id: number;
-  rso_user_id: number | null;
+  member_employee_id: number;
+  member_user_id: number | null;
   name: string;
   employee_id: string | null;
   employee_type: string | null;
@@ -60,6 +61,12 @@ interface UnassignedMember {
   itop_number: string | null;
   pool_number: string | null;
   status: string | null;
+}
+
+interface RsoBpEntry {
+  rso_employee_id: number;
+  rso_name: string | null;
+  bps: AssignedMember[];
 }
 
 interface House {
@@ -192,6 +199,7 @@ export default function SupervisorsPage() {
   const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedMember[]>([]);
   const [unassignedBps, setUnassignedBps] = useState<UnassignedMember[]>([]);
+  const [rsoBpMap, setRsoBpMap] = useState<RsoBpEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -199,9 +207,12 @@ export default function SupervisorsPage() {
   const [assignTab, setAssignTab] = useState<"rso" | "bp">("rso");
   const [selectedRsoIds, setSelectedRsoIds] = useState<Set<number>>(new Set());
   const [selectedBpIds, setSelectedBpIds] = useState<Set<number>>(new Set());
+  const [bpRsoId, setBpRsoId] = useState<number | null>(null);
   const [assignSearch, setAssignSearch] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [removing, setRemoving] = useState<number | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<AssignedMember | null>(null);
+  const [removeRsoToo, setRemoveRsoToo] = useState(false);
 
   const canAssign = hasPermission("employees.assign");
   const canView = hasPermission("employees.view");
@@ -232,14 +243,16 @@ export default function SupervisorsPage() {
     setError(null);
     try {
       const headers = { "X-House-ID": String(effectiveHouseId) };
-      const [supRes, unRes, bpRes] = await Promise.all([
+      const [supRes, unRes, bpRes, rsoBpRes] = await Promise.all([
         apiClient.get("/employees/supervisors", { headers }),
         apiClient.get("/employees/supervisors/unassigned-rsos", { headers }),
         apiClient.get("/employees/supervisors/unassigned-bps", { headers }),
+        apiClient.get("/employees/rso-bp-assignments", { headers }),
       ]);
       setSupervisors((supRes.data?.data ?? []).filter((s: Supervisor) => s.status === "Active"));
       setUnassigned(unRes.data?.data ?? []);
       setUnassignedBps(bpRes.data?.data ?? []);
+      setRsoBpMap(rsoBpRes.data?.data ?? []);
     } catch {
       setError(t("supervisors.error_loading"));
     } finally {
@@ -267,6 +280,7 @@ export default function SupervisorsPage() {
     setAssignTab("rso");
     setSelectedRsoIds(new Set());
     setSelectedBpIds(new Set());
+    setBpRsoId(null);
     setAssignSearch("");
   };
 
@@ -302,10 +316,44 @@ export default function SupervisorsPage() {
 
   const selectedCount = selectedRsoIds.size + selectedBpIds.size;
 
+  const candidateRsos = useMemo(() => {
+    if (!assignTarget) return [];
+    const fromTeam = (assignTarget.assigned_rsos ?? []).map((r) => ({
+      id: r.member_employee_id,
+      name: r.name,
+      itop_number: r.itop_number,
+      dms_code: r.dms_code,
+    }));
+    const newlySelected = unassigned
+      .filter((r) => selectedRsoIds.has(r.member_employee_id))
+      .map((r) => ({ id: r.member_employee_id, name: r.name, itop_number: r.itop_number, dms_code: r.dms_code }));
+    const seen = new Set<number>();
+    return [...fromTeam, ...newlySelected].filter((r) => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    });
+  }, [assignTarget, unassigned, selectedRsoIds]);
+
+  const bpRsoLookup = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const entry of rsoBpMap) {
+      for (const bp of entry.bps) {
+        m.set(bp.member_employee_id, entry.rso_name || `RSO #${entry.rso_employee_id}`);
+      }
+    }
+    return m;
+  }, [rsoBpMap]);
+
   const submitAssign = async () => {
     if (!assignTarget || selectedCount === 0 || assigning) return;
     setAssigning(true);
     try {
+      if (selectedBpIds.size > 0 && bpRsoId) {
+        await apiClient.post(`/employees/${bpRsoId}/assign-bps`, {
+          bp_employee_ids: Array.from(selectedBpIds),
+        });
+      }
       await apiClient.post(`/employees/supervisors/${assignTarget.id}/assign`, {
         rso_employee_ids: Array.from(selectedRsoIds),
         bp_employee_ids: Array.from(selectedBpIds),
@@ -314,6 +362,7 @@ export default function SupervisorsPage() {
       setAssignTarget(null);
       setSelectedRsoIds(new Set());
       setSelectedBpIds(new Set());
+      setBpRsoId(null);
       await fetchData();
     } catch {
       toast.error(t("supervisors.messages_assign_failed"));
@@ -322,18 +371,30 @@ export default function SupervisorsPage() {
     }
   };
 
-  const handleRemove = async (member: AssignedMember) => {
+  const handleRemove = (member: AssignedMember) => {
     if (!canAssign || removing !== null) return;
-    const sup = supervisors.find((s) =>
-      s.assigned_rsos.some((r) => r.rso_employee_id === member.rso_employee_id) ||
-      s.assigned_bps.some((r) => r.rso_employee_id === member.rso_employee_id)
-    );
-    const memberLabel = member.employee_type === "bp" ? t("supervisors.tab_bps") : t("supervisors.tab_rsos");
-    if (!window.confirm(t("supervisors.remove_confirm", { name: sup?.name ?? "Supervisor", label: memberLabel }))) return;
-    setRemoving(member.rso_employee_id);
+    const isBp = member.employee_type === "bp";
+    setRemoveRsoToo(isBp && Boolean(bpRsoLookup.get(member.member_employee_id)));
+    setRemoveTarget(member);
+  };
+
+  const closeRemove = () => {
+    if (removing !== null) return;
+    setRemoveTarget(null);
+    setRemoveRsoToo(false);
+  };
+
+  const confirmRemove = async () => {
+    if (!removeTarget || removing !== null) return;
+    setRemoving(removeTarget.member_employee_id);
     try {
-      await apiClient.delete(`/employees/supervisors/assignments/${member.rso_employee_id}`);
+      if (removeRsoToo && removeTarget.employee_type === "bp") {
+        await apiClient.delete(`/employees/rso-bp-assignments/${removeTarget.member_employee_id}`);
+      }
+      await apiClient.delete(`/employees/supervisors/assignments/${removeTarget.member_employee_id}`);
       toast.success(t("supervisors.toast_remove_success"));
+      setRemoveTarget(null);
+      setRemoveRsoToo(false);
       await fetchData();
     } catch {
       toast.error(t("supervisors.messages_remove_failed"));
@@ -510,7 +571,7 @@ export default function SupervisorsPage() {
                           const isBp = member.employee_type === "bp";
                           return (
                             <div
-                              key={member.rso_employee_id}
+                              key={member.member_employee_id}
                               className="flex items-center gap-2.5 rounded-xl bg-gray-50 dark:bg-slate-800/60 px-3 py-2 min-w-0"
                             >
                               <div
@@ -529,19 +590,19 @@ export default function SupervisorsPage() {
                                 </p>
                                 <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
                                   {isBp
-                                    ? `${member.dms_code ? member.dms_code + " • " : ""}${member.pool_number || member.employee_id || "—"}`
+                                    ? `${member.dms_code ? member.dms_code + " • " : ""}${member.pool_number || member.employee_id || "—"}${bpRsoLookup.get(member.member_employee_id) ? ` • ${bpRsoLookup.get(member.member_employee_id)}` : ""}`
                                     : `${member.dms_code || "—"}${member.itop_number ? ` • ${member.itop_number}` : ""}`}
                                 </p>
                               </div>
                               {canAssign && (
                                 <button
                                   onClick={() => handleRemove(member)}
-                                  disabled={removing === member.rso_employee_id}
+                                  disabled={removing === member.member_employee_id}
                                   title={t("supervisors.remove_btn")}
                                   aria-label={t("supervisors.remove_btn")}
                                   className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
                               >
-                                {removing === member.rso_employee_id ? (
+                                {removing === member.member_employee_id ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 ) : (
                                   <X className="w-4 h-4" />
@@ -654,6 +715,32 @@ export default function SupervisorsPage() {
                         className="w-full pl-9 pr-3 py-2.5 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-sm outline-none focus:ring-2 focus:ring-purple-500"
                       />
                     </div>
+                    {assignTab === "bp" && candidateRsos.length > 0 && selectedBpIds.size > 0 && (
+                      <div className="mt-4">
+                        <EntitySelector
+                          label={t("supervisors.assign_bp_to_rso")}
+                          single
+                          items={candidateRsos.map((r) => ({
+                            id: r.id,
+                            label: r.name,
+                            sublabel: r.itop_number
+                              ? `itop: ${r.itop_number}`
+                              : r.dms_code
+                                ? `dms: ${r.dms_code}`
+                                : undefined,
+                          }))}
+                          selectedIds={bpRsoId !== null ? [bpRsoId] : []}
+                          onChange={(ids) => setBpRsoId(ids.length ? Number(ids[0]) : null)}
+                          placeholder={t("supervisors.bp_rso_none")}
+                          searchPlaceholder={t("supervisors.bp_rso_search")}
+                          emptyMessage={t("supervisors.bp_rso_empty")}
+                          noResultsMessage={t("supervisors.bp_rso_no_results")}
+                          selectAllLabel={t("common.select_all")}
+                          clearLabel={t("common.clear")}
+                          selectedLabel={t("supervisors.bp_rso_selected")}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex-1 overflow-y-auto px-2.5 pb-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full">
@@ -670,12 +757,12 @@ export default function SupervisorsPage() {
                       filteredUnassigned.map((member) => {
                         const isBp = assignTab === "bp";
                         const isSelected = isBp
-                          ? selectedBpIds.has(member.rso_employee_id)
-                          : selectedRsoIds.has(member.rso_employee_id);
+                          ? selectedBpIds.has(member.member_employee_id)
+                          : selectedRsoIds.has(member.member_employee_id);
                         return (
                           <button
-                            key={member.rso_employee_id}
-                            onClick={() => toggleMember(member.rso_employee_id, assignTab)}
+                            key={member.member_employee_id}
+                            onClick={() => toggleMember(member.member_employee_id, assignTab)}
                             className={cn(
                               "w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer",
                               isSelected && "bg-purple-50 dark:bg-purple-500/10"
@@ -744,6 +831,142 @@ export default function SupervisorsPage() {
                 </motion.div>
               </motion.div>
             )}
+          </AnimatePresence>,
+          document.body
+        )}
+
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {removeTarget && (() => {
+              const isBp = removeTarget.employee_type === "bp";
+              const linkedRso = bpRsoLookup.get(removeTarget.member_employee_id);
+              const supName = supervisors.find((s) =>
+                s.assigned_rsos.some((r) => r.member_employee_id === removeTarget.member_employee_id) ||
+                s.assigned_bps.some((r) => r.member_employee_id === removeTarget.member_employee_id)
+              )?.name ?? "Supervisor";
+              return (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={closeRemove}
+                  className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center p-0 sm:p-6 bg-black/60 backdrop-blur-sm"
+                >
+                  <motion.div
+                    onClick={(e) => e.stopPropagation()}
+                    initial={{ scale: 0.96, opacity: 0, y: 12 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    exit={{ scale: 0.96, opacity: 0, y: 12 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                    className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 flex flex-col overflow-hidden max-h-[92vh]"
+                  >
+                    <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-100 dark:border-slate-800 shrink-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={cn(
+                          "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                          isBp
+                            ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                            : "bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
+                        )}>
+                          <Users className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <h2 className="text-[15px] font-bold text-gray-900 dark:text-gray-100 truncate">
+                            {t("supervisors.remove_modal_title", { label: isBp ? t("supervisors.tab_bps") : t("supervisors.tab_rsos") })}
+                          </h2>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            {t("supervisors.remove_modal_subtitle")}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={closeRemove}
+                        className="w-11 h-11 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-800 transition-all cursor-pointer shrink-0"
+                        aria-label={t("common.close")}
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="px-5 py-5 space-y-4">
+                      <div className="flex items-center gap-3 rounded-xl bg-gray-50 dark:bg-slate-800/60 px-3.5 py-3">
+                        <div className={cn(
+                          "w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                          isBp
+                            ? "bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                            : "bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
+                        )}>
+                          {removeTarget.name?.charAt(0)?.toUpperCase() || (isBp ? "B" : "R")}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{removeTarget.name}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                            {removeTarget.employee_id || "—"}{removeTarget.dms_code ? ` • ${removeTarget.dms_code}` : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        {t("supervisors.remove_modal_member_line", { name: removeTarget.name, supervisor: supName })}
+                      </p>
+
+                      {isBp && linkedRso && (
+                        <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3.5 space-y-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                            {t("supervisors.remove_modal_rso_hint", { name: linkedRso })}
+                          </p>
+                          <label className="flex items-center gap-3 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={removeRsoToo}
+                              onChange={(e) => setRemoveRsoToo(e.target.checked)}
+                              className="w-4 h-4 rounded border-2 border-gray-300 dark:border-slate-600 accent-amber-500 cursor-pointer"
+                            />
+                            <span className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                              {t("supervisors.remove_modal_rso_too", { name: linkedRso })}
+                            </span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="px-5 py-4 border-t border-gray-100 dark:border-slate-800 grid grid-cols-2 gap-3 shrink-0">
+                      <button
+                        onClick={closeRemove}
+                        disabled={removing !== null}
+                        className="min-h-[46px] rounded-xl text-sm font-bold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700/60 disabled:opacity-60 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        {t("supervisors.remove_modal_cancel")}
+                      </button>
+                      <button
+                        onClick={confirmRemove}
+                        disabled={removing !== null}
+                        className={cn(
+                          "min-h-[46px] rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer",
+                          removing !== null
+                            ? "bg-red-300 dark:bg-red-900/40 text-white dark:text-red-200 cursor-not-allowed"
+                            : "bg-red-600 text-white hover:bg-red-700 shadow-md shadow-red-600/20"
+                        )}
+                      >
+                        {removing === removeTarget.member_employee_id ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {t("supervisors.remove_modal_removing")}
+                          </>
+                        ) : (
+                          <>
+                            <X className="w-4 h-4" />
+                            {t("supervisors.remove_modal_remove")}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              );
+            })()}
           </AnimatePresence>,
           document.body
         )}

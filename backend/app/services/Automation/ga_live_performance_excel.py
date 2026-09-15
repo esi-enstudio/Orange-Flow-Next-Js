@@ -234,12 +234,12 @@ async def export_ga_live_performance_excel(
     sup_rso_pivot_rows = await db.execute(
         select(
             SupervisorRSOAssignment.supervisor_employee_id,
-            SupervisorRSOAssignment.rso_employee_id,
+            SupervisorRSOAssignment.member_employee_id,
         ).where(SupervisorRSOAssignment.house_id == house_id)
     )
     sup_emp_to_rso_emp_ids: dict[int, set[int]] = {}
-    for sup_eid, rso_eid in sup_rso_pivot_rows.all():
-        sup_emp_to_rso_emp_ids.setdefault(sup_eid, set()).add(rso_eid)
+    for sup_eid, mem_eid in sup_rso_pivot_rows.all():
+        sup_emp_to_rso_emp_ids.setdefault(sup_eid, set()).add(mem_eid)
 
     async def _today_count(retailer_ids: set[int], bp_filter: bool = True):
         if not retailer_ids:

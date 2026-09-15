@@ -124,6 +124,20 @@ interface User {
   profile_pic?: string;
 }
 
+interface PerfMonth {
+  month: string;
+  activations: number;
+  retailers: number;
+}
+
+interface PerfHistory {
+  employee: { id: number; employee_id: string | null; name: string | null; employee_type: string | null; status: string | null; joining_date: string | null; resigned_date: string | null };
+  from_date: string;
+  to_date: string;
+  data: PerfMonth[];
+  summary: { total_activations: number; total_months: number };
+}
+
 function InputField({ label, value, onChange, required, type = "text", icon: Icon, error }: any) {
   return (
     <div className="space-y-1">
@@ -285,6 +299,11 @@ export default function EmployeesPage() {
   const [viewingMember, setViewingMember] = useState<Employee | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
+  // Performance History (works for resigned employees too)
+  const [perfHistory, setPerfHistory] = useState<PerfHistory | null>(null);
+  const [perfLoading, setPerfLoading] = useState(false);
+  const [perfError, setPerfError] = useState(false);
+
   // Delete Confirmation
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -423,6 +442,14 @@ export default function EmployeesPage() {
   const openViewModal = (m: Employee) => {
     setViewingMember(m);
     setIsViewModalOpen(true);
+    setPerfHistory(null);
+    setPerfError(false);
+    setPerfLoading(true);
+    apiClient
+      .get(`/employees/${m.id}/performance-history`)
+      .then((res) => setPerfHistory(res.data))
+      .catch(() => setPerfError(true))
+      .finally(() => setPerfLoading(false));
   };
 
   const openAddModal = () => {
@@ -1321,6 +1348,77 @@ export default function EmployeesPage() {
                   <FieldRow label="Driving License" value={viewingMember.driving_license} />
                 </div>
               </div>
+
+              {/* Performance History — works for resigned employees too */}
+              {(viewingMember.employee_type === "rso" || viewingMember.employee_type === "bp" || viewingMember.employee_type === "supervisor") && (
+                <div>
+                  <div className="flex items-center gap-2 pb-2 mb-3 border-b border-gray-200 dark:border-slate-800">
+                    <Activity className="w-4 h-4 text-emerald-500" />
+                    <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_performance')}</h4>
+                    {perfHistory && (
+                      <span className="ml-auto text-[11px] text-gray-400 font-mono">
+                        {perfHistory.from_date} → {perfHistory.to_date}
+                      </span>
+                    )}
+                  </div>
+
+                  {perfLoading ? (
+                    <div className="space-y-2.5">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="flex items-center gap-4 py-2.5 animate-pulse">
+                          <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                          <div className="h-3 w-12 bg-gray-200 dark:bg-slate-700 rounded-md ml-auto" />
+                          <div className="h-3 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : perfError ? (
+                    <p className="text-xs text-red-400 dark:text-red-400 italic">{t('employees.perf_fetch_failed')}</p>
+                  ) : !perfHistory || perfHistory.data.length === 0 ? (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 italic">{t('employees.perf_no_data')}</p>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        <div className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-500/20">
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400 uppercase font-semibold mb-0.5">{t('employees.perf_summary_total')}</p>
+                          <p className="text-base font-black text-emerald-700 dark:text-emerald-300">{perfHistory.summary.total_activations.toLocaleString()}</p>
+                        </div>
+                        <div className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-500/20">
+                          <p className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-semibold mb-0.5">{t('employees.perf_summary_months')}</p>
+                          <p className="text-base font-black text-blue-700 dark:text-blue-300">{perfHistory.summary.total_months}</p>
+                        </div>
+                        {viewingMember.resigned_date && (
+                          <div className="px-3 py-1.5 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-500/20">
+                            <p className="text-[10px] text-red-600 dark:text-red-400 uppercase font-semibold mb-0.5">{t('employees.perf_resigned')}</p>
+                            <p className="text-xs font-bold text-red-700 dark:text-red-300">{viewingMember.resigned_date}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="overflow-x-auto border border-gray-200 dark:border-slate-800 rounded-xl">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 dark:bg-slate-800">
+                              <th className="px-4 py-2 text-left text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">{t('employees.perf_month')}</th>
+                              <th className="px-4 py-2 text-right text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">{t('employees.perf_activations')}</th>
+                              <th className="px-4 py-2 text-right text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">{t('employees.perf_retailers')}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                            {perfHistory.data.map((row) => (
+                              <tr key={row.month} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                                <td className="px-4 py-2 font-mono text-gray-900 dark:text-gray-100">{row.month}</td>
+                                <td className="px-4 py-2 text-right font-bold text-gray-900 dark:text-gray-100">{row.activations.toLocaleString()}</td>
+                                <td className="px-4 py-2 text-right text-gray-600 dark:text-gray-300">{row.retailers.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Footer with actions */}

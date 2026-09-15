@@ -17,7 +17,10 @@ from app.models.user import User, user_roles
 from app.models.retailer import Retailer
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.rso_target import RSOTarget
+from app.models.activation import Activation
+from app.models.live_activation import LiveActivation
 from app.models.supervisor_assignment import SupervisorRSOAssignment
+from app.models.rso_bp_assignment import RSOBPAssignment
 from pydantic import BaseModel
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
@@ -603,6 +606,76 @@ async def reassign_employee_retailers(
     await db.refresh(emp)
     return {"message": f"Transferred retailers to {new_emp.dms_code or new_emp.id} and status set to {req.status}"}
 
+@router.get("/{emp_id}/performance-history")
+async def get_employee_performance_history(
+    emp_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.view")),
+):
+    result = await db.execute(
+        select(Employee).options(selectinload(Employee.house)).where(Employee.id == emp_id)
+    )
+    emp = result.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    def parse_date(v):
+        if not v:
+            return None
+        try:
+            return date.fromisoformat(str(v).strip())
+        except ValueError:
+            return None
+
+    from_date = parse_date(emp.joining_date) or date(2020, 1, 1)
+    to_date = parse_date(emp.resigned_date) or date.today()
+
+    month_rows = await db.execute(
+        select(
+            func.date_trunc("month", Activation.activation_date).label("month"),
+            func.count(Activation.id).label("activations"),
+            func.count(func.distinct(Activation.retailer_id)).label("retailers"),
+        ).where(
+            Activation.employee_id == emp_id,
+            Activation.activation_date >= from_date,
+            Activation.activation_date <= to_date,
+        ).group_by("month").order_by("month")
+    )
+
+    data = []
+    total_activations = 0
+    for row in month_rows.all():
+        month_val = row.month
+        month_str = month_val.strftime("%Y-%m") if month_val else None
+        count = int(row.activations or 0)
+        total_activations += count
+        data.append({
+            "month": month_str,
+            "activations": count,
+            "retailers": int(row.retailers or 0),
+        })
+
+    return {
+        "success": True,
+        "employee": {
+            "id": emp.id,
+            "employee_id": emp.employee_id,
+            "name": emp.employee_name or emp.dms_code,
+            "employee_type": emp.employee_type,
+            "status": emp.status,
+            "joining_date": emp.joining_date,
+            "resigned_date": emp.resigned_date,
+        },
+        "from_date": from_date.isoformat(),
+        "to_date": to_date.isoformat(),
+        "data": data,
+        "summary": {
+            "total_activations": total_activations,
+            "total_months": len(data),
+        },
+    }
+
 @router.get("/{emp_id}/team-count")
 async def get_supervisor_team_count(
     emp_id: int,
@@ -665,7 +738,7 @@ async def reassign_supervisor_team(
         assignment.supervisor_employee_id = new_sup.id
         assignment.assigned_by = current_user.id
         member_result = await db.execute(
-            select(Employee.user_id).where(Employee.id == assignment.rso_employee_id)
+            select(Employee.user_id).where(Employee.id == assignment.member_employee_id)
         )
         member_user_id = member_result.scalar_one_or_none()
         if member_user_id:
@@ -789,28 +862,32 @@ class SupervisorAssignRequest(BaseModel):
     bp_employee_ids: list[int] = []
 
 
+class BPAssignRequest(BaseModel):
+    bp_employee_ids: list[int] = []
+
+
 async def _upsert_pivot_assignment(
     db: AsyncSession,
     sup_emp: Employee,
-    rso_emp: Employee,
+    member_emp: Employee,
     assigned_by: Optional[int],
 ) -> SupervisorRSOAssignment:
     """Create (or re-point) the pivot row. The pivot is the source of truth;
     User.parent_id is kept in sync as a convenience column."""
     result = await db.execute(
-        select(SupervisorRSOAssignment).where(SupervisorRSOAssignment.rso_employee_id == rso_emp.id)
+        select(SupervisorRSOAssignment).where(SupervisorRSOAssignment.member_employee_id == member_emp.id)
     )
     row = result.scalar_one_or_none()
     if row:
         row.supervisor_employee_id = sup_emp.id
-        row.house_id = rso_emp.house_id
+        row.house_id = member_emp.house_id
         row.assigned_by = assigned_by
         db.add(row)
         return row
     row = SupervisorRSOAssignment(
         supervisor_employee_id=sup_emp.id,
-        rso_employee_id=rso_emp.id,
-        house_id=rso_emp.house_id,
+        member_employee_id=member_emp.id,
+        house_id=member_emp.house_id,
         assigned_by=assigned_by,
     )
     db.add(row)
@@ -943,7 +1020,7 @@ async def get_supervisors_with_teams(
         ).scalars().all()
 
     member_by_id: dict[int, Employee] = {}
-    member_ids = [r.rso_employee_id for r in rows]
+    member_ids = [r.member_employee_id for r in rows]
     if member_ids:
         member_emps = (
             await db.execute(
@@ -963,13 +1040,13 @@ async def get_supervisors_with_teams(
         sup_user = sup.user
         team = []
         for row in row_map.get(sup.id, []):
-            member_emp = member_by_id.get(row.rso_employee_id)
+            member_emp = member_by_id.get(row.member_employee_id)
             if not member_emp:
                 continue
             mu = member_emp.user
             team.append({
-                "rso_employee_id": member_emp.id,
-                "rso_user_id": mu.id if mu else None,
+                "member_employee_id": member_emp.id,
+                "member_user_id": mu.id if mu else None,
                 "name": (mu.name if mu else None) or member_emp.employee_name or member_emp.employee_id,
                 "employee_id": member_emp.employee_id,
                 "employee_type": member_emp.employee_type,
@@ -1007,7 +1084,7 @@ async def _list_unassigned_members(
 ) -> list[dict]:
     """List employees of a given type that are NOT tagged under any supervisor (house-scoped)."""
     assigned_ids = (
-        await db.execute(select(SupervisorRSOAssignment.rso_employee_id))
+        await db.execute(select(SupervisorRSOAssignment.member_employee_id))
     ).scalars().all()
     assigned_set = set(assigned_ids)
 
@@ -1035,8 +1112,8 @@ async def _list_unassigned_members(
             continue
         ru = emp.user
         unassigned.append({
-            "rso_employee_id": emp.id,
-            "rso_user_id": ru.id if ru else None,
+            "member_employee_id": emp.id,
+            "member_user_id": ru.id if ru else None,
             "name": (ru.name if ru else None) or emp.employee_name or emp.employee_id,
             "employee_id": emp.employee_id,
             "employee_type": emp.employee_type,
@@ -1151,40 +1228,218 @@ async def assign_rsos_to_supervisor(
     }
 
 
-@router.delete("/supervisors/assignments/{rso_employee_id}")
+@router.delete("/supervisors/assignments/{member_employee_id}")
 async def remove_supervisor_assignment(
-    rso_employee_id: int,
+    member_employee_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("employees.assign")),
 ):
     """Remove a member (RSO/BP) from its supervisor (pivot row deleted + parent_id cleared)."""
-    rso_emp = (
+    member_emp = (
         await db.execute(
-            select(Employee).options(selectinload(Employee.user)).where(Employee.id == rso_employee_id)
+            select(Employee).options(selectinload(Employee.user)).where(Employee.id == member_employee_id)
         )
     ).scalar_one_or_none()
-    if not rso_emp:
+    if not member_emp:
         raise HTTPException(status_code=404, detail="Member not found")
     row = (
         await db.execute(
-            select(SupervisorRSOAssignment).where(SupervisorRSOAssignment.rso_employee_id == rso_emp.id)
+            select(SupervisorRSOAssignment).where(SupervisorRSOAssignment.member_employee_id == member_emp.id)
         )
     ).scalar_one_or_none()
     removed_supervisor = row.supervisor_employee_id if row else None
     if row:
         await db.delete(row)
-    if rso_emp.user and rso_emp.user.parent_id is not None:
-        rso_emp.user.parent_id = None
+    if member_emp.user and member_emp.user.parent_id is not None:
+        member_emp.user.parent_id = None
     await db.commit()
     await log_activity(
         db, current_user.id, current_user.name, "employees", "unassign",
-        record_id=rso_emp.id,
-        record_identifier=rso_emp.employee_id or rso_emp.dms_code,
+        record_id=member_emp.id,
+        record_identifier=member_emp.employee_id or member_emp.dms_code,
         old_values={"supervisor_employee_id": removed_supervisor},
         request=request, status_code=200,
     )
     return {"success": True, "message": "Assignment removed"}
+
+
+@router.get("/rso-bp-assignments")
+async def get_rso_bp_assignments(
+    rso_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.view")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    """Map of RSO -> linked BPs (organizational link only; GA counts unaffected)."""
+    query = select(RSOBPAssignment)
+    if rso_id:
+        query = query.where(RSOBPAssignment.rso_employee_id == rso_id)
+    elif house_id:
+        query = query.where(RSOBPAssignment.house_id == house_id)
+    else:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            query = query.where(RSOBPAssignment.house_id.in_(user_house_ids))
+
+    rows = (
+        await db.execute(query.order_by(RSOBPAssignment.rso_employee_id, RSOBPAssignment.bp_employee_id))
+    ).scalars().all()
+    if not rows:
+        return {"success": True, "data": []}
+
+    rso_ids = sorted({r.rso_employee_id for r in rows})
+    bp_ids = sorted({r.bp_employee_id for r in rows})
+    emp_rows = (
+        await db.execute(
+            select(Employee)
+            .options(selectinload(Employee.user))
+            .where(Employee.id.in_(rso_ids + bp_ids))
+        )
+    ).unique().scalars().all()
+    emp_by_id = {e.id: e for e in emp_rows}
+
+    def member_dict(e: Employee) -> dict:
+        mu = e.user
+        return {
+            "member_employee_id": e.id,
+            "member_user_id": mu.id if mu else None,
+            "name": (mu.name if mu else None) or e.employee_name or e.employee_id,
+            "employee_id": e.employee_id,
+            "employee_type": e.employee_type,
+            "dms_code": e.dms_code,
+            "itop_number": e.itop_number,
+            "pool_number": e.pool_number,
+            "status": e.status,
+        }
+
+    by_rso: dict[int, dict] = {}
+    for r in rows:
+        entry = by_rso.setdefault(r.rso_employee_id, {"rso_employee_id": r.rso_employee_id, "rso_name": None, "bps": []})
+        bp = emp_by_id.get(r.bp_employee_id)
+        if bp:
+            entry["bps"].append(member_dict(bp))
+    for rso_emp_id in by_rso:
+        rso = emp_by_id.get(rso_emp_id)
+        by_rso[rso_emp_id]["rso_name"] = (
+            (rso.user.name if rso and rso.user else None)
+            or (rso.employee_name if rso else None)
+            or f"RSO #{rso_emp_id}"
+        )
+    return {"success": True, "data": list(by_rso.values())}
+
+
+@router.post("/{rso_employee_id}/assign-bps")
+async def assign_bps_to_rso(
+    rso_employee_id: int,
+    req: BPAssignRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.assign")),
+):
+    """Link one or more BPs under an RSO (house-scoped, BP linked to one RSO at a time).
+
+    This is an organizational link only — the linked BPs' GA counts stay in the
+    BP section and are never rolled into the RSO's total.
+    """
+    rso_emp = (
+        await db.execute(select(Employee).where(Employee.id == rso_employee_id))
+    ).scalar_one_or_none()
+    if not rso_emp:
+        raise HTTPException(status_code=404, detail="RSO employee not found")
+    if rso_emp.employee_type != "rso":
+        raise HTTPException(status_code=422, detail="Employee is not an RSO")
+    if rso_emp.status != "Active":
+        raise HTTPException(status_code=422, detail="RSO is not active")
+
+    bp_ids = list(dict.fromkeys(req.bp_employee_ids or []))
+    success_count = 0
+    errors = []
+    assigned_labels = []
+    for bp_id in bp_ids:
+        bp_emp = (
+            await db.execute(select(Employee).where(Employee.id == bp_id))
+        ).scalar_one_or_none()
+        if not bp_emp:
+            errors.append({"employee_id": bp_id, "error": "BP not found"})
+            continue
+        if bp_emp.employee_type != "bp":
+            errors.append({"employee_id": bp_id, "error": "Employee is not a BP"})
+            continue
+        if bp_emp.status != "Active":
+            errors.append({"employee_id": bp_id, "error": "BP is not active"})
+            continue
+        if bp_emp.house_id != rso_emp.house_id:
+            errors.append({"employee_id": bp_id, "error": "BP and RSO must belong to the same house"})
+            continue
+
+        existing = (
+            await db.execute(
+                select(RSOBPAssignment).where(RSOBPAssignment.bp_employee_id == bp_emp.id)
+            )
+        ).scalar_one_or_none()
+        if existing:
+            existing.rso_employee_id = rso_emp.id
+            existing.house_id = rso_emp.house_id
+            existing.assigned_by = current_user.id
+            db.add(existing)
+        else:
+            db.add(RSOBPAssignment(
+                rso_employee_id=rso_emp.id,
+                bp_employee_id=bp_emp.id,
+                house_id=rso_emp.house_id,
+                assigned_by=current_user.id,
+            ))
+        success_count += 1
+        assigned_labels.append(bp_emp.employee_id or bp_emp.dms_code or str(bp_emp.id))
+
+    await db.commit()
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "rso_bp_assign",
+        record_id=rso_emp.id,
+        record_identifier=rso_emp.employee_id or rso_emp.dms_code,
+        new_values={"bp_employee_ids": bp_ids, "assigned": assigned_labels},
+        request=request, status_code=200,
+    )
+    return {
+        "success": True,
+        "message": f"{success_count} BP(s) linked to RSO",
+        "assigned": success_count,
+        "errors": errors,
+    }
+
+
+@router.delete("/rso-bp-assignments/{bp_employee_id}")
+async def remove_bp_from_rso(
+    bp_employee_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.assign")),
+):
+    """Unlink a BP from its RSO (BP stays under its supervisor; counts unaffected)."""
+    bp_emp = (
+        await db.execute(select(Employee).where(Employee.id == bp_employee_id))
+    ).scalar_one_or_none()
+    if not bp_emp:
+        raise HTTPException(status_code=404, detail="BP not found")
+    row = (
+        await db.execute(
+            select(RSOBPAssignment).where(RSOBPAssignment.bp_employee_id == bp_emp.id)
+        )
+    ).scalar_one_or_none()
+    if not row:
+        return {"success": True, "message": "BP has no RSO link"}
+    removed_rso = row.rso_employee_id
+    await db.delete(row)
+    await db.commit()
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "rso_bp_unassign",
+        record_id=bp_emp.id,
+        record_identifier=bp_emp.employee_id or bp_emp.dms_code,
+        old_values={"rso_employee_id": removed_rso},
+        request=request, status_code=200,
+    )
+    return {"success": True, "message": "BP unlinked from RSO"}
 
 
 @router.post("/link-users")

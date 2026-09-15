@@ -1,9 +1,10 @@
 from typing import Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.rule_config import (
+    RuleContext,
     ReportRuleMaster,
     RuleExcludedProductCode,
     RuleExcludedRetailerType,
@@ -11,8 +12,53 @@ from app.models.rule_config import (
 )
 from app.utils.timezone import now_naive
 
-CONTEXT_KEYS = ["ga_live", "activation_report"]
 TARGET_ROLES = ["HOUSE", "SUPERVISOR", "RSO", "BP"]
+
+
+def context_to_dict(ctx: RuleContext) -> dict:
+    return {
+        "id": ctx.id,
+        "context_key": ctx.context_key,
+        "name_en": ctx.name_en,
+        "name_bn": ctx.name_bn,
+        "icon": ctx.icon,
+        "sort_order": ctx.sort_order,
+        "is_active": ctx.is_active,
+        "is_system": ctx.is_system,
+        "created_at": ctx.created_at.isoformat() if ctx.created_at else None,
+        "updated_at": ctx.updated_at.isoformat() if ctx.updated_at else None,
+    }
+
+
+async def get_contexts(
+    db: AsyncSession, include_inactive: bool = False
+) -> list[dict]:
+    """Return rule contexts ordered by sort_order. Excludes soft-deleted rows."""
+    query = (
+        select(RuleContext)
+        .where(RuleContext.is_deleted.is_(False))
+        .order_by(RuleContext.sort_order.asc(), RuleContext.context_key.asc())
+    )
+    if not include_inactive:
+        query = query.where(RuleContext.is_active.is_(True))
+    rows = (await db.execute(query)).scalars().all()
+    return [context_to_dict(r) for r in rows]
+
+
+async def get_context_keys(db: AsyncSession) -> list[str]:
+    return [c["context_key"] for c in await get_contexts(db)]
+
+
+async def context_key_exists(db: AsyncSession, context_key: str) -> bool:
+    row = (
+        await db.execute(
+            select(RuleContext.id).where(
+                RuleContext.context_key == context_key,
+                RuleContext.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+    return row is not None
 
 
 async def _set_children(
@@ -94,6 +140,7 @@ def rule_to_dict(rule: ReportRuleMaster, children: dict) -> dict:
         "context_key": rule.context_key,
         "rule_name": rule.rule_name,
         "target_role": rule.target_role,
+        "apply_to": rule.apply_to or "all",
         "is_active": rule.is_active,
         "created_by": rule.created_by,
         "created_at": rule.created_at.isoformat() if rule.created_at else None,
@@ -110,12 +157,14 @@ async def deactivate_other_active_rules(
     context_key: str,
     target_role: str,
     except_rule_id: Optional[int] = None,
+    apply_to: str = "all",
 ) -> int:
-    """Ensure only one active rule per (house_id, context_key, target_role)."""
+    """Ensure only one active rule per (house_id, context_key, target_role, apply_to)."""
     query = select(ReportRuleMaster).where(
         ReportRuleMaster.house_id == house_id,
         ReportRuleMaster.context_key == context_key,
         ReportRuleMaster.target_role == target_role,
+        ReportRuleMaster.apply_to == apply_to,
         ReportRuleMaster.is_active.is_(True),
         ReportRuleMaster.is_deleted.is_(False),
     )
@@ -134,30 +183,53 @@ async def get_effective_rule_conditions(
     house_id: int,
     context_key: str,
     target_role: Optional[str] = None,
+    apply_to: Optional[str] = None,
 ) -> dict:
     """Return effective exclusion/inclusion conditions for a report query.
 
-    - ``excluded_product_codes`` is the UNION across ALL active rules for the
-      (house_id, context_key) pair — product exclusions are global.
-    - ``excluded_retailer_types`` / ``included_employee_ids`` come only from the
-      active rule matching ``target_role``.
+    A rule applies to a section when its ``apply_to`` is ``"all"`` (global) or
+    equals the requested ``apply_to``. This keeps section-scoped rules isolated
+    from each other while preserving the legacy global behavior when
+    ``apply_to`` is omitted (only ``"all"`` rules are consulted).
+
+    - ``excluded_product_codes`` is the UNION across all applicable active rules
+      for the (house_id, context_key) pair.
+    - ``excluded_retailer_types`` / ``included_employee_ids`` come from the most
+      specific applicable active rule matching ``target_role`` (a rule scoped to
+      the requested section wins over a ``"all"`` rule).
     """
-    union_codes = (
-        await db.execute(
-            select(RuleExcludedProductCode.product_code)
-            .join(ReportRuleMaster, ReportRuleMaster.id == RuleExcludedProductCode.rule_id)
+    async def applicable_rules() -> list:
+        base = (
+            select(ReportRuleMaster)
             .where(
                 ReportRuleMaster.house_id == house_id,
                 ReportRuleMaster.context_key == context_key,
                 ReportRuleMaster.is_active.is_(True),
                 ReportRuleMaster.is_deleted.is_(False),
-                RuleExcludedProductCode.is_deleted.is_(False),
             )
+            .order_by(ReportRuleMaster.id.desc())
         )
-    ).scalars().all()
+        if apply_to:
+            base = base.where(
+                or_(
+                    ReportRuleMaster.apply_to == "all",
+                    ReportRuleMaster.apply_to == apply_to,
+                )
+            )
+        else:
+            base = base.where(ReportRuleMaster.apply_to == "all")
+        rows = (await db.execute(base)).scalars().all()
+        return list(rows)
+
+    matched = await applicable_rules()
+
+    union_codes = set()
+    for rule in matched:
+        children = await get_rule_children(db, rule.id)
+        union_codes.update(children["excluded_product_codes"])
 
     conditions = {
-        "excluded_product_codes": set(union_codes),
+        "excluded_product_codes": union_codes,
         "excluded_retailer_types": [],
         "included_employee_ids": [],
     }
@@ -165,17 +237,15 @@ async def get_effective_rule_conditions(
     if not target_role:
         return conditions
 
-    rule = (
-        await db.execute(
-            select(ReportRuleMaster).where(
-                ReportRuleMaster.house_id == house_id,
-                ReportRuleMaster.context_key == context_key,
-                ReportRuleMaster.target_role == target_role,
-                ReportRuleMaster.is_active.is_(True),
-                ReportRuleMaster.is_deleted.is_(False),
-            )
-        )
-    ).scalar_one_or_none()
+    role_rules = [r for r in matched if r.target_role == target_role]
+    if not role_rules:
+        return conditions
+
+    if apply_to:
+        rule = next((r for r in role_rules if r.apply_to == apply_to), None) \
+            or next((r for r in role_rules if r.apply_to == "all"), None)
+    else:
+        rule = next((r for r in role_rules if r.apply_to == "all"), None)
     if rule is None:
         return conditions
 

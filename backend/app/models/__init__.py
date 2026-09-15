@@ -6,6 +6,7 @@ from app.models.retailer import Retailer
 from app.models.bts import BTS
 from app.models.employee import Employee
 from app.models.supervisor_assignment import SupervisorRSOAssignment
+from app.models.rso_bp_assignment import RSOBPAssignment
 from app.models.activation import Activation
 from app.models.itopup_detail import ITopUpDetail
 from app.models.live_activation import LiveActivation
@@ -22,6 +23,7 @@ from app.models.lifting import LiftingRecord, LiftingProduct
 from app.models.ga_filter import GAProductFilter, FilterTag, RetailerFilter
 from app.models.retailer_marking import RetailerMarking, RetailerMarkingAssignment
 from app.models.rule_config import (
+    RuleContext,
     ReportRuleMaster,
     RuleExcludedProductCode,
     RuleExcludedRetailerType,

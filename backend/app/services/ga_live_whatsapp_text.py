@@ -85,7 +85,7 @@ async def _attach_supervisor_attribution(db: AsyncSession, house_id: int, data: 
         await db.execute(
             select(
                 SupervisorRSOAssignment.supervisor_employee_id,
-                SupervisorRSOAssignment.rso_employee_id,
+                SupervisorRSOAssignment.member_employee_id,
             ).where(SupervisorRSOAssignment.house_id == house_id)
         )
     ).all()

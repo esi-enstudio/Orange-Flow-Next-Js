@@ -15,11 +15,49 @@ from app.models.base import Base
 from app.utils.timezone import now_naive
 
 
+class RuleContext(Base):
+    """A dynamic report context that rules belong to (e.g. ga_live, activation_report).
+
+    System-level configuration shared across all houses — like roles or the
+    permission registry, not tenant business data. Rules reference a context by
+    ``context_key``. ``is_system`` contexts are the built-in ones and cannot be
+    deleted.
+    """
+
+    __tablename__ = "rule_contexts"
+    __table_args__ = (
+        UniqueConstraint("context_key", name="uq_rule_context_key"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    context_key = Column(String(100), nullable=False, index=True)
+    name_en = Column(String(200), nullable=False)
+    name_bn = Column(String(200), nullable=True)
+    icon = Column(String(50), nullable=True)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True, index=True)
+    is_system = Column(Boolean, default=False)
+
+    # Audit
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=now_naive)
+    updated_at = Column(DateTime, default=now_naive, onupdate=now_naive)
+
+    # Soft delete
+    is_deleted = Column(Boolean, default=False, index=True)
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
 class ReportRuleMaster(Base):
     """Master rule configuration used by report builders (GA Live, Activations, etc.).
 
     A rule is scoped to a house + context_key and targets a single employee role.
-    At most one rule per (house_id, context_key, target_role) may be active.
+    ``apply_to`` further scopes the rule to a page section (e.g. summary, rso, bp,
+    supervisor). ``apply_to = "all"`` means the rule applies to every section that
+    matches the role. At most one active rule per
+    (house_id, context_key, target_role, apply_to) is allowed.
     """
 
     __tablename__ = "report_rule_masters"
@@ -29,6 +67,7 @@ class ReportRuleMaster(Base):
             "house_id",
             "context_key",
             "target_role",
+            "apply_to",
             unique=True,
             postgresql_where=text("is_deleted = false AND is_active = true"),
         ),
@@ -41,6 +80,9 @@ class ReportRuleMaster(Base):
     target_role = Column(
         String(20), nullable=False, index=True
     )  # HOUSE | SUPERVISOR | RSO | BP | CC
+    apply_to = Column(
+        String(50), nullable=False, default="all", server_default=text("'all'"), index=True
+    )  # all | summary | rso | bp | supervisor
     is_active = Column(Boolean, default=False, index=True)
 
     # Audit

@@ -9,7 +9,7 @@ import {
   RotateCcw, Download, Printer, Share2, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
-  ChevronDown, Sliders,
+  ChevronDown,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis,
@@ -634,7 +634,6 @@ export default function ActivationDashboardPage() {
   const [activeTab, setActiveTab] = useState<"rso" | "bp" | "supervisor">("rso");
   const [isDark, setIsDark] = useState(false);
   const [showReportDelivery, setShowReportDelivery] = useState(false);
-  const isRuleAdmin = hasPermission("rule_config.create") || hasPermission("rule_config.edit");
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -815,15 +814,6 @@ export default function ActivationDashboardPage() {
           >
             <Printer className="w-4 h-4" />
           </button>
-          {isRuleAdmin && selectedHouseId && (
-            <button
-              onClick={() => router.push("/rule-config?context=activation_report&role=HOUSE")}
-              className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
-              title={t("rule_config.list.title")}
-            >
-              <Sliders className="w-4 h-4" />
-            </button>
-          )}
           <div className="relative">
             <button
               onClick={() => setShowReportDelivery(true)}
@@ -1194,18 +1184,6 @@ export default function ActivationDashboardPage() {
                   );
                 })}
               </div>
-              {isRuleAdmin && selectedHouseId && (
-                <button
-                  onClick={() => router.push(
-                    `/rule-config?context=activation_report&role=${activeTab === "rso" ? "RSO" : activeTab === "bp" ? "BP" : "SUPERVISOR"}`
-                  )}
-                  className="inline-flex items-center gap-1 px-3 h-8 rounded-lg text-[11px] md:text-sm font-semibold border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600 transition-all cursor-pointer shrink-0"
-                  title={t("rule_config.list.title")}
-                >
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{t("rule_config.list.title")}</span>
-                </button>
-              )}
             </div>
 
               {activeTab === "rso" && (

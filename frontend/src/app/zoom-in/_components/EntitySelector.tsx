@@ -22,6 +22,7 @@ interface EntitySelectorProps {
   error?: string;
   disabled?: boolean;
   required?: boolean;
+  single?: boolean;
   selectAllLabel?: string;
   clearLabel?: string;
   selectedLabel?: string;
@@ -40,6 +41,7 @@ export default function EntitySelector({
   error,
   disabled = false,
   required = false,
+  single = false,
   selectAllLabel = "Select All",
   clearLabel = "Clear",
   selectedLabel = "selected",
@@ -77,7 +79,14 @@ export default function EntitySelector({
     );
   });
 
+  const selectedItem = single ? items.find((item) => selectedIds.includes(item.id)) : undefined;
+
   const toggleItem = (id: string | number) => {
+    if (single) {
+      onChange(selectedIds[0] === id ? [] : [id]);
+      setOpen(false);
+      return;
+    }
     onChange(
       selectedIds.includes(id)
         ? selectedIds.filter((v) => v !== id)
@@ -94,8 +103,6 @@ export default function EntitySelector({
     onChange(selectedIds.filter((id) => !filteredIds.includes(id)));
   };
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every((item) => selectedIds.includes(item.id));
-
   return (
     <div ref={containerRef} className="relative">
       <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
@@ -109,12 +116,16 @@ export default function EntitySelector({
         className="w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 transition-colors"
       >
         <span className={`truncate ${selectedIds.length === 0 ? "text-gray-400" : "text-gray-900 dark:text-gray-100"}`}>
-          {selectedIds.length === 0
-            ? placeholder
-            : `${selectedIds.length} ${selectedLabel}`}
+          {single
+            ? selectedItem
+              ? selectedItem.label
+              : placeholder
+            : selectedIds.length === 0
+              ? placeholder
+              : `${selectedIds.length} ${selectedLabel}`}
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
-          {selectedIds.length > 0 && (
+          {!single && selectedIds.length > 0 && (
             <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold text-white bg-primary-500 rounded-full">
               {selectedIds.length}
             </span>
@@ -146,6 +157,7 @@ export default function EntitySelector({
 
               {items.length > 0 && (
                 <div className="flex items-center gap-1 px-2 pt-2 pb-1 border-b border-gray-100 dark:border-slate-800">
+                {!single && (
                 <button
                   type="button"
                   onClick={selectAll}
@@ -154,6 +166,7 @@ export default function EntitySelector({
                   <Check className="w-3 h-3" />
                   {selectAllLabel}
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={clearAll}

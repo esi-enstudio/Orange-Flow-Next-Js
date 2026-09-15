@@ -5,17 +5,21 @@ from app.models.base import Base
 
 
 class SupervisorRSOAssignment(Base):
-    """Pivot table tagging RSO employees under a supervisor employee (many-to-many)."""
+    """Supervisor team pivot: tags a team member (RSO or BP) under a supervisor.
+
+    ``member_employee_id`` holds the RSO OR BP employee id — the column was
+    historically named ``rso_employee_id`` but it also stores BP members.
+    """
 
     __tablename__ = "supervisor_rso_assignments"
     __table_args__ = (
-        UniqueConstraint("rso_employee_id", name="uq_supervisor_rso_rso_employee"),
+        UniqueConstraint("member_employee_id", name="uq_supervisor_rso_member_employee"),
         Index("ix_supervisor_rso_supervisor_id", "supervisor_employee_id"),
     )
 
     id = Column(Integer, primary_key=True)
     supervisor_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
-    rso_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    member_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
     house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
     assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
@@ -23,11 +27,11 @@ class SupervisorRSOAssignment(Base):
     supervisor = relationship(
         "Employee",
         foreign_keys=[supervisor_employee_id],
-        backref="supervised_rso_links",
+        backref="supervised_member_links",
     )
-    rso = relationship(
+    member = relationship(
         "Employee",
-        foreign_keys=[rso_employee_id],
+        foreign_keys=[member_employee_id],
         backref="supervisor_link",
     )
     house = relationship("House")

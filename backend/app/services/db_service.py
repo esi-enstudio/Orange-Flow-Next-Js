@@ -300,6 +300,57 @@ async def _migrate_employee_name():
     except Exception as e:
         logger.warning(f"Migration warning (employees.employee_name): {e}")
 
+async def _migrate_supervisor_member_rename():
+    """Rename supervisor_rso_assignments.rso_employee_id -> member_employee_id.
+
+    The pivot stores RSO AND BP team members under a supervisor, so the old
+    column name was misleading. Renames the column, its unique constraint and
+    its auto index. Runs BEFORE create_all so the new model metadata
+    (member_employee_id) does not try to create a duplicate index on a column
+    that does not exist yet.
+    """
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='supervisor_rso_assignments' AND column_name='rso_employee_id'"
+            ))
+            if not result.scalar():
+                return
+            logger.info("Migrating supervisor_rso_assignments: renaming rso_employee_id -> member_employee_id ...")
+            await conn.execute(text(
+                "ALTER TABLE supervisor_rso_assignments RENAME COLUMN rso_employee_id TO member_employee_id"
+            ))
+            constraint_exists = await conn.execute(text(
+                "SELECT 1 FROM pg_constraint WHERE conname = 'uq_supervisor_rso_rso_employee'"
+            ))
+            if constraint_exists.scalar():
+                await conn.execute(text(
+                    "ALTER TABLE supervisor_rso_assignments RENAME CONSTRAINT "
+                    "uq_supervisor_rso_rso_employee TO uq_supervisor_rso_member_employee"
+                ))
+            fk_exists = await conn.execute(text(
+                "SELECT 1 FROM pg_constraint WHERE conname = 'supervisor_rso_assignments_rso_employee_id_fkey'"
+            ))
+            if fk_exists.scalar():
+                await conn.execute(text(
+                    "ALTER TABLE supervisor_rso_assignments RENAME CONSTRAINT "
+                    "supervisor_rso_assignments_rso_employee_id_fkey TO "
+                    "supervisor_rso_assignments_member_employee_id_fkey"
+                ))
+            index_exists = await conn.execute(text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE tablename = 'supervisor_rso_assignments' AND indexname = 'ix_supervisor_rso_assignments_rso_employee_id'"
+            ))
+            if index_exists.scalar():
+                await conn.execute(text(
+                    "ALTER INDEX ix_supervisor_rso_assignments_rso_employee_id "
+                    "RENAME TO ix_supervisor_rso_assignments_member_employee_id"
+                ))
+            logger.info("Migration complete: supervisor_rso_assignments.member_employee_id")
+    except Exception as e:
+        logger.warning(f"Migration warning (supervisor member rename): {e}")
+
 async def _migrate_supervisor_rso_pivot():
     """Seed supervisor_rso_assignments from existing User.parent_id reporting lines.
     Idempotent — existing pivot rows are never overwritten."""
@@ -308,7 +359,7 @@ async def _migrate_supervisor_rso_pivot():
             seed = await conn.execute(text(
                 """
                 INSERT INTO supervisor_rso_assignments
-                    (supervisor_employee_id, rso_employee_id, house_id, assigned_by, created_at)
+                    (supervisor_employee_id, member_employee_id, house_id, assigned_by, created_at)
                 SELECT sup_e.id, sub_e.id, sub_e.house_id, NULL, NOW()
                 FROM users sub
                 JOIN users sup ON sup.id = sub.parent_id
@@ -318,7 +369,7 @@ async def _migrate_supervisor_rso_pivot():
                 JOIN roles r ON r.id = ur.role_id
                 WHERE sub.parent_id IS NOT NULL
                   AND LOWER(r.name) = 'rso'
-                ON CONFLICT (rso_employee_id) DO NOTHING
+                ON CONFLICT (member_employee_id) DO NOTHING
                 """
             ))
             if seed.rowcount:
@@ -460,6 +511,60 @@ async def _migrate_retailer_employee_link():
     except Exception as e:
         logger.warning(f"Migration warning (retailer resigned-owner re-link): {e}")
 
+async def _migrate_activation_employee_id():
+    """Add employee_id to activations/live_activations (an immutable snapshot of
+    which employee owned the retailer at import time) and backfill existing rows.
+
+    Attribute is based on activate.employee_id (permanent) rather than
+    retailers.employee_id (current), so a resigned RSO/BP keeps their
+    historical performance even after their retailers are reassigned.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE activations ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_activations_employee_id ON activations (employee_id)"
+            ))
+            backfilled = await conn.execute(text(
+                """
+                UPDATE activations a
+                SET employee_id = r.employee_id
+                FROM retailers r
+                WHERE a.retailer_id = r.id
+                  AND a.employee_id IS NULL
+                  AND r.employee_id IS NOT NULL
+                """
+            ))
+            if backfilled.rowcount:
+                logger.info(f"Migration complete: backfilled employee_id on {backfilled.rowcount} activation(s)")
+    except Exception as e:
+        logger.warning(f"Migration warning (activations.employee_id): {e}")
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE live_activations ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_live_activations_employee_id ON live_activations (employee_id)"
+            ))
+            backfilled = await conn.execute(text(
+                """
+                UPDATE live_activations la
+                SET employee_id = r.employee_id
+                FROM retailers r
+                WHERE la.retailer_id = r.id
+                  AND la.employee_id IS NULL
+                  AND r.employee_id IS NOT NULL
+                """
+            ))
+            if backfilled.rowcount:
+                logger.info(f"Migration complete: backfilled employee_id on {backfilled.rowcount} live activation(s)")
+    except Exception as e:
+        logger.warning(f"Migration warning (live_activations.employee_id): {e}")
+
 async def _migrate_supervisor_team_link():
     """Re-tag a supervisor's team (RSO/BP pivot rows) to an active successor
     supervisor when the current supervisor is Resigned/Inactive.
@@ -496,7 +601,7 @@ async def _migrate_supervisor_team_link():
                 UPDATE users u
                 SET parent_id = ns.id
                 FROM supervisor_rso_assignments a
-                JOIN employees m ON m.id = a.rso_employee_id
+                JOIN employees m ON m.id = a.member_employee_id
                 JOIN employees s2 ON s2.id = a.supervisor_employee_id
                 JOIN users ns ON ns.id = s2.user_id
                 WHERE m.user_id = u.id
@@ -836,6 +941,28 @@ async def _migrate_billing_tables_extra():
         logger.warning(f"Migration warning (billing tables extra columns): {e}")
 
 
+async def _migrate_seed_rule_contexts():
+    """Seed the built-in report rule contexts (idempotent).
+
+    Contexts are system-level config shared across houses. The built-in ones
+    (GA Live, Activation Report) are marked is_system so they cannot be deleted;
+    further contexts may be created at runtime via the rule-config API.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                """INSERT INTO rule_contexts
+                     (context_key, name_en, name_bn, icon, sort_order, is_active, is_system, created_at, updated_at, is_deleted)
+                   VALUES
+                     ('ga_live', 'GA Live', 'GA Live', 'activity', 0, true, true, NOW(), NOW(), false),
+                     ('activation_report', 'Activation Report', 'অ্যাক্টিভেশন রিপোর্ট', 'bar-chart-3', 1, true, true, NOW(), NOW(), false)
+                   ON CONFLICT (context_key) DO NOTHING"""
+            ))
+            logger.info("Seeded rule contexts")
+    except Exception as e:
+        logger.warning(f"Seed warning (rule_contexts): {e}")
+
+
 async def _drop_legacy_ga_section_config_table():
     """Fresh-start: remove the legacy ga_section_configs table and its data.
 
@@ -850,15 +977,50 @@ async def _drop_legacy_ga_section_config_table():
         logger.warning(f"Migration warning (drop ga_section_configs): {e}")
 
 
+async def _migrate_rule_apply_to():
+    """Add the report-rule ``apply_to`` (page-section) dimension.
+
+    Section-scoped rules let one report page run different rules in different
+    places (e.g. summary vs rso vs bp vs supervisor on the activation report).
+    Existing rules become ``apply_to = 'all'`` and the "one active rule per
+    (house, context, role)" partial unique index is widened to include
+    ``apply_to`` so each section slot can own one active rule independently.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE report_rule_masters "
+                "ADD COLUMN IF NOT EXISTS apply_to VARCHAR(50) NOT NULL DEFAULT 'all'"
+            ))
+            await conn.execute(text(
+                "UPDATE report_rule_masters "
+                "SET apply_to = 'all' WHERE apply_to IS NULL OR apply_to = ''"
+            ))
+            await conn.execute(text(
+                "DROP INDEX IF EXISTS uq_rule_master_active_house_context_role"
+            ))
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_rule_master_active_house_context_role "
+                "ON report_rule_masters (house_id, context_key, target_role, apply_to) "
+                "WHERE is_deleted = false AND is_active = true"
+            ))
+    except Exception as e:
+        logger.warning(f"Migration warning (rule apply_to): {e}")
+
+
 async def init_db():
     try:
         await _drop_legacy_ga_section_config_table()
+        await _migrate_supervisor_member_rename()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        await _migrate_seed_rule_contexts()
+        await _migrate_rule_apply_to()
         await _migrate_employee_sr_no()
         await _migrate_employee_name()
         await _migrate_supervisor_rso_pivot()
         await _migrate_retailer_employee_link()
+        await _migrate_activation_employee_id()
         await _migrate_supervisor_team_link()
         await _migrate_retailer_filter_tag_id()
         await _migrate_retailer_markings()

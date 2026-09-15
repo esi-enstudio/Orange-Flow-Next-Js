@@ -259,7 +259,8 @@
         "rule_config.view",
         "rule_config.create",
         "rule_config.edit",
-        "rule_config.delete"
+        "rule_config.delete",
+        "rule_config.manage_contexts"
       ]
     },
     "filters": {

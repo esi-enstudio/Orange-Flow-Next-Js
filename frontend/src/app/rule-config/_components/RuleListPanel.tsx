@@ -25,6 +25,11 @@ export default function RuleListPanel({
 
   const activeCount = useMemo(() => rules.filter((r) => r.is_active).length, [rules]);
 
+  const contextLabel = (ctx: string) => {
+    const label = t(`rule_config.contexts.${ctx}`);
+    return label === `rule_config.contexts.${ctx}` ? ctx : label;
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between gap-2 mb-3">
@@ -75,9 +80,16 @@ export default function RuleListPanel({
               )}
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-semibold truncate text-gray-900 dark:text-gray-100">
-                  {rule.rule_name}
-                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className="text-sm font-semibold truncate text-gray-900 dark:text-gray-100">
+                    {rule.rule_name}
+                  </p>
+                  {rule.apply_to && rule.apply_to !== "all" && (
+                    <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-violet-50 dark:bg-violet-500/15 text-violet-600 dark:text-violet-300 font-semibold">
+                      {t(`rule_config.sections.${rule.apply_to}`)}
+                    </span>
+                  )}
+                </div>
                 {rule.is_active ? (
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                 ) : (
@@ -86,12 +98,17 @@ export default function RuleListPanel({
                   </span>
                 )}
               </div>
-              {rule.updated_at && (
-                <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
-                  <Clock className="w-3 h-3" />
-                  {new Date(rule.updated_at + "Z").toLocaleString()}
-                </p>
-              )}
+              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 font-semibold">
+                  {contextLabel(rule.context_key)}
+                </span>
+                {rule.updated_at && (
+                  <span className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500">
+                    <Clock className="w-3 h-3" />
+                    {new Date(rule.updated_at + "Z").toLocaleString()}
+                  </span>
+                )}
+              </div>
             </button>
           ))
         )}

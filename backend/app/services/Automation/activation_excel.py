@@ -109,9 +109,11 @@ async def process_activation_excel(file_path, house_id=None, progress_callback=N
             # 2. Performance boost: all retailers in memory ✅
             print(f"{Fore.YELLOW}⏳ Building retailer map for house {house_code}...")
             ret_res = await session.execute(
-                select(Retailer.retailer_code, Retailer.id).where(Retailer.house_id == house_id)
+                select(Retailer.retailer_code, Retailer.id, Retailer.employee_id).where(Retailer.house_id == house_id)
             )
-            retailer_map = {r.retailer_code: r.id for r in ret_res.all()}
+            ret_rows = ret_res.all()
+            retailer_map = {r.retailer_code: r.id for r in ret_rows}
+            retailer_emp_map = {r.retailer_code: r.employee_id for r in ret_rows}
 
             processed_count = 0
             inserted_count = 0
@@ -143,6 +145,7 @@ async def process_activation_excel(file_path, house_id=None, progress_callback=N
                 data_map = {
                     "house_id": house_id,
                     "retailer_id": target_retailer_id,
+                    "employee_id": retailer_emp_map.get(r_code) if r_code else None,
                     "sim_no": sim_no,
                     "activation_date": act_date,
                     "activation_time": clean(row.get('ACTIVATION_TIME')),

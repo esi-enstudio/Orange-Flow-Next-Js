@@ -942,7 +942,7 @@ BP/CC assisted retailer codes (e.g., `R344412 "BP Assisted Code - Jasim Uddin Su
 
 ## Problem Background
 
-A supervisor owns RSO/BP team members through the `supervisor_rso_assignments` pivot table (model `SupervisorRSOAssignment`, unique on `rso_employee_id`). `User.parent_id` is kept in sync for backward compatibility. When a supervisor becomes **Resigned/Inactive**, their team must not stay tagged to them — it must move to the new (active successor) supervisor.
+A supervisor owns RSO/BP team members through the `supervisor_rso_assignments` pivot table (model `SupervisorRSOAssignment`, unique on `member_employee_id`; the member column holds both RSO and BP employee ids). `User.parent_id` is kept in sync for backward compatibility. When a supervisor becomes **Resigned/Inactive**, their team must not stay tagged to them — it must move to the new (active successor) supervisor.
 
 ## Mandatory Rules
 
@@ -960,7 +960,7 @@ A supervisor owns RSO/BP team members through the `supervisor_rso_assignments` p
 
 6. **Sanity check during development/QA** — Run this query to detect a non-active supervisor still owning a team when an active successor exists:
    ```sql
-   SELECT a.supervisor_employee_id, s.dms_code, s.status, a.rso_employee_id
+   SELECT a.supervisor_employee_id, s.dms_code, s.status, a.member_employee_id
    FROM supervisor_rso_assignments a
    JOIN employees s ON s.id = a.supervisor_employee_id
    WHERE s.status <> 'Active'

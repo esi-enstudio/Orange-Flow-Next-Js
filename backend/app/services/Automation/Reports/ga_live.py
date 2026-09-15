@@ -199,9 +199,11 @@ async def process_and_save_data(file_path, house_id):
 
             # Build retailer code-to-ID map for fast performance
             ret_res = await session.execute(
-                select(Retailer.retailer_code, Retailer.id).where(Retailer.house_id == house_id)
+                select(Retailer.retailer_code, Retailer.id, Retailer.employee_id).where(Retailer.house_id == house_id)
             )
-            retailer_map = {str(r.retailer_code).strip(): r.id for r in ret_res.all()}
+            ret_rows = ret_res.all()
+            retailer_map = {str(r.retailer_code).strip(): r.id for r in ret_rows}
+            retailer_emp_map = {str(r.retailer_code).strip(): r.employee_id for r in ret_rows}
 
             records = []
             for _, row in df.iterrows():
@@ -234,6 +236,7 @@ async def process_and_save_data(file_path, house_id):
                 records.append({
                     "house_id": house_id,
                     "retailer_id": retailer_db_id,
+                    "employee_id": retailer_emp_map.get(ret_code),
                     "activation_date": activation_date_val,
                     "activation_time": get_val('ACTIVATION_TIME'),
                     "retailer_code": ret_code,

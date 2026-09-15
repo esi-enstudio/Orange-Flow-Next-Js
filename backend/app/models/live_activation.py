@@ -9,6 +9,7 @@ class LiveActivation(Base):
     id = Column(Integer, primary_key=True)
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     retailer_id = Column(Integer, ForeignKey('retailers.id'), nullable=True)
+    employee_id = Column(Integer, ForeignKey('employees.id'), nullable=True, index=True)  # Snapshot of attribution at import time
     
     # activation data columns
     activation_date = Column(Date, index=True)
@@ -37,3 +38,4 @@ class LiveActivation(Base):
 
     house = relationship("House")
     retailer = relationship("Retailer", back_populates="live_activations")
+    employee = relationship("Employee")

@@ -1,17 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertCircle, Check, Loader2, Power, Save, Trash2 } from "lucide-react";
+import { AlertCircle, Check, LayoutGrid, Loader2, Power, Save, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import EntitySelector, { type SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
-import { ROLE_STYLE, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
+import { RULE_SECTIONS, ROLE_STYLE, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
 
 interface RuleFormPanelProps {
   rule: RuleType | null;
   isNew: boolean;
   options: OptionsData | null;
   role: Role;
+  contextKey: string;
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
@@ -25,6 +26,7 @@ interface RuleFormPanelProps {
 
 export interface DraftPayload {
   rule_name: string;
+  apply_to: string;
   is_active: boolean;
   excluded_product_codes: string[];
   excluded_retailer_types: string[];
@@ -36,6 +38,7 @@ export default function RuleFormPanel({
   isNew,
   options,
   role,
+  contextKey,
   canCreate,
   canEdit,
   canDelete,
@@ -49,9 +52,10 @@ export default function RuleFormPanel({
   const { t } = useLanguage();
 
   const [draft, setDraft] = useState<DraftPayload>(() => {
-    if (!rule) return { rule_name: "", is_active: true, excluded_product_codes: [], excluded_retailer_types: [], included_employee_ids: [] };
+    if (!rule) return { rule_name: "", apply_to: "all", is_active: true, excluded_product_codes: [], excluded_retailer_types: [], included_employee_ids: [] };
     return {
       rule_name: rule.rule_name ?? "",
+      apply_to: rule.apply_to ?? "all",
       is_active: rule.is_active,
       excluded_product_codes: rule.excluded_product_codes ?? [],
       excluded_retailer_types: rule.excluded_retailer_types ?? [],
@@ -64,6 +68,11 @@ export default function RuleFormPanel({
 
   const editingId = rule?.id ?? null;
   const canWrite = isNew ? canCreate : canEdit;
+  const displayContext = rule ? rule.context_key : contextKey;
+  const contextLabel = (ctx: string) => {
+    const label = t(`rule_config.contexts.${ctx}`);
+    return label === `rule_config.contexts.${ctx}` ? ctx : label;
+  };
 
   const productItems: SelectorItem[] = useMemo(
     () => (options?.product_codes ?? []).map((p) => ({ id: p.code, label: p.code, sublabel: p.name === p.code ? undefined : p.name })),
@@ -99,9 +108,12 @@ export default function RuleFormPanel({
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold", ROLE_STYLE[role].chip)}>
             {ROLE_STYLE[role].icon} {t(`rule_config.roles.${role}`)}
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 font-semibold">
+            {contextLabel(displayContext)}
           </span>
           <span className="text-sm font-bold text-gray-700 dark:text-gray-300">
             {isNew ? t("rule_config.page.new_rule") : t("rule_config.page.edit_rule")}
@@ -183,6 +195,30 @@ export default function RuleFormPanel({
             )} />
           </button>
         </div>
+
+        {contextKey === "activation_report" && (
+          <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+              {t("rule_config.fields.apply_to")}
+            </label>
+            <div className="relative">
+              <LayoutGrid className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <select
+                value={draft.apply_to}
+                onChange={(e) => { setDraft((d) => ({ ...d, apply_to: e.target.value })); setDirty(true); }}
+                disabled={!canWrite}
+                className="w-full pl-9 pr-10 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer disabled:opacity-50"
+              >
+                {RULE_SECTIONS.map((s) => (
+                  <option key={s} value={s}>{t(`rule_config.sections.${s}`)}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5 px-1">
+              {t("rule_config.fields.apply_to_hint")}
+            </p>
+          </div>
+        )}
 
         <EntitySelector
           label={t("rule_config.fields.excluded_product_codes")}

@@ -63,8 +63,9 @@ async def process_live_activation_excel(file_path, progress_callback=None):
         async with async_session() as session:
             house_res = await session.execute(select(House.code, House.id))
             house_map = {h.code: h.id for h in house_res.all() if h.code}
-            ret_res = await session.execute(select(Retailer.retailer_code, Retailer.id))
+            ret_res = await session.execute(select(Retailer.retailer_code, Retailer.id, Retailer.employee_id))
             retailer_map = {r.retailer_code: r.id for r in ret_res.all() if r.retailer_code}
+            retailer_emp_map = {r.retailer_code: r.employee_id for r in ret_res.all() if r.retailer_code}
 
             processed_count = 0
             inserted_count = 0
@@ -101,6 +102,7 @@ async def process_live_activation_excel(file_path, progress_callback=None):
                 batch_buffer.append({
                     "house_id": house_id,
                     "retailer_id": target_retailer_id,
+                    "employee_id": retailer_emp_map.get(r_code) if r_code else None,
                     "sim_no": sim_no,
                     "activation_date": act_date,
                     "activation_time": clean(row.get('ACTIVATION_TIME')),

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertCircle, Building2, ChevronRight, Loader2, Settings2, Sliders,
+  AlertCircle, Building2, CheckCircle2, ChevronRight, Loader2, Settings2, Sliders,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { useLanguage } from "@/i18n/useLanguage";
 import PageGuideModal from "@/components/PageGuideModal";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import type { DraftPayload } from "./_components/RuleFormPanel";
+import ManageContextsModal from "./_components/ManageContextsModal";
 import RuleListPanel from "./_components/RuleListPanel";
 import RuleFormPanel from "./_components/RuleFormPanel";
 import {
@@ -19,14 +20,16 @@ import {
   DEFAULT_CONTEXT_META,
   ROLE_STYLE,
   ROLES,
+  resolveContextIcon,
   type OptionsData,
   type Role,
+  type RuleContextOption,
   type RuleType,
 } from "./_components/types";
 
 export default function RuleConfigPage() {
-  const { t } = useLanguage();
-  const { hasPermission, selectedHouse } = useAuth();
+  const { t, language } = useLanguage();
+  const { hasPermission, selectedHouse, user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -34,6 +37,14 @@ export default function RuleConfigPage() {
   const canCreate = hasPermission("rule_config.create");
   const canEdit = hasPermission("rule_config.edit");
   const canDelete = hasPermission("rule_config.delete");
+
+  const isAdminUser = useMemo(() => {
+    const names = (user?.roles ?? []).map((r) => r.name.toLowerCase());
+    return names.includes("admin") || names.includes("super admin") || names.includes("super_admin");
+  }, [user]);
+
+  // Backend enforces admin-only context management (is_admin_user); mirror it in the UI.
+  const canManageContexts = hasPermission("rule_config.manage_contexts") && isAdminUser;
   const [houses, setHouses] = useState<{ id: number; name: string; code: string; display_name: string }[]>([]);
   const [selectedHouseId, setSelectedHouseId] = useState<string>(
     selectedHouse?.id ? String(selectedHouse.id) : ""
@@ -51,6 +62,11 @@ export default function RuleConfigPage() {
     const p = paramCtx;
     return p ?? "";
   });
+  // Keep the live context available to useCallback closures (excluded from deps).
+  const activeContextRef = useRef(activeContext);
+  useEffect(() => {
+    activeContextRef.current = activeContext;
+  }, [activeContext]);
   const [activeRole, setActiveRole] = useState<Role>(() => {
     const p = paramRole?.toUpperCase();
     return ROLES.includes(p as Role) ? (p as Role) : "HOUSE";
@@ -65,6 +81,7 @@ export default function RuleConfigPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [authRedirect, setAuthRedirect] = useState(false);
+  const [manageContextsOpen, setManageContextsOpen] = useState(false);
 
   useEffect(() => {
     if (!canView && !authRedirect) {
@@ -87,7 +104,21 @@ export default function RuleConfigPage() {
     }
   }, [canView, selectedHouseId]);
 
-  const contextKeys = useMemo(() => options?.context_keys ?? [], [options]);
+  const contextOptions = useMemo(
+    () => options?.contexts ?? [],
+    [options]
+  );
+
+  const contextLabel = useCallback(
+    (c: RuleContextOption) => {
+      const localized = language === "bn" ? c.name_bn : c.name_en;
+      if (localized && localized.trim()) return localized.trim();
+      const keyLabel = t(`rule_config.contexts.${c.context_key}`);
+      return keyLabel === `rule_config.contexts.${c.context_key}` ? c.context_key : keyLabel;
+    },
+    [language, t]
+  );
+
   const validRoles = useMemo(() => ROLES.filter((r) => (options?.roles ?? ROLES).includes(r)), [options]);
 
   const roleRules = useMemo(
@@ -133,15 +164,17 @@ export default function RuleConfigPage() {
       ]);
       setOptions(optRes.data);
       setAllRules(ruleRes.data.data ?? []);
-      if (!activeContext && optRes.data.context_keys.length > 0) {
-        setActiveContext(optRes.data.context_keys[0]);
+      const availableActive = (optRes.data.context_keys ?? []);
+      const currentCtx = activeContextRef.current;
+      if (availableActive.length > 0 && (!currentCtx || !availableActive.includes(currentCtx))) {
+        setActiveContext(availableActive[0]);
       }
     } catch {
       setError("Failed to load rule configuration");
     } finally {
       setLoading(false);
     }
-  }, [houseId, canView, headers]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [houseId, canView, headers]);
 
   useEffect(() => {
     if (canView && houseId) {
@@ -154,6 +187,67 @@ export default function RuleConfigPage() {
     setSelectedId(rule.id);
     setCreatingNew(false);
   }
+
+  function handleSelectContextRule(rule: RuleType) {
+    if (ROLES.includes(rule.target_role as Role)) {
+      setActiveRole(rule.target_role as Role);
+    }
+    handleSelectRule(rule);
+  }
+
+  const renderContextRules = (ctxKey: string) => {
+    const ctxRules = allRules.filter((r) => r.context_key === ctxKey);
+    if (ctxRules.length === 0) {
+      return (
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 py-1.5 px-2">
+          {t("rule_config.messages.no_data")}
+        </p>
+      );
+    }
+    return ctxRules.map((rule) => {
+      const rStyle = ROLE_STYLE[rule.target_role as Role] ?? ROLE_STYLE.HOUSE;
+      const isSelectedRule = !creatingNew && rule.id === selectedId;
+      return (
+        <button
+          key={rule.id}
+          type="button"
+          onClick={() => handleSelectContextRule(rule)}
+          className={cn(
+            "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition-all cursor-pointer",
+            isSelectedRule
+              ? "bg-primary-50 dark:bg-primary-500/10"
+              : "hover:bg-gray-50 dark:hover:bg-slate-800/60"
+          )}
+        >
+          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md font-bold shrink-0", rStyle.chip)}>
+            {rStyle.icon}
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
+              {rule.rule_name}
+            </span>
+            <span className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                {t(`rule_config.roles.${rule.target_role}`)}
+              </span>
+              {rule.apply_to && rule.apply_to !== "all" && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 font-semibold">
+                  {t(`rule_config.sections.${rule.apply_to}`)}
+                </span>
+              )}
+            </span>
+          </span>
+          {rule.is_active ? (
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+          ) : (
+            <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 font-bold">
+              {t("common.inactive")}
+            </span>
+          )}
+        </button>
+      );
+    });
+  };
 
   function handleCreateNew() {
     setSelectedId(null);
@@ -169,6 +263,7 @@ export default function RuleConfigPage() {
         context_key: activeContext,
         rule_name: payload.rule_name.trim(),
         target_role: activeRole,
+        apply_to: payload.apply_to,
         is_active: payload.is_active,
         excluded_product_codes: payload.excluded_product_codes,
         excluded_retailer_types: payload.excluded_retailer_types,
@@ -340,44 +435,59 @@ export default function RuleConfigPage() {
 
       <div className="flex flex-col lg:flex-row gap-5 flex-1 min-h-0">
         <aside className="hidden lg:flex flex-col w-64 shrink-0">
+          {canManageContexts && (
+            <button
+              onClick={() => setManageContextsOpen(true)}
+              className="mb-3 w-full flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl border border-dashed border-gray-300 dark:border-slate-600 text-sm font-semibold text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:border-primary-400 dark:hover:border-primary-500 transition-colors cursor-pointer"
+            >
+              <Settings2 className="w-4 h-4" />
+              {t("rule_config.manage.manage_button")}
+            </button>
+          )}
           <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2 px-1">
             {t("rule_config.page.contexts_title")}
           </p>
           <div className="space-y-1.5">
-            {contextKeys.map((ctx) => {
-              const meta = CONTEXT_META[ctx] ?? DEFAULT_CONTEXT_META;
-              const IconComp = meta.icon ?? Settings2;
-              const isActive = ctx === activeContext;
-              const count = allRules.filter((r) => r.context_key === ctx).length;
-              const activeCount = allRules.filter((r) => r.context_key === ctx && r.is_active).length;
-              const ctxLabel = t(`rule_config.contexts.${ctx}`);
+            {contextOptions.map((ctx) => {
+              const meta = CONTEXT_META[ctx.context_key] ?? DEFAULT_CONTEXT_META;
+              const IconComp = resolveContextIcon(ctx.context_key, ctx.icon);
+              const isActive = ctx.context_key === activeContext;
+              const count = allRules.filter((r) => r.context_key === ctx.context_key).length;
+              const activeCount = allRules.filter((r) => r.context_key === ctx.context_key && r.is_active).length;
+              const ctxLabel = contextLabel(ctx);
               return (
-                <button
-                  key={ctx}
-                  onClick={() => { setActiveContext(ctx); setSelectedId(null); setCreatingNew(true); setError(null); }}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3.5 py-3 rounded-xl border text-left transition-all cursor-pointer",
-                    isActive
-                      ? `${meta.active} border-current shadow-sm`
-                      : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600"
+                <div key={ctx.context_key}>
+                  <button
+                    onClick={() => { setActiveContext(ctx.context_key); setSelectedId(null); setCreatingNew(true); setError(null); }}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3.5 py-3 rounded-xl border text-left transition-all cursor-pointer",
+                      isActive
+                        ? `${meta.active} border-current shadow-sm`
+                        : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600"
+                    )}
+                  >
+                    <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center shrink-0", meta.iconBg)}>
+                      <IconComp className="w-4.5 h-4.5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{ctxLabel}</p>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
+                        {count === 0
+                          ? t("rule_config.messages.no_data")
+                          : `${activeCount} / ${count} ${t("common.active")}`}
+                      </p>
+                    </div>
+                    <ChevronRight className={cn("w-4 h-4 shrink-0", isActive ? "opacity-60" : "opacity-30")} />
+                  </button>
+                  {isActive && (
+                    <div className="ml-5 mt-1.5 pl-3 space-y-1 border-l-2 border-gray-100 dark:border-slate-800">
+                      {renderContextRules(ctx.context_key)}
+                    </div>
                   )}
-                >
-                  <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center shrink-0", meta.iconBg)}>
-                    <IconComp className="w-4.5 h-4.5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{ctxLabel}</p>
-                    <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
-                      {count === 0
-                        ? t("rule_config.messages.no_data")
-                        : `${activeCount} / ${count} ${t("common.active")}`}
-                    </p>
-                  </div>
-                  <ChevronRight className={cn("w-4 h-4 shrink-0", isActive ? "opacity-60" : "opacity-30")} />
-                </button>
+                </div>
               );
             })}
-            {contextKeys.length === 0 && (
+            {contextOptions.length === 0 && (
               <div className="text-sm text-gray-400 dark:text-gray-500 py-6 text-center">
                 {t("rule_config.messages.no_data")}
               </div>
@@ -386,15 +496,15 @@ export default function RuleConfigPage() {
         </aside>
 
         <div className="flex lg:hidden gap-2 overflow-x-auto pb-2 -mx-4 px-4">
-          {contextKeys.map((ctx) => {
-            const meta = CONTEXT_META[ctx] ?? DEFAULT_CONTEXT_META;
-            const IconComp = meta.icon ?? Settings2;
-            const isActive = ctx === activeContext;
-            const ctxLabel = t(`rule_config.contexts.${ctx}`);
+          {contextOptions.map((ctx) => {
+            const meta = CONTEXT_META[ctx.context_key] ?? DEFAULT_CONTEXT_META;
+            const IconComp = resolveContextIcon(ctx.context_key, ctx.icon);
+            const isActive = ctx.context_key === activeContext;
+            const ctxLabel = contextLabel(ctx);
             return (
               <button
-                key={ctx}
-                onClick={() => { setActiveContext(ctx); setSelectedId(null); setCreatingNew(true); setError(null); }}
+                key={ctx.context_key}
+                onClick={() => { setActiveContext(ctx.context_key); setSelectedId(null); setCreatingNew(true); setError(null); }}
                 className={cn(
                   "flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer",
                   isActive
@@ -407,6 +517,19 @@ export default function RuleConfigPage() {
               </button>
             );
           })}
+          {canManageContexts && (
+            <button
+              onClick={() => setManageContextsOpen(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-300 dark:border-slate-600 text-sm font-semibold whitespace-nowrap shrink-0 text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 cursor-pointer"
+            >
+              <Settings2 className="w-4 h-4" />
+              {t("rule_config.manage.manage_button")}
+            </button>
+          )}
+        </div>
+
+        <div className="lg:hidden space-y-1 mt-1 rounded-xl bg-gray-50/50 dark:bg-slate-800/30 border border-gray-100 dark:border-slate-800 p-2 -mx-2">
+          {renderContextRules(activeContext)}
         </div>
 
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
@@ -464,6 +587,7 @@ export default function RuleConfigPage() {
                   isNew={creatingNew}
                   options={options}
                   role={activeRole}
+                  contextKey={activeContext}
                   canCreate={canCreate}
                   canEdit={canEdit}
                   canDelete={canDelete}
@@ -489,6 +613,12 @@ export default function RuleConfigPage() {
         loading={deleting}
         onClose={() => { if (!deleting) setDeleteTarget(null); }}
         onConfirm={() => { if (deleteTarget) handleDelete(deleteTarget); }}
+      />
+
+      <ManageContextsModal
+        open={manageContextsOpen}
+        onClose={() => setManageContextsOpen(false)}
+        onSaved={load}
       />
     </div>
   );

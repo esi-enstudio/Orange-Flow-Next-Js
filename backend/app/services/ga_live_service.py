@@ -343,12 +343,12 @@ class GaLiveQueryBuilder:
         supervisor_rso_pivot_rows = await self.db.execute(
             select(
                 SupervisorRSOAssignment.supervisor_employee_id,
-                SupervisorRSOAssignment.rso_employee_id,
+                SupervisorRSOAssignment.member_employee_id,
             ).where(SupervisorRSOAssignment.house_id == self.house_id)
         )
         sup_to_rso_emp_ids: dict[int, set[int]] = {}
-        for sup_emp_id, rso_emp_id in supervisor_rso_pivot_rows.all():
-            sup_to_rso_emp_ids.setdefault(sup_emp_id, set()).add(rso_emp_id)
+        for sup_emp_id, super_emp_id in supervisor_rso_pivot_rows.all():
+            sup_to_rso_emp_ids.setdefault(sup_emp_id, set()).add(super_emp_id)
 
         rso_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "rso"]
         bp_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "bp"]

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, BarChart3, Sliders } from "lucide-react";
+import { Activity, BarChart3, LayoutDashboard, ShieldCheck, Sliders, Target } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export const ROLES = ["HOUSE", "SUPERVISOR", "RSO", "BP"] as const;
@@ -12,12 +12,34 @@ export interface RuleType {
   context_key: string;
   rule_name: string;
   target_role: string;
+  apply_to?: string;
   is_active: boolean;
   created_at: string | null;
   updated_at: string | null;
   excluded_product_codes: string[];
   excluded_retailer_types: string[];
   included_employee_ids: number[];
+}
+
+/**
+ * Page-section scope for a rule. "all" = global (applies everywhere); named
+ * sections (e.g. activation report's summary/rso/bp/supervisor) let different
+ * parts of one page run different rules.
+ */
+export const RULE_SECTIONS = ["all", "summary", "rso", "bp", "supervisor"] as const;
+export type RuleSection = (typeof RULE_SECTIONS)[number];
+
+export interface RuleContextOption {
+  id: number;
+  context_key: string;
+  name_en: string;
+  name_bn: string | null;
+  icon: string | null;
+  sort_order: number;
+  is_active: boolean;
+  is_system: boolean;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface ProductOption { code: string; name: string }
@@ -35,6 +57,7 @@ export interface OptionsData {
   retailer_types: RetailerTypeOption[];
   employees: EmployeeOption[];
   roles: string[];
+  contexts: RuleContextOption[];
   context_keys: string[];
 }
 
@@ -43,6 +66,28 @@ export interface RuleContextMeta {
   iconBg: string;
   active: string;
   chip: string;
+}
+
+/**
+ * Icons selectable when creating/editing a rule context. The stored `icon`
+ * value is the key; unknown keys fall back to DEFAULT_CONTEXT_META styling.
+ */
+export const CONTEXT_ICONS: Record<string, LucideIcon> = {
+  activity: Activity,
+  "bar-chart-3": BarChart3,
+  target: Target,
+  "layout-dashboard": LayoutDashboard,
+  sliders: Sliders,
+  "shield-check": ShieldCheck,
+};
+
+export const CONTEXT_ICON_CHOICES: { value: string; icon: LucideIcon }[] = Object.entries(
+  CONTEXT_ICONS
+).map(([value, icon]) => ({ value, icon }));
+
+export function resolveContextIcon(contextKey: string, icon: string | null | undefined): LucideIcon {
+  if (icon && CONTEXT_ICONS[icon]) return CONTEXT_ICONS[icon];
+  return CONTEXT_META[contextKey]?.icon ?? DEFAULT_CONTEXT_META.icon;
 }
 
 export const ROLE_STYLE: Record<Role, { icon: string; active: string; chip: string }> = {
