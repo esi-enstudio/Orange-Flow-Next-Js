@@ -34,7 +34,16 @@ export interface RetailerRow {
   itop_number: string;
   thana: string | null;
   type: string | null;
+  enabled?: string | null;
+  sim_seller?: string | null;
   house?: { id: number; name: string; code: string } | null;
+  employee?: {
+    id: number;
+    name: string;
+    dms_code: string;
+    itop_number: string;
+    employee_type: string;
+  } | null;
   markings: string[];
 }
 

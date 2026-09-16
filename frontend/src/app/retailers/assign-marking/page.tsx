@@ -108,7 +108,7 @@ export default function AssignPage() {
       setSearching(true);
       try {
         const res = await apiClient.get("retailer-markings/retailers", {
-          params: { search: query.trim(), per_page: 100, sort_by: "name", sort_order: "asc" },
+          params: { search: query.trim(), per_page: 100, sort_by: "name", sort_order: "asc", enabled_only: true },
           headers: houseHeaders(selectedHouse),
         });
         setSearchResults(res.data.data || []);

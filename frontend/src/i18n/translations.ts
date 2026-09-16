@@ -863,6 +863,7 @@ export const translations = {
       // Tables
       table_house: "House",
       table_retailer: "Retailer",
+      rso_col: "RSO",
       retailer_code_col: "Retailer Code",
       itop_col: "iTopUp No.",
       thana_col: "Thana",
@@ -4412,6 +4413,7 @@ employees: "Employees",
       // Tables
       table_house: "হাউস",
       table_retailer: "রিটেইলার",
+      rso_col: "আরএসও",
       retailer_code_col: "রিটেইলার কোড",
       itop_col: "iTopUp নং",
       thana_col: "থানা",

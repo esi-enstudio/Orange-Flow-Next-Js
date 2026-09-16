@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.models.employee import Employee
 from app.models.retailer import Retailer
 from app.models.retailer_marking import RetailerMarking, RetailerMarkingAssignment
 from app.models.user import User
@@ -310,12 +311,13 @@ async def restore_marking(
 async def list_retailers_with_markings(
     pagination: PaginationParams = Depends(),
     marking: Optional[str] = Query(None, description="Filter by marking name"),
+    enabled_only: Optional[bool] = Query(None, description="Only show enabled retailers (enabled = Yes/Y)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission(f"{MODULE}.view")),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     is_admin = is_admin_user(current_user)
-    query = select(Retailer).options(joinedload(Retailer.house))
+    query = select(Retailer).options(joinedload(Retailer.house), joinedload(Retailer.employee))
     if marking:
         query = (
             query.join(RetailerMarkingAssignment, RetailerMarkingAssignment.retailer_id == Retailer.id)
@@ -339,6 +341,8 @@ async def list_retailers_with_markings(
             | (Retailer.retailer_code.ilike(p))
             | (Retailer.itop_number.ilike(p))
         )
+    if enabled_only:
+        query = query.where(Retailer.enabled.in_(["Yes", "Y"]))
     query = query.distinct()
 
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
@@ -368,8 +372,19 @@ async def list_retailers_with_markings(
                 "itop_number": r.itop_number,
                 "thana": r.thana,
                 "type": r.type,
+                "enabled": r.enabled,
+                "sim_seller": r.sim_seller,
                 "house": {"id": r.house.id, "name": r.house.name, "code": r.house.code}
                 if r.house
+                else None,
+                "employee": {
+                    "id": r.employee.id,
+                    "name": r.employee.employee_name,
+                    "dms_code": r.employee.dms_code,
+                    "itop_number": r.employee.itop_number,
+                    "employee_type": r.employee.employee_type,
+                }
+                if r.employee
                 else None,
                 "markings": markings_map.get(r.id, []),
             }

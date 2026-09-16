@@ -12,7 +12,6 @@ import {
   Download,
   Store,
   MapPin,
-  Smartphone,
   Hash,
   ChevronDown,
 } from "lucide-react";
@@ -223,7 +222,7 @@ export default function RetailersPage() {
           <>
             {/* Desktop table */}
             <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-left min-w-[920px]">
+              <table className="w-full text-left min-w-[1100px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
                     <th className="px-6 py-4">{t("retailer_marking.table_house")}</th>
@@ -232,8 +231,8 @@ export default function RetailersPage() {
                         {t("retailer_marking.table_retailer")}
                       </button>
                     </th>
-                    <th className="px-6 py-4">{t("retailer_marking.retailer_code_col")}</th>
-                    <th className="px-6 py-4">{t("retailer_marking.itop_col")}</th>
+                    <th className="px-6 py-4">{t("retailer_marking.rso_col")}</th>
+                    <th className="px-6 py-4">{t("retailer_marking.table_status")}</th>
                     <th className="px-6 py-4">{t("retailer_marking.thana_col")}</th>
                     <th className="px-6 py-4">{t("retailer_marking.markings_col")}</th>
                   </tr>
@@ -252,21 +251,62 @@ export default function RetailersPage() {
                           <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400">
                             <Store className="w-5 h-5" />
                           </div>
-                          <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{r.name}</p>
+                          <div className="min-w-0">
+                            <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{r.name}</p>
+                            <div className="flex items-center text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                              <span className="font-mono">{r.retailer_code}</span>
+                              <span className="text-sm leading-none text-gray-400 dark:text-gray-500 px-0.5">•</span>
+                              <span className="font-mono">{r.itop_number || "—"}</span>
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td className="px-2 py-1">
-                        <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{r.retailer_code}</span>
+                        {r.employee ? (
+                          <div className="space-y-1 py-2">
+                            <p className="font-semibold text-gray-800 dark:text-gray-200 text-sm">{r.employee.name}</p>
+                            <div className="flex items-center text-[11px] text-gray-500 dark:text-gray-400">
+                              <span className="font-mono">{r.employee.dms_code || "—"}</span>
+                              <span className="text-sm leading-none text-gray-400 dark:text-gray-500 px-0.5">•</span>
+                              <span className="font-mono">{r.employee.itop_number || "—"}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500 py-2">—</span>
+                        )}
                       </td>
                       <td className="px-2 py-1">
-                        <span className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-                          <Smartphone className="w-3 h-3 text-blue-500" /> {r.itop_number || "—"}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1">
-                        <span className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-                          <MapPin className="w-3 h-3 text-gray-400" /> {r.thana || "—"}
-                        </span>
+                        <div className="flex flex-col gap-1.5 py-2">
+                          {(() => {
+                            const isEnabled = r.enabled === "Yes" || r.enabled === "Y";
+                            const isSimSeller = r.sim_seller === "Yes" || r.sim_seller === "Y";
+                            return (
+                              <>
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider w-fit",
+                                    isEnabled
+                                      ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
+                                      : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+                                  )}
+                                >
+                                  <span className={cn("w-1 h-1 rounded-full", isEnabled ? "bg-green-500" : "bg-red-500")} />
+                                  {isEnabled ? t("common.enabled") : t("common.disabled")}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider w-fit",
+                                    isSimSeller
+                                      ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400"
+                                      : "bg-gray-50 text-gray-500 dark:bg-slate-800"
+                                  )}
+                                >
+                                  {isSimSeller ? t("retailers.sim_seller_yes") : t("retailers.sim_seller_no")}
+                                </span>
+                              </>
+                            );
+                          })()}
+                        </div>
                       </td>
                       <td className="px-2 py-1">
                         {r.markings.length === 0 ? (
@@ -317,6 +357,52 @@ export default function RetailersPage() {
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {t("retailer_marking.table_house")}:{" "}
                         <span className="font-semibold text-gray-700 dark:text-gray-200">{r.house?.name || "N/A"}</span>
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {t("retailer_marking.rso_col")}:{" "}
+                        {r.employee ? (
+                          <span className="font-semibold text-gray-700 dark:text-gray-200">
+                            {r.employee.name}
+                            <span className="block text-[11px] font-mono font-normal text-gray-400 dark:text-gray-500">
+                              {r.employee.dms_code || "—"} · {r.employee.itop_number || "—"}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="font-semibold text-gray-700 dark:text-gray-200">—</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {t("retailer_marking.table_status")}:{" "}
+                        <span className="flex flex-col gap-1 mt-1">
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider w-fit",
+                              r.enabled === "Yes" || r.enabled === "Y"
+                                ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
+                                : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "w-1 h-1 rounded-full",
+                                r.enabled === "Yes" || r.enabled === "Y" ? "bg-green-500" : "bg-red-500"
+                              )}
+                            />
+                            {r.enabled === "Yes" || r.enabled === "Y" ? t("common.enabled") : t("common.disabled")}
+                          </span>
+                          <span
+                            className={cn(
+                              "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider w-fit",
+                              r.sim_seller === "Yes" || r.sim_seller === "Y"
+                                ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400"
+                                : "bg-gray-50 text-gray-500 dark:bg-slate-800"
+                            )}
+                          >
+                            {r.sim_seller === "Yes" || r.sim_seller === "Y"
+                              ? t("retailers.sim_seller_yes")
+                              : t("retailers.sim_seller_no")}
+                          </span>
+                        </span>
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {t("retailer_marking.thana_col")}:{" "}
