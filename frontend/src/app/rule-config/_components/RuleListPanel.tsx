@@ -89,6 +89,11 @@ export default function RuleListPanel({
                       {t(`rule_config.sections.${rule.apply_to}`)}
                     </span>
                   )}
+                  {rule.column_key && rule.column_key !== "all" && (
+                    <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 font-semibold">
+                      {t(`rule_config.columns.${rule.column_key}`)}
+                    </span>
+                  )}
                 </div>
                 {rule.is_active ? (
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />

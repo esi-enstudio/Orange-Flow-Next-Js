@@ -56,22 +56,27 @@ class ActivationReportService:
     }
 
     async def _load_rule_conditions(
-        self, role: Optional[str] = None, apply_to: Optional[str] = None
+        self,
+        role: Optional[str] = None,
+        apply_to: Optional[str] = None,
+        column_key: Optional[str] = None,
     ) -> tuple[list[str], set[int], list[int]]:
         """Effective activation_report rule conditions for this house.
 
         ``apply_to`` selects the page section (summary/rso/bp/supervisor) whose
-        rules apply, so each report section can be governed independently.
-        Product codes = union across all active rules applicable to the section;
-        retailer-type exclusions resolved to retailer IDs (the rule's own role
-        employees' retailers are exempt, matching GA Live semantics); HOUSE has
-        no exemption. `role` defaults to ``self.target_role``.
+        rules apply and ``column_key`` selects the metric column inside it
+        (achieved/market_ga/own_ga), so each section column can be governed
+        independently. Product codes = union across all active rules applicable
+        to the section+column; retailer-type exclusions resolved to retailer IDs
+        (the rule's own role employees' retailers are exempt, matching GA Live
+        semantics); HOUSE has no exemption. `role` defaults to ``self.target_role``.
         """
-        key = f"{role or self.target_role}:{apply_to or 'all'}"
+        key = f"{role or self.target_role}:{apply_to or 'all'}:{column_key or 'all'}"
         if key in self._rule_conditions:
             return self._rule_conditions[key]
         cond = await get_effective_rule_conditions(
-            self.db, self.house_id, "activation_report", role or self.target_role, apply_to=apply_to
+            self.db, self.house_id, "activation_report", role or self.target_role,
+            apply_to=apply_to, column_key=column_key,
         )
         excluded_product_codes = cond.get("excluded_product_codes") or []
         included_user_ids: list[int] = cond.get("included_employee_ids") or []
@@ -92,8 +97,17 @@ class ActivationReportService:
         self._rule_conditions[key] = (excluded_product_codes, excluded_retailer_ids, included_user_ids)
         return self._rule_conditions[key]
 
-    async def _apply_rule_filters(self, q, model, role: Optional[str] = None, apply_to: Optional[str] = None):
-        product_codes, excluded_retailer_ids, _ = await self._load_rule_conditions(role, apply_to)
+    async def _apply_rule_filters(
+        self,
+        q,
+        model,
+        role: Optional[str] = None,
+        apply_to: Optional[str] = None,
+        column_key: Optional[str] = None,
+    ):
+        product_codes, excluded_retailer_ids, _ = await self._load_rule_conditions(
+            role, apply_to, column_key
+        )
         if product_codes:
             clause = exclude_clause(model, set(product_codes))
             if clause is not None:
@@ -124,13 +138,14 @@ class ActivationReportService:
         end_date: Optional[date] = None,
         role: Optional[str] = None,
         apply_to: Optional[str] = None,
+        column_key: Optional[str] = None,
     ) -> int:
         q = select(func.count()).select_from(Activation).where(
             Activation.house_id == self.house_id,
             Activation.activation_date >= (start_date or self.month_start),
             Activation.activation_date <= (end_date or self.month_end),
         )
-        q = await self._apply_rule_filters(q, Activation, role, apply_to)
+        q = await self._apply_rule_filters(q, Activation, role, apply_to, column_key)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
@@ -148,12 +163,12 @@ class ActivationReportService:
         )
         return res.scalar_one_or_none()
 
-    async def _count_activations_for_date(self, target_date: date, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, role: Optional[str] = None, apply_to: Optional[str] = None) -> int:
+    async def _count_activations_for_date(self, target_date: date, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, role: Optional[str] = None, apply_to: Optional[str] = None, column_key: Optional[str] = None) -> int:
         q = select(func.count()).select_from(Activation).where(
             Activation.house_id == self.house_id,
             Activation.activation_date == target_date,
         )
-        q = await self._apply_rule_filters(q, Activation, role, apply_to)
+        q = await self._apply_rule_filters(q, Activation, role, apply_to, column_key)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
@@ -161,13 +176,13 @@ class ActivationReportService:
         res = await self.db.execute(q)
         return res.scalar() or 0
 
-    async def _count_active_days(self, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, threshold: int = 1, role: Optional[str] = None, apply_to: Optional[str] = None) -> int:
+    async def _count_active_days(self, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, threshold: int = 1, role: Optional[str] = None, apply_to: Optional[str] = None, column_key: Optional[str] = None) -> int:
         q = select(Activation.activation_date, func.count()).where(
             Activation.house_id == self.house_id,
             Activation.activation_date >= (start_date or self.month_start),
             Activation.activation_date <= (end_date or self.month_end),
         )
-        q = await self._apply_rule_filters(q, Activation, role, apply_to)
+        q = await self._apply_rule_filters(q, Activation, role, apply_to, column_key)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
@@ -254,9 +269,23 @@ class ActivationReportService:
             target_val = target_map.get(emp_id, 0)
             retailer_ids = await self._get_retailer_ids_for_employee(emp_id)
 
-            achievement = await self._count_activations(retailer_ids=retailer_ids, role=role, apply_to=apply_to)
-            market_activation = achievement
-            market_yesterday = await self._count_activations_for_date(yesterday_date, retailer_ids=retailer_ids, role=role, apply_to=apply_to) if yesterday_date >= self.month_start else 0
+            # Each metric column is governed by its own rule slot:
+            #   Achieved  -> column_key="achieved"
+            #   Market GA -> column_key="market_ga"
+            #   Own GA    -> column_key="own_ga"
+            # Rules with column_key="all" (the default) still apply everywhere.
+            achievement = await self._count_activations(
+                retailer_ids=retailer_ids, role=role, apply_to=apply_to,
+                column_key="achieved",
+            )
+            market_activation = await self._count_activations(
+                retailer_ids=retailer_ids, role=role, apply_to=apply_to,
+                column_key="market_ga",
+            )
+            market_yesterday = await self._count_activations_for_date(
+                yesterday_date, retailer_ids=retailer_ids, role=role,
+                apply_to=apply_to, column_key="market_ga",
+            ) if yesterday_date >= self.month_start else 0
 
             pct = round((achievement / target_val * 100), 1) if target_val else 0
             remaining = max(0, target_val - achievement)
@@ -276,16 +305,25 @@ class ActivationReportService:
             # the assisted retailer code. RSOs without an assisted code show zero.
             assisted_code = assisted_code_map.get(emp_id) if assisted_code_map else None
             if type_label == "rso" and assisted_code and yesterday_date >= self.month_start:
-                yesterday_activation = await self._count_activations_for_date(yesterday_date, retailer_codes=[assisted_code], role=role, apply_to=apply_to)
+                yesterday_activation = await self._count_activations_for_date(
+                    yesterday_date, retailer_codes=[assisted_code], role=role,
+                    apply_to=apply_to, column_key="own_ga",
+                )
             else:
                 yesterday_activation = 0
 
             if type_label == "rso" and assisted_code and yesterday_date >= self.month_start:
-                month_total = await self._count_activations(retailer_codes=[assisted_code], end_date=yesterday_date, role=role, apply_to=apply_to)
+                month_total = await self._count_activations(
+                    retailer_codes=[assisted_code], end_date=yesterday_date, role=role,
+                    apply_to=apply_to, column_key="own_ga",
+                )
             else:
                 month_total = 0
             if type_label == "rso" and assisted_code:
-                active_days = await self._count_active_days(retailer_codes=[assisted_code], end_date=yesterday_date, role=role, apply_to=apply_to)
+                active_days = await self._count_active_days(
+                    retailer_codes=[assisted_code], end_date=yesterday_date, role=role,
+                    apply_to=apply_to, column_key="own_ga",
+                )
             else:
                 active_days = 0
 

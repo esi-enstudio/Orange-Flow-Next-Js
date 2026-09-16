@@ -13,6 +13,7 @@ export interface RuleType {
   rule_name: string;
   target_role: string;
   apply_to?: string;
+  column_key?: string;
   is_active: boolean;
   created_at: string | null;
   updated_at: string | null;
@@ -28,6 +29,14 @@ export interface RuleType {
  */
 export const RULE_SECTIONS = ["all", "summary", "rso", "bp", "supervisor"] as const;
 export type RuleSection = (typeof RULE_SECTIONS)[number];
+
+/**
+ * Metric-column scope for a rule inside a section. "all" = applies to every
+ * column; named columns (e.g. the RSO table's achieved / market_ga / own_ga)
+ * let each metric column run its own rule.
+ */
+export const RULE_COLUMNS = ["all", "achieved", "market_ga", "own_ga"] as const;
+export type RuleColumn = (typeof RULE_COLUMNS)[number];
 
 export interface RuleContextOption {
   id: number;

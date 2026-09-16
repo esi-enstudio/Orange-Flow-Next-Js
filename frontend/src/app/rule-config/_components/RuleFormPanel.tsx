@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertCircle, Check, LayoutGrid, Loader2, Power, Save, Trash2 } from "lucide-react";
+import { AlertCircle, Check, Columns3, LayoutGrid, Loader2, Power, Save, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import EntitySelector, { type SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
-import { RULE_SECTIONS, ROLE_STYLE, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
+import { RULE_COLUMNS, RULE_SECTIONS, ROLE_STYLE, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
 
 interface RuleFormPanelProps {
   rule: RuleType | null;
@@ -27,6 +27,7 @@ interface RuleFormPanelProps {
 export interface DraftPayload {
   rule_name: string;
   apply_to: string;
+  column_key: string;
   is_active: boolean;
   excluded_product_codes: string[];
   excluded_retailer_types: string[];
@@ -52,10 +53,11 @@ export default function RuleFormPanel({
   const { t } = useLanguage();
 
   const [draft, setDraft] = useState<DraftPayload>(() => {
-    if (!rule) return { rule_name: "", apply_to: "all", is_active: true, excluded_product_codes: [], excluded_retailer_types: [], included_employee_ids: [] };
+    if (!rule) return { rule_name: "", apply_to: "all", column_key: "all", is_active: true, excluded_product_codes: [], excluded_retailer_types: [], included_employee_ids: [] };
     return {
       rule_name: rule.rule_name ?? "",
       apply_to: rule.apply_to ?? "all",
+      column_key: rule.column_key ?? "all",
       is_active: rule.is_active,
       excluded_product_codes: rule.excluded_product_codes ?? [],
       excluded_retailer_types: rule.excluded_retailer_types ?? [],
@@ -216,6 +218,30 @@ export default function RuleFormPanel({
             </div>
             <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5 px-1">
               {t("rule_config.fields.apply_to_hint")}
+            </p>
+          </div>
+        )}
+
+        {contextKey === "activation_report" && draft.apply_to === "rso" && (
+          <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+              {t("rule_config.fields.column_key")}
+            </label>
+            <div className="relative">
+              <Columns3 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <select
+                value={draft.column_key}
+                onChange={(e) => { setDraft((d) => ({ ...d, column_key: e.target.value })); setDirty(true); }}
+                disabled={!canWrite}
+                className="w-full pl-9 pr-10 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer disabled:opacity-50"
+              >
+                {RULE_COLUMNS.map((c) => (
+                  <option key={c} value={c}>{t(`rule_config.columns.${c}`)}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5 px-1">
+              {t("rule_config.fields.column_key_hint")}
             </p>
           </div>
         )}

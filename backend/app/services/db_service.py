@@ -1008,6 +1008,41 @@ async def _migrate_rule_apply_to():
         logger.warning(f"Migration warning (rule apply_to): {e}")
 
 
+async def _migrate_rule_column_key():
+    """Add the report-rule ``column_key`` (metric-column) dimension.
+
+    Column-scoped rules let one report section run a different rule for each
+    metric column (e.g. Achieved vs Market GA vs Own GA on the RSO table).
+    Existing rules become ``column_key = 'all'`` and the "one active rule per
+    (house, context, role, apply_to)" partial unique index is widened to include
+    ``column_key`` so each column slot can own one active rule independently.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE report_rule_masters "
+                "ADD COLUMN IF NOT EXISTS column_key VARCHAR(50) NOT NULL DEFAULT 'all'"
+            ))
+            await conn.execute(text(
+                "UPDATE report_rule_masters "
+                "SET column_key = 'all' WHERE column_key IS NULL OR column_key = ''"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_report_rule_masters_column_key "
+                "ON report_rule_masters (column_key)"
+            ))
+            await conn.execute(text(
+                "DROP INDEX IF EXISTS uq_rule_master_active_house_context_role"
+            ))
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_rule_master_active_house_context_role "
+                "ON report_rule_masters (house_id, context_key, target_role, apply_to, column_key) "
+                "WHERE is_deleted = false AND is_active = true"
+            ))
+    except Exception as e:
+        logger.warning(f"Migration warning (rule column_key): {e}")
+
+
 async def init_db():
     try:
         await _drop_legacy_ga_section_config_table()
@@ -1016,6 +1051,7 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
         await _migrate_seed_rule_contexts()
         await _migrate_rule_apply_to()
+        await _migrate_rule_column_key()
         await _migrate_employee_sr_no()
         await _migrate_employee_name()
         await _migrate_supervisor_rso_pivot()

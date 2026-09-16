@@ -55,9 +55,11 @@ class ReportRuleMaster(Base):
 
     A rule is scoped to a house + context_key and targets a single employee role.
     ``apply_to`` further scopes the rule to a page section (e.g. summary, rso, bp,
-    supervisor). ``apply_to = "all"`` means the rule applies to every section that
-    matches the role. At most one active rule per
-    (house_id, context_key, target_role, apply_to) is allowed.
+    supervisor). ``column_key`` further scopes it to a single metric column inside
+    that section (e.g. achieved, market_ga, own_ga on the RSO table). ``"all"``
+    means the rule applies to every section/column that matches the role. At most
+    one active rule per
+    (house_id, context_key, target_role, apply_to, column_key) is allowed.
     """
 
     __tablename__ = "report_rule_masters"
@@ -68,6 +70,7 @@ class ReportRuleMaster(Base):
             "context_key",
             "target_role",
             "apply_to",
+            "column_key",
             unique=True,
             postgresql_where=text("is_deleted = false AND is_active = true"),
         ),
@@ -83,6 +86,9 @@ class ReportRuleMaster(Base):
     apply_to = Column(
         String(50), nullable=False, default="all", server_default=text("'all'"), index=True
     )  # all | summary | rso | bp | supervisor
+    column_key = Column(
+        String(50), nullable=False, default="all", server_default=text("'all'"), index=True
+    )  # all | achieved | market_ga | own_ga
     is_active = Column(Boolean, default=False, index=True)
 
     # Audit

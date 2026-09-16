@@ -46,6 +46,7 @@ class RuleCreate(BaseModel):
     rule_name: str = Field(..., min_length=1, max_length=200)
     target_role: str = Field(..., max_length=20)
     apply_to: str = "all"
+    column_key: str = "all"
     is_active: bool = True
     excluded_product_codes: list[str] = []
     excluded_retailer_types: list[str] = []
@@ -56,6 +57,7 @@ class RuleUpdate(BaseModel):
     rule_name: Optional[str] = Field(None, min_length=1, max_length=200)
     target_role: Optional[str] = Field(None, max_length=20)
     apply_to: Optional[str] = Field(None, max_length=50)
+    column_key: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
     excluded_product_codes: Optional[list[str]] = None
     excluded_retailer_types: Optional[list[str]] = None
@@ -121,6 +123,17 @@ def _normalize_apply_to(raw: Optional[str]) -> str:
         raise HTTPException(
             status_code=422,
             detail="apply_to may only contain letters, digits, dashes and underscores (max 50 chars)",
+        )
+    return v
+
+
+def _normalize_column_key(raw: Optional[str]) -> str:
+    """Normalize a rule's metric-column scope; empty/missing means 'all'."""
+    v = (raw or "all").strip().lower() or "all"
+    if len(v) > 50 or not all(c.isalnum() or c in "_-" for c in v):
+        raise HTTPException(
+            status_code=422,
+            detail="column_key may only contain letters, digits, dashes and underscores (max 50 chars)",
         )
     return v
 
@@ -471,6 +484,7 @@ async def create_rule(
 ):
     await _validate_constants(db, data.context_key, data.target_role)
     apply_to = _normalize_apply_to(data.apply_to)
+    column_key = _normalize_column_key(data.column_key)
 
     rule = ReportRuleMaster(
         house_id=house_context,
@@ -478,18 +492,19 @@ async def create_rule(
         rule_name=data.rule_name.strip(),
         target_role=data.target_role,
         apply_to=apply_to,
+        column_key=column_key,
         is_active=data.is_active,
         created_by=current_user.id,
         updated_by=current_user.id,
     )
 
     if data.is_active:
-        # Deactivate any currently-active rule for this role + section and flush
-        # BEFORE inserting the new active rule, so the partial unique index
-        # (uq_rule_master_active_house_context_role) is not violated.
+        # Deactivate any currently-active rule for this role + section + column
+        # and flush BEFORE inserting the new active rule, so the partial unique
+        # index (uq_rule_master_active_house_context_role) is not violated.
         await deactivate_other_active_rules(
             db, rule.house_id, rule.context_key, rule.target_role,
-            apply_to=apply_to,
+            apply_to=apply_to, column_key=column_key,
         )
         await db.flush()
 
@@ -550,6 +565,12 @@ async def update_rule(
             rule.apply_to = new_apply
             updates["apply_to"] = new_apply
 
+    if data.column_key is not None:
+        new_column = _normalize_column_key(data.column_key)
+        if new_column != (rule.column_key or "all"):
+            rule.column_key = new_column
+            updates["column_key"] = new_column
+
     any_children = any(
         [
             data.excluded_product_codes is not None,
@@ -584,15 +605,17 @@ async def update_rule(
             await deactivate_other_active_rules(
                 db, rule.house_id, rule.context_key, rule.target_role,
                 except_rule_id=rule.id, apply_to=rule.apply_to,
+                column_key=rule.column_key or "all",
             )
             await db.flush()
         rule.is_active = data.is_active
-    elif "apply_to" in updates and rule.is_active:
-        # Section changed while staying active — the new section slot may
-        # already be occupied by another active rule, so deactivate it first.
+    elif ("apply_to" in updates or "column_key" in updates) and rule.is_active:
+        # Section/column changed while staying active — the new slot may already
+        # be occupied by another active rule, so deactivate it first.
         await deactivate_other_active_rules(
             db, rule.house_id, rule.context_key, rule.target_role,
             except_rule_id=rule.id, apply_to=rule.apply_to,
+            column_key=rule.column_key or "all",
         )
         await db.flush()
 

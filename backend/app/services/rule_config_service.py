@@ -141,6 +141,7 @@ def rule_to_dict(rule: ReportRuleMaster, children: dict) -> dict:
         "rule_name": rule.rule_name,
         "target_role": rule.target_role,
         "apply_to": rule.apply_to or "all",
+        "column_key": rule.column_key or "all",
         "is_active": rule.is_active,
         "created_by": rule.created_by,
         "created_at": rule.created_at.isoformat() if rule.created_at else None,
@@ -158,13 +159,15 @@ async def deactivate_other_active_rules(
     target_role: str,
     except_rule_id: Optional[int] = None,
     apply_to: str = "all",
+    column_key: str = "all",
 ) -> int:
-    """Ensure only one active rule per (house_id, context_key, target_role, apply_to)."""
+    """Ensure only one active rule per (house, context, role, apply_to, column_key)."""
     query = select(ReportRuleMaster).where(
         ReportRuleMaster.house_id == house_id,
         ReportRuleMaster.context_key == context_key,
         ReportRuleMaster.target_role == target_role,
         ReportRuleMaster.apply_to == apply_to,
+        ReportRuleMaster.column_key == column_key,
         ReportRuleMaster.is_active.is_(True),
         ReportRuleMaster.is_deleted.is_(False),
     )
@@ -178,25 +181,50 @@ async def deactivate_other_active_rules(
     return count
 
 
+def _pick_most_specific_rule(
+    role_rules: list, apply_to: Optional[str], column_key: Optional[str]
+) -> Optional[ReportRuleMaster]:
+    """Pick the most specific active rule for the requested section + column.
+
+    ``role_rules`` is ordered by id DESC (newest first). Specificity beats scope:
+    an exact column+section rule (score 3) wins over exact column/global section
+    (2), over global column/exact section (1), over global+global (0). Ties go to
+    the newest rule (first in the descending list).
+    """
+    def score(rule: ReportRuleMaster) -> int:
+        s = 0
+        if column_key and (rule.column_key or "all") == column_key:
+            s += 2
+        if apply_to and (rule.apply_to or "all") == apply_to:
+            s += 1
+        return s
+
+    if not role_rules:
+        return None
+    return max(role_rules, key=score)
+
+
 async def get_effective_rule_conditions(
     db: AsyncSession,
     house_id: int,
     context_key: str,
     target_role: Optional[str] = None,
     apply_to: Optional[str] = None,
+    column_key: Optional[str] = None,
 ) -> dict:
     """Return effective exclusion/inclusion conditions for a report query.
 
     A rule applies to a section when its ``apply_to`` is ``"all"`` (global) or
-    equals the requested ``apply_to``. This keeps section-scoped rules isolated
-    from each other while preserving the legacy global behavior when
-    ``apply_to`` is omitted (only ``"all"`` rules are consulted).
+    equals the requested ``apply_to``. Likewise it applies to a metric column
+    when its ``column_key`` is ``"all"`` (global) or equals the requested
+    ``column_key``. Omitting ``apply_to`` / ``column_key`` consults only the
+    legacy global (``"all"``) rules.
 
     - ``excluded_product_codes`` is the UNION across all applicable active rules
       for the (house_id, context_key) pair.
     - ``excluded_retailer_types`` / ``included_employee_ids`` come from the most
-      specific applicable active rule matching ``target_role`` (a rule scoped to
-      the requested section wins over a ``"all"`` rule).
+      specific applicable active rule matching ``target_role`` (exact column +
+      section wins over global scopes).
     """
     async def applicable_rules() -> list:
         base = (
@@ -218,6 +246,15 @@ async def get_effective_rule_conditions(
             )
         else:
             base = base.where(ReportRuleMaster.apply_to == "all")
+        if column_key:
+            base = base.where(
+                or_(
+                    ReportRuleMaster.column_key == "all",
+                    ReportRuleMaster.column_key == column_key,
+                )
+            )
+        else:
+            base = base.where(ReportRuleMaster.column_key == "all")
         rows = (await db.execute(base)).scalars().all()
         return list(rows)
 
@@ -241,11 +278,7 @@ async def get_effective_rule_conditions(
     if not role_rules:
         return conditions
 
-    if apply_to:
-        rule = next((r for r in role_rules if r.apply_to == apply_to), None) \
-            or next((r for r in role_rules if r.apply_to == "all"), None)
-    else:
-        rule = next((r for r in role_rules if r.apply_to == "all"), None)
+    rule = _pick_most_specific_rule(role_rules, apply_to, column_key)
     if rule is None:
         return conditions
 

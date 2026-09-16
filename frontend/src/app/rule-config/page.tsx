@@ -235,6 +235,11 @@ export default function RuleConfigPage() {
                   {t(`rule_config.sections.${rule.apply_to}`)}
                 </span>
               )}
+              {rule.column_key && rule.column_key !== "all" && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 font-semibold">
+                  {t(`rule_config.columns.${rule.column_key}`)}
+                </span>
+              )}
             </span>
           </span>
           {rule.is_active ? (
@@ -264,6 +269,7 @@ export default function RuleConfigPage() {
         rule_name: payload.rule_name.trim(),
         target_role: activeRole,
         apply_to: payload.apply_to,
+        column_key: payload.column_key,
         is_active: payload.is_active,
         excluded_product_codes: payload.excluded_product_codes,
         excluded_retailer_types: payload.excluded_retailer_types,
