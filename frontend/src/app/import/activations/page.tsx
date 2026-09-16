@@ -12,6 +12,7 @@ import axios from "@/lib/api";
 import Cookies from "js-cookie";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
+import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
 interface Activation {
   id: number; sim_no: string; activation_date: string; activation_time: string;
@@ -34,17 +35,22 @@ interface Pagination {
 interface Filters {
   search: string; house_id: string;
   activation_date_from: string; activation_date_to: string;
-  retailer_code: string; bts_code: string; thana: string;
+  employee_id: string; product_codes: string[];
 }
 
 interface HouseOption {
   id: number; name: string; code: string; display_name: string;
 }
 
+interface EmployeeOption {
+  id: number; name: string | null;
+  employee_id: string | null; dms_code: string | null;
+}
+
 const defaultFilters: Filters = {
   search: "", house_id: "",
   activation_date_from: "", activation_date_to: "",
-  retailer_code: "", bts_code: "", thana: "",
+  employee_id: "", product_codes: [],
 };
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -75,9 +81,11 @@ export default function ImportActivationsPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [houses, setHouses] = useState<HouseOption[]>([]);
   const [searchInput, setSearchInput] = useState("");
-  const [retailerSearchInput, setRetailerSearchInput] = useState("");
-  const [btsSearchInput, setBtsSearchInput] = useState("");
-  const [thanaSearchInput, setThanaSearchInput] = useState("");
+  const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
+  const [productCodeOptions, setProductCodeOptions] = useState<string[]>([]);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
+  const [selectedProductCodes, setSelectedProductCodes] = useState<string[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const perPage = 20;
 
@@ -95,9 +103,8 @@ export default function ImportActivationsPage() {
       if (f.house_id) params.house_id = f.house_id;
       if (f.activation_date_from) params.activation_date_from = f.activation_date_from;
       if (f.activation_date_to) params.activation_date_to = f.activation_date_to;
-      if (f.retailer_code) params.retailer_code = f.retailer_code;
-      if (f.bts_code) params.bts_code = f.bts_code;
-      if (f.thana) params.thana = f.thana;
+      if (f.employee_id) params.employee_id = parseInt(f.employee_id, 10);
+      if (f.product_codes.length > 0) params.product_codes = f.product_codes.join(",");
       const res = await axios.get("/activations", { params, headers });
       setData(res.data.data || []);
       const total = res.data.total || 0;
@@ -121,15 +128,35 @@ export default function ImportActivationsPage() {
     axios.get("/houses/accessible").then(r => setHouses(r.data || [])).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const houseId = filters.house_id || (selectedHouse?.id ? String(selectedHouse.id) : "");
+    let cancelled = false;
+    const headers: Record<string, string> = {};
+    if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
+    const params: Record<string, string> = {};
+    if (houseId) params.house_id = houseId;
+    Promise.all([
+      axios.get("/activations/rso-list", { params, headers }).then(r => (r.data || []) as EmployeeOption[]),
+      axios.get("/activations/filter-options", { params, headers }).then(r => (r.data?.product_codes || []) as string[]),
+    ])
+      .then(([emps, codes]) => {
+        if (cancelled) return;
+        setEmployeeOptions(emps);
+        setProductCodeOptions(codes);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setOptionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [filters.house_id, selectedHouse?.id]);
+
   const handleApplyFilters = () => {
     setAppliedFilters({
       search: searchInput.trim(),
       house_id: filters.house_id,
       activation_date_from: filters.activation_date_from,
       activation_date_to: filters.activation_date_to,
-      retailer_code: retailerSearchInput.trim(),
-      bts_code: btsSearchInput.trim(),
-      thana: thanaSearchInput.trim(),
+      employee_id: selectedEmployeeIds[0] || "",
+      product_codes: selectedProductCodes,
     });
     setPage(1);
     setExpandedId(null);
@@ -137,9 +164,8 @@ export default function ImportActivationsPage() {
 
   const handleClearFilters = () => {
     setSearchInput("");
-    setRetailerSearchInput("");
-    setBtsSearchInput("");
-    setThanaSearchInput("");
+    setSelectedEmployeeIds([]);
+    setSelectedProductCodes([]);
     setFilters({ ...defaultFilters });
     setAppliedFilters(null);
     setData([]);
@@ -327,9 +353,24 @@ export default function ImportActivationsPage() {
   }
   if (appliedFilters?.activation_date_from) activeChipList.push({ label: `From: ${appliedFilters.activation_date_from}`, onRemove: () => setAppliedFilters(a => a ? { ...a, activation_date_from: "" } : a) });
   if (appliedFilters?.activation_date_to) activeChipList.push({ label: `To: ${appliedFilters.activation_date_to}`, onRemove: () => setAppliedFilters(a => a ? { ...a, activation_date_to: "" } : a) });
-  if (appliedFilters?.retailer_code) activeChipList.push({ label: `Retailer: ${appliedFilters.retailer_code}`, onRemove: () => { setRetailerSearchInput(""); setAppliedFilters(a => a ? { ...a, retailer_code: "" } : a); } });
-  if (appliedFilters?.bts_code) activeChipList.push({ label: `BTS: ${appliedFilters.bts_code}`, onRemove: () => { setBtsSearchInput(""); setAppliedFilters(a => a ? { ...a, bts_code: "" } : a); } });
-  if (appliedFilters?.thana) activeChipList.push({ label: `Thana: ${appliedFilters.thana}`, onRemove: () => { setThanaSearchInput(""); setAppliedFilters(a => a ? { ...a, thana: "" } : a); } });
+  if (appliedFilters?.employee_id) {
+    const emp = employeeOptions.find(e => String(e.id) === appliedFilters.employee_id);
+    activeChipList.push({
+      label: `RSO: ${emp?.name || appliedFilters.employee_id}`,
+      onRemove: () => { setSelectedEmployeeIds([]); setAppliedFilters(a => a ? { ...a, employee_id: "" } : a); },
+    });
+  }
+  if (appliedFilters?.product_codes?.length) {
+    appliedFilters.product_codes.forEach(pc => {
+      activeChipList.push({
+        label: `Product: ${pc}`,
+        onRemove: () => {
+          setSelectedProductCodes(prev => prev.filter(c => c !== pc));
+          setAppliedFilters(prev => prev ? { ...prev, product_codes: prev.product_codes.filter(c => c !== pc) } : prev);
+        },
+      });
+    });
+  }
 
   const totalPages = pagination?.total_pages || 1;
 
@@ -468,8 +509,8 @@ export default function ImportActivationsPage() {
       )}
 
       {/* Robust Filter Section */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+        <div className="px-4 py-3 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50 rounded-t-2xl">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-4 h-4 text-primary-500" />
             <span className="text-sm font-bold dark:text-gray-100">Filters</span>
@@ -502,7 +543,7 @@ export default function ImportActivationsPage() {
             <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">House</label>
             <div className="relative">
               <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-              <select value={filters.house_id} onChange={e => { updateFilter("house_id", e.target.value); setPage(1); }}
+              <select value={filters.house_id} onChange={e => { updateFilter("house_id", e.target.value); setPage(1); setSelectedEmployeeIds([]); setSelectedProductCodes([]); }}
                 className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
                 <option value="">All houses</option>
                 {houses.map(h => <option key={h.id} value={h.id}>{h.display_name || h.name}</option>)}
@@ -527,38 +568,40 @@ export default function ImportActivationsPage() {
             </div>
           </div>
 
-          {/* Retailer Code */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Retailer Code</label>
-            <div className="relative group">
-              <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-              <input type="text" value={retailerSearchInput} onChange={e => { setRetailerSearchInput(e.target.value); setPage(1); }}
-                placeholder="Search retailer code..."
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-            </div>
-          </div>
+          {/* Employee Selector */}
+          <EntitySelector
+            label={t("activations.filters.employee")}
+            items={employeeOptions.map((e) => ({
+              id: String(e.id),
+              label: e.name || e.dms_code || `#${e.id}`,
+              sublabel: e.dms_code || undefined,
+            }))}
+            selectedIds={selectedEmployeeIds}
+            onChange={(ids) => setSelectedEmployeeIds(ids.map(String))}
+            placeholder={t("activations.filters.employee_placeholder")}
+            searchPlaceholder={t("activations.filters.employee_search")}
+            emptyMessage={optionsLoading ? t("activations.filters.employee_loading") : t("activations.filters.no_employees")}
+            noResultsMessage={t("activations.filters.no_employees")}
+            single={true}
+            selectAllLabel={t("common.select_all")}
+            clearLabel={t("common.clear")}
+            selectedLabel={t("activations.filters.selected")}
+          />
 
-          {/* BTS Code */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">BTS Code</label>
-            <div className="relative group">
-              <Database className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-              <input type="text" value={btsSearchInput} onChange={e => { setBtsSearchInput(e.target.value); setPage(1); }}
-                placeholder="Search BTS code..."
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-            </div>
-          </div>
-
-          {/* Thana */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Thana</label>
-            <div className="relative group">
-              <Database className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-              <input type="text" value={thanaSearchInput} onChange={e => { setThanaSearchInput(e.target.value); setPage(1); }}
-                placeholder="Search thana..."
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-            </div>
-          </div>
+          {/* Product Code Selector */}
+          <EntitySelector
+            label={t("activations.filters.product_code")}
+            items={productCodeOptions.map((p) => ({ id: p, label: p }))}
+            selectedIds={selectedProductCodes}
+            onChange={(ids) => setSelectedProductCodes(ids.map(String))}
+            placeholder={t("activations.filters.product_placeholder")}
+            searchPlaceholder={t("activations.filters.product_search")}
+            emptyMessage={optionsLoading ? t("activations.filters.product_loading") : t("activations.filters.no_products")}
+            noResultsMessage={t("activations.filters.no_products")}
+            selectAllLabel={t("common.select_all")}
+            clearLabel={t("common.clear")}
+            selectedLabel={t("activations.filters.selected")}
+          />
         </div>
 
         {activeChipList.length > 0 && (
@@ -575,7 +618,7 @@ export default function ImportActivationsPage() {
           </div>
         )}
 
-        <div className="px-4 py-3 border-t dark:border-slate-800 flex items-center justify-between gap-3 bg-gray-50/50 dark:bg-slate-900/50">
+        <div className="px-4 py-3 border-t dark:border-slate-800 flex items-center justify-between gap-3 bg-gray-50/50 dark:bg-slate-900/50 rounded-b-2xl">
           <span className="text-[11px] text-gray-400 dark:text-gray-500">
             {appliedFilters
               ? "Records are filtered. Click Apply to re-run with current filters."

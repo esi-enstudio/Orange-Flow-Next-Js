@@ -3368,6 +3368,21 @@ export const translations = {
         },
       },
     },
+    activations: {
+      filters: {
+        employee: "Employee",
+        employee_placeholder: "Select employee...",
+        employee_search: "Search employee...",
+        employee_loading: "Loading employees...",
+        product_code: "Product Code",
+        product_placeholder: "Select product codes...",
+        product_search: "Search product code...",
+        product_loading: "Loading product codes...",
+        selected: "selected",
+        no_employees: "No employees found",
+        no_products: "No product codes found",
+      },
+    },
     rule_config: {
       list: {
         title: "Rule Configuration",
@@ -6900,6 +6915,21 @@ employees: "Employees",
           n1: { title: "অনুমতি প্রয়োজন", desc: "রেকর্ড দেখতে ga_query.view এবং এক্সপোর্ট করতে ga_query.export প্রয়োজন।" },
           n2: { title: "হাউস আইসোলেশন", desc: "আপনি শুধুমাত্র আপনার হাউসের ডেটা দেখতে পারবেন। ক্রস-হাউস অ্যাক্সেস ব্লক করা আছে।" },
         },
+      },
+    },
+    activations: {
+      filters: {
+        employee: "কর্মী",
+        employee_placeholder: "কর্মী নির্বাচন করুন...",
+        employee_search: "কর্মী খুঁজুন...",
+        employee_loading: "কর্মী লোড হচ্ছে...",
+        product_code: "প্রোডাক্ট কোড",
+        product_placeholder: "প্রোডাক্ট কোড নির্বাচন করুন...",
+        product_search: "প্রোডাক্ট কোড খুঁজুন...",
+        product_loading: "প্রোডাক্ট কোড লোড হচ্ছে...",
+        selected: "নির্বাচিত",
+        no_employees: "কোনো কর্মী পাওয়া যায়নি",
+        no_products: "কোনো প্রোডাক্ট কোড পাওয়া যায়নি",
       },
     },
     rule_config: {
