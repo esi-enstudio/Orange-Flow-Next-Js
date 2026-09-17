@@ -14,6 +14,8 @@ import {
   XCircle,
   Clock,
   HardDrive,
+  RotateCcw,
+  Upload,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -79,14 +81,16 @@ function formatDate(iso: string | null): string {
 interface BackupActionProps {
   item: BackupItem;
   canDownload: boolean;
+  canRestore: boolean;
   canDelete: boolean;
   downloadingId: number | null;
   t: (p: string) => string;
   onDownload: (item: BackupItem) => void;
+  onRestore: (item: BackupItem) => void;
   onDelete: (item: BackupItem) => void;
 }
 
-function BackupActions({ item, canDownload, canDelete, downloadingId, t, onDownload, onDelete }: BackupActionProps) {
+function BackupActions({ item, canDownload, canRestore, canDelete, downloadingId, t, onDownload, onRestore, onDelete }: BackupActionProps) {
   return (
     <div className={cn("flex items-center gap-2 justify-end", item.status === "success" ? "" : "opacity-40 pointer-events-none")}>
       {canDownload && (
@@ -101,6 +105,16 @@ function BackupActions({ item, canDownload, canDelete, downloadingId, t, onDownl
           ) : (
             <Download className="w-4 h-4" />
           )}
+        </button>
+      )}
+      {canRestore && (
+        <button
+          onClick={() => onRestore(item)}
+          disabled={item.status !== "success"}
+          title={t("database_backups.action_restore")}
+          className="p-2 rounded-lg text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors cursor-pointer disabled:cursor-not-allowed"
+        >
+          <RotateCcw className="w-4 h-4" />
         </button>
       )}
       {canDelete && (
@@ -175,6 +189,14 @@ export default function DatabaseBackupsPage() {
   const [deleteTarget, setDeleteTarget] = useState<BackupItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<BackupItem | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreConfirm, setRestoreConfirm] = useState("");
+  const [restoreError, setRestoreError] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const id = window.setTimeout(() => setMounted(true), 0);
@@ -315,9 +337,77 @@ export default function DatabaseBackupsPage() {
     setTimeout(() => setRefreshing(false), 500);
   };
 
+  const openRestore = (item: BackupItem) => {
+    setRestoreConfirm("");
+    setRestoreError(false);
+    setRestoreTarget(item);
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!restoreTarget) return;
+    if (restoreConfirm.trim().toUpperCase() !== "RESTORE") {
+      setRestoreError(true);
+      return;
+    }
+    setRestoring(true);
+    setRestoreError(false);
+    try {
+      await apiClient.post(`v1/database-backups/${restoreTarget.id}/restore`, null, {
+        timeout: 600000,
+      });
+      toast.success(t("database_backups.restore_success"));
+      setRestoreTarget(null);
+      setRestoreConfirm("");
+      setTimeout(() => fetchBackups(1, true), 800);
+    } catch (e) {
+      const detail = (e as Error)?.message;
+      toast.error(detail || t("database_backups.restore_failed"));
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const canCreate = hasPermission("database_backup.create");
   const canDownload = hasPermission("database_backup.download");
+  const canRestore = hasPermission("database_backup.restore");
   const canDelete = hasPermission("database_backup.delete");
+
+  const handleUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadFile(file);
+    setRestoreConfirm("");
+    setRestoreError(false);
+    setUploadOpen(true);
+  };
+
+  const handleConfirmUploadRestore = async () => {
+    if (!uploadFile) return;
+    if (restoreConfirm.trim().toUpperCase() !== "RESTORE") {
+      setRestoreError(true);
+      return;
+    }
+    setUploading(true);
+    setRestoreError(false);
+    const formData = new FormData();
+    formData.append("file", uploadFile);
+    try {
+      await apiClient.post("v1/database-backups/upload-restore", formData, {
+        timeout: 600000,
+      });
+      toast.success(t("database_backups.restore_success"));
+      setUploadOpen(false);
+      setUploadFile(null);
+      setRestoreConfirm("");
+      setTimeout(() => fetchBackups(1, true), 800);
+    } catch (e) {
+      const detail = (e as Error)?.message;
+      toast.error(detail || t("database_backups.restore_failed"));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   if (mounted && !authLoading && !hasPermission("database_backup.view")) {
     return <AccessDenied />;
@@ -349,6 +439,26 @@ export default function DatabaseBackupsPage() {
           >
             <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
           </button>
+          {canRestore && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".dump,.backup,.bak,.tar,.gz"
+                className="hidden"
+                onChange={handleUploadChange}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                title={t("database_backups.restore_upload_title")}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-amber-700 dark:text-amber-400 text-sm font-medium hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" />
+                {t("database_backups.restore_upload_button")}
+              </button>
+            </>
+          )}
           {canCreate && (
             <button
               onClick={handleCreate}
@@ -394,7 +504,7 @@ export default function DatabaseBackupsPage() {
                 <Th>{t("database_backups.field_db")}</Th>
                 <Th>{t("database_backups.field_status")}</Th>
                 <Th>{t("database_backups.field_created_at")}</Th>
-                <Th className="text-right">{t("database_backups.action_download")} / {t("database_backups.action_delete")}</Th>
+                <Th className="text-right">{t("database_backups.action_restore")} / {t("database_backups.action_download")} / {t("database_backups.action_delete")}</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -468,10 +578,12 @@ export default function DatabaseBackupsPage() {
                       <BackupActions
                         item={item}
                         canDownload={canDownload}
+                        canRestore={canRestore}
                         canDelete={canDelete}
                         downloadingId={downloadingId}
                         t={t}
                         onDownload={handleDownload}
+                        onRestore={openRestore}
                         onDelete={(i) => setDeleteTarget(i)}
                       />
                     </td>
@@ -548,7 +660,17 @@ export default function DatabaseBackupsPage() {
                     {item.status === "failed" && item.error_message && (
                       <p className="text-[11px] text-red-500 mt-2 break-words">{item.error_message}</p>
                     )}
-                    <div className="flex items-center gap-3 pt-4">
+                    <div className="flex flex-wrap items-center gap-3 pt-4">
+                      {canRestore && (
+                        <button
+                          onClick={() => openRestore(item)}
+                          disabled={item.status !== "success"}
+                          className="inline-flex items-center gap-2 flex-1 justify-center px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm font-semibold disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          {t("database_backups.action_restore")}
+                        </button>
+                      )}
                       {canDownload && (
                         <button
                           onClick={() => handleDownload(item)}
@@ -610,6 +732,94 @@ export default function DatabaseBackupsPage() {
         type="danger"
         loading={deleting}
       />
+
+      <ConfirmationModal
+        isOpen={!!restoreTarget}
+        onClose={() => {
+          if (restoring) return;
+          setRestoreTarget(null);
+          setRestoreConfirm("");
+          setRestoreError(false);
+        }}
+        onConfirm={handleConfirmRestore}
+        title={t("database_backups.restore_title")}
+        message={t("database_backups.restore_confirm")}
+        confirmText={t("database_backups.restore_confirm_button")}
+        type="danger"
+        loading={restoring}
+      >
+        <div className="w-full mt-4">
+          {restoreTarget && (
+            <p className="text-xs font-mono text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 rounded-lg px-3 py-2 mb-3 text-left break-all">
+              {restoreTarget.file_name}
+            </p>
+          )}
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5 text-left">
+            {t("database_backups.restore_type_to_confirm")}
+          </label>
+          <input
+            type="text"
+            value={restoreConfirm}
+            onChange={(e) => {
+              setRestoreConfirm(e.target.value);
+              setRestoreError(false);
+            }}
+            placeholder={t("database_backups.restore_input_placeholder")}
+            disabled={restoring}
+            className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 cursor-text"
+          />
+          {restoreError && (
+            <p className="text-xs text-red-500 mt-1.5 text-left">{t("database_backups.restore_input_mismatch")}</p>
+          )}
+        </div>
+      </ConfirmationModal>
+
+      <ConfirmationModal
+        isOpen={uploadOpen}
+        onClose={() => {
+          if (uploading) return;
+          setUploadOpen(false);
+          setUploadFile(null);
+          setRestoreConfirm("");
+          setRestoreError(false);
+        }}
+        onConfirm={handleConfirmUploadRestore}
+        title={t("database_backups.restore_title")}
+        message={t("database_backups.restore_confirm")}
+        confirmText={t("database_backups.restore_confirm_button")}
+        type="danger"
+        loading={uploading}
+      >
+        <div className="w-full mt-4">
+          {uploadFile && (
+            <>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5 text-left">
+                {t("database_backups.restore_upload_file_label")}
+              </p>
+              <p className="text-xs font-mono text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 rounded-lg px-3 py-2 mb-3 text-left break-all">
+                {uploadFile.name} ({formatBytes(uploadFile.size)})
+              </p>
+            </>
+          )}
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5 text-left">
+            {t("database_backups.restore_type_to_confirm")}
+          </label>
+          <input
+            type="text"
+            value={restoreConfirm}
+            onChange={(e) => {
+              setRestoreConfirm(e.target.value);
+              setRestoreError(false);
+            }}
+            placeholder={t("database_backups.restore_input_placeholder")}
+            disabled={uploading}
+            className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 cursor-text"
+          />
+          {restoreError && (
+            <p className="text-xs text-red-500 mt-1.5 text-left">{t("database_backups.restore_input_mismatch")}</p>
+          )}
+        </div>
+      </ConfirmationModal>
     </div>
   );
 }

@@ -470,11 +470,12 @@
       ]
     },
     "database_backup": {
-      "display_name": "Database Backup",
+      "display_name": "Backup & Restore",
       "permissions": [
         "database_backup.view",
         "database_backup.create",
         "database_backup.download",
+        "database_backup.restore",
         "database_backup.delete"
       ]
     },

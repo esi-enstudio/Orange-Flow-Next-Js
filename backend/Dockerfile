@@ -20,14 +20,28 @@ Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
 EOF
 
-# Install system dependencies for Playwright and PostgreSQL
+# Install system dependencies for Playwright and PostgreSQL 18 client
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     libpq-dev \
     gcc \
-    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# Add official PostgreSQL APT repository (PGDG) for latest client tools
+RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+
+RUN echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list
+
+RUN apt-get update && apt-get install -y postgresql-client-18 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make PG 18 tools the default
+RUN update-alternatives --install /usr/bin/pg_dump  pg_dump  /usr/lib/postgresql/18/bin/pg_dump  100 \
+ && update-alternatives --install /usr/bin/pg_restore pg_restore /usr/lib/postgresql/18/bin/pg_restore 100 \
+ && update-alternatives --install /usr/bin/psql      psql      /usr/lib/postgresql/18/bin/psql      100
 
 # Copy requirements and install
 COPY requirements.txt .

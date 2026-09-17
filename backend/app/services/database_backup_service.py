@@ -127,6 +127,167 @@ async def _do_backup(db: AsyncSession, record: DatabaseBackup) -> None:
         raise
 
 
+async def create_uploaded_backup(
+    db: AsyncSession,
+    original_name: str,
+    file,
+    user_id: int,
+) -> DatabaseBackup:
+    """Stream an uploaded dump file to disk and register it as a backup record.
+
+    Returns the record with status "success" so restore_backup() can use it.
+    ``file`` must be an object exposing an async ``read()`` (FastAPI UploadFile).
+    """
+    from fastapi import HTTPException
+
+    _ensure_dir(BACKUP_DIR)
+
+    base = os.path.basename(original_name or "uploaded_backup.dump")
+    safe_name = base.replace(" ", "_").replace("\\", "_").replace("/", "_")[:120]
+    ts = datetime.now().strftime(TS_FMT)
+    file_name = f"upload_{ts}_{safe_name}"
+    file_path = os.path.join(BACKUP_DIR, file_name)
+
+    size = 0
+    try:
+        with open(file_path, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+                size += len(chunk)
+    except Exception:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise
+
+    if size == 0:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    record = DatabaseBackup(
+        file_name=file_name,
+        file_path=file_path,
+        file_size=size,
+        db_name=settings.DB_NAME,
+        pg_version="uploaded",
+        status="success",
+        created_by=user_id,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    logger.info("Uploaded backup saved: %s (%d bytes)", file_name, size)
+    return record
+
+
+async def restore_backup(db: AsyncSession, backup: DatabaseBackup, user_id: int, user_name: str) -> dict:
+    """Restore the database from a backup file.
+
+    A fresh safety backup is created first so there is always a fallback if the
+    restore fails. Then pg_restore drops and recreates all objects from the dump.
+
+    NOTE: restoring naturally wipes/replaces the whole database (including backup
+    records and audit logs); any data created after the backup was taken is lost.
+    """
+    from fastapi import HTTPException
+
+    if backup.status != "success":
+        raise HTTPException(
+            status_code=400,
+            detail="Only successfully finished backups can be restored",
+        )
+    if not os.path.exists(backup.file_path):
+        raise HTTPException(status_code=404, detail="Backup file not found on disk")
+
+    # 1) Pre-restore safety snapshot (synchronous so restore is aborted on failure)
+    ts = datetime.now().strftime(TS_FMT)
+    safety = DatabaseBackup(
+        file_name=f"pre_restore_safety_{ts}.dump",
+        file_path=os.path.join(BACKUP_DIR, f"pre_restore_safety_{ts}.dump"),
+        file_size=0,
+        db_name=settings.DB_NAME,
+        pg_version=None,
+        status="running",
+        created_by=user_id,
+    )
+    db.add(safety)
+    await db.commit()
+    await db.refresh(safety)
+    try:
+        await _do_backup(db, safety)
+    except Exception:
+        logger.exception("Pre-restore safety backup failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Pre-restore safety backup failed. Restore was aborted to protect current data.",
+        )
+
+    # 2) Run pg_restore (drop & recreate all objects from the dump)
+    cmd = [
+        "pg_restore",
+        "-h", settings.DB_HOST,
+        "-p", str(settings.DB_PORT),
+        "-U", settings.DB_USER,
+        "-d", settings.DB_NAME,
+        "-Fc",
+        "--clean",
+        "--if-exists",
+        "--no-owner",
+        "--no-privileges",
+        backup.file_path,
+    ]
+    env = {**os.environ, "PGPASSWORD": settings.DB_PASS}
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    err_text = stderr.decode("utf-8", errors="replace") if stderr else ""
+    err_msg = err_text.strip()
+
+    if proc.returncode != 0:
+        # pg_restore exit codes: 1 = some errors were non-fatal and ignored,
+        # 2 = fatal error. Cross-version dumps (e.g. PG17 archive onto a PG15
+        # server) commonly emit harmless "unrecognized configuration parameter"
+        # warnings (e.g. `SET transaction_timeout = 0`). Those are only session
+        # settings on the source server and the restore still completes, so we
+        # accept them as a successful (version-compatible) restore.
+        version_warning_guc = "unrecognized configuration parameter"
+        if proc.returncode == 1 and err_text:
+            real_errors = [
+                ln
+                for ln in err_text.splitlines()
+                if "pg_restore: error" in ln and version_warning_guc not in ln
+            ]
+            if not real_errors:
+                logger.warning(
+                    "Restore completed with ignored version-compat warnings: %s",
+                    err_msg,
+                )
+                proc.returncode = 0
+                err_msg = ""
+
+        if proc.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Restore failed. The database may be partially restored. "
+                       f"A safety backup was taken first and can be used to recover. Error: {err_msg[:1000]}",
+            )
+
+    logger.info("Database restored from %s (safety backup: %s)", backup.file_name, safety.file_name)
+    return {
+        "restored_from": backup.file_name,
+        "safety_file": safety.file_name,
+        "message": f"Database restored successfully from {backup.file_name}. "
+                   f"A pre-restore safety backup was saved as {safety.file_name}.",
+    }
+
+
 async def list_backups(
     db: AsyncSession,
     page: int = 1,
