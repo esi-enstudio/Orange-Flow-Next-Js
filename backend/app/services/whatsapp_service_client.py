@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import Optional
 
@@ -15,6 +17,41 @@ WA_GATEWAY_UNREACHABLE_MSG = (
     "is running (docker compose --profile whatsapp up -d whatsapp-gateway) "
     "and that WA_GATEWAY_URL points to it."
 )
+
+WA_SEND_TIMEOUT_MSG = (
+    "WhatsApp media upload is taking too long and timed out. The file may be "
+    "too large or the connection too slow — try sending as an image instead "
+    "of a document/PDF, or reduce the number of recipients."
+)
+
+WA_SEND_FAILED_MSG = "WhatsApp send failed. Please try again in a moment."
+
+# Media uploads (document/PDF/image) go through the gateway to WhatsApp's
+# upload servers, which can be slow for large payloads on modest uplinks.
+# 60s was too tight and produced false "gateway unreachable" errors.
+UPLOAD_TIMEOUT_SECONDS = 180
+
+
+def _wa_send_error(e: Exception) -> WhatsAppServiceError:
+    """Map a transport exception to an accurate, actionable error.
+
+    Timeouts are NOT "gateway unreachable" — the gateway is usually fine,
+    the upload is just slow (especially for document/PDF renders).
+    """
+    if isinstance(e, httpx.TimeoutException):
+        return WhatsAppServiceError(code="WA_SEND_TIMEOUT", message=WA_SEND_TIMEOUT_MSG)
+    if isinstance(e, httpx.ConnectError):
+        return WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG)
+    return WhatsAppServiceError(code="WA_SEND_FAILED", message=WA_SEND_FAILED_MSG)
+
+
+def _wa_send_retriable(e: Exception) -> bool:
+    """Retry only genuine connectivity hiccups.
+
+    A timed-out media upload retries with the same large payload and just
+    wastes the next attempt, so plain timeouts fail fast instead.
+    """
+    return isinstance(e, httpx.ConnectError) and not isinstance(e, httpx.ConnectTimeout)
 
 
 class WhatsAppServiceClient:
@@ -360,8 +397,8 @@ class WhatsAppServiceClient:
             except httpx.HTTPError as e:
                 detail = str(e)
                 logger.warning(f"WA text send attempt {attempt + 1} failed to {chat_jid}: {detail}")
-                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG)
-                if attempt < retries:
+                last_err = _wa_send_error(e)
+                if _wa_send_retriable(e) and attempt < retries:
                     import asyncio
                     await asyncio.sleep(3 * (attempt + 1))
         assert last_err is not None
@@ -382,7 +419,7 @@ class WhatsAppServiceClient:
         last_err: Optional[WhatsAppServiceError] = None
         for attempt in range(1 + retries):
             try:
-                async with httpx.AsyncClient(timeout=60) as client:
+                async with httpx.AsyncClient(timeout=UPLOAD_TIMEOUT_SECONDS) as client:
                     resp = await client.post(
                         f"{self.base_url}/chats/{chat_jid}/documents",
                         headers={"Authorization": f"Bearer {jwt_token}"},
@@ -400,8 +437,8 @@ class WhatsAppServiceClient:
             except httpx.HTTPError as e:
                 detail = str(e)
                 logger.warning(f"WA file send attempt {attempt + 1} failed to {chat_jid}: {detail}")
-                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG)
-                if attempt < retries:
+                last_err = _wa_send_error(e)
+                if _wa_send_retriable(e) and attempt < retries:
                     import asyncio
                     await asyncio.sleep(3 * (attempt + 1))
         assert last_err is not None
@@ -421,7 +458,7 @@ class WhatsAppServiceClient:
         last_err: Optional[WhatsAppServiceError] = None
         for attempt in range(1 + retries):
             try:
-                async with httpx.AsyncClient(timeout=60) as client:
+                async with httpx.AsyncClient(timeout=UPLOAD_TIMEOUT_SECONDS) as client:
                     resp = await client.post(
                         f"{self.base_url}/chats/{chat_jid}/images",
                         headers={"Authorization": f"Bearer {jwt_token}"},
@@ -439,8 +476,8 @@ class WhatsAppServiceClient:
             except httpx.HTTPError as e:
                 detail = str(e)
                 logger.warning(f"WA image send attempt {attempt + 1} failed to {chat_jid}: {detail}")
-                last_err = WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG)
-                if attempt < retries:
+                last_err = _wa_send_error(e)
+                if _wa_send_retriable(e) and attempt < retries:
                     import asyncio
                     await asyncio.sleep(3 * (attempt + 1))
         assert last_err is not None

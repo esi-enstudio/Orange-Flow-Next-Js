@@ -759,13 +759,13 @@ async def whatsapp_report_preview(
     await _verify_house_access(current_user, house_context)
 
     try:
-        # GA Live preview renders at a reduced scale (~1s, ~200KB instead of
-        # ~10s / 2.4MB) since it is only displayed on screen. Scheduled/direct
+        # GA Live / Activation previews render at a reduced scale (~1s, far
+        # smaller PNG) since they are only displayed on screen. Scheduled/direct
         # sends keep the full-resolution image. Both are cached for 60s so
         # repeat previews and preview→send are instant.
         image_bytes = await get_report_image(
             db, report_type, house_context,
-            scale=4 if report_type == "ga_live" else None,
+            scale=4 if report_type in ("ga_live", "activation") else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -44,7 +44,7 @@ async def get_report_image(
     ``scale`` only affects report types that support lighter renders (GA Live).
     """
     day = _today_bst().date()
-    cache_scale = scale if report_type == "ga_live" else None
+    cache_scale = scale if report_type in ("ga_live", "activation") else None
     cached = report_image_cache.get(report_type, house_id, day, cache_scale)
     if cached is not None:
         return cached
@@ -56,6 +56,9 @@ async def get_report_image(
         else:
             builder = get_report_builder(report_type)
             image_bytes = await builder(db, house_id)
+    elif report_type == "activation" and scale is not None:
+        from app.services.activation_whatsapp_image import build_activation_report_image
+        image_bytes = await build_activation_report_image(db, house_id, scale=scale)
     else:
         builder = get_report_builder(report_type)
         image_bytes = await builder(db, house_id)
@@ -84,12 +87,22 @@ def _png_to_pdf(image_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
+# Only the native-res report renders (e.g. active_lso at ~550px) need
+# upscaling to look decent. Already-high-resolution renders (ga_live 4320px,
+# activation 7200px) must pass through untouched — forcing them past a byte
+# threshold ballooned the image (7200→14400px), added +40s of CPU and turned
+# a ~1.2MB PDF into a ~12MB one that takes minutes to upload.
+UPSCALE_MIN_WIDTH = 1600
+
+
 def _ensure_min_size_png(image_bytes: bytes, min_bytes: int = 2 * 1024 * 1024) -> bytes:
     """Guarantee a high-resolution PNG payload of at least ``min_bytes``.
 
     Small/native-res report renders (e.g. active_lso at ~550px) are upscaled
     with LANCZOS until the PNG exceeds the minimum size (capped at 8x). Large
-    renders (e.g. ga_live at 4320px) pass through untouched.
+    renders (width >= UPSCALE_MIN_WIDTH, e.g. ga_live 4320px / activation
+    7200px) pass through untouched even when they compress below the byte
+    threshold — they are already far above phone/WhatsApp display resolution.
     """
     if len(image_bytes) >= min_bytes:
         return image_bytes
@@ -99,6 +112,8 @@ def _ensure_min_size_png(image_bytes: bytes, min_bytes: int = 2 * 1024 * 1024) -
 
     im = Image.open(_io.BytesIO(image_bytes))
     im.load()
+    if im.size[0] >= UPSCALE_MIN_WIDTH:
+        return image_bytes
     base_w, base_h = im.size
     best = image_bytes
     best_size = len(image_bytes)

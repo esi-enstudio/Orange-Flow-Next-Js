@@ -16,6 +16,19 @@ import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import WhatsAppConnectModal from "@/components/WhatsAppConnectModal";
 
+// Report image build + WhatsApp media upload can take far longer than the
+// default 10s API timeout: the backend posts to every target sequentially and
+// each upload allows up to 60s (with retries). These endpoints therefore get a
+// generous per-request timeout instead of the shared 10s axios default.
+const PREVIEW_TIMEOUT = 120_000;
+const SEND_TIMEOUT = 360_000;
+
+const isTimeoutError = (e: unknown): boolean =>
+  !!e &&
+  typeof e === "object" &&
+  ((e as { code?: string }).code === "ECONNABORTED" ||
+    String((e as { message?: string })?.message ?? "").startsWith("timeout of "));
+
 interface Props {
   open: boolean;
   houseId: number | null;
@@ -208,6 +221,7 @@ export default function WhatsAppReportDeliveryModal({
         params: { report_type: reportType },
         headers: { "X-House-ID": String(houseId) },
         responseType: "blob",
+        timeout: PREVIEW_TIMEOUT,
       });
       const url = URL.createObjectURL(res.data as Blob);
       setPreviewUrl((prev) => {
@@ -216,7 +230,12 @@ export default function WhatsAppReportDeliveryModal({
       });
     } catch (e) {
       const axiosErr = e as { response?: { data?: { detail?: string } } };
-      const msg = axiosErr.response?.data?.detail || (e as Error).message || "Preview failed";
+      const msg =
+        axiosErr.response?.data?.detail ||
+        (isTimeoutError(e)
+          ? "Report preview is taking longer than expected. Please try again."
+          : (e as Error).message) ||
+        "Preview failed";
       toast.error(msg);
     } finally {
       setPreviewLoading(false);
@@ -590,7 +609,10 @@ export default function WhatsAppReportDeliveryModal({
         payload.whatsapp_chat_ids = [...selectedGroupIds, ...selectedContactIds];
         payload.whatsapp_chat_names = selectedRecipientLabels;
       }
-      const res = await apiClient.post("/whatsapp-schedules/send-direct", payload, { headers: houseHeader });
+      const res = await apiClient.post("/whatsapp-schedules/send-direct", payload, {
+        headers: houseHeader,
+        timeout: SEND_TIMEOUT,
+      });
       const delivered = (res.data?.data?.delivered_count ?? totalSelected) as number;
       toast.success(
         form.channel === "telegram"
@@ -603,7 +625,12 @@ export default function WhatsAppReportDeliveryModal({
       fetchAll();
     } catch (e) {
       const axiosErr = e as { response?: { data?: { detail?: string } } };
-      const msg = axiosErr.response?.data?.detail || (e as Error).message || "Send failed";
+      const msg =
+        axiosErr.response?.data?.detail ||
+        (isTimeoutError(e)
+          ? "The report is still sending and may complete in the background. Check the delivery history in a moment."
+          : (e as Error).message) ||
+        "Send failed";
       toast.error(msg);
     } finally {
       setDirectSending(false);
@@ -680,12 +707,18 @@ export default function WhatsAppReportDeliveryModal({
   const sendNow = async (s: ScheduleItem) => {
     setSendingId(s.id);
     try {
-      await apiClient.post(`/whatsapp-schedules/${s.id}/send-now`);
+      await apiClient.post(`/whatsapp-schedules/${s.id}/send-now`, undefined, {
+        timeout: SEND_TIMEOUT,
+      });
       toast.success(s.channel === "telegram" ? "Report sent to Telegram" : "Report sent to WhatsApp");
       setSendNowTarget(null);
       fetchAll();
     } catch (e) {
-      toast.error((e as Error).message || "Send failed");
+      const msg =
+        isTimeoutError(e)
+          ? "The report is still sending and may complete in the background. Check the delivery history in a moment."
+          : (e as Error).message || "Send failed";
+      toast.error(msg);
     } finally {
       setSendingId(null);
     }
