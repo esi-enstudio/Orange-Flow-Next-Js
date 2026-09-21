@@ -50,23 +50,27 @@ FONT_BOLD_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
 
-# -- Design palette (business report) --
-BG_COLOR = "#F4F7FC"
+# -- Design palette (modern business report) --
+BG_COLOR = "#F8FAFC"          # Soft gray background
 WHITE = "#FFFFFF"
-NAVY = "#084182"
-NAVY_SOFT = "#B3D4FF"
-PURPLE = "#403294"
-TABLE_HDR_BG = "#DEEBFF"
-BP_ROW_BG = "#F1F5FB"
-SUB_ROW_BG = "#EAF2FF"
-CARD_BORDER = "#E0E6ED"
-TEXT_DARK = "#172B4D"
-MUTED = "#5E6C84"
-SUB_INK = "#084182"
+PRIMARY = "#0F172A"           # Deep slate for headers
+PRIMARY_LIGHT = "#1E293B"     # Lighter slate
+ACCENT = "#3B82F6"            # Modern blue accent
+ACCENT_SOFT = "#DBEAFE"       # Light blue
+PURPLE = "#8B5CF6"            # Modern purple
+TABLE_HDR_BG = "#F1F5F9"      # Light gray header
+BP_ROW_BG = "#FAFBFC"         # Very light gray
+SUB_ROW_BG = "#E0E7FF"        # Light indigo
+CARD_BORDER = "#E2E8F0"       # Subtle border
+TEXT_DARK = "#0F172A"         # Deep slate text
+MUTED = "#64748B"             # Muted gray
+SUB_INK = "#1E40AF"           # Deep blue
 AMBER = "#F59E0B"
 GREEN = "#10B981"
-GRID_LINE = "#AFC2DB"
-OUTER_LINE = "#5C76A4"
+EMERALD = "#059669"           # Rich emerald
+GRID_LINE = "#CBD5E1"         # Light gray grid
+OUTER_LINE = "#475569"        # Darker slate border
+SHADOW = "#94A3B820"          # Subtle shadow
 
 # Status pill colours (mirror page.tsx statusColors)
 STATUS_COLORS = {
@@ -124,13 +128,13 @@ HEADER_H = 28
 ROW_H = 30
 SUB_H = 26
 FOOTER_H = 44
-BLK_GAP = 10            # gap between banner and the first table
-TBL_SPLIT_GAP = 12      # gap between the RSO and BP tables inside one block
+BLK_GAP = 8             # gap between banner and the first table (reduced)
+TBL_SPLIT_GAP = 10      # gap between the RSO and BP tables inside one block (reduced)
 CAPTION_H = 24          # small labelled band above each table
-AFTER_SUMMARY_GAP = 14  # gap between the summary region and the first banner
+AFTER_SUMMARY_GAP = 5   # gap between the summary region and the first banner (balanced)
 
-# Summary region: header top gap + two card rows + the days subtitle line.
-SUMMARY_HEIGHT = (CARD_H + CARD_GAP) * 2 + 22
+# Summary region: table (2 rows x 56px) + gap (8px) + days card (36px) + bottom gap (5px)
+SUMMARY_HEIGHT = (2 * 56) + 8 + 36 + 5
 BLOCKS_TOP = HDR_H + 12 + SUMMARY_HEIGHT + AFTER_SUMMARY_GAP
 
 # Minimum canvas height stays portrait (taller than wide) for small datasets.
@@ -258,10 +262,8 @@ def _pct(v) -> str:
         v = float(v)
     except (TypeError, ValueError):
         return "0%"
-    if v % 1 == 0:
-        return f"{int(v)}%"
-    s = f"{v:.1f}".rstrip("0").rstrip(".")
-    return f"{s}%"
+    # Always return integer percentage (no decimal)
+    return f"{int(round(v))}%"
 
 
 def _ceil_div(n: float, d: int) -> int:
@@ -278,74 +280,137 @@ def _one_line_own(yest, mtd, days) -> str:
 
 # -- Header --
 def _draw_header(draw, house_name, house_code, summary, today: date, y0: int = 0) -> None:
-    draw.rectangle([(0, y0), (WIDTH, y0 + HDR_H)], fill=NAVY)
+    # Modern light header design
+    draw.rectangle([(0, y0), (WIDTH, y0 + HDR_H)], fill=WHITE)
 
     date_str = today.strftime("%d %b %Y")
     month_year = today.strftime("%B %Y")
     time_str = now_naive().strftime("%I:%M %p").lstrip("0")
 
-    draw.text((30, y0 + 40), "Activation Report", font=_font(34, True), fill=WHITE, anchor="lm")
-    draw.text((30, y0 + 78), f"{house_name} ({house_code})".strip(),
-              font=_font(20, True), fill=NAVY_SOFT, anchor="lm")
-    draw.text((30, y0 + 103), f"Date: {date_str}   |   Time: {time_str}   |   {month_year}",
-              font=_font(13.5, True), fill=WHITE, anchor="lm")
+    # Main title with icon placeholder
+    draw.ellipse([24, y0 + 32, 44, y0 + 52], fill=ACCENT)
+    draw.text((54, y0 + 42), "Activation Performance Report",
+              font=_font(32, True), fill=PRIMARY, anchor="lm")
 
-    # Light metric card: yesterday's activation count
-    bx, by, bw, bh = WIDTH - 300, y0 + 14, 272, HDR_H - 28
-    draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=12, fill=WHITE)
-    draw.text((bx + bw / 2, by + 20), "YESTERDAY ACTIVATION",
-              font=_font(10.5, True), fill=MUTED, anchor="mm")
+    # Subtitle - house info
+    draw.text((54, y0 + 76), f"{house_name} ({house_code})".strip(),
+              font=_font(18, True), fill=MUTED, anchor="lm")
+
+    # Date/time info without emoji icons
+    draw.text((54, y0 + 100), f"Date: {date_str}  •  Time: {time_str}  •  {month_year}",
+              font=_font(13, True), fill=MUTED, anchor="lm")
+
+    # Modern metric card: yesterday's activation count with subtle shadow effect
+    bx, by, bw, bh = WIDTH - 280, y0 + 20, 256, HDR_H - 40
+
+    # Shadow effect
+    draw.rounded_rectangle([bx + 2, by + 2, bx + bw + 2, by + bh + 2],
+                          radius=16, fill=SHADOW)
+
+    # Main card with light green background
+    draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=16, fill="#F0FDF4",
+                          outline=EMERALD, width=2)
+
+    # Label (removed accent bar)
+    draw.text((bx + bw / 2, by + 24), "YESTERDAY ACTIVATION",
+              font=_font(10, True), fill=MUTED, anchor="mm")
+
+    # Value - large and bold
     count = _fmt(summary.get("yesterday_activation") or 0)
-    draw.text((bx + bw / 2, by + 60), count, font=_font(42, True),
-              fill=GREEN, anchor="mm")
+    draw.text((bx + bw / 2, by + 56), count, font=_font(44, True),
+              fill=EMERALD, anchor="mm")
 
 
-# -- House summary cards --
-def _draw_metric_card(draw, x, y, w, h, title, value, color):
-    draw.rounded_rectangle([x, y, x + w, y + h], radius=8, fill=WHITE,
-                           outline=CARD_BORDER, width=1)
-    draw.text((x + 20, y + 18), title, font=_font(11.5, True), fill=MUTED, anchor="lm")
-    draw.text((x + 20, y + 58), value, font=_font(27, True), fill=color, anchor="lm")
-
-
-def _draw_summary_cards(draw, y, summary) -> int:
-    """Draw the two metric-card rows + the days subtitle; returns the y below."""
+# -- House summary table --
+def _draw_summary_table(draw, y, summary) -> int:
+    """Draw house summary as a modern clean table with shadow effects; returns the y below."""
     ach_pct = float(summary.get("achievement_percentage") or 0)
     exp_pct = float(summary.get("expected_percentage") or 0)
 
-    row1 = [
+    # Table data: label, value, color
+    metrics = [
         ("House Target", _fmt(summary.get("monthly_target") or 0), TEXT_DARK),
-        ("House Achievement", _fmt(summary.get("achievement") or 0), TEXT_DARK),
+        ("House Achievement", _fmt(summary.get("achievement") or 0), ACCENT),
         ("Achievement %", _pct(ach_pct), _pct_color(ach_pct)),
         ("Remaining", _fmt(summary.get("remaining") or 0), AMBER),
-    ]
-    row2 = [
         ("Daily Require", _fmt(math.ceil(summary.get("daily_required") or 0)), PURPLE),
-        ("Daily Average", _fmt(round(summary.get("daily_average") or 0)), "#3B82F6"),
+        ("Daily Average", _fmt(round(summary.get("daily_average") or 0)), ACCENT),
         ("Projection", _fmt(round(summary.get("projection") or 0)),
          _pct_color(exp_pct) if exp_pct >= 70 else AMBER),
         ("Expected %", _pct(exp_pct), _pct_color(exp_pct)),
     ]
 
-    step1, card_w1 = 250, 244
-    step2, card_w2 = 202, 196
-    for ri, row in enumerate((row1, row2)):
-        step, card_w = (step1, card_w1) if ri == 0 else (step2, card_w2)
-        for ci, (label, value, color) in enumerate(row):
-            _draw_metric_card(draw, 30 + ci * step, y, card_w, CARD_H, label, value, color)
-        y += CARD_H + CARD_GAP
+    # Calculate column widths
+    num_cols = 4  # 4 columns
+    avail_width = TBL_X1 - TBL_X0
+    col_width = avail_width / num_cols
+    row_height = 56
 
+    # Draw table with shadow
+    x0, y0 = TBL_X0, y
+    num_rows = math.ceil(len(metrics) / num_cols)
+    table_height = num_rows * row_height
+
+    # Shadow effect
+    draw.rounded_rectangle([x0 + 3, y0 + 3, TBL_X1 + 3, y0 + table_height + 3],
+                          radius=12, fill=SHADOW)
+
+    # Main table background
+    draw.rounded_rectangle([x0, y0, TBL_X1, y0 + table_height],
+                          radius=12, fill=WHITE)
+
+    # Draw cells
+    for idx, (label, value, color) in enumerate(metrics):
+        row = idx // num_cols
+        col = idx % num_cols
+
+        cell_x = x0 + col * col_width
+        cell_y = y0 + row * row_height
+
+        # Cell separator lines (except first column and first row)
+        if col > 0:
+            draw.line([(cell_x, cell_y + 8), (cell_x, cell_y + row_height - 8)],
+                     fill=GRID_LINE, width=1)
+        if row > 0 and col == 0:
+            draw.line([(x0 + 8, cell_y), (TBL_X1 - 8, cell_y)],
+                     fill=GRID_LINE, width=1)
+
+        # Label (top) with icon placeholder
+        draw.text((cell_x + col_width / 2, cell_y + 16), label,
+                 font=_font(10.5, True), fill=MUTED, anchor="mm")
+
+        # Value (bottom, larger and bold)
+        draw.text((cell_x + col_width / 2, cell_y + 40), value,
+                 font=_font(22, True), fill=color, anchor="mm")
+
+    # Outer border with rounded corners
+    draw.rounded_rectangle([x0, y0, TBL_X1, y0 + table_height],
+                          radius=12, outline=OUTER_LINE, width=2)
+
+    y = y0 + table_height + 8  # Reduced gap
+
+    # Days info subtitle with modern styling
     days_elapsed = summary.get("days_elapsed") or 0
     days_remaining = summary.get("days_remaining") or 0
     total_days = summary.get("total_days") or 0
     with_friday = math.ceil(summary.get("daily_required_with_friday") or 0)
     fridays = summary.get("remaining_fridays") or 0
-    draw.text((30, y + 2),
-              f"Days Elapsed: {days_elapsed}/{total_days}  |  Days Remaining: {days_remaining}  "
-              f"|  Daily Require (excl. Friday): {_fmt(summary.get('daily_required') or 0)}  "
-              f"|  With Friday: {with_friday}  |  Fridays Left: {fridays}",
-              font=_font(12, True), fill=MUTED, anchor="lm")
-    return y + 22
+
+    # Info card for days
+    info_x0, info_y0 = x0, y
+    info_width = TBL_X1 - TBL_X0
+    info_height = 36
+
+    draw.rounded_rectangle([info_x0, info_y0, info_x0 + info_width, info_y0 + info_height],
+                          radius=8, fill=ACCENT_SOFT, outline=ACCENT, width=1)
+
+    draw.text((info_x0 + info_width / 2, info_y0 + info_height / 2),
+              f"Days: {days_elapsed}/{total_days} Elapsed  •  {days_remaining} Remaining  •  "
+              f"Daily Target: {_fmt(summary.get('daily_required') or 0)} (excl. Fri)  •  "
+              f"{with_friday} (with Fri)  •  {fridays} Fridays Left",
+              font=_font(11.5, True), fill=PRIMARY, anchor="mm")
+
+    return y + info_height + 5  # Balanced gap - increased from 2 to 5
 
 
 # -- Supervisor banner --
@@ -353,64 +418,75 @@ def _draw_status_pill(draw, x, y, h, status: str, label=None, align="left",
                       font_size=11) -> None:
     label = label or STATUS_LABELS.get(status, status)
     f = _font(font_size, True)
-    w = int(draw.textlength(label, font=f)) + 20
+    w = int(draw.textlength(label, font=f)) + 24
     if align == "right":
         x = x - w
+    # Modern pill with subtle shadow
+    draw.rounded_rectangle([x + 1, y + 1, x + w + 1, y + h + 1], radius=h / 2, fill=SHADOW)
     draw.rounded_rectangle([x, y, x + w, y + h], radius=h / 2, fill=_status_color(status))
     draw.text((x + w / 2, y + h / 2), label, font=f, fill=WHITE, anchor="mm")
 
 
 def _draw_banner(draw, y, title, stats, status: str) -> None:
     x0, x1 = TBL_X0, TBL_X1
-    draw.rectangle([x0, y, x1, y + BANNER_H], fill=NAVY)
+
+    # Modern light banner without top border
+    draw.rounded_rectangle([x0, y, x1, y + BANNER_H], radius=12, fill=ACCENT_SOFT)
 
     status_w = 0
     if status:
         label = STATUS_LABELS.get(status, status)
-        h = 24
-        w = int(draw.textlength(label, font=_font(10, True))) + 22
-        _draw_status_pill(draw, x1 - 14 - w, y + (BANNER_H - h) / 2, h, status,
-                          label, font_size=10)
-        status_w = w + 8
+        h = 28  # Slightly larger pill
+        w = int(draw.textlength(label, font=_font(11, True))) + 28
+        _draw_status_pill(draw, x1 - 20 - w, y + (BANNER_H - h) / 2, h, status,
+                          label, font_size=11)
+        status_w = w + 12
 
-    f_title = _font(16, True)
-    draw.text((44, y + BANNER_H / 2),
-              _ellipsize(draw, title, f_title, 200), font=f_title, fill=WHITE, anchor="lm")
+    # Icon placeholder (circle) - slightly larger
+    draw.ellipse([x0 + 16, y + BANNER_H / 2 - 11, x0 + 38, y + BANNER_H / 2 + 11],
+                fill=ACCENT)
 
-    sx = 258
-    ex = x1 - 14 - status_w - 8
+    # Supervisor title - larger and bolder
+    f_title = _font(17, True)  # Increased from 15 to 17
+    draw.text((x0 + 50, y + BANNER_H / 2),
+              _ellipsize(draw, title, f_title, 220), font=f_title, fill=PRIMARY, anchor="lm")
+
+    # Stats section - label and value same size
+    sx = 290  # Adjusted starting position
+    ex = x1 - 20 - status_w - 8
     n = max(len(stats), 1)
     slot = (ex - sx) / n
-    f_label = _font(8.5, True)
-    f_val = _font(13, True)
+    f_stat = _font(10, True)  # Same size for both label and value
     for label, val in stats:
         cx = sx + slot / 2
-        draw.text((cx, y + 12), _ellipsize(draw, label, f_label, slot - 4),
-                  font=f_label, fill=NAVY_SOFT, anchor="mm")
-        draw.text((cx, y + BANNER_H - 13), _ellipsize(draw, val, f_val, slot - 6),
-                  font=f_val, fill=WHITE, anchor="mm")
+        # Label (top)
+        draw.text((cx, y + 18), _ellipsize(draw, label, f_stat, slot - 4),
+                  font=f_stat, fill=MUTED, anchor="mm")
+        # Value (bottom) - same font size as label
+        draw.text((cx, y + BANNER_H - 16), _ellipsize(draw, val, f_stat, slot - 6),
+                  font=f_stat, fill=PRIMARY, anchor="mm")
         sx += slot
 
 
 # -- Tables (RSO / BP) --
 def _table_specs(emp_type: str):
     common = [
-        ("num", "#", 30),
-        ("name", "Employee Name", 150),
-        ("ident", "Itop Number" if emp_type == "rso" else "Pool Number", 84),
-        ("target", "Target", 56),
-        ("achievement", "Ach", 52),
-        ("pct", "Ach%", 46),
-        ("remaining", "Remain", 56),
-        ("drr", "DRR", 44),
-        ("davg", "D.Avg", 50),
-        ("proj", "Projection", 70),
+        ("num", "#", 32),           # Rank numbers
+        ("name", "Employee Name", 200),  # Maximum space for names (increased from 160)
+        ("ident", "Itop Number" if emp_type == "rso" else "Pool Number", 90),
+        ("target", "Target", 60),
+        ("achievement", "Ach", 58),
+        ("pct", "Ach%", 50),
+        ("remaining", "Remain", 60),
+        ("drr", "DRR", 46),
+        ("davg", "D.Avg", 52),
+        ("proj", "Projection", 75),
     ]
     if emp_type == "rso":
-        common += [("market", "Market GA", 134), ("own", "Own GA", 148)]
+        common += [("market", "Market GA", 140), ("own", "Own GA", 155)]
     else:
-        common += [("yest", "Yesterday", 66), ("days", "Day Count", 46)]
-    common.append(("status", "Status", 92))
+        common += [("yest", "Yesterday", 70), ("days", "Day Count", 50)]
+    common.append(("status", "Status", 95))
     return common
 
 
@@ -464,9 +540,9 @@ def _compute_widths(draw, specs, rows, subtotal) -> tuple[dict, int]:
 
 def _draw_row_cells(draw, x, y, row_h, specs, widths, cells, *, emp_type, is_sub):
     cy = y + row_h / 2
-    f_name = _font(12, True)
-    f_num = _font(11, True) if not is_sub else _font(12, True)
-    f_wide = _font(10.5, True)
+    f_name = _font(13, True)      # Increased from 12
+    f_num = _font(12, True) if not is_sub else _font(13, True)  # Increased from 11/12
+    f_wide = _font(11, True)      # Increased from 10.5
     for key, label, mw in specs:
         w = widths[key]
         if key == "name":
@@ -501,9 +577,11 @@ def _draw_table(draw, y, emp_type: str, rows, subtotal) -> None:
     widths, total_w = _compute_widths(draw, specs, rows, subtotal)
     x1 = TBL_X0 + total_w
 
-    # Header band
+    # Modern header with gradient effect
     draw.rectangle([TBL_X0, y, x1, y + HEADER_H], fill=TABLE_HDR_BG)
-    f = _font(11, True)
+    draw.rectangle([TBL_X0, y, x1, y + 2], fill=ACCENT)  # Accent line
+
+    f = _font(10.5, True)
     xx = TBL_X0
     for key, label, mw in specs:
         w = widths[key]
@@ -511,40 +589,49 @@ def _draw_table(draw, y, emp_type: str, rows, subtotal) -> None:
         xx += w
     yy = y + HEADER_H
 
-    # Data rows
-    for r in rows:
-        bg = BP_ROW_BG if emp_type == "bp" else WHITE
+    # Data rows with alternating subtle backgrounds
+    for i, r in enumerate(rows):
+        if emp_type == "bp":
+            bg = BP_ROW_BG if i % 2 == 0 else WHITE
+        else:
+            bg = WHITE if i % 2 == 0 else "#FAFBFC"
         draw.rectangle([TBL_X0, yy, x1, yy + ROW_H], fill=bg)
         _draw_row_cells(draw, TBL_X0, yy, ROW_H, specs, widths, r,
                         emp_type=emp_type, is_sub=False)
         yy += ROW_H
 
-    # Subtotal row
+    # Modern subtotal row with accent
     if subtotal:
         draw.rectangle([TBL_X0, yy, x1, yy + SUB_H], fill=SUB_ROW_BG)
+        draw.rectangle([TBL_X0, yy, x1, yy + 2], fill=ACCENT)  # Top accent line
         _draw_row_cells(draw, TBL_X0, yy, SUB_H, specs, widths, subtotal,
                         emp_type=emp_type, is_sub=True)
         yy += SUB_H
 
-    # Vertical grid lines (skip the very last column edge - the outer border covers it)
+    # Vertical grid lines (lighter and cleaner)
     xx = TBL_X0
     for key in [s[0] for s in specs[:-1]]:
         xx += widths[key]
         draw.line([(xx, y), (xx, yy)], fill=GRID_LINE, width=1)
 
-    # Full outer border
-    draw.rectangle([TBL_X0, y, x1, yy], outline=OUTER_LINE, width=1)
+    # Modern outer border with rounded effect (corners)
+    draw.rectangle([TBL_X0, y, x1, yy], outline=OUTER_LINE, width=2)
 
 
 def _draw_table_caption(draw, y, title, count, emp_type) -> int:
-    color = BADGE_COLORS[emp_type]
-    draw.rounded_rectangle([TBL_X0, y + CAPTION_H / 2 - 6, TBL_X0 + 12, y + CAPTION_H / 2 + 6],
-                           radius=3, fill=color)
-    draw.text((TBL_X0 + 22, y + CAPTION_H / 2), title,
-              font=_font(14, True), fill=TEXT_DARK, anchor="lm")
+    # Simple left-aligned text without badge
+    draw.text((TBL_X0, y + CAPTION_H / 2), title,
+              font=_font(13.5, True), fill=TEXT_DARK, anchor="lm")
     if count:
-        draw.text((TBL_X1, y + CAPTION_H / 2), f"Total Employees: {count}",
-                  font=_font(11.5, True), fill=MUTED, anchor="rm")
+        # Modern count badge on right
+        count_text = f"{count} Employees"
+        count_f = _font(10.5, True)
+        count_w = int(draw.textlength(count_text, font=count_f)) + 20
+        count_x = TBL_X1 - count_w
+        draw.rounded_rectangle([count_x, y + CAPTION_H / 2 - 10, TBL_X1, y + CAPTION_H / 2 + 10],
+                              radius=10, fill=ACCENT_SOFT, outline=ACCENT, width=1)
+        draw.text((count_x + count_w / 2, y + CAPTION_H / 2), count_text,
+                  font=count_f, fill=ACCENT, anchor="mm")
     return y + CAPTION_H
 
 
@@ -761,13 +848,25 @@ def _draw_block(draw, block: dict) -> None:
 
 
 def _draw_footer(draw, y) -> None:
-    draw.rectangle([TBL_X0, y, TBL_X1, y + FOOTER_H], fill=NAVY)
-    draw.text((TBL_X0 + 14, y + FOOTER_H / 2), "Together We Grow  |  Success Tomorrow",
-              font=_font(12, True), fill=WHITE, anchor="lm")
-    date_str = now_naive().strftime("%d %B %Y, %I:%M %p")
-    draw.text((TBL_X1 - 14, y + FOOTER_H / 2),
-              f"Generated by OrangeFlow  |  {date_str}",
-              font=_font(12, True), fill=WHITE, anchor="rm")
+    # Modern light footer without top line
+    draw.rectangle([TBL_X0, y, TBL_X1, y + FOOTER_H], fill=WHITE)
+
+    # Icon placeholders (circles)
+    draw.ellipse([TBL_X0 + 14, y + FOOTER_H / 2 - 8, TBL_X0 + 30, y + FOOTER_H / 2 + 8],
+                fill=ACCENT)
+
+    draw.text((TBL_X0 + 40, y + FOOTER_H / 2), "Together We Grow  •  Success Tomorrow",
+              font=_font(11.5, True), fill=PRIMARY, anchor="lm")
+
+    date_str = now_naive().strftime("%d %B %Y, %I:%M %p").lstrip("0")
+
+    # Right side with icon
+    draw.ellipse([TBL_X1 - 30, y + FOOTER_H / 2 - 8, TBL_X1 - 14, y + FOOTER_H / 2 + 8],
+                fill=EMERALD)
+
+    draw.text((TBL_X1 - 40, y + FOOTER_H / 2),
+              f"Generated by OrangeFlow  •  {date_str}",
+              font=_font(11.5, True), fill=MUTED, anchor="rm")
 
 
 def _render_image(house_name: str, house_code: str, dashboard: dict,
@@ -793,6 +892,9 @@ def _render_image(house_name: str, house_code: str, dashboard: dict,
             canvas_h += HDR_H + 48
             page_headers.append(top)
             cursor = top + HDR_H + 12
+        # Add gap between blocks (except first one)
+        if i > 0:
+            cursor += 12
         b["y"] = cursor
         cursor += eh
 
@@ -803,7 +905,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict,
     _draw_header(draw, house_name, house_code, summary, today, 0)
     for top in page_headers:
         _draw_header(draw, house_name, house_code, summary, today, top)
-    _draw_summary_cards(draw, HDR_H + 12, summary)
+    _draw_summary_table(draw, HDR_H + 12, summary)
     for b in blocks:
         _draw_block(draw, b)
     _draw_footer(draw, canvas_h - FOOTER_H)

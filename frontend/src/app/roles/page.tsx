@@ -36,7 +36,7 @@ interface Role {
   permissions: Permission[];
 }
 
-interface ReportsSubmenuGroup {
+interface SubmenuGroup {
   key: string;
   label: string;
   perms: Permission[];
@@ -46,7 +46,7 @@ interface ModuleGroup {
   key: string;
   displayName: string;
   perms: Permission[];
-  submenus?: ReportsSubmenuGroup[];
+  submenus?: SubmenuGroup[];
 }
 
 const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
@@ -59,6 +59,7 @@ const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
   bts: "BTS",
   lifting: "Lifting",
   reports: "Reports",
+  live_monitor: "Live Monitor",
   products: "Products",
   commission: "Commission",
   sim_status: "SIM Status Check",
@@ -109,13 +110,13 @@ const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
   expenses: "Expenses",
 };
 
-interface ReportsSubmenuDef {
+interface SubmenuDef {
   key: string;
   labelKey: string;
   moduleKey: string;
 }
 
-const REPORTS_SUBMENUS: ReportsSubmenuDef[] = [
+const REPORTS_SUBMENUS: SubmenuDef[] = [
   { key: "activations", labelKey: "nav.report_activations", moduleKey: "activations" },
   { key: "recharge", labelKey: "nav.report_recharge", moduleKey: "recharge_dashboard" },
   { key: "transactions", labelKey: "nav.report_transactions", moduleKey: "transactions" },
@@ -127,6 +128,11 @@ const REPORTS_SUBMENUS: ReportsSubmenuDef[] = [
   { key: "sim_issues", labelKey: "nav.report_sim_issue", moduleKey: "sim_issues" },
   { key: "visits", labelKey: "nav.visits", moduleKey: "visits" },
   { key: "orders", labelKey: "nav.orders", moduleKey: "orders" },
+];
+
+const LIVE_MONITOR_SUBMENUS: SubmenuDef[] = [
+  { key: "otp", labelKey: "nav.otp_monitor", moduleKey: "otp" },
+  { key: "system_logs", labelKey: "nav.system_logs", moduleKey: "system_logs" },
 ];
 
 const ACRONYM_WORDS = new Set(["ga", "dms", "sim", "otp", "ev", "bp", "sc", "lso", "sso", "cc"]);
@@ -316,7 +322,7 @@ export default function RolesPage() {
   const [selectedPermissions, setSelectedPermissions] = useState<number[]>([]);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [reportsExpanded, setReportsExpanded] = useState<Record<string, boolean>>({});
+  const [submenusExpanded, setSubmenusExpanded] = useState<Record<string, boolean>>({});
   const [formLoading, setFormLoading] = useState(false);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -377,6 +383,8 @@ export default function RolesPage() {
 
     const folded = new Set(REPORTS_SUBMENUS.map((d) => d.moduleKey));
     folded.add("reports");
+    LIVE_MONITOR_SUBMENUS.forEach((d) => folded.add(d.moduleKey));
+    folded.add("live_monitor");
 
     const modules: ModuleGroup[] = Object.entries(map)
       .filter(([key]) => !folded.has(key))
@@ -387,24 +395,40 @@ export default function RolesPage() {
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-    const submenus: ReportsSubmenuGroup[] = REPORTS_SUBMENUS.map((def) => ({
+    const reportsSubmenus: SubmenuGroup[] = REPORTS_SUBMENUS.map((def) => ({
       key: def.key,
-      label: t(def.labelKey),
+      label: t(def.labelKey) || displayNameForModule(def.moduleKey),
       perms: map[def.moduleKey] || [],
     }));
-    submenus.push({
+    reportsSubmenus.push({
       key: "reports",
       label: t("roles.reports_general"),
       perms: map["reports"] || [],
     });
 
-    const reportSubmenus = submenus.filter((s) => s.perms.length > 0);
-    if (reportSubmenus.length > 0) {
+    const activeReportsSubmenus = reportsSubmenus.filter((s) => s.perms.length > 0);
+    if (activeReportsSubmenus.length > 0) {
       modules.push({
         key: "reports",
         displayName: displayNameForModule("reports") || t("roles.others_module"),
         perms: [],
-        submenus: reportSubmenus,
+        submenus: activeReportsSubmenus,
+      });
+    }
+
+    const liveMonitorSubmenus: SubmenuGroup[] = LIVE_MONITOR_SUBMENUS.map((def) => ({
+      key: def.key,
+      label: t(def.labelKey) || displayNameForModule(def.moduleKey),
+      perms: map[def.moduleKey] || [],
+    }));
+
+    const activeLiveMonitorSubmenus = liveMonitorSubmenus.filter((s) => s.perms.length > 0);
+    if (activeLiveMonitorSubmenus.length > 0 || (map["live_monitor"] && map["live_monitor"].length > 0)) {
+      modules.push({
+        key: "live_monitor",
+        displayName: displayNameForModule("live_monitor") || t("nav.live_monitor") || "Live Monitor",
+        perms: map["live_monitor"] || [],
+        submenus: activeLiveMonitorSubmenus,
       });
     }
 
@@ -417,17 +441,43 @@ export default function RolesPage() {
     if (!normalizedSearch) return groupedModules;
     const result: ModuleGroup[] = [];
     for (const mod of groupedModules) {
+      const modNameMatches =
+        mod.displayName.toLowerCase().includes(normalizedSearch) ||
+        mod.key.toLowerCase().includes(normalizedSearch);
+
       if (mod.submenus) {
         const submenus = mod.submenus
-          .map((sub) => ({
-            ...sub,
-            perms: sub.perms.filter((p) => p.name.toLowerCase().includes(normalizedSearch)),
-          }))
+          .map((sub) => {
+            const subMatches =
+              modNameMatches ||
+              sub.label.toLowerCase().includes(normalizedSearch) ||
+              sub.key.toLowerCase().includes(normalizedSearch);
+
+            if (subMatches) {
+              return sub;
+            }
+
+            const matchingPerms = sub.perms.filter(
+              (p) =>
+                p.name.toLowerCase().includes(normalizedSearch) ||
+                actionOfPermission(p.name).toLowerCase().includes(normalizedSearch)
+            );
+            return { ...sub, perms: matchingPerms };
+          })
           .filter((sub) => sub.perms.length > 0);
-        if (submenus.length) result.push({ ...mod, perms: [], submenus });
+
+        if (submenus.length > 0) result.push({ ...mod, perms: [], submenus });
       } else {
-        const matching = mod.perms.filter((p) => p.name.toLowerCase().includes(normalizedSearch));
-        if (matching.length) result.push({ ...mod, perms: matching });
+        if (modNameMatches) {
+          result.push(mod);
+        } else {
+          const matching = mod.perms.filter(
+            (p) =>
+              p.name.toLowerCase().includes(normalizedSearch) ||
+              actionOfPermission(p.name).toLowerCase().includes(normalizedSearch)
+          );
+          if (matching.length > 0) result.push({ ...mod, perms: matching });
+        }
       }
     }
     return result;
@@ -450,13 +500,13 @@ export default function RolesPage() {
   const openEditDrawer = (role: Role) => {
     const ids = role.permissions.map((p) => p.id);
     const exp: Record<string, boolean> = {};
-    const expReports: Record<string, boolean> = {};
+    const expSubmenus: Record<string, boolean> = {};
     for (const mod of groupedModules) {
       if (mod.submenus) {
         for (const sub of mod.submenus) {
           if (sub.perms.some((p) => ids.includes(p.id))) {
             exp[mod.key] = true;
-            expReports[sub.key] = true;
+            expSubmenus[sub.key] = true;
           }
         }
       } else if (mod.perms.some((p) => ids.includes(p.id))) {
@@ -468,7 +518,7 @@ export default function RolesPage() {
     setSelectedPermissions(ids);
     setSearch("");
     setExpanded(exp);
-    setReportsExpanded(expReports);
+    setSubmenusExpanded(expSubmenus);
     setDrawerOpen(true);
   };
 
@@ -793,7 +843,7 @@ export default function RolesPage() {
                       setExpanded(
                         Object.fromEntries(filteredModules.map((m) => [m.key, true]))
                       );
-                      setReportsExpanded(
+                      setSubmenusExpanded(
                         Object.fromEntries(
                           filteredModules.flatMap((m) =>
                             m.submenus ? m.submenus.map((s) => [s.key, true]) : []
@@ -810,7 +860,7 @@ export default function RolesPage() {
                     type="button"
                     onClick={() => {
                       setExpanded({});
-                      setReportsExpanded({});
+                      setSubmenusExpanded({});
                     }}
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
                   >
@@ -907,7 +957,7 @@ export default function RolesPage() {
                             {mod.submenus.map((sub) => {
                               const subIds = sub.perms.map((p) => p.id);
                               const subState = moduleState(subIds);
-                              const subExpanded = normalizedSearch ? true : !!reportsExpanded[sub.key];
+                              const subExpanded = normalizedSearch ? true : !!submenusExpanded[sub.key];
                               return (
                                 <div
                                   key={sub.key}
@@ -915,7 +965,7 @@ export default function RolesPage() {
                                 >
                                   <div
                                     onClick={() =>
-                                      setReportsExpanded((prev) => ({ ...prev, [sub.key]: !subExpanded }))
+                                      setSubmenusExpanded((prev) => ({ ...prev, [sub.key]: !subExpanded }))
                                     }
                                     className="min-h-[44px] px-3 py-2 flex items-center gap-3 cursor-pointer select-none"
                                   >
