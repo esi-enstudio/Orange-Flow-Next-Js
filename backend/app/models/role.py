@@ -7,8 +7,8 @@ from app.models.base import Base
 role_permissions = Table(
     'roles_permissions',
     Base.metadata,
-    Column('role_id', Integer, ForeignKey('roles.id')),
-    Column('permission_id', Integer, ForeignKey('permissions.id'))
+    Column('role_id', Integer, ForeignKey('roles.id', ondelete="CASCADE")),
+    Column('permission_id', Integer, ForeignKey('permissions.id', ondelete="CASCADE"))
 )
 
 

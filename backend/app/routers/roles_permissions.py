@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.routers.deps import get_db, has_permission, has_any_permission
 from app.schemas.role import RoleSchema, RoleCreate, PermissionSchema, PermissionCreate
-from app.models.role import Role, Permission
+from app.models.role import Role, Permission, role_permissions
+from app.models.user import user_roles
 
 router = APIRouter(prefix="/api", tags=["roles & permissions"])
 
@@ -28,6 +29,7 @@ async def delete_permission(perm_id: int, db: AsyncSession = Depends(get_db), cu
     result = await db.execute(select(Permission).where(Permission.id == perm_id))
     perm = result.scalar_one_or_none()
     if not perm: raise HTTPException(status_code=404, detail="Permission not found")
+    await db.execute(delete(role_permissions).where(role_permissions.c.permission_id == perm_id))
     await db.delete(perm)
     await db.commit()
     return {"message": "Permission deleted successfully"}
@@ -69,6 +71,8 @@ async def delete_role(role_id: int, db: AsyncSession = Depends(get_db), current_
     if not role: raise HTTPException(status_code=404, detail="Role not found")
     if role.name.lower() == "super admin":
         raise HTTPException(status_code=400, detail="Super Admin role cannot be deleted")
+    await db.execute(delete(role_permissions).where(role_permissions.c.role_id == role_id))
+    await db.execute(delete(user_roles).where(user_roles.c.role_id == role_id))
     await db.delete(role)
     await db.commit()
     return {"message": "Role deleted successfully"}
