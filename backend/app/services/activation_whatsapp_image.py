@@ -293,10 +293,10 @@ def _draw_header(draw, house_name, house_code, summary, today: date, y0: int = 0
     # Light metric card: yesterday's activation count
     bx, by, bw, bh = WIDTH - 300, y0 + 14, 272, HDR_H - 28
     draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=12, fill=WHITE)
-    draw.text((bx + 20, by + 20), "YESTERDAY ACTIVATION",
-              font=_font(10.5, True), fill=MUTED, anchor="lm")
+    draw.text((bx + bw / 2, by + 20), "YESTERDAY ACTIVATION",
+              font=_font(10.5, True), fill=MUTED, anchor="mm")
     count = _fmt(summary.get("yesterday_activation") or 0)
-    draw.text((bx + bw / 2, by + 60), count, font=_font(34, True),
+    draw.text((bx + bw / 2, by + 60), count, font=_font(42, True),
               fill=GREEN, anchor="mm")
 
 
@@ -325,7 +325,6 @@ def _draw_summary_cards(draw, y, summary) -> int:
         ("Projection", _fmt(round(summary.get("projection") or 0)),
          _pct_color(exp_pct) if exp_pct >= 70 else AMBER),
         ("Expected %", _pct(exp_pct), _pct_color(exp_pct)),
-        ("Yest. Activation", _fmt(summary.get("yesterday_activation") or 0), GREEN),
     ]
 
     step1, card_w1 = 250, 244
