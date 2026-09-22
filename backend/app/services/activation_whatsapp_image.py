@@ -123,7 +123,7 @@ TBL_X1 = WIDTH - MARGIN
 HDR_H = 120
 CARD_H = 92
 CARD_GAP = 12
-BANNER_H = 62
+BANNER_H = 64
 HEADER_H = 28
 ROW_H = 30
 SUB_H = 26
@@ -242,6 +242,26 @@ def _ellipsize(draw, text: str, font, max_w: float) -> str:
     while s and draw.textlength(s + "\u2026", font=font) > max_w:
         s = s[:-1]
     return s + "\u2026" if s else s
+
+
+def _fit_font(draw, text: str, max_w: float, max_size: float,
+              min_size: float = 9.0, bold: bool = True) -> tuple[ImageFont.FreeTypeFont, str]:
+    """Find the largest font in [min_size, max_size] that fits text within max_w.
+    If even min_size overflows, ellipsize at min_size."""
+    s = str(text) if text is not None else ""
+    if not s:
+        return _font(int(round(max_size)), bold), ""
+    size = float(max_size)
+    while size >= min_size:
+        f = _font(int(round(size)), bold)
+        if draw.textlength(s, font=f) <= max_w:
+            return f, s
+        size -= 0.5
+    f_min = _font(int(round(min_size)), bold)
+    curr = s
+    while curr and draw.textlength(curr + "\u2026", font=f_min) > max_w:
+        curr = curr[:-1]
+    return f_min, (curr + "\u2026" if curr else curr)
 
 
 # -- Formatting helpers --
@@ -436,36 +456,49 @@ def _draw_banner(draw, y, title, stats, status: str) -> None:
     status_w = 0
     if status:
         label = STATUS_LABELS.get(status, status)
-        h = 28  # Slightly larger pill
-        w = int(draw.textlength(label, font=_font(11, True))) + 28
-        _draw_status_pill(draw, x1 - 20 - w, y + (BANNER_H - h) / 2, h, status,
+        h = 28  # Pill height
+        f_pill = _font(11, True)
+        w = int(draw.textlength(label, font=f_pill)) + 26
+        _draw_status_pill(draw, x1 - 16 - w, y + (BANNER_H - h) / 2, h, status,
                           label, font_size=11)
-        status_w = w + 12
+        status_w = w + 14
 
-    # Icon placeholder (circle) - slightly larger
-    draw.ellipse([x0 + 16, y + BANNER_H / 2 - 11, x0 + 38, y + BANNER_H / 2 + 11],
-                fill=ACCENT)
+    # Icon placeholder (circle)
+    draw.ellipse([x0 + 16, y + BANNER_H / 2 - 12, x0 + 40, y + BANNER_H / 2 + 12],
+                 fill=ACCENT)
 
-    # Supervisor title - larger and bolder
-    f_title = _font(17, True)  # Increased from 15 to 17
-    draw.text((x0 + 50, y + BANNER_H / 2),
-              _ellipsize(draw, title, f_title, 220), font=f_title, fill=PRIMARY, anchor="lm")
+    # Supervisor title - dynamic fit up to 230px with prominent size
+    f_title, title_txt = _fit_font(draw, title, 230, max_size=16.5, min_size=12.0, bold=True)
+    draw.text((x0 + 48, y + BANNER_H / 2), title_txt, font=f_title, fill=PRIMARY, anchor="lm")
+    title_w = draw.textlength(title_txt, font=f_title)
 
-    # Stats section - label and value same size
-    sx = 290  # Adjusted starting position
-    ex = x1 - 20 - status_w - 8
+    # Stats section - dynamically space between title and status pill
+    sx = max(x0 + 52 + int(title_w) + 14, 230)
+    ex = x1 - 16 - status_w
     n = max(len(stats), 1)
     slot = (ex - sx) / n
-    f_stat = _font(10, True)  # Same size for both label and value
-    for label, val in stats:
-        cx = sx + slot / 2
-        # Label (top)
-        draw.text((cx, y + 18), _ellipsize(draw, label, f_stat, slot - 4),
-                  font=f_stat, fill=MUTED, anchor="mm")
-        # Value (bottom) - same font size as label
-        draw.text((cx, y + BANNER_H - 16), _ellipsize(draw, val, f_stat, slot - 6),
-                  font=f_stat, fill=PRIMARY, anchor="mm")
-        sx += slot
+
+    for i, (label, val) in enumerate(stats):
+        cx = sx + slot * i + slot / 2
+        # Dynamic label (top) - up to 11.5pt
+        f_lbl, lbl_txt = _fit_font(draw, label, slot - 3, max_size=11.5, min_size=9.0, bold=True)
+        draw.text((cx, y + 19), lbl_txt, font=f_lbl, fill=MUTED, anchor="mm")
+        # Dynamic value (bottom, prominent) - up to 14.5pt
+        f_val, val_txt = _fit_font(draw, str(val), slot - 4, max_size=14.5, min_size=10.5, bold=True)
+        val_fill = PRIMARY
+        if label == "Ach%":
+            try:
+                p_num = float(str(val).replace("%", ""))
+                val_fill = _pct_color(p_num)
+            except (ValueError, TypeError):
+                pass
+        elif label == "Proj%":
+            try:
+                p_num = float(str(val).replace("%", ""))
+                val_fill = _pct_color(p_num)
+            except (ValueError, TypeError):
+                pass
+        draw.text((cx, y + 43), val_txt, font=f_val, fill=val_fill, anchor="mm")
 
 
 # -- Tables (RSO / BP) --
@@ -473,7 +506,7 @@ def _table_specs(emp_type: str):
     if emp_type == "rso":
         return [
             ("num", "#", 24),                 # Rank numbers
-            ("name", "Employee Name", 180),   # Maximized in _compute_widths
+            ("name", "Employee Name", 180),   # Dynamically takes all remaining space
             ("ident", "Itop Number", 76),
             ("target", "Target", 42),
             ("achievement", "Ach", 38),
@@ -507,14 +540,17 @@ def _table_specs(emp_type: str):
 
 
 def _compute_widths(draw, specs, rows, subtotal, emp_type: str = "rso") -> tuple[dict, int]:
-    """Measure column widths. Numeric, detail, and status columns are kept compact so
-    all content is clearly visible, while Employee Name absorbs maximum available space."""
-    f_hdr = _font(10 if emp_type == "rso" else 11, True)
-    f_name = _font(12.5 if emp_type == "rso" else 13, True)
-    f_num = _font(11 if emp_type == "rso" else 12, True)
-    f_wide = _font(9.5 if emp_type == "rso" else 11, True)
-    f_ident = _font(10.5 if emp_type == "rso" else 11, True)
-    f_pill = _font(10 if emp_type == "rso" else 11, True)
+    """Dynamically compute column widths based on actual content:
+    - Measures actual header and cell content with suitable padding.
+    - Accurately sizes numeric, detail, and status columns so no text overflows.
+    - Allocates maximum available space to Employee Name.
+    - If names in this specific report are exceptionally long, ensures the name column
+      receives sufficient width while keeping all other columns legible."""
+    f_hdr = _font(11.5, True)
+    f_num = _font(13, True)
+    f_wide = _font(11, True)
+    f_ident = _font(12, True)
+    f_pill = _font(10.5, True)
 
     all_rows = rows + ([subtotal] if subtotal else [])
     widths = {}
@@ -522,7 +558,7 @@ def _compute_widths(draw, specs, rows, subtotal, emp_type: str = "rso") -> tuple
     for key, label, mw in specs:
         if key == "name":
             continue
-        pad = 3 if emp_type == "rso" else PAD_X
+        pad = 4 if emp_type == "rso" else PAD_X
         w = draw.textlength(label, font=f_hdr) + pad * 2
         for r in all_rows:
             if key == "status":
@@ -542,7 +578,7 @@ def _compute_widths(draw, specs, rows, subtotal, emp_type: str = "rso") -> tuple
 
     avail = TBL_X1 - TBL_X0
     other_total = sum(widths.values())
-    min_name = 120
+    min_name = 140
     name_w = max(min_name, avail - other_total)
     widths["name"] = name_w
 
@@ -561,40 +597,45 @@ def _compute_widths(draw, specs, rows, subtotal, emp_type: str = "rso") -> tuple
 
 def _draw_row_cells(draw, x, y, row_h, specs, widths, cells, *, emp_type, is_sub):
     cy = y + row_h / 2
-    f_name = _font(12.5 if emp_type == "rso" else 13, True)
-    f_num = _font(11 if emp_type == "rso" else 12, True) if not is_sub else _font(12 if emp_type == "rso" else 13, True)
-    f_wide = _font(9.5 if emp_type == "rso" else 11, True)
-    f_ident = _font(10.5 if emp_type == "rso" else 11, True)
     for key, label, mw in specs:
         w = widths[key]
         if key == "name":
             fill = SUB_INK if is_sub else TEXT_DARK
-            draw.text((x + PAD_X, cy), _ellipsize(draw, cells.get("name", ""), f_name, w - PAD_X * 2),
-                      font=f_name, fill=fill, anchor="lm")
+            max_s = 13.5 if is_sub else 13.0
+            # Dynamically max font: fits up to 13.5/13, steps down smoothly for longer names
+            f_name, name_txt = _fit_font(draw, cells.get("name", ""), w - PAD_X * 2,
+                                         max_size=max_s, min_size=9.5, bold=True)
+            draw.text((x + PAD_X, cy), name_txt, font=f_name, fill=fill, anchor="lm")
         elif key == "status":
             lbl = STATUS_LABELS.get(cells.get("status", ""), cells.get("status", ""))
-            f_st = _font(10, True) if emp_type == "rso" else _font(11, True)
-            pill_w = int(draw.textlength(lbl, font=f_st)) + (14 if emp_type == "rso" else 20)
+            f_st, lbl_fit = _fit_font(draw, lbl, w - 8, max_size=10.5, min_size=9.0, bold=True)
+            pill_w = int(draw.textlength(lbl_fit, font=f_st)) + (14 if emp_type == "rso" else 18)
             pill_h = 20 if emp_type == "rso" else 22
             _draw_status_pill(draw, x + (w - pill_w) / 2, y + (row_h - pill_h) / 2, pill_h,
-                              cells.get("status", ""), lbl, font_size=10 if emp_type == "rso" else 11)
+                              cells.get("status", ""), lbl_fit, font_size=int(round(f_st.size)))
         elif key in ("market", "own"):
-            draw.text((x + w / 2, cy),
-                      _ellipsize(draw, cells.get(key, ""), f_wide, w - 4),
-                      font=f_wide, fill=SUB_INK if is_sub else TEXT_DARK, anchor="mm")
+            fill = SUB_INK if is_sub else TEXT_DARK
+            # Dynamically maximized detail cells (up to 11pt bold)
+            f_wide, wide_txt = _fit_font(draw, str(cells.get(key, "")), w - 4,
+                                         max_size=11.0, min_size=9.0, bold=True)
+            draw.text((x + w / 2, cy), wide_txt, font=f_wide, fill=fill, anchor="mm")
         elif key == "ident":
-            draw.text((x + w / 2, cy),
-                      _ellipsize(draw, cells.get(key, ""), f_ident, w - 4),
-                      font=f_ident, fill=SUB_INK if is_sub else MUTED, anchor="mm")
+            fill = SUB_INK if is_sub else MUTED
+            # Dynamically maximized identifier cells (up to 12pt bold)
+            f_id, id_txt = _fit_font(draw, str(cells.get(key, "")), w - 4,
+                                     max_size=12.0, min_size=9.5, bold=True)
+            draw.text((x + w / 2, cy), id_txt, font=f_id, fill=fill, anchor="mm")
         else:
             fill = SUB_INK if is_sub else TEXT_DARK
             if key == "pct" and not is_sub:
                 fill = cells.get("pct_color", TEXT_DARK)
             elif key == "projpct" and not is_sub:
                 fill = cells.get("projpct_color", TEXT_DARK)
-            draw.text((x + w / 2, cy),
-                      _ellipsize(draw, cells.get(key, ""), f_num, w - 4),
-                      font=f_num, fill=fill, anchor="mm")
+            # Dynamically maximized numeric cells (up to 13.5pt bold for subtotal, 13pt for rows)
+            max_s = 13.5 if is_sub else 13.0
+            f_num, num_txt = _fit_font(draw, str(cells.get(key, "")), w - 4,
+                                       max_size=max_s, min_size=10.0, bold=True)
+            draw.text((x + w / 2, cy), num_txt, font=f_num, fill=fill, anchor="mm")
         x += w
 
 
@@ -607,14 +648,15 @@ def _draw_table(draw, y, emp_type: str, rows, subtotal) -> None:
     draw.rectangle([TBL_X0, y, x1, y + HEADER_H], fill=TABLE_HDR_BG)
     draw.rectangle([TBL_X0, y, x1, y + 2], fill=ACCENT)  # Accent line
 
-    f = _font(10 if emp_type == "rso" else 10.5, True)
     xx = TBL_X0
     for key, label, mw in specs:
         w = widths[key]
         if key == "name":
-            draw.text((xx + PAD_X, y + HEADER_H / 2), label, font=f, fill=TEXT_DARK, anchor="lm")
+            f_hdr, h_txt = _fit_font(draw, label, w - PAD_X * 2, max_size=11.5, min_size=9.5, bold=True)
+            draw.text((xx + PAD_X, y + HEADER_H / 2), h_txt, font=f_hdr, fill=TEXT_DARK, anchor="lm")
         else:
-            draw.text((xx + w / 2, y + HEADER_H / 2), label, font=f, fill=TEXT_DARK, anchor="mm")
+            f_hdr, h_txt = _fit_font(draw, label, w - 4, max_size=11.5, min_size=9.0, bold=True)
+            draw.text((xx + w / 2, y + HEADER_H / 2), h_txt, font=f_hdr, fill=TEXT_DARK, anchor="mm")
         xx += w
     yy = y + HEADER_H
 
