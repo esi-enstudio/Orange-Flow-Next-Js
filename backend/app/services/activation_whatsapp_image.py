@@ -470,79 +470,101 @@ def _draw_banner(draw, y, title, stats, status: str) -> None:
 
 # -- Tables (RSO / BP) --
 def _table_specs(emp_type: str):
-    common = [
-        ("num", "#", 32),           # Rank numbers
-        ("name", "Employee Name", 200),  # Maximum space for names (increased from 160)
-        ("ident", "Itop Number" if emp_type == "rso" else "Pool Number", 90),
-        ("target", "Target", 60),
-        ("achievement", "Ach", 58),
-        ("pct", "Ach%", 50),
-        ("remaining", "Remain", 60),
-        ("drr", "DRR", 46),
-        ("davg", "D.Avg", 52),
-        ("proj", "Projection", 75),
-    ]
     if emp_type == "rso":
-        common += [("market", "Market GA", 140), ("own", "Own GA", 155)]
+        return [
+            ("num", "#", 24),                 # Rank numbers
+            ("name", "Employee Name", 180),   # Maximized in _compute_widths
+            ("ident", "Itop Number", 76),
+            ("target", "Target", 42),
+            ("achievement", "Ach", 38),
+            ("pct", "Ach%", 38),
+            ("remaining", "Remain", 44),
+            ("drr", "DRR", 30),
+            ("davg", "D.Avg", 34),
+            ("proj", "Projection", 58),
+            ("projpct", "Proj%", 38),
+            ("market", "Market GA", 108),
+            ("own", "Own GA", 140),
+            ("status", "Status", 90),
+        ]
     else:
-        common += [("yest", "Yesterday", 70), ("days", "Day Count", 50)]
-    common.append(("status", "Status", 95))
-    return common
+        return [
+            ("num", "#", 28),
+            ("name", "Employee Name", 180),
+            ("ident", "Pool Number", 82),
+            ("target", "Target", 50),
+            ("achievement", "Ach", 46),
+            ("pct", "Ach%", 46),
+            ("remaining", "Remain", 52),
+            ("drr", "DRR", 40),
+            ("davg", "D.Avg", 44),
+            ("proj", "Projection", 64),
+            ("projpct", "Proj%", 44),
+            ("yest", "Yesterday", 68),
+            ("days", "Day Count", 66),
+            ("status", "Status", 92),
+        ]
 
 
-def _compute_widths(draw, specs, rows, subtotal) -> tuple[dict, int]:
-    """Measure natural column widths; the Name column absorbs extra slack so it
-    auto-adjusts to the longest name while numeric columns keep their size."""
-    f_hdr = _font(11, True)
-    f_name = _font(11, True)
-    f_num = _font(10.5, True)
-    f_wide = _font(10, True)
-    f_pill = _font(11, True)
+def _compute_widths(draw, specs, rows, subtotal, emp_type: str = "rso") -> tuple[dict, int]:
+    """Measure column widths. Numeric, detail, and status columns are kept compact so
+    all content is clearly visible, while Employee Name absorbs maximum available space."""
+    f_hdr = _font(10 if emp_type == "rso" else 11, True)
+    f_name = _font(12.5 if emp_type == "rso" else 13, True)
+    f_num = _font(11 if emp_type == "rso" else 12, True)
+    f_wide = _font(9.5 if emp_type == "rso" else 11, True)
+    f_ident = _font(10.5 if emp_type == "rso" else 11, True)
+    f_pill = _font(10 if emp_type == "rso" else 11, True)
 
     all_rows = rows + ([subtotal] if subtotal else [])
     widths = {}
+
     for key, label, mw in specs:
-        w = draw.textlength(label, font=f_hdr) + PAD_X * 2
+        if key == "name":
+            continue
+        pad = 3 if emp_type == "rso" else PAD_X
+        w = draw.textlength(label, font=f_hdr) + pad * 2
         for r in all_rows:
-            if key == "name":
-                tw = draw.textlength(r.get("name", ""), font=f_name)
-            elif key == "status":
+            if key == "status":
                 lbl = STATUS_LABELS.get(r.get("status", ""), r.get("status", ""))
-                tw = draw.textlength(lbl, font=f_pill) + 20
+                tw = draw.textlength(lbl, font=f_pill) + (14 if emp_type == "rso" else 20)
+                w = max(w, tw + 4)
             elif key in ("market", "own"):
                 tw = draw.textlength(str(r.get(key, "")), font=f_wide)
+                w = max(w, tw + 6)
+            elif key == "ident":
+                tw = draw.textlength(str(r.get(key, "")), font=f_ident)
+                w = max(w, tw + 6)
             else:
                 tw = draw.textlength(str(r.get(key, "")), font=f_num)
-            w = max(w, tw + PAD_X * 2)
-        widths[key] = max(w, mw)
+                w = max(w, tw + pad * 2)
+        widths[key] = max(int(math.ceil(w)), mw)
+
+    avail = TBL_X1 - TBL_X0
+    other_total = sum(widths.values())
+    min_name = 120
+    name_w = max(min_name, avail - other_total)
+    widths["name"] = name_w
 
     total = sum(widths.values())
-    avail = TBL_X1 - TBL_X0
-    if total < avail:
-        widths["name"] += avail - total
-        total = avail
-    else:
-        min_name = 100
-        cut = min(total - avail, widths["name"] - min_name)
-        widths["name"] -= cut
-        total -= cut
-        if total > avail:
-            factor = avail / total
-            for key in list(widths):
-                if key in ("name", "status"):
-                    continue
-                widths[key] = max(34, int(widths[key] * factor))
-            total = sum(widths.values())
-            widths["name"] = max(min_name, widths["name"] + (avail - total))
-            total = avail
+    if total > avail:
+        factor = (avail - min_name) / other_total
+        for key in list(widths):
+            if key in ("name", "status"):
+                continue
+            widths[key] = max(28, int(widths[key] * factor))
+        widths["name"] = max(min_name, avail - sum(widths[k] for k in widths if k != "name"))
+        total = sum(widths.values())
+
     return widths, total
 
 
 def _draw_row_cells(draw, x, y, row_h, specs, widths, cells, *, emp_type, is_sub):
     cy = y + row_h / 2
-    f_name = _font(13, True)      # Increased from 12
-    f_num = _font(12, True) if not is_sub else _font(13, True)  # Increased from 11/12
-    f_wide = _font(11, True)      # Increased from 10.5
+    f_name = _font(12.5 if emp_type == "rso" else 13, True)
+    f_num = _font(11 if emp_type == "rso" else 12, True) if not is_sub else _font(12 if emp_type == "rso" else 13, True)
+    f_wide = _font(9.5 if emp_type == "rso" else 11, True)
+    f_ident = _font(10.5 if emp_type == "rso" else 11, True)
     for key, label, mw in specs:
         w = widths[key]
         if key == "name":
@@ -551,41 +573,48 @@ def _draw_row_cells(draw, x, y, row_h, specs, widths, cells, *, emp_type, is_sub
                       font=f_name, fill=fill, anchor="lm")
         elif key == "status":
             lbl = STATUS_LABELS.get(cells.get("status", ""), cells.get("status", ""))
-            pill_w = int(draw.textlength(lbl, font=f_num)) + 20
-            _draw_status_pill(draw, x + (w - pill_w) / 2, y + (row_h - 22) / 2, 22,
-                              cells.get("status", ""), lbl, font_size=11)
+            f_st = _font(10, True) if emp_type == "rso" else _font(11, True)
+            pill_w = int(draw.textlength(lbl, font=f_st)) + (14 if emp_type == "rso" else 20)
+            pill_h = 20 if emp_type == "rso" else 22
+            _draw_status_pill(draw, x + (w - pill_w) / 2, y + (row_h - pill_h) / 2, pill_h,
+                              cells.get("status", ""), lbl, font_size=10 if emp_type == "rso" else 11)
         elif key in ("market", "own"):
             draw.text((x + w / 2, cy),
-                      _ellipsize(draw, cells.get(key, ""), f_wide, w - PAD_X * 2),
+                      _ellipsize(draw, cells.get(key, ""), f_wide, w - 4),
                       font=f_wide, fill=SUB_INK if is_sub else TEXT_DARK, anchor="mm")
         elif key == "ident":
             draw.text((x + w / 2, cy),
-                      _ellipsize(draw, cells.get(key, ""), f_wide, w - PAD_X * 2),
-                      font=f_wide, fill=SUB_INK if is_sub else MUTED, anchor="mm")
+                      _ellipsize(draw, cells.get(key, ""), f_ident, w - 4),
+                      font=f_ident, fill=SUB_INK if is_sub else MUTED, anchor="mm")
         else:
             fill = SUB_INK if is_sub else TEXT_DARK
             if key == "pct" and not is_sub:
                 fill = cells.get("pct_color", TEXT_DARK)
+            elif key == "projpct" and not is_sub:
+                fill = cells.get("projpct_color", TEXT_DARK)
             draw.text((x + w / 2, cy),
-                      _ellipsize(draw, cells.get(key, ""), f_num, w - PAD_X * 2),
+                      _ellipsize(draw, cells.get(key, ""), f_num, w - 4),
                       font=f_num, fill=fill, anchor="mm")
         x += w
 
 
 def _draw_table(draw, y, emp_type: str, rows, subtotal) -> None:
     specs = _table_specs(emp_type)
-    widths, total_w = _compute_widths(draw, specs, rows, subtotal)
+    widths, total_w = _compute_widths(draw, specs, rows, subtotal, emp_type=emp_type)
     x1 = TBL_X0 + total_w
 
     # Modern header with gradient effect
     draw.rectangle([TBL_X0, y, x1, y + HEADER_H], fill=TABLE_HDR_BG)
     draw.rectangle([TBL_X0, y, x1, y + 2], fill=ACCENT)  # Accent line
 
-    f = _font(10.5, True)
+    f = _font(10 if emp_type == "rso" else 10.5, True)
     xx = TBL_X0
     for key, label, mw in specs:
         w = widths[key]
-        draw.text((xx + w / 2, y + HEADER_H / 2), label, font=f, fill=TEXT_DARK, anchor="mm")
+        if key == "name":
+            draw.text((xx + PAD_X, y + HEADER_H / 2), label, font=f, fill=TEXT_DARK, anchor="lm")
+        else:
+            draw.text((xx + w / 2, y + HEADER_H / 2), label, font=f, fill=TEXT_DARK, anchor="mm")
         xx += w
     yy = y + HEADER_H
 
@@ -659,6 +688,8 @@ def _display_rows(perf_rows: list[dict], emp_type: str, days_remaining: int) -> 
             "drr": _fmt(_ceil_div(remaining, days_remaining)),
             "davg": _fmt(p.get("daily_average") or 0),
             "proj": _fmt(proj),
+            "projpct": _pct(projpct),
+            "projpct_color": _pct_color(projpct),
             "status": status,
         }
         if emp_type == "rso":
@@ -701,7 +732,8 @@ def _group_subtotal(rows: list[dict], emp_type: str,
         "drr": _fmt(_ceil_div(remaining, days_remaining)),
         "davg": _fmt(davg),
         "proj": _fmt(proj),
-        "projpct": projpct,
+        "projpct": _pct(projpct),
+        "projpct_color": _pct_color(projpct),
         "status": status,
     }
     if emp_type == "rso":
