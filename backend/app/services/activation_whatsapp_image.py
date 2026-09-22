@@ -505,57 +505,90 @@ def _draw_banner(draw, y, title, stats, status: str) -> None:
 def _table_specs(emp_type: str):
     if emp_type == "rso":
         return [
-            ("num", "#", 24),                 # Rank numbers
-            ("name", "Employee Name", 180),   # Dynamically takes all remaining space
-            ("ident", "Itop Number", 76),
-            ("target", "Target", 42),
-            ("achievement", "Ach", 38),
-            ("pct", "Ach%", 38),
-            ("remaining", "Remain", 44),
-            ("drr", "DRR", 30),
-            ("davg", "D.Avg", 34),
-            ("proj", "Projection", 58),
-            ("projpct", "Proj%", 38),
-            ("market", "Market GA", 108),
-            ("own", "Own GA", 140),
-            ("status", "Status", 90),
+            ("num", "#"),
+            ("name", "Employee Name"),
+            ("ident", "Itop Number"),
+            ("target", "Target"),
+            ("achievement", "Ach"),
+            ("pct", "Ach%"),
+            ("remaining", "Remain"),
+            ("drr", "DRR"),
+            ("davg", "D.Avg"),
+            ("proj", "Projection"),
+            ("projpct", "Proj%"),
+            ("market", "Market GA"),
+            ("own", "Own GA"),
+            ("status", "Status"),
         ]
     else:
         return [
-            ("num", "#", 28),
-            ("name", "Employee Name", 180),
-            ("ident", "Pool Number", 82),
-            ("target", "Target", 50),
-            ("achievement", "Ach", 46),
-            ("pct", "Ach%", 46),
-            ("remaining", "Remain", 52),
-            ("drr", "DRR", 40),
-            ("davg", "D.Avg", 44),
-            ("proj", "Projection", 64),
-            ("projpct", "Proj%", 44),
-            ("yest", "Yesterday", 68),
-            ("days", "Day Count", 66),
-            ("status", "Status", 92),
+            ("num", "#"),
+            ("name", "Employee Name"),
+            ("ident", "Pool Number"),
+            ("target", "Target"),
+            ("achievement", "Ach"),
+            ("pct", "Ach%"),
+            ("remaining", "Remain"),
+            ("drr", "DRR"),
+            ("davg", "D.Avg"),
+            ("proj", "Projection"),
+            ("projpct", "Proj%"),
+            ("yest", "Yesterday"),
+            ("days", "Day Count"),
+            ("status", "Status"),
         ]
 
 
-def _compute_widths(draw, specs, rows, subtotal, emp_type: str = "rso") -> tuple[dict, int]:
-    """Dynamically compute column widths based on actual content:
-    - Measures actual header and cell content with suitable padding.
-    - Accurately sizes numeric, detail, and status columns so no text overflows.
-    - Allocates maximum available space to Employee Name.
-    - If names in this specific report are exceptionally long, ensures the name column
-      receives sufficient width while keeping all other columns legible."""
+# Content-based column sizing: every column is sized from its widest actual
+# content (header + cells + subtotal). The Employee Name column is capped at
+# the longest name in its own table/section — no leftover space is absorbed,
+# so no column keeps an extra gap after its content.
+SMALL_MIN_COL = 22       # absolute sanity floor for any thin column (e.g. "#")
+NAME_FONT_MAX = 15.0     # name font grows when names are short -> fills the cell
+NAME_FONT_MIN = 10.0     # steps down for long names
+NAME_CAP_RATIO = 0.50    # name column may take at most 50% of the table width
+MAX_TABLE_SCALE = 1.18   # when free space exists, columns+fonts zoom up to this scale
+
+# Floor ratio per column type used when a long name forces the other columns
+# to accept a smaller font (cells still render every character via _fit_font).
+# ratio = min cell draw font / natural measurement font.
+_MEAS_FONTS = {"num": 13, "ident": 12, "wide": 11, "status": 10.5}
+_MIN_FONT_RATIO = {
+    "num": 10 / _MEAS_FONTS["num"], "target": 10 / _MEAS_FONTS["num"],
+    "achievement": 10 / _MEAS_FONTS["num"], "pct": 10 / _MEAS_FONTS["num"],
+    "remaining": 10 / _MEAS_FONTS["num"], "drr": 10 / _MEAS_FONTS["num"],
+    "davg": 10 / _MEAS_FONTS["num"], "proj": 10 / _MEAS_FONTS["num"],
+    "projpct": 10 / _MEAS_FONTS["num"], "yest": 10 / _MEAS_FONTS["num"],
+    "days": 10 / _MEAS_FONTS["num"],
+    "ident": 9.5 / _MEAS_FONTS["ident"],
+    "market": 9 / _MEAS_FONTS["wide"], "own": 9 / _MEAS_FONTS["wide"],
+    "status": 9 / _MEAS_FONTS["status"],
+}
+
+
+def _compute_widths(draw, specs, rows, subtotal, emp_type: str = "rso") -> tuple[dict, int, dict, float]:
+    """Compute content-based column widths + per-column max fonts.
+
+    Every column is sized from its actual content (header + cells + subtotal)
+    so no column keeps an extra gap. The Employee Name column's width equals
+    the longest name in this table, and its max font size adapts to that name.
+    If free width remains, all columns and fonts zoom up uniformly (scale > 1)
+    so the table fills the available region without reintroducing gaps.
+
+    Returns ``(widths, total_w, fonts, scale)`` — ``fonts`` holds the per-column
+    max font sizes used at draw time, ``scale`` the uniform zoom factor.
+    """
     f_hdr = _font(11.5, True)
-    f_num = _font(13, True)
-    f_wide = _font(11, True)
-    f_ident = _font(12, True)
-    f_pill = _font(10.5, True)
+    f_num = _font(_MEAS_FONTS["num"], True)
+    f_wide = _font(_MEAS_FONTS["wide"], True)
+    f_ident = _font(_MEAS_FONTS["ident"], True)
+    f_pill = _font(_MEAS_FONTS["status"], True)
 
     all_rows = rows + ([subtotal] if subtotal else [])
-    widths = {}
+    widths: dict = {}
+    fonts: dict = {}
 
-    for key, label, mw in specs:
+    for key, label in specs:
         if key == "name":
             continue
         pad = 4 if emp_type == "rso" else PAD_X
@@ -574,56 +607,128 @@ def _compute_widths(draw, specs, rows, subtotal, emp_type: str = "rso") -> tuple
             else:
                 tw = draw.textlength(str(r.get(key, "")), font=f_num)
                 w = max(w, tw + pad * 2)
-        widths[key] = max(int(math.ceil(w)), mw)
+        widths[key] = max(int(math.ceil(w)), SMALL_MIN_COL)
 
+    # Per-column max fonts used when drawing cells (design units).
+    for key, _ in specs:
+        if key == "name":
+            fonts[key] = NAME_FONT_MAX
+        elif key == "status":
+            fonts[key] = 10.5
+        elif key in ("market", "own"):
+            fonts[key] = 11.0
+        elif key == "ident":
+            fonts[key] = 12.0
+        else:
+            fonts[key] = 13.0
+
+    # Employee Name column: content-sized to the longest name in this table
+    # (per-section) so no leftover space is absorbed. The font steps down when
+    # the full name would crowd the other columns, keeping every name visible
+    # with no extra column gap for realistic inputs.
+    name_label = next((lbl for k, lbl in specs if k == "name"), "Employee Name")
     avail = TBL_X1 - TBL_X0
+    name_cap = int(avail * NAME_CAP_RATIO)
+    longest = max((str(r.get("name") or "") for r in all_rows), key=len, default=name_label)
+    header_w = int(draw.textlength(name_label, font=f_hdr)) + PAD_X * 2
     other_total = sum(widths.values())
-    min_name = 140
-    name_w = max(min_name, avail - other_total)
-    widths["name"] = name_w
 
+    def _name_width(fs: float) -> int:
+        return max(int(math.ceil(draw.textlength(longest, font=_font(int(round(fs)), True)))) + PAD_X * 2,
+                   header_w, SMALL_MIN_COL)
+
+    name_fs = _name_font_size(draw, longest, name_cap - PAD_X * 2)
+    fonts["name"] = name_fs
+    widths["name"] = _name_width(name_fs)
     total = sum(widths.values())
+
     if total > avail:
-        factor = (avail - min_name) / other_total
-        for key in list(widths):
-            if key in ("name", "status"):
-                continue
-            widths[key] = max(28, int(widths[key] * factor))
-        widths["name"] = max(min_name, avail - sum(widths[k] for k in widths if k != "name"))
+        # Stage 1: keep every column content-based; simply shrink the name font
+        # until the longest name + all other columns fit the canvas (full text).
+        fs = name_fs
+        while fs >= NAME_FONT_MIN:
+            if _name_width(fs) + other_total <= avail:
+                fonts["name"] = fs
+                widths["name"] = _name_width(fs)
+                break
+            fs -= 0.5
         total = sum(widths.values())
 
-    return widths, total
+    if total > avail:
+        # Stage 2 (realistic long names): shrink the other columns' fonts too
+        # (their cells still render every character, just smaller) and give the
+        # name column the leftover. Only a truly excessive name would then
+        # ellipsize at draw time.
+        name_floor = _name_width(NAME_FONT_MIN)
+        factor = (avail - name_floor) / other_total if other_total else 1.0
+        for key in list(widths):
+            if key == "name":
+                continue
+            minw = max(SMALL_MIN_COL, int(math.ceil(widths[key] * _MIN_FONT_RATIO.get(key, 0.75))))
+            widths[key] = max(minw, int(widths[key] * factor))
+        widths["name"] = max(header_w, avail - sum(widths[k] for k in widths if k != "name"))
+        fonts["name"] = _name_font_size(draw, longest, widths["name"] - PAD_X * 2)
+        total = sum(widths.values())
+
+    total = sum(widths.values())
+    # Fill the available width: scale every column width AND its max font by the
+    # same factor (proportions unchanged => no gap inside any cell). The table
+    # only ever grows, never shrinks below its content-sized minimum.
+    scale = min(avail / total, MAX_TABLE_SCALE) if total < avail else 1.0
+    if scale > 1.0:
+        widths = {k: max(SMALL_MIN_COL, int(round(w * scale))) for k, w in widths.items()}
+        fonts = {k: round(f * scale, 1) for k, f in fonts.items()}
+        total = int(round(sum(widths.values())))
+        # Exact fit: absorb the rounding remainder on the name column.
+        widths["name"] += avail - total
+        total = sum(widths.values())
+
+    return widths, total, fonts, scale
 
 
-def _draw_row_cells(draw, x, y, row_h, specs, widths, cells, *, emp_type, is_sub):
+def _name_font_size(draw, longest: str, max_w: float) -> float:
+    """Largest name font in [NAME_FONT_MIN, NAME_FONT_MAX] (0.5 steps) that
+    fits ``longest`` within ``max_w``. Falls back to the minimum if even that
+    overflows (cells then ellipsize via _fit_font)."""
+    size = float(NAME_FONT_MAX)
+    while size >= NAME_FONT_MIN:
+        if draw.textlength(longest, font=_font(int(round(size)), True)) <= max_w:
+            return size
+        size -= 0.5
+    return float(NAME_FONT_MIN)
+
+
+def _draw_row_cells(draw, x, y, row_h, specs, widths, fonts, cells, *, emp_type, is_sub):
     cy = y + row_h / 2
-    for key, label, mw in specs:
+    for key, label in specs:
         w = widths[key]
         if key == "name":
             fill = SUB_INK if is_sub else TEXT_DARK
-            max_s = 13.5 if is_sub else 13.0
-            # Dynamically max font: fits up to 13.5/13, steps down smoothly for longer names
+            # Dynamic max font: computed per section (largest size the longest
+            # name fits), steps down smoothly for longer names
+            max_s = fonts.get(key, NAME_FONT_MAX) if not is_sub else 13.5
             f_name, name_txt = _fit_font(draw, cells.get("name", ""), w - PAD_X * 2,
                                          max_size=max_s, min_size=9.5, bold=True)
             draw.text((x + PAD_X, cy), name_txt, font=f_name, fill=fill, anchor="lm")
         elif key == "status":
             lbl = STATUS_LABELS.get(cells.get("status", ""), cells.get("status", ""))
-            f_st, lbl_fit = _fit_font(draw, lbl, w - 8, max_size=10.5, min_size=9.0, bold=True)
+            f_st, lbl_fit = _fit_font(draw, lbl, w - 8, max_size=fonts.get("status", 10.5),
+                                      min_size=9.0, bold=True)
             pill_w = int(draw.textlength(lbl_fit, font=f_st)) + (14 if emp_type == "rso" else 18)
             pill_h = 20 if emp_type == "rso" else 22
             _draw_status_pill(draw, x + (w - pill_w) / 2, y + (row_h - pill_h) / 2, pill_h,
                               cells.get("status", ""), lbl_fit, font_size=int(round(f_st.size)))
         elif key in ("market", "own"):
             fill = SUB_INK if is_sub else TEXT_DARK
-            # Dynamically maximized detail cells (up to 11pt bold)
+            # Dynamically maximized detail cells
             f_wide, wide_txt = _fit_font(draw, str(cells.get(key, "")), w - 4,
-                                         max_size=11.0, min_size=9.0, bold=True)
+                                         max_size=fonts.get(key, 11.0), min_size=9.0, bold=True)
             draw.text((x + w / 2, cy), wide_txt, font=f_wide, fill=fill, anchor="mm")
         elif key == "ident":
             fill = SUB_INK if is_sub else MUTED
-            # Dynamically maximized identifier cells (up to 12pt bold)
+            # Dynamically maximized identifier cells
             f_id, id_txt = _fit_font(draw, str(cells.get(key, "")), w - 4,
-                                     max_size=12.0, min_size=9.5, bold=True)
+                                     max_size=fonts.get(key, 12.0), min_size=9.5, bold=True)
             draw.text((x + w / 2, cy), id_txt, font=f_id, fill=fill, anchor="mm")
         else:
             fill = SUB_INK if is_sub else TEXT_DARK
@@ -631,8 +736,8 @@ def _draw_row_cells(draw, x, y, row_h, specs, widths, cells, *, emp_type, is_sub
                 fill = cells.get("pct_color", TEXT_DARK)
             elif key == "projpct" and not is_sub:
                 fill = cells.get("projpct_color", TEXT_DARK)
-            # Dynamically maximized numeric cells (up to 13.5pt bold for subtotal, 13pt for rows)
-            max_s = 13.5 if is_sub else 13.0
+            # Dynamically maximized numeric cells (13.5 for subtotal, else per-column)
+            max_s = 13.5 if is_sub else fonts.get(key, 13.0)
             f_num, num_txt = _fit_font(draw, str(cells.get(key, "")), w - 4,
                                        max_size=max_s, min_size=10.0, bold=True)
             draw.text((x + w / 2, cy), num_txt, font=f_num, fill=fill, anchor="mm")
@@ -641,21 +746,22 @@ def _draw_row_cells(draw, x, y, row_h, specs, widths, cells, *, emp_type, is_sub
 
 def _draw_table(draw, y, emp_type: str, rows, subtotal) -> None:
     specs = _table_specs(emp_type)
-    widths, total_w = _compute_widths(draw, specs, rows, subtotal, emp_type=emp_type)
+    widths, total_w, fonts, scale = _compute_widths(draw, specs, rows, subtotal, emp_type=emp_type)
     x1 = TBL_X0 + total_w
+    hdr_max = min(11.5 * scale, 13.5)  # headers grow with the table zoom
 
     # Modern header with gradient effect
     draw.rectangle([TBL_X0, y, x1, y + HEADER_H], fill=TABLE_HDR_BG)
     draw.rectangle([TBL_X0, y, x1, y + 2], fill=ACCENT)  # Accent line
 
     xx = TBL_X0
-    for key, label, mw in specs:
+    for key, label in specs:
         w = widths[key]
         if key == "name":
-            f_hdr, h_txt = _fit_font(draw, label, w - PAD_X * 2, max_size=11.5, min_size=9.5, bold=True)
+            f_hdr, h_txt = _fit_font(draw, label, w - PAD_X * 2, max_size=hdr_max, min_size=9.5, bold=True)
             draw.text((xx + PAD_X, y + HEADER_H / 2), h_txt, font=f_hdr, fill=TEXT_DARK, anchor="lm")
         else:
-            f_hdr, h_txt = _fit_font(draw, label, w - 4, max_size=11.5, min_size=9.0, bold=True)
+            f_hdr, h_txt = _fit_font(draw, label, w - 4, max_size=hdr_max, min_size=9.0, bold=True)
             draw.text((xx + w / 2, y + HEADER_H / 2), h_txt, font=f_hdr, fill=TEXT_DARK, anchor="mm")
         xx += w
     yy = y + HEADER_H
@@ -667,7 +773,7 @@ def _draw_table(draw, y, emp_type: str, rows, subtotal) -> None:
         else:
             bg = WHITE if i % 2 == 0 else "#FAFBFC"
         draw.rectangle([TBL_X0, yy, x1, yy + ROW_H], fill=bg)
-        _draw_row_cells(draw, TBL_X0, yy, ROW_H, specs, widths, r,
+        _draw_row_cells(draw, TBL_X0, yy, ROW_H, specs, widths, fonts, r,
                         emp_type=emp_type, is_sub=False)
         yy += ROW_H
 
@@ -675,7 +781,7 @@ def _draw_table(draw, y, emp_type: str, rows, subtotal) -> None:
     if subtotal:
         draw.rectangle([TBL_X0, yy, x1, yy + SUB_H], fill=SUB_ROW_BG)
         draw.rectangle([TBL_X0, yy, x1, yy + 2], fill=ACCENT)  # Top accent line
-        _draw_row_cells(draw, TBL_X0, yy, SUB_H, specs, widths, subtotal,
+        _draw_row_cells(draw, TBL_X0, yy, SUB_H, specs, widths, fonts, subtotal,
                         emp_type=emp_type, is_sub=True)
         yy += SUB_H
 
@@ -689,17 +795,19 @@ def _draw_table(draw, y, emp_type: str, rows, subtotal) -> None:
     draw.rectangle([TBL_X0, y, x1, yy], outline=OUTER_LINE, width=2)
 
 
-def _draw_table_caption(draw, y, title, count, emp_type) -> int:
+def _draw_table_caption(draw, y, title, count, emp_type, table_right: int | None = None) -> int:
     # Simple left-aligned text without badge
     draw.text((TBL_X0, y + CAPTION_H / 2), title,
               font=_font(13.5, True), fill=TEXT_DARK, anchor="lm")
     if count:
-        # Modern count badge on right
+        # Modern count badge aligned to the table's actual right edge so it
+        # never floats over the empty space left of a content-wide table.
+        right = table_right if table_right is not None else TBL_X1
         count_text = f"{count} Employees"
         count_f = _font(10.5, True)
         count_w = int(draw.textlength(count_text, font=count_f)) + 20
-        count_x = TBL_X1 - count_w
-        draw.rounded_rectangle([count_x, y + CAPTION_H / 2 - 10, TBL_X1, y + CAPTION_H / 2 + 10],
+        count_x = right - count_w
+        draw.rounded_rectangle([count_x, y + CAPTION_H / 2 - 10, right, y + CAPTION_H / 2 + 10],
                               radius=10, fill=ACCENT_SOFT, outline=ACCENT, width=1)
         draw.text((count_x + count_w / 2, y + CAPTION_H / 2), count_text,
                   font=count_f, fill=ACCENT, anchor="mm")
@@ -909,13 +1017,17 @@ def _draw_block(draw, block: dict) -> None:
     _draw_banner(draw, y, block["title"], block["stats"], block["status"])
     yy = y + BANNER_H + BLK_GAP
     if block["rso_rows"]:
+        _rso_w = _compute_widths(draw, _table_specs("rso"),
+                                 block["rso_rows"], block["rso_sub"], "rso")[1]
         yy = _draw_table_caption(draw, yy, "RSO - Team Performance",
-                                 len(block["rso_rows"]), "rso")
+                                 len(block["rso_rows"]), "rso", TBL_X0 + _rso_w)
         _draw_table(draw, yy, "rso", block["rso_rows"], block["rso_sub"])
         yy += _table_height(len(block["rso_rows"])) + TBL_SPLIT_GAP
     if block["bp_rows"]:
+        _bp_w = _compute_widths(draw, _table_specs("bp"),
+                                block["bp_rows"], block["bp_sub"], "bp")[1]
         yy = _draw_table_caption(draw, yy, "BP - Team Performance",
-                                 len(block["bp_rows"]), "bp")
+                                 len(block["bp_rows"]), "bp", TBL_X0 + _bp_w)
         _draw_table(draw, yy, "bp", block["bp_rows"], block["bp_sub"])
         yy += _table_height(len(block["bp_rows"]))
     block["bottom"] = yy
