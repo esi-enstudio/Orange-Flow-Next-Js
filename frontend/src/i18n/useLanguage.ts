@@ -8,11 +8,19 @@ interface LanguageState {
   t: (path: string, params?: Record<string, string | number | undefined>) => string;
 }
 
+function setLangCookie(lang: Language) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `lang=${lang}; path=/; max-age=31536000; samesite=lax`;
+}
+
 export const useLanguage = create<LanguageState>()(
   persist(
     (set, get) => ({
       language: 'en',
-      setLanguage: (lang: Language) => set({ language: lang }),
+      setLanguage: (lang: Language) => {
+        set({ language: lang });
+        setLangCookie(lang);
+      },
       t: (path: string, params?: Record<string, string | number | undefined>) => {
         const { language } = get();
         const keys = path.split('.');
@@ -46,6 +54,11 @@ export const useLanguage = create<LanguageState>()(
     }),
     {
       name: 'language-storage',
+      onRehydrateStorage: () => (state) => {
+        if (state && typeof state.language === 'string') {
+          setLangCookie(state.language);
+        }
+      },
     }
   )
 );

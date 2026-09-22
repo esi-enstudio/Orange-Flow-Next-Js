@@ -795,6 +795,28 @@ The GA Query page is the reference implementation. Use this exact component for 
 
 ---
 
+# Dynamic Page Title & HTML Lang Synchronization
+
+## Objective
+
+প্রতিটি পেজে ভিজিট করার সময় ব্রাউজার ট্যাবের টাইটেল (`document.title`) ডায়নামিকালি পরিবর্তিত হতে হবে (যেমন: `"Live Monitor | OrangeFlow"` বা `"লাইভ মনিটর | OrangeFlow"`), এবং ব্যবহারকারী বাংলা/ইংরেজি ভাষা পরিবর্তন করলে HTML ট্যাগের `lang` এট্রিবিউট (`<html lang="en">` / `<html lang="bn">`) স্বয়ংক্রিয়ভাবে আপডেট হতে হবে।
+
+## Mandatory Rules for New Pages / Routes
+
+1. **Register in Navigation Items (`navItems`)**:
+   - প্রতিটি নতুন পেজ বা মডিউল তৈরি করার সময় `frontend/src/lib/constants.ts`-এর `navItems` এ তার `title`, `href` এবং `translationKey` যুক্ত করুন।
+
+2. **Bilingual Translations**:
+   - `translationKey`-এর মান `frontend/src/i18n/translations.ts` এর `en` এবং `bn` উভয় অবজেক্টেই সংজ্ঞায়িত করুন।
+
+3. **Non-Nav / Dynamic Sub-Routes**:
+   - কোনো পেজ যদি `navItems`-এ না থাকে (যেমন `/zoom-in/create`, `/cv/[slug]`, `/pricing` ইত্যাদি), তবে তার পাথ এবং ইংরেজি/বাংলা নাম `frontend/src/components/layout/DynamicPageTitle.tsx`-এর `ROUTE_TITLE_MAP` অথবা প্যাটার্ন হ্যান্ডলারে অবশ্যই রেজিস্টার করুন।
+
+4. **Dynamic Execution Mechanism**:
+   - `frontend/src/components/layout/DynamicPageTitle.tsx` কম্পোনেন্টটি `usePathname()` এবং `useLanguage()` ট্র্যাক করে `document.title` এবং `document.documentElement.lang` হ্যান্ডেল করে।
+
+---
+
 # Loading / Skeleton Guidelines
 
 ## Principle
@@ -1021,6 +1043,8 @@ Before marking any feature complete:
 - [ ] Form validation added
 - [ ] Error messages shown
 - [ ] Permission based UI implemented
+- [ ] Browser tab / page title set and tested (bilingual en/bn)
+- [ ] HTML lang attribute sync verified (<html lang="en"> / <html lang="bn">)
 
 **Security**
 - [ ] Unauthorized users blocked
