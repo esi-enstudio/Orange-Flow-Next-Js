@@ -65,8 +65,6 @@ from app.routers.lifting import router as lifting_router
 from app.routers.commission import router as commission_router
 from app.routers.bp_retailer_codes import router as bp_retailer_codes_router
 from app.routers.bp_targets import router as bp_targets_router
-from app.routers.retailer_visits import router as retailer_visits_router
-from app.routers.order_collections import router as order_collections_router
 from app.routers.zoom_in import router as zoom_in_router
 from app.routers.scratch_cards import router as scratch_cards_router
 from app.routers.scratch_card_serials import router as scratch_card_serials_router
@@ -134,8 +132,6 @@ app.include_router(lifting_router)
 app.include_router(commission_router)
 app.include_router(bp_retailer_codes_router)
 app.include_router(bp_targets_router)
-app.include_router(retailer_visits_router)
-app.include_router(order_collections_router)
 app.include_router(zoom_in_router)
 app.include_router(scratch_cards_router)
 app.include_router(scratch_card_serials_router)

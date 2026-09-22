@@ -218,20 +218,6 @@
         "bp_targets.delete"
       ]
     },
-    "visits": {
-      "display_name": "Retailer Visits",
-      "permissions": [
-        "visits.view",
-        "visits.create"
-      ]
-    },
-    "orders": {
-      "display_name": "Orders",
-      "permissions": [
-        "orders.view",
-        "orders.create"
-      ]
-    },
     "dms": {
       "display_name": "DMS Automation",
       "permissions": [
@@ -549,10 +535,6 @@
         "targets.view",
         "bp_targets.view",
         "bp_targets.edit",
-        "visits.view",
-        "visits.create",
-        "orders.view",
-        "orders.create",
         "imports.view",
         "reports.target_achievement",
         "reports.whatsapp_share",
@@ -610,10 +592,6 @@
         "live_activations.view",
         "bp_targets.view",
         "bp_targets.edit",
-        "visits.view",
-        "visits.create",
-        "orders.view",
-        "orders.create",
         "reports.target_achievement",
         "reports.whatsapp_share",
         "zoom_in.view",
@@ -662,10 +640,6 @@
         "retailers.view",
         "sim_status.view",
         "activations.view",
-        "visits.view",
-        "visits.create",
-        "orders.view",
-        "orders.create",
         "reports.target_achievement",
         "sales.view",
         "stock.view",
@@ -680,10 +654,6 @@
         "reports.view",
         "retailers.view",
         "sim_status.view",
-        "visits.view",
-        "visits.create",
-        "orders.view",
-        "orders.create",
         "reports.target_achievement",
         "active_lso.view",
         "active_sso.view",

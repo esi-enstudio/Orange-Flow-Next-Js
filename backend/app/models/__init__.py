@@ -37,8 +37,6 @@ from app.models.todo import Todo
 from app.models.app_setting import AppSetting
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
-from app.models.retailer_visit import RetailerVisit
-from app.models.order_collection import OrderCollection
 from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,
     FinancialEntry, CommissionAuditLog, CommissionStaging,

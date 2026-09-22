@@ -31,9 +31,7 @@ import app.models.activity_log
 import app.models.app_setting
 import app.models.scratch_card_serial
 import app.models.lifting
-import app.models.order_collection
 import app.models.bp_retailer_code
-import app.models.retailer_visit
 import app.models.zoom_in
 import app.models.commission
 import app.models.product

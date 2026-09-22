@@ -110,7 +110,6 @@ export const navItems: NavItem[] = [
     children: [
       { title: "Employee Management", translationKey: "nav.employees", href: "/employees", permission: "employees.view" },
       { title: "Supervisors", translationKey: "nav.supervisors", href: "/employees/supervisors", permission: "employees.view" },
-      { title: "KPI Reports (GA/C2C)", translationKey: "nav.reports", href: "/reports/kpi", permission: "reports.view" },
     ]
   },
   {
@@ -194,8 +193,6 @@ export const navItems: NavItem[] = [
       { title: "GA Query", translationKey: "nav.report_ga_query", href: "/reports/ga-query", permission: "ga_query.view" },
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permissions: ["reports.view", "scratch_card.view"] },
       { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permissions: ["reports.view", "sim_issues.view"] },
-      { title: "Retailer Visits", translationKey: "nav.visits", href: "/visit", permission: "visits.view" },
-      { title: "Orders", translationKey: "nav.orders", href: "/orders", permission: "orders.view" },
     ]
   },
   {
