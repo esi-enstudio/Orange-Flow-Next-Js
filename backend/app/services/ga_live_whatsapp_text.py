@@ -194,7 +194,6 @@ def _render_all(
 
     rsos = sorted(data.get("rsos", []), key=lambda x: str(x.get("itop_number") or ""))
     bps = sorted(data.get("bps", []), key=lambda x: str(x.get("pool_number") or ""))
-    ccs = sorted(data.get("ccs", []), key=lambda x: str(x.get("name") or ""))
     supervisors = data.get("supervisors", [])
 
     if rsos:

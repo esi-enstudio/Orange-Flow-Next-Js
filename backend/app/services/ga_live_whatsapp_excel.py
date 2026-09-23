@@ -154,7 +154,6 @@ async def build_ga_live_report_excel(
     total_activations = data["summary"].get("total_activations", 0)
     rsos = data.get("rsos", [])
     bps = data.get("bps", [])
-    ccs = data.get("ccs", [])
     supervisors = data.get("supervisors", [])
 
     month_year = today.strftime("%B %Y")
@@ -246,7 +245,6 @@ async def build_ga_live_report_excel(
     days_remaining = summary_obj["days_remaining"]
     sorted_rsos = sorted(rsos, key=lambda x: str(x.get("itop_number") or ""))
     sorted_bps = sorted(bps, key=lambda x: str(x.get("pool_number") or ""))
-    sorted_ccs = sorted(ccs, key=lambda x: str(x.get("name") or ""))
 
     # ══ RSO PERFORMANCE ══
     if sorted_rsos:
@@ -376,41 +374,6 @@ async def build_ga_live_report_excel(
             ws.cell(row=r, column=7).number_format = "0%"
             ws.cell(row=r, column=7).alignment = Alignment(vertical="center", horizontal="right")
             ws.cell(row=r, column=9).fill = LIGHT_ORANGE_FILL
-            r += 1
-        r += 1  # spacer
-
-    # ══ CC PERFORMANCE ══
-    if sorted_ccs:
-        _section_title(ws, r, "CC PERFORMANCE", 1, 8)
-        r += 1
-        _header_row(
-            ws,
-            r,
-            ["#", "Name", "Assisted Code", "Pool Number", "Today GA", "Total GA", "Yesterday GA", "Day Count"],
-        )
-        r += 1
-
-        cc_data_start = r
-        for i, item in enumerate(sorted_ccs):
-            _data_row(
-                ws,
-                r,
-                [
-                    i + 1,
-                    item.get("name", ""),
-                    item.get("assisted_code", "") or "",
-                    item.get("pool_number", "") or "",
-                    item.get("own_activation", 0),
-                    item.get("total_ga", 0) or 0,
-                    item.get("yesterday_activation", 0) or 0,
-                    item.get("day_count", 0) or 0,
-                ],
-            )
-            r += 1
-        cc_data_end = r - 1
-
-        if len(sorted_ccs) > 1:
-            _formula_row(ws, r, {"E", "F", "G", "H"}, cc_data_start, cc_data_end, "Total", 8)
             r += 1
         r += 1  # spacer
 

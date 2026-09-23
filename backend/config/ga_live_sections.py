@@ -60,12 +60,6 @@ GA_LIVE_SECTIONS = {
         exclude_retailer_tags=["DRC"],
         employee_role="bp",
     ),
-    "ccs": SectionConfig(
-        key="ccs",
-        label="CC Performance",
-        exclude_retailer_tags=["DRC"],
-        employee_role="cc",
-    ),
     "insights": SectionConfig(
         key="insights",
         label="Smart Insights",
