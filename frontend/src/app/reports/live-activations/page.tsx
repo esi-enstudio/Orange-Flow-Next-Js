@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -12,7 +11,7 @@ import {
   Radio, Shield, Building2, UserCog,
   ChevronDown, ChevronUp, Grid3X3, List,
   Sparkles, Medal, Zap, Search, Check, CalendarDays,
-  Pencil, Settings, Play, Square, Share2,
+  Settings, Play, Square, Share2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,7 +20,7 @@ import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModa
 import { exportLiveReport } from "@/lib/export-ga-live-report";
 import {
   PieChart, Pie, Cell,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, Legend, Tooltip,
   LineChart, Line,
 } from "recharts";
@@ -150,7 +149,7 @@ function KpiCard({
 }
 
 /* ─────────── Section Header ─────────── */
-function SectionHeader({ title, subtitle, action, onEdit }: { title: string; subtitle?: string; action?: React.ReactNode; onEdit?: () => void }) {
+function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between mb-5">
       <div>
@@ -158,15 +157,6 @@ function SectionHeader({ title, subtitle, action, onEdit }: { title: string; sub
         {subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{subtitle}</p>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {onEdit && (
-          <button
-            onClick={onEdit}
-            className="p-2 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 shadow-sm hover:shadow-md"
-            title="Configure section exclusions"
-          >
-            <Pencil className="w-3.5 h-3.5 text-gray-400" />
-          </button>
-        )}
         {action}
       </div>
     </div>
@@ -510,7 +500,6 @@ function ChartTooltip({ active, payload, label }: any) {
 /* ─────────── Main Page ─────────── */
 export default function GaLiveReportPage() {
   const { user, hasPermission, loading: authLoading } = useAuth();
-  const router = useRouter();
 
   const [data, setData] = useState<GaLiveData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -535,8 +524,6 @@ export default function GaLiveReportPage() {
     roleType: "rso" | "bp";
     employeeName: string;
   }>({ open: false, employeeId: null, roleType: "rso", employeeName: "" });
-
-  const isAdmin = hasPermission("rule_config.create") || hasPermission("rule_config.edit");
 
   function todayStr() {
     const d = new Date();
@@ -778,9 +765,6 @@ export default function GaLiveReportPage() {
 
   const supBarData = [...supervisors].sort((a, b) => b.total_activation - a.total_activation).slice(0, 10);
 
-  const rsoBarData = [...rsos].filter(r => r.own_activation > 0).sort((a, b) => b.own_activation - a.own_activation).slice(0, 10);
-  const bpBarData = [...bps].sort((a, b) => b.own_activation - a.own_activation).slice(0, 10);
-
   return (
     <div className="p-4 md:p-6 space-y-8 max-w-7xl mx-auto pb-32">
       {/* House Selector */}
@@ -897,15 +881,6 @@ export default function GaLiveReportPage() {
               sub={`Yesterday GA - ${(summary.yesterday_total ?? 0).toLocaleString()}`}
               color="#8b5cf6"
             />
-            {isAdmin && (
-              <button
-                onClick={() => router.push("/rule-config?context=ga_live&role=HOUSE")}
-                className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
-                title="Configure exclusions"
-              >
-                <Pencil className="w-3 h-3 text-gray-400" />
-              </button>
-            )}
           </div>
           <div className="group relative">
             <KpiCard
@@ -915,15 +890,6 @@ export default function GaLiveReportPage() {
               sub={`${summary.activated_employee_count} / ${summary.total_selected_employees} (${summary.total_selected_employees > 0 ? Math.round(summary.activated_employee_count / summary.total_selected_employees * 100) : 0}%) employees activated`}
               color="#10b981"
             />
-            {isAdmin && (
-              <button
-                onClick={() => router.push("/rule-config?context=ga_live&role=HOUSE")}
-                className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
-                title="Configure product exclusions"
-              >
-                <Pencil className="w-3 h-3 text-gray-400" />
-              </button>
-            )}
           </div>
           <div className="group relative">
             <KpiCard
@@ -933,15 +899,6 @@ export default function GaLiveReportPage() {
               sub={`${summary.market_activation_pct}% of total`}
               color="#f59e0b"
             />
-            {isAdmin && (
-              <button
-                onClick={() => router.push("/rule-config?context=ga_live&role=HOUSE")}
-                className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
-                title="Configure product exclusions"
-              >
-                <Pencil className="w-3 h-3 text-gray-400" />
-              </button>
-            )}
           </div>
         </div>
       </section>
@@ -949,8 +906,8 @@ export default function GaLiveReportPage() {
       {/* ────── Activation Distribution ────── */}
       <div className="relative">
       <section>
-        <SectionHeader title="Activation Distribution" subtitle="Employee vs Market breakdown and contribution analysis" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <SectionHeader title="Activation Distribution" subtitle="Employee vs market breakdown" />
+        <div className="grid grid-cols-1 gap-6">
           {/* Donut */}
           <div className="relative group">
           <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
@@ -979,73 +936,6 @@ export default function GaLiveReportPage() {
                 </div>
               ))}
             </div>
-            {isAdmin && (
-              <button
-                onClick={() => router.push("/rule-config?context=ga_live&role=HOUSE")}
-                className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
-                title="Configure Employee vs Market"
-              >
-                <Pencil className="w-3 h-3 text-gray-400" />
-              </button>
-            )}
-          </div>
-          </div>
-
-          {/* Horizontal Bar - RSO Contribution */}
-          <div className="relative group">
-          <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">RSO Contribution</h3>
-            {rsoBarData.length === 0 ? (
-              <div className="flex items-center justify-center h-56 text-gray-400 text-sm">No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={rsoBarData} layout="vertical" margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11 }} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="own_activation" fill="#3b82f6" radius={[0, 4, 4, 0]} name="Activation" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-            {isAdmin && (
-              <button
-                onClick={() => router.push("/rule-config?context=ga_live&role=RSO")}
-                className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
-                title="Configure RSO Contribution"
-              >
-                <Pencil className="w-3 h-3 text-gray-400" />
-              </button>
-            )}
-          </div>
-          </div>
-
-          {/* Horizontal Bar - BP Contribution */}
-          <div className="relative group">
-          <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">BP Contribution</h3>
-            {bpBarData.length === 0 ? (
-              <div className="flex items-center justify-center h-56 text-gray-400 text-sm">No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={bpBarData} layout="vertical" margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11 }} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="own_activation" fill="#10b981" radius={[0, 4, 4, 0]} name="Activation" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-            {isAdmin && (
-              <button
-                onClick={() => router.push("/rule-config?context=ga_live&role=BP")}
-                className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 z-10"
-                title="Configure BP Contribution"
-              >
-                <Pencil className="w-3 h-3 text-gray-400" />
-              </button>
-            )}
           </div>
           </div>
         </div>
@@ -1056,7 +946,7 @@ export default function GaLiveReportPage() {
       {trend.length > 0 && (
         <div className="group relative">
         <section>
-          <SectionHeader title="Activation Trend" subtitle="Daily activation count for the selected period" onEdit={isAdmin ? () => router.push("/rule-config?context=ga_live&role=HOUSE") : undefined} />
+          <SectionHeader title="Activation Trend" subtitle="Daily activation count for the selected period" />
           <div className="bg-white dark:bg-slate-800/80 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-5">
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={trend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -1079,7 +969,6 @@ export default function GaLiveReportPage() {
           <SectionHeader
             title="Supervisor Performance"
             subtitle={`${supervisors.length} supervisors · showing contribution and team breakdown`}
-            onEdit={isAdmin ? () => router.push("/rule-config?context=ga_live&role=SUPERVISOR") : undefined}
           />
           <div className="space-y-3">
             {supervisors.map((sup) => {
@@ -1209,7 +1098,6 @@ export default function GaLiveReportPage() {
           <SectionHeader
             title="RSO Performance"
             subtitle={`${rsos.length} RSOs · view grid or table`}
-            onEdit={isAdmin ? () => router.push("/rule-config?context=ga_live&role=RSO") : undefined}
             action={
               <div className="flex items-center border border-gray-200 dark:border-slate-600 rounded-xl overflow-hidden">
                 <button
@@ -1398,7 +1286,6 @@ export default function GaLiveReportPage() {
           <SectionHeader
             title="BP Performance"
             subtitle={`${bps.length} BPs · leaderboard ranking`}
-            onEdit={isAdmin ? () => router.push("/rule-config?context=ga_live&role=BP") : undefined}
             action={
               <div className="flex items-center border border-gray-200 dark:border-slate-600 rounded-xl overflow-hidden">
                 <button

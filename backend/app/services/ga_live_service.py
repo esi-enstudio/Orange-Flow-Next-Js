@@ -84,12 +84,15 @@ class GaLiveQueryBuilder:
         """Load effective rule conditions for every GA Live section.
 
         Product-code exclusions are the union across all active ga_live rules
-        (global); retailer-type exclusions and included employees come from the
-        active rule matching each section's target_role.
+        applicable to the section (global ``all`` plus section-specific rules);
+        retailer-type exclusions and included employees come from the active rule
+        matching each section's ``apply_to`` + target_role. Each page section
+        (total/employee/market activation, distribution, trend, supervisor, rso,
+        bp) therefore runs its own rule set, mirroring the Activation Report.
         """
         for section_key, role in SECTION_ROLE.items():
             cond = await get_effective_rule_conditions(
-                self.db, self.house_id, "ga_live", role
+                self.db, self.house_id, "ga_live", role, apply_to=section_key
             )
             self._conditions[section_key] = cond
 
@@ -254,30 +257,16 @@ class GaLiveQueryBuilder:
         return result.scalar() or 0
 
     async def get_employee_market_count(self, section_key: str) -> dict:
-        base = await self._build_base_query(section_key)
+        """Employee vs Market split for the distribution donut.
 
-        emp_codes = await self.db.execute(
-            select(Employee.assisted_retailer_code).where(
-                Employee.house_id == self.house_id,
-                Employee.status == "Active",
-                Employee.assisted_retailer_code != None,
-            )
-        )
-        assisted_codes = [row[0] for row in emp_codes.all() if row[0]]
-
-        total = (await self.db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
-
-        emp_count = 0
-        if assisted_codes:
-            emp_q = base.where(
-                and_(
-                    LiveActivation.retailer_code != None,
-                    LiveActivation.retailer_code.in_(assisted_codes),
-                )
-            )
-            emp_count = (await self.db.execute(select(func.count()).select_from(emp_q.subquery()))).scalar() or 0
-
-        market_count = total - emp_count
+        The donut follows the Employee Activation and Market Activation rules:
+        the employee slice uses the ``employee_activation`` section conditions
+        (including its included employees), the market slice uses the
+        ``market_activation`` section conditions.
+        """
+        emp_count = await self.get_employee_activation_by_code("employee_activation")
+        market_count = await self.get_market_activation_count("market_activation")
+        total = emp_count + market_count
         emp_pct = round((emp_count / total * 100), 1) if total else 0
         market_pct = round((market_count / total * 100), 1) if total else 0
 
@@ -1060,7 +1049,7 @@ class GaLiveQueryBuilder:
             active_counts,
         ) = await self.get_employee_breakdown("supervisors")
 
-        trend = await self.get_trend("total_activation")
+        trend = await self.get_trend("trend")
 
         for s in supervisors:
             s["contribution"] = round((s["total_activation"] / total * 100), 1) if total else 0

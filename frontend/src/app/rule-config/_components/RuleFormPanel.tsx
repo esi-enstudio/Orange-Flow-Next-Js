@@ -5,7 +5,7 @@ import { AlertCircle, Check, Columns3, LayoutGrid, Loader2, Power, Save, Trash2 
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import EntitySelector, { type SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
-import { RULE_COLUMNS, RULE_SECTIONS, ROLE_STYLE, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
+import { GA_LIVE_SECTIONS, RULE_COLUMNS, RULE_SECTIONS, ROLE_STYLE, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
 
 interface RuleFormPanelProps {
   rule: RuleType | null;
@@ -198,7 +198,7 @@ export default function RuleFormPanel({
           </button>
         </div>
 
-        {contextKey === "activation_report" && (
+        {(contextKey === "activation_report" || contextKey === "ga_live") && (
           <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
               {t("rule_config.fields.apply_to")}
@@ -211,7 +211,7 @@ export default function RuleFormPanel({
                 disabled={!canWrite}
                 className="w-full pl-9 pr-10 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer disabled:opacity-50"
               >
-                {RULE_SECTIONS.map((s) => (
+                {(contextKey === "ga_live" ? GA_LIVE_SECTIONS : RULE_SECTIONS).map((s) => (
                   <option key={s} value={s}>{t(`rule_config.sections.${s}`)}</option>
                 ))}
               </select>

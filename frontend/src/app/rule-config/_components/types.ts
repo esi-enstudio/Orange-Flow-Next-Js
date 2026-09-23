@@ -31,6 +31,23 @@ export const RULE_SECTIONS = ["all", "summary", "rso", "bp", "supervisor"] as co
 export type RuleSection = (typeof RULE_SECTIONS)[number];
 
 /**
+ * Page-section scope for GA Live rules. Each page section (Executive Summary's
+ * total/employee/market activation, Activation Trend, Supervisor/RSO/BP
+ * Performance) runs its own rule set, mirroring the Activation Report.
+ */
+export const GA_LIVE_SECTIONS = [
+  "all",
+  "total_activation",
+  "employee_activation",
+  "market_activation",
+  "trend",
+  "supervisors",
+  "rsos",
+  "bps",
+] as const;
+export type GaLiveSection = (typeof GA_LIVE_SECTIONS)[number];
+
+/**
  * Metric-column scope for a rule inside a section. "all" = applies to every
  * column; named columns (e.g. the RSO table's achieved / market_ga / own_ga)
  * let each metric column run its own rule.

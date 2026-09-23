@@ -49,17 +49,32 @@ BODY_FONT = Font(name="Calibri", color=TEXT_DARK, size=10)
 BOLD_FONT = Font(name="Calibri", bold=True, color=TEXT_DARK, size=10)
 
 
+# GA Live report sections the Excel export covers, mapped to their rule role.
+# Each section consults its own active rules (with the global "all" fallback),
+# mirroring the page and GaLiveQueryBuilder.
+GA_LIVE_EXPORT_SECTIONS = (
+    ("total_activation", "HOUSE"),
+    ("employee_activation", "HOUSE"),
+    ("market_activation", "HOUSE"),
+    ("distribution", "HOUSE"),
+    ("trend", "HOUSE"),
+    ("supervisors", "SUPERVISOR"),
+    ("rsos", "RSO"),
+    ("bps", "BP"),
+)
+
+
 async def _load_export_rule_conditions(db: AsyncSession, house_id: int) -> dict[str, list[str]]:
     """Effective GA Live rule exclusions for the Excel export.
 
-    Product-code exclusions are the union across all active ga_live rules;
-    retailer-type exclusions are the union across the roles this export covers
-    (HOUSE/SUPERVISOR/RSO/BP).
+    Product-code exclusions are the union across all GA Live sections' active
+    rules; retailer-type exclusions are the union across every section covered
+    by this export (HOUSE summary + SUPERVISOR/RSO/BP sections).
     """
     product_codes: set[str] = set()
     tags: list[str] = []
-    for role in ("HOUSE", "SUPERVISOR", "RSO", "BP"):
-        cond = await get_effective_rule_conditions(db, house_id, "ga_live", role)
+    for section, role in GA_LIVE_EXPORT_SECTIONS:
+        cond = await get_effective_rule_conditions(db, house_id, "ga_live", role, apply_to=section)
         product_codes.update(cond.get("excluded_product_codes") or [])
         for tag in cond.get("excluded_retailer_types") or []:
             if tag not in tags:

@@ -122,8 +122,8 @@ export default function RuleConfigPage() {
   const validRoles = useMemo(() => ROLES.filter((r) => (options?.roles ?? ROLES).includes(r)), [options]);
 
   const roleRules = useMemo(
-    () => allRules.filter((r) => r.target_role === activeRole),
-    [allRules, activeRole]
+    () => allRules.filter((r) => r.target_role === activeRole && r.context_key === activeContext),
+    [allRules, activeRole, activeContext]
   );
 
   const selectedRule = useMemo(
