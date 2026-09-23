@@ -315,7 +315,7 @@ export default function RetailerMasterFilter({ filters, onChange, onClear, house
             <SelectFilter
               value={filters.retailer_type}
               onChange={(v) => update("retailer_type", v)}
-              options={["Regular", "BP Assisted", "CC Assisted"].map((r) => ({ value: r, label: r }))}
+              options={["Regular", "BP Assisted"].map((r) => ({ value: r, label: r }))}
               placeholder={t('retailers.filters_all_types')}
             />
           </div>

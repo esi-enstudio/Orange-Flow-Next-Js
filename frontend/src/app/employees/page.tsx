@@ -194,7 +194,6 @@ function typeBadgeColor(type: string): string {
   const colors: Record<string, string> = {
     rso: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
     bp: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
-    cc: "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300",
     manager: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
     supervisor: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300",
     bsp: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
@@ -1527,7 +1526,7 @@ export default function EmployeesPage() {
                               type="button"
                               onClick={() => {
                                 const roleNames = (u.roles || []).map(r => r.name.toLowerCase());
-                                const primaryRole = roleNames.find(rn => ["rso","bp","cc","supervisor","manager","bsp","rbsp"].includes(rn)) || "";
+                                const primaryRole = roleNames.find(rn => ["rso","bp","supervisor","manager","bsp","rbsp"].includes(rn)) || "";
                                 setFormData({...formData, user_id: formData.user_id === u.id ? undefined : u.id, employee_type: primaryRole});
                                 setShowUserDropdown(false);
                                 setUserSearchQuery('');
@@ -1612,7 +1611,6 @@ export default function EmployeesPage() {
                         <option value="">{t('employees.field_emp_type_placeholder')}</option>
                         <option value="rso">RSO</option>
                         <option value="bp">BP</option>
-                        <option value="cc">CC</option>
                         <option value="supervisor">Supervisor</option>
                         <option value="manager">Manager</option>
                         <option value="bsp">BSP</option>

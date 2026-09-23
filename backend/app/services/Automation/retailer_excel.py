@@ -132,9 +132,9 @@ async def process_retailer_excel(file_path, progress_callback=None):
                     continue
 
                 # 3. Lookup employee ID from memory maps.
-                # Priority: assisted_retailer_code ownership first (BP/CC assisted codes
+                # Priority: assisted_retailer_code ownership first (BP assisted codes
                 # carry the RSO's iTopUp SR number, so itop_number matching would
-                # wrongly attribute BP/CC codes to the RSO). Fall back to itop_number.
+                # wrongly attribute BP codes to the RSO). Fall back to itop_number.
                 linked_emp_id = assisted_map.get(r_code)
                 if linked_emp_id is not None:
                     # If the assisted-code owner resigned/went inactive, redirect their

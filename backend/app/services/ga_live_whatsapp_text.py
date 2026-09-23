@@ -263,28 +263,6 @@ def _render_all(
         lines.append("```")
         lines.append("")
 
-    if ccs:
-        lines.append("```")
-        lines.append("*CC PERFORMANCE*")
-        cc_header = ["#", "Name", "AC", "Pool", "TGA", "TotGA", "YGA", "Days"]
-        cc_widths = [3, 20, 12, 13, 6, 8, 8, 6]
-        cc_rows = [
-            [
-                str(i + 1),
-                str(item.get("name", "")),
-                str(item.get("assisted_code", "") or ""),
-                str(item.get("pool_number", "") or ""),
-                _fmt(item.get("own_activation", 0)),
-                _fmt(item.get("total_ga", 0) or 0),
-                _fmt(item.get("yesterday_activation", 0) or 0),
-                str(item.get("day_count", 0) or 0),
-            ]
-            for i, item in enumerate(ccs)
-        ]
-        lines.extend(_table_lines(cc_header, cc_rows, cc_widths))
-        lines.append("```")
-        lines.append("")
-
     if supervisors:
         lines.append("```")
         lines.append("*SUPERVISOR PERFORMANCE*")

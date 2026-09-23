@@ -322,7 +322,7 @@ export default function EmployeeMasterFilter({ filters, onChange, onClear, house
             <SelectFilter
               value={filters.role}
               onChange={(v) => update("role", v)}
-              options={["RSO", "BP", "CC", "Supervisor", "Manager", "BSP", "RBSP"].map((r) => ({ value: r, label: r }))}
+              options={["RSO", "BP", "Supervisor", "Manager", "BSP", "RBSP"].map((r) => ({ value: r, label: r }))}
               placeholder="All roles"
             />
           </div>

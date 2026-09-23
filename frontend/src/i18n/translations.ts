@@ -3490,7 +3490,6 @@ export const translations = {
         SUPERVISOR: "Supervisor",
         RSO: "RSO",
         BP: "BP",
-        CC: "CC",
       },
       sections: {
         all: "All",
@@ -7150,7 +7149,6 @@ employees: "Employees",
         SUPERVISOR: "সুপারভাইজার",
         RSO: "আরএসও",
         BP: "বিপি",
-        CC: "সিসি",
       },
       sections: {
         all: "সব",

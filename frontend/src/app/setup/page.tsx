@@ -273,7 +273,7 @@ export default function SetupWizard() {
 
                     <div className="grid gap-3">
                       {[
-                        { icon: ShieldCheck, label: "Create Permissions & Roles", desc: "Admin, Manager, Supervisor, RSO, BP, CC roles", done: initStatus === "success" },
+                        { icon: ShieldCheck, label: "Create Permissions & Roles", desc: "Admin, Manager, Supervisor, RSO, BP roles", done: initStatus === "success" },
                         { icon: Database, label: "Create Super Admin Account", desc: 'Username: "neelemil" / Password: "Admin#123456"', done: initStatus === "success" },
                       ].map((item, i) => (
                         <div key={i} className={cn(

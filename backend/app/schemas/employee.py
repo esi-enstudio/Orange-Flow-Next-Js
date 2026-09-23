@@ -99,8 +99,8 @@ class EmployeeCreate(BaseModel):
     @field_validator('employee_type')
     @classmethod
     def validate_employee_type(cls, v):
-        if v is not None and v not in ("rso", "manager", "supervisor", "bp", "bsp", "rbsp", "cc", "unknown"):
-            raise ValueError('employee_type must be one of: rso, manager, supervisor, bp, bsp, rbsp, cc')
+        if v is not None and v not in ("rso", "manager", "supervisor", "bp", "bsp", "rbsp", "unknown"):
+            raise ValueError('employee_type must be one of: rso, manager, supervisor, bp, bsp, rbsp')
         return v
 
     @field_validator('status')

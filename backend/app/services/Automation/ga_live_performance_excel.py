@@ -91,7 +91,7 @@ async def _get_excluded_retailer_ids_by_tags(
     # Never exclude employee-owned / assisted-code retailers (ownership takes priority).
     try:
         owned = await get_employee_owned_retailer_ids(
-            db, house_id, ["supervisor", "rso", "bp", "cc"]
+            db, house_id, ["supervisor", "rso", "bp"]
         )
         if owned:
             excluded -= owned

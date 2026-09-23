@@ -82,7 +82,7 @@ class ReportRuleMaster(Base):
     rule_name = Column(String(200), nullable=False)
     target_role = Column(
         String(20), nullable=False, index=True
-    )  # HOUSE | SUPERVISOR | RSO | BP | CC
+    )  # HOUSE | SUPERVISOR | RSO | BP
     apply_to = Column(
         String(50), nullable=False, default="all", server_default=text("'all'"), index=True
     )  # all | summary | rso | bp | supervisor

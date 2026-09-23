@@ -58,7 +58,7 @@ async def list_employees_by_house_grouped(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("employees.view")),
 ):
-    """List active employees, grouped by role (RSO/BP/CC)."""
+    """List active employees, grouped by role (RSO/BP)."""
     is_admin = is_admin_user(current_user)
     if not is_admin:
         user_house_ids = [h.id for h in current_user.houses]
@@ -74,8 +74,8 @@ async def list_employees_by_house_grouped(
     )
     employees = emp_rows.scalars().all()
 
-    groups: dict[str, list] = {"rso": [], "bp": [], "cc": []}
-    role_names = {"rso", "bp", "cc"}
+    groups: dict[str, list] = {"rso": [], "bp": []}
+    role_names = {"rso", "bp"}
 
     for emp in employees:
         # Role & name always come from the employees table itself.
