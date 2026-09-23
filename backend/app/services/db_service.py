@@ -441,7 +441,7 @@ async def _migrate_retailer_employee_link():
     """Fix retailers whose employee_id was auto-linked via itop_number but whose
     retailer_code is actually an employee's assisted_retailer_code.
 
-    BP/CC assisted codes carry the RSO's iTopUp SR number, so the legacy import
+    BP assisted codes carry the RSO's iTopUp SR number, so the legacy import
     logic wrongly assigned them to the RSO. The correct owner is the employee
     whose assisted_retailer_code equals the retailer code.
 

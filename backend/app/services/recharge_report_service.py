@@ -189,7 +189,7 @@ class RechargeReportService:
             Retailer.house_id == self.house_id,
         )
         cond = linked
-        # BP/CC assisted retailers (e.g. R344412) carry the RSO's iTopUp SR
+        # BP assisted retailers (e.g. R344412) carry the RSO's iTopUp SR
         # number in itop_sr_number but are linked to the BP employee. The manual
         # operator report attributes recharge by SR number, so include retailers
         # whose itop_sr_number matches this RSO's itop_number to match it.

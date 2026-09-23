@@ -15,7 +15,7 @@ export interface PagePermissionGroup {
   perms: PermissionItem[];
 }
 
-const ACRONYM_WORDS = new Set(["ga", "dms", "sim", "otp", "ev", "bp", "sc", "lso", "sso", "cc"]);
+const ACRONYM_WORDS = new Set(["ga", "dms", "sim", "otp", "ev", "bp", "sc", "lso", "sso"]);
 
 export function moduleKeyOfPermission(name: string): string {
   const dot = name.indexOf(".");

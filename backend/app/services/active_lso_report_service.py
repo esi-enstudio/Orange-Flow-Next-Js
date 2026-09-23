@@ -7,7 +7,7 @@ amount of at least the configured amount (per house + month; defaults 7 days /
 
 Retailer attribution: a retailer belongs to an RSO when either
 1. it is linked to the RSO via `retailers.employee_id`, or
-2. it is a BP/CC assisted code (linked to a BP employee) carrying the RSO's
+2. it is a BP assisted code (linked to a BP employee) carrying the RSO's
    iTopUp SR number in `retailers.itop_sr_number` — DMS files put the
    supervising RSO's SR there. Business decision: these count toward the
    RSO's retailer base in this report.
@@ -447,7 +447,7 @@ class ActiveLsoReportService:
 
         Includes (only ENABLED, i.e. enabled='Yes', retailers):
         1. Retailers directly linked to the RSO (employee_type='rso').
-        2. BP/CC assisted codes linked to non-RSO employees whose
+        2. BP assisted codes linked to non-RSO employees whose
            `itop_sr_number` equals the RSO's itop_number — DMS files place
            the supervising RSO's SR on those rows.
         Retailers still linked to some OTHER RSO are never re-attributed here.
@@ -485,7 +485,7 @@ class ActiveLsoReportService:
             if eid in emp_set and etype == ROLE_RSO:
                 mapping[rid] = eid
             elif etype != ROLE_RSO and sr and sr in sr_to_rso:
-                # BP/CC assisted code under this RSO's SR
+                # BP assisted code under this RSO's SR
                 mapping[rid] = sr_to_rso[sr]
         return mapping
 
