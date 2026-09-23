@@ -32,7 +32,6 @@ SECTION_EMPLOYEE_ROLES = {
     "supervisors": ["supervisor"],
     "rsos": ["rso"],
     "bps": ["bp"],
-    "ccs": ["cc"],
 }
 
 # GA Live sections → rule engine target_role (context_key="ga_live").
@@ -46,9 +45,7 @@ SECTION_ROLE = {
     "supervisors": "SUPERVISOR",
     "rsos": "RSO",
     "bps": "BP",
-    "ccs": "CC",
 }
-
 
 class GaLiveQueryBuilder:
 
@@ -341,7 +338,6 @@ class GaLiveQueryBuilder:
 
         rso_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "rso"]
         bp_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "bp"]
-        cc_emp_ids_all = [eid for eid, etype in emp_id_to_type.items() if etype == "cc"]
 
         # Rule-based employee inclusion per role section (included_employee_ids).
         sup_selected = set(await self._selected_employee_db_ids("supervisors"))
@@ -353,9 +349,6 @@ class GaLiveQueryBuilder:
         bp_selected = set(await self._selected_employee_db_ids("bps"))
         if bp_selected:
             bp_emp_ids_all = [eid for eid in bp_emp_ids_all if eid in bp_selected]
-        cc_selected = set(await self._selected_employee_db_ids("ccs"))
-        if cc_selected:
-            cc_emp_ids_all = [eid for eid in cc_emp_ids_all if eid in cc_selected]
 
         # ── Load BP retailer codes ──
         bp_code_rows = await self.db.execute(
@@ -814,110 +807,20 @@ class GaLiveQueryBuilder:
             y_total = sum(bp_yest_code_counts.get(code, 0) for code in bp_codes)
             b["yesterday_activation"] = y_total
 
-        cc_data = []
-        for cc_emp_id in cc_emp_ids_all:
-            cc_info = emp_id_to_user.get(cc_emp_id)
-            cc_uid = cc_info[0] if cc_info else None
-            cc_ret_ids = set()
-            cc_ret_codes = set()
-            for rid, eid in retailer_employee_map.items():
-                if eid == cc_emp_id:
-                    cc_ret_ids.add(rid)
-                    if rid in id_to_retailer_code:
-                        cc_ret_codes.add(id_to_retailer_code[rid])
-            cc_assisted_code = emp_id_to_code.get(cc_emp_id)
-            if cc_assisted_code and cc_assisted_code in retailer_code_to_id:
-                cc_ret_ids.add(retailer_code_to_id[cc_assisted_code])
-                cc_ret_codes.add(cc_assisted_code)
-            # Today GA
-            cc_today = 0
-            if cc_ret_ids:
-                res = await self.db.execute(
-                    select(func.count()).where(
-                        LiveActivation.retailer_id.in_(cc_ret_ids),
-                        LiveActivation.house_id == self.house_id,
-                        LiveActivation.activation_date >= self.start_date,
-                        LiveActivation.activation_date <= self.end_date,
-                    )
-                )
-                cc_today = res.scalar() or 0
-            # Total GA (MTD) — Activation table only (month_start → yesterday)
-            # Day Count — count of dates with >= 2 activations
-            cc_mtd = 0
-            cc_day_count = 0
-            if cc_ret_codes:
-                date_counts: dict[date, int] = {}
-                if yesterday >= month_start:
-                    mtd_rows = (await self.db.execute(
-                        select(Activation.retailer_code, Activation.activation_date).where(
-                            Activation.house_id == self.house_id,
-                            Activation.retailer_code.in_(list(cc_ret_codes)),
-                            Activation.activation_date >= month_start,
-                            Activation.activation_date <= yesterday,
-                        )
-                    )).all()
-                    for _, d in mtd_rows:
-                        date_counts[d] = date_counts.get(d, 0) + 1
-                cc_mtd = sum(date_counts.values())
-                cc_day_count = sum(1 for cnt in date_counts.values() if cnt >= 2)
-            # Yesterday GA
-            cc_yesterday = 0
-            if cc_ret_codes:
-                yest_q = select(func.count()).where(
-                    Activation.retailer_code.in_(list(cc_ret_codes)),
-                    Activation.house_id == self.house_id,
-                    Activation.activation_date == yesterday,
-                )
-                res = await self.db.execute(yest_q)
-                cc_yesterday = res.scalar() or 0
-            cc_name = emp_id_to_emp_name.get(cc_emp_id)
-            if not cc_name:
-                cc_name = user_name_map.get(cc_uid) if cc_uid else None
-            if not cc_name:
-                cc_name = (cc_info[1] if cc_info else None) or (cc_info[4] if cc_info else None)
-            cc_name = cc_name or emp_id_to_biz_id.get(cc_emp_id) or f"CC #{cc_emp_id}"
-            cc_data.append({
-                "id": cc_uid if cc_uid else cc_emp_id,
-                "name": cc_name,
-                "dms_code": cc_info[1] if cc_info else "",
-                "assisted_code": cc_info[4] if cc_info else "",
-                "pool_number": cc_info[5] if cc_info else "",
-                "own_activation": cc_today,
-                "total_ga": cc_mtd,
-                "yesterday_activation": cc_yesterday,
-                "day_count": cc_day_count,
-                "contribution": 0,
-            })
-        cc_data.sort(key=lambda x: x["own_activation"], reverse=True)
-
-        top_supervisor = supervisor_data[0] if supervisor_data and (len(supervisor_data) == 1 or supervisor_data[0]["total_activation"] != supervisor_data[1]["total_activation"]) else None
-        top_rso = rso_data[0] if rso_data and (len(rso_data) == 1 or rso_data[0]["total_activation"] != rso_data[1]["total_activation"]) else None
-        top_bp = bp_data[0] if bp_data and (len(bp_data) == 1 or bp_data[0]["own_activation"] != bp_data[1]["own_activation"]) else None
-        top_cc = cc_data[0] if cc_data and (len(cc_data) == 1 or cc_data[0]["own_activation"] != cc_data[1]["own_activation"]) else None
-
-        active_sup = len(set(supervisor_emp_ids_all) & active_employee_ids)
-        active_rso = len(set(rso_emp_ids_all) & active_employee_ids)
-        active_bp = len(set(bp_emp_ids_all) & active_employee_ids)
-        active_cc = len(set(cc_emp_ids_all) & active_employee_ids)
-
         return (
             supervisor_data,
             rso_data,
             bp_data,
-            cc_data,
             top_supervisor,
             top_rso,
             top_bp,
-            top_cc,
             {
                 "active_supervisors": active_sup,
                 "active_rso": active_rso,
                 "active_bp": active_bp,
-                "active_cc": active_cc,
                 "total_supervisors": len(supervisor_emp_ids_all),
                 "total_rso": len(rso_emp_ids_all),
                 "total_bp": len(bp_emp_ids_all),
-                "total_cc": len(cc_emp_ids_all),
                 "supervisor_target_map": supervisor_target_map,
                 "supervisor_target": sum(supervisor_target_map.values()),
                 "rso_target": sum(rso_target_map.values()),
@@ -1044,8 +947,6 @@ class GaLiveQueryBuilder:
 
         distribution = await self.get_employee_market_count("distribution")
         (
-            supervisors, rsos, bps, ccs,
-            top_sup, top_rso, top_bp, top_cc,
             active_counts,
         ) = await self.get_employee_breakdown("supervisors")
 
@@ -1057,8 +958,6 @@ class GaLiveQueryBuilder:
             r["contribution"] = round((r["total_activation"] / total * 100), 1) if total else 0
         for b in bps:
             b["contribution"] = round((b["own_activation"] / total * 100), 1) if total else 0
-        for c in ccs:
-            c["contribution"] = round((c["own_activation"] / total * 100), 1) if total else 0
 
         insights = []
         if top_sup and top_sup["contribution"] >= 10:
@@ -1067,8 +966,6 @@ class GaLiveQueryBuilder:
             insights.append(f"{top_rso['name']} generated {top_rso['total_activation']} activations as top RSO.")
         if top_bp:
             insights.append(f"{top_bp['name']} achieved {top_bp['own_activation']} personal activations as top BP.")
-        if top_cc:
-            insights.append(f"{top_cc['name']} achieved {top_cc['own_activation']} personal activations as top CC.")
         if emp_pct > 70:
             insights.append(f"Employee activation dominates at {emp_pct}% of total — strong team execution.")
         elif market_pct > 70:
@@ -1090,12 +987,10 @@ class GaLiveQueryBuilder:
             "supervisors": supervisors,
             "rsos": rsos,
             "bps": bps,
-            "ccs": ccs,
             "top_performers": {
                 "supervisor": top_sup,
                 "rso": top_rso,
                 "bp": top_bp,
-                "cc": top_cc,
             },
             "insights": insights,
             "trend": trend,

@@ -1,0 +1,3 @@
+/home/neelemil/projects/Orange-Flow-Next-Js/frontend/src/components/employees/EmployeeMasterFilter.tsx:325:              options={["RSO", "BP", "CC", "Supervisor", "Manager", "BSP", "RBSP"].map((r) => ({ value: r, label: r }))}
+/home/neelemil/projects/Orange-Flow-Next-Js/frontend/src/app/employees/page.tsx:1530:                                const primaryRole = roleNames.find(rn => ["rso","bp","cc","supervisor","manager","bsp","rbsp"].includes(rn)) || "";
+/home/neelemil/projects/Orange-Flow-Next-Js/frontend/src/app/employees/page.tsx:1615:                        <option value="cc">CC</option>

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
+import { BarcodeScannerModal } from "@/components/dms/BarcodeScannerModal";
 import { fetchEventSource, EventSourceMessage } from "@microsoft/fetch-event-source";
 import Cookies from "js-cookie";
 import {
@@ -29,7 +30,8 @@ import {
   Tag,
   ChevronDown,
   X,
-  AlertTriangle
+  AlertTriangle,
+  ScanBarcode
 } from "lucide-react";
 
 interface House {
@@ -125,6 +127,7 @@ export default function SIMIssuePage() {
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const retailersCacheRef = useRef<{ key: string; data: Retailer[] } | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   useEffect(() => {
     if (logContainerRef.current) {
@@ -372,6 +375,21 @@ export default function SIMIssuePage() {
       setInputValue("898803992145808574\n898803992145808575\n898803992145808580");
     }
   };
+
+  const appendScanned = useCallback((codes: string[]) => {
+    setInputValue((prev) => {
+      const existingLines = new Set(prev.split(/[\n,\;]+/).map(s => s.trim()).filter(Boolean));
+      const fresh = codes.map(c => c.trim()).filter(c => c && !existingLines.has(c));
+      if (fresh.length === 0) return prev;
+      const base = prev.trim() ? prev.trimEnd() + "\n" : "";
+      return base + fresh.join("\n");
+    });
+  }, []);
+
+  const openScanner = useCallback(() => {
+    setInputMethod("list");
+    setScannerOpen(true);
+  }, []);
 
   if (!authLoading && !hasPermission("dms.sim_issue")) {
     return <AccessDenied />;
@@ -634,6 +652,15 @@ export default function SIMIssuePage() {
                   </div>
 
                   <div className="w-full sm:w-auto flex flex-wrap gap-1 text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={openScanner}
+                      disabled={loading}
+                      className="text-orange-500 hover:text-orange-600 transition-colors flex items-center gap-1 border-b border-orange-500/20 hover:border-orange-600/50 py-2 px-2 min-h-[44px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ScanBarcode className="w-3.5 h-3.5" />
+                      {t("scanner.scan_barcode")}
+                    </button>
                     <button
                       type="button"
                       onClick={() => loadExample(inputMethod)}
@@ -1134,6 +1161,15 @@ export default function SIMIssuePage() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanned={appendScanned}
+        title={t("sim_issue.title")}
+        subtitle={t("scanner.subtitle")}
+      />
     </div>
   );
 }

@@ -199,9 +199,10 @@ class RuleIncludedEmployeeId(Base):
     rule_id = Column(
         Integer, ForeignKey("report_rule_masters.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    user_id = Column(
-        Integer, ForeignKey("users.id"), nullable=False, index=True
-    )
+    # Loose reference to employees.user_id — mirrors employees.user_id (no FK to
+    # users), so employees whose login account no longer exists can still be
+    # included in a rule.
+    user_id = Column(Integer, nullable=False, index=True)
 
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)

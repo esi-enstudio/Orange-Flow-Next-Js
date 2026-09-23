@@ -116,6 +116,45 @@ async def _validate_constants(db: AsyncSession, context_key: str, target_role: s
         )
 
 
+async def _validate_included_employee_ids(
+    db: AsyncSession,
+    house_id: Optional[int],
+    user_ids: list[int],
+):
+    """Ensure every included user_id maps to an Active employee of the house.
+
+    The rule engine looks up `Employee.user_id IN (included_employee_ids)`
+    scoped to the rule's house, so selections outside the house (or inactive)
+    would silently count zero. Reject them up front with a structured 422.
+    """
+    if not user_ids or not house_id:
+        return
+    unique_ids = sorted({uid for uid in user_ids if uid > 0})
+    if not unique_ids:
+        return
+    res = await db.execute(
+        select(Employee.user_id).where(
+            Employee.house_id == house_id,
+            Employee.status == "Active",
+            Employee.user_id.in_(unique_ids),
+        )
+    )
+    valid = {r[0] for r in res.all() if r[0] is not None}
+    invalid = [uid for uid in unique_ids if uid not in valid]
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "VALIDATION_ERROR",
+                "message": "Some included employees are not active in this house",
+                "fields": {
+                    "included_employee_ids":
+                        f"Not active in this house: {invalid}",
+                },
+            },
+        )
+
+
 def _normalize_apply_to(raw: Optional[str]) -> str:
     """Normalize a rule's page-section scope; empty/missing means 'all'."""
     v = (raw or "all").strip().lower() or "all"
@@ -483,6 +522,7 @@ async def create_rule(
     house_context: Optional[int] = Depends(require_house_context),
 ):
     await _validate_constants(db, data.context_key, data.target_role)
+    await _validate_included_employee_ids(db, house_context, data.included_employee_ids)
     apply_to = _normalize_apply_to(data.apply_to)
     column_key = _normalize_column_key(data.column_key)
 
@@ -545,6 +585,10 @@ async def update_rule(
     house_context: Optional[int] = Depends(get_house_context),
 ):
     rule = await _get_accessible_rule(db, rule_id, current_user, house_context)
+
+    if data.included_employee_ids is not None:
+        emp_house_id = rule.house_id or house_context
+        await _validate_included_employee_ids(db, emp_house_id, data.included_employee_ids)
 
     children = await get_rule_children(db, rule.id)
     old = rule_to_dict(rule, children)

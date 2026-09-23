@@ -1041,6 +1041,30 @@ async def _migrate_rule_column_key():
         logger.warning(f"Migration warning (rule column_key): {e}")
 
 
+async def _migrate_rule_included_employee_user_id_fk():
+    """Drop the FK on rule_included_employee_ids.user_id → users.id.
+
+    employees.user_id is a loose reference (no FK to users) and may point to a
+    user account that no longer exists. Enforcing the FK here made saving any
+    rule with such an employee fail with an IntegrityError (surfaced as
+    "Network Error" in the UI). The rule engine resolves user_id → Employee at
+    query time, so the hard FK is unnecessary.
+    """
+    try:
+        async with engine.begin() as conn:
+            tbl = await conn.execute(text(
+                "SELECT to_regclass('public.rule_included_employee_ids') IS NOT NULL AS exists"
+            ))
+            if tbl.scalar():
+                await conn.execute(text(
+                    "ALTER TABLE rule_included_employee_ids "
+                    "DROP CONSTRAINT IF EXISTS rule_included_employee_ids_user_id_fkey"
+                ))
+                logger.info("Migration: dropped rule_included_employee_ids user_id FK")
+    except Exception as e:
+        logger.warning(f"Migration warning (rule_included_employee_ids user_id FK): {e}")
+
+
 async def init_db():
     try:
         await _drop_legacy_ga_section_config_table()
@@ -1050,6 +1074,7 @@ async def init_db():
         await _migrate_seed_rule_contexts()
         await _migrate_rule_apply_to()
         await _migrate_rule_column_key()
+        await _migrate_rule_included_employee_user_id_fk()
         await _migrate_employee_sr_no()
         await _migrate_employee_name()
         await _migrate_supervisor_rso_pivot()

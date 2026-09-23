@@ -22,12 +22,14 @@ import {
   Clipboard,
   Database,
   Building,
-  RefreshCw
+  RefreshCw,
+  ScanBarcode
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
+import { BarcodeScannerModal } from "@/components/dms/BarcodeScannerModal";
 
 interface House {
   id: number;
@@ -83,6 +85,7 @@ export default function SIMStatusCheckPage() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [tipIndex, setTipIndex] = useState(0);
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // Query results
   const [results, setResults] = useState<SIMStatusItem[]>([]);
@@ -342,6 +345,21 @@ export default function SIMStatusCheckPage() {
     }
   };
 
+  const appendScanned = useCallback((codes: string[]) => {
+    setInputValue((prev) => {
+      const existingLines = new Set(prev.split(/[\n,\;]+/).map(s => s.trim()).filter(Boolean));
+      const fresh = codes.map(c => c.trim()).filter(c => c && !existingLines.has(c));
+      if (fresh.length === 0) return prev;
+      const base = prev.trim() ? prev.trimEnd() + "\n" : "";
+      return base + fresh.join("\n");
+    });
+  }, []);
+
+  const openScanner = useCallback(() => {
+    setInputMethod("list");
+    setScannerOpen(true);
+  }, []);
+
   if (!authLoading && !hasPermission("dms.sim_status")) {
     return <AccessDenied />;
   }
@@ -448,7 +466,16 @@ export default function SIMStatusCheckPage() {
             </div>
 
             {/* Quick Helper Links */}
-            <div className="flex gap-3 text-xs font-bold">
+            <div className="flex flex-wrap gap-3 text-xs font-bold">
+              <button
+                type="button"
+                onClick={openScanner}
+                disabled={loading}
+                className="flex items-center gap-1 border-b border-primary-500/20 hover:border-primary-600/50 text-primary-500 hover:text-primary-600 transition-colors px-2 py-2 min-h-[44px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ScanBarcode className="w-3.5 h-3.5" />
+                {t("scanner.scan_barcode")}
+              </button>
               <button
                 type="button"
                 onClick={() => loadExample(inputMethod)}
@@ -884,6 +911,15 @@ export default function SIMStatusCheckPage() {
 
         </div>
       )}
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanned={appendScanned}
+        title={t("sim_status_check.title")}
+        subtitle={t("scanner.subtitle")}
+      />
 
     </div>
   );

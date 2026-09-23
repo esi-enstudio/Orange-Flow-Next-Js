@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
+import { BarcodeScannerModal } from "@/components/dms/BarcodeScannerModal";
 import {
   Undo2,
   Search,
@@ -27,7 +28,8 @@ import {
   RotateCcw,
   AlertCircle,
   Smartphone,
-  ChevronDown
+  ChevronDown,
+  ScanBarcode
 } from "lucide-react";
 
 interface House {
@@ -115,6 +117,7 @@ export default function SIMReturnPage() {
   const houseSelectRef = useRef<HTMLSelectElement>(null);
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
   const pageSize = 10;
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   useEffect(() => {
     const el = houseSelectRef.current;
@@ -314,6 +317,21 @@ export default function SIMReturnPage() {
     }
   };
 
+  const appendScanned = useCallback((codes: string[]) => {
+    setInputValue((prev) => {
+      const existingLines = new Set(prev.split(/[\n,\;]+/).map(s => s.trim()).filter(Boolean));
+      const fresh = codes.map(c => c.trim()).filter(c => c && !existingLines.has(c));
+      if (fresh.length === 0) return prev;
+      const base = prev.trim() ? prev.trimEnd() + "\n" : "";
+      return base + fresh.join("\n");
+    });
+  }, []);
+
+  const openScanner = useCallback(() => {
+    setInputMethod("list");
+    setScannerOpen(true);
+  }, []);
+
   if (!authLoading && !hasPermission("dms.sim_return")) {
     return <AccessDenied />;
   }
@@ -428,7 +446,16 @@ export default function SIMReturnPage() {
                 </div>
               </motion.div>
 
-              <div className="flex gap-3 text-xs font-bold">
+              <div className="flex flex-wrap gap-3 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={openScanner}
+                  disabled={loading}
+                  className="flex items-center gap-1 border-b border-emerald-500/20 hover:border-emerald-600/50 text-emerald-500 hover:text-emerald-600 transition-colors px-2 py-2 min-h-[44px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ScanBarcode className="w-3.5 h-3.5" />
+                  {t("scanner.scan_barcode")}
+                </button>
                 <button
                   type="button"
                   onClick={() => loadExample(inputMethod)}
@@ -862,6 +889,15 @@ export default function SIMReturnPage() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanned={appendScanned}
+        title={t("sim_return.title")}
+        subtitle={t("scanner.subtitle")}
+      />
     </div>
   );
 }
