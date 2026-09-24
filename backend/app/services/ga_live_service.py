@@ -276,7 +276,7 @@ class GaLiveQueryBuilder:
 
     async def get_employee_breakdown(
         self, section_key: str
-    ) -> tuple[list, list, list, list, dict, dict, dict, dict, dict]:
+    ) -> tuple[list, list, list, dict | None, dict | None, dict | None, dict]:
         base_act = await self._build_base_query(section_key)
         base_act_rso = await self._build_base_query("rsos")
         base_act_bps = await self._build_base_query("bps")
@@ -506,13 +506,27 @@ class GaLiveQueryBuilder:
                 sup_count = await self.db.execute(select(func.count()).select_from(sup_q.subquery()))
                 sup_total = sup_count.scalar() or 0
 
-            employee_retailers_in_team = sup_own_retailers | sub_retailer_ids
+            # Employee activation: activations on team retailers that match an
+            # employee's own (assisted) retailer code — the per-supervisor
+            # counterpart of the house-level Employee Activation definition.
+            team_emp_codes: set[str] = set()
+            for eid in (sub_employee_ids | {sup_emp_id}):
+                if emp_id_to_type.get(eid) != "bp":
+                    code = emp_id_to_code.get(eid)
+                    if code:
+                        team_emp_codes.add(code)
             sup_emp = 0
-            if employee_retailers_in_team:
-                team_q = base_act.where(LiveActivation.retailer_id.in_(employee_retailers_in_team))
-                team_q = _exclude_bp_codes(team_q)
-                team_count = await self.db.execute(select(func.count()).select_from(team_q.subquery()))
-                sup_emp = team_count.scalar() or 0
+            if team_emp_codes:
+                emp_q = base_act.where(
+                    and_(
+                        LiveActivation.retailer_id.in_(all_retailers),
+                        LiveActivation.retailer_code != None,
+                        LiveActivation.retailer_code.in_(team_emp_codes),
+                    )
+                )
+                emp_q = _exclude_bp_codes(emp_q)
+                cnt = (await self.db.execute(select(func.count()).select_from(emp_q.subquery()))).scalar() or 0
+                sup_emp = cnt
             sup_market = sup_total - sup_emp
             sup_y_total = sum(sup_yest_retailer_counts.get(rid, 0) for rid in all_retailers)
 
@@ -807,6 +821,14 @@ class GaLiveQueryBuilder:
             y_total = sum(bp_yest_code_counts.get(code, 0) for code in bp_codes)
             b["yesterday_activation"] = y_total
 
+        top_supervisor = supervisor_data[0] if supervisor_data and (len(supervisor_data) == 1 or supervisor_data[0]["total_activation"] != supervisor_data[1]["total_activation"]) else None
+        top_rso = rso_data[0] if rso_data and (len(rso_data) == 1 or rso_data[0]["total_activation"] != rso_data[1]["total_activation"]) else None
+        top_bp = bp_data[0] if bp_data and (len(bp_data) == 1 or bp_data[0]["own_activation"] != bp_data[1]["own_activation"]) else None
+
+        active_sup = len(set(supervisor_emp_ids_all) & active_employee_ids)
+        active_rso = len(set(rso_emp_ids_all) & active_employee_ids)
+        active_bp = len(set(bp_emp_ids_all) & active_employee_ids)
+
         return (
             supervisor_data,
             rso_data,
@@ -947,6 +969,8 @@ class GaLiveQueryBuilder:
 
         distribution = await self.get_employee_market_count("distribution")
         (
+            supervisors, rsos, bps,
+            top_sup, top_rso, top_bp,
             active_counts,
         ) = await self.get_employee_breakdown("supervisors")
 
