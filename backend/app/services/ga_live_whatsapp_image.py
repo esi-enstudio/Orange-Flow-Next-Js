@@ -531,7 +531,7 @@ def _team_summary_rows(data: dict, summary: dict) -> list[list]:
     bp_remain = max(0, bp_target - bp_ach)
     sup_live = sum(sup.get("total_activation", 0) or 0 for sup in data.get("supervisors", []))
     rso_live = sum(r.get("total_activation", 0) or 0 for r in data.get("rsos", []))
-    bp_live = bp_ach
+    bp_live = sum(b.get("own_activation", 0) or 0 for b in data.get("bps", []))
     return [
         [
             "Supervisor", _n(s.get("total_supervisors", 0)), _fmt(supervisor_target),
@@ -629,7 +629,7 @@ def _render_top_grid(img, draw, x, y, data, summary) -> int:
         ("Ach", _fmt(achievement), GREEN_INK),
         ("Remain", _fmt(remaining), RED_INK),
         ("%", _pct(achievement, monthly_target), INK),
-        ("DRR", _fmt(daily_required), PURPLE_INK),
+        ("DRR (w/ Fri)", _fmt(daily_required), PURPLE_INK),
     ]
     label_h = 18
     val_h = 32
