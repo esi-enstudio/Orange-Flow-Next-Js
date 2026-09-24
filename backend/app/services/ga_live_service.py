@@ -618,13 +618,9 @@ class GaLiveQueryBuilder:
         if all_rso_retailer_ids and yesterday_for_mtd >= month_start:
             # Apply section exclusions (product codes + retailer tags)
             mtd_exclude_product_codes, mtd_exclude_retailer_tags = await self._get_exclusions("rsos")
-            rso_owned_ids = await self._owned_retailer_ids("rsos")
             mtd_excluded_retailer_ids: set[int] = set()
             for tag in mtd_exclude_retailer_tags:
-                excluded = await self._load_excluded_retailers_by_tag(tag)
-                if rso_owned_ids:
-                    excluded = excluded - rso_owned_ids
-                mtd_excluded_retailer_ids.update(excluded)
+                mtd_excluded_retailer_ids.update(await self._load_excluded_retailers_by_tag(tag))
             mtd_filtered_retailer_ids = [rid for rid in all_rso_retailer_ids if rid not in mtd_excluded_retailer_ids]
 
             mtd_q = select(Activation.retailer_id, func.count()).where(
