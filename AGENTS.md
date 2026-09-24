@@ -922,13 +922,13 @@ Only authorized users can access these features.
 
 ## Problem Background
 
-BP/CC assisted retailer codes (e.g., `R344412 "BP Assisted Code - Jasim Uddin Suman"`) carry the **RSO's iTopUp SR number** in their `I_TOP_UP_SR_NUMBER` column. If retailer auto-linking matches `itop_number` first, these codes get wrongly assigned to the RSO, inflating the RSO's activation achievement. (Real incident: RSO 1915270101 showed 173 instead of 52.)
+BP assisted retailer codes (e.g., `R344412 "BP Assisted Code - Jasim Uddin Suman"`) carry the **RSO's iTopUp SR number** in their `I_TOP_UP_SR_NUMBER` column. If retailer auto-linking matches `itop_number` first, these codes get wrongly assigned to the RSO, inflating the RSO's activation achievement. (Real incident: RSO 1915270101 showed 173 instead of 52.)
 
 ## Mandatory Rules
 
 1. **Assisted-code ownership takes priority** — When linking a retailer to an employee, first match `retailer_code` against `Employee.assisted_retailer_code`. Only fall back to `itop_number` matching when no assisted-code owner exists.
 
-2. **Never auto-assign BP/CC assisted codes to RSO employees** — A retailer whose `retailer_code` equals some employee's `assisted_retailer_code` must be linked to **that employee**, regardless of the `I_TOP_UP_SR_NUMBER` value in the file.
+2. **Never auto-assign BP assisted codes to RSO employees** — A retailer whose `retailer_code` equals some employee's `assisted_retailer_code` must be linked to **that employee**, regardless of the `I_TOP_UP_SR_NUMBER` value in the file.
 
 3. **Reference implementation** — `backend/app/services/Automation/retailer_excel.py`:
    ```python
@@ -939,7 +939,7 @@ BP/CC assisted retailer codes (e.g., `R344412 "BP Assisted Code - Jasim Uddin Su
 
 4. **Startup self-healing** — `backend/app/services/db_service.py` `_migrate_retailer_employee_link()` re-links any retailer whose `employee_id` does not match its assisted-code owner. Keep this idempotent migration registered in `init_db()`.
 
-5. **Resigned/Inactive owner transfers to the successor (Active) RSO** — If an employee's status is not `Active`, their retailers (iTop-linked AND assisted-code-linked) must be reassigned to the **Active successor RSO** that now owns the same `itop_number` (or, for assisted codes of a resigned BP/CC without an iTop successor, the Active employee owning the retailer's `itop_sr_number`). Active owners always win over non-active owners when they share an iTop number or assisted code. Implemented in:
+5. **Resigned/Inactive owner transfers to the successor (Active) RSO** — If an employee's status is not `Active`, their retailers (iTop-linked AND assisted-code-linked) must be reassigned to the **Active successor RSO** that now owns the same `itop_number` (or, for assisted codes of a resigned BP without an iTop successor, the Active employee owning the retailer's `itop_sr_number`). Active owners always win over non-active owners when they share an iTop number or assisted code. Implemented in:
    - `retailer_excel.py` — `active_map`/`active_assisted_map` (active wins the dict) plus the successor redirect for non-active assisted owners.
    - `db_service.py` — the iTop re-link + resigned-owner re-link migration passes.
 
@@ -1960,7 +1960,7 @@ A reusable module for scheduling and sending report images (PNG) to WhatsApp gro
 **Existing Report Types:**
 | `report_type` | Builder Function | Description |
 |---|---|---|
-| `ga_live` | `build_ga_live_report_image()` | GA Live Report with RSO/BP/CC sections |
+| `ga_live` | `build_ga_live_report_image()` | GA Live Report with RSO/BP/Supervisor sections |
 | `active_lso` | `build_active_lso_report_image()` | Active LSO retailer performance |
 | `active_sso` | `build_active_sso_report_image()` | Active SSO SIM activation performance |
 

@@ -666,13 +666,6 @@
         "reports.view",
         "transactions.view"
       ]
-    },
-    {
-      "name": "Cc",
-      "permissions": [
-        "reports.view",
-        "transactions.view"
-      ]
     }
   ]
 }
