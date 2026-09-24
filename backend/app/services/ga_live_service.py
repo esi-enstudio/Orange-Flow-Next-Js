@@ -692,6 +692,7 @@ class GaLiveQueryBuilder:
                 "own_activation": rso_own if rso_code else 0,
                 "market_activation": rso_total - rso_own,
                 "target": rso_target_val,
+                "achievement": mtd_achievement,
                 "remaining": max(0, rso_target_val - mtd_achievement),
                 "contribution": 0,
             })
@@ -804,6 +805,7 @@ class GaLiveQueryBuilder:
                 "pool_number": bp_info[5] if bp_info else "",
                 "own_activation": bp_total,
                 "target": bp_target_val,
+                "achievement": bp_mtd_achievement,
                 "remaining": max(0, bp_target_val - bp_mtd_achievement),
                 "contribution": 0,
                 "rank": 0,

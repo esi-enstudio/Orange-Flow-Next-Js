@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import datetime, date, time, timedelta
@@ -88,62 +89,57 @@ def _png_to_pdf(image_bytes: bytes) -> bytes:
 
 
 # Only the native-res report renders (e.g. active_lso at ~550px) need
-# upscaling to look decent. Already-high-resolution renders (ga_live 4320px,
-# activation 7200px) must pass through untouched — forcing them past a byte
-# threshold ballooned the image (7200→14400px), added +40s of CPU and turned
-# a ~1.2MB PDF into a ~12MB one that takes minutes to upload.
-UPSCALE_MIN_WIDTH = 1600
+# upscaling to look decent. Already-high-resolution renders (ga_live 4608px,
+# activation 6480px) must pass through untouched — chasing a byte threshold is
+# what ballooned small reports into multi-MB files with seconds of LANCZOS CPU.
+UPSCALE_TARGET_WIDTH = 2200
 
 
-def _ensure_min_size_png(image_bytes: bytes, min_bytes: int = 2 * 1024 * 1024) -> bytes:
-    """Guarantee a high-resolution PNG payload of at least ``min_bytes``.
+def _ensure_min_size_png(image_bytes: bytes) -> bytes:
+    """Return a high-resolution PNG payload for document/PDF sends.
 
-    Small/native-res report renders (e.g. active_lso at ~550px) are upscaled
-    with LANCZOS until the PNG exceeds the minimum size (capped at 8x). Large
-    renders (width >= UPSCALE_MIN_WIDTH, e.g. ga_live 4320px / activation
-    7200px) pass through untouched even when they compress below the byte
-    threshold — they are already far above phone/WhatsApp display resolution.
+    Small/native-res report renders (e.g. active_lso at ~550px) are upscaled a
+    single time to ``UPSCALE_TARGET_WIDTH`` (2200px) with LANCZOS — two stops
+    above any phone/WhatsApp display. Renders already wider than that (ga_live
+    4608px / activation 6480px) pass through untouched. Resolution, not byte
+    size, is what makes a document look sharp; the old byte-chasing loop output
+    ~3.4MB files and added ~2.3s of CPU per small-report send.
     """
-    if len(image_bytes) >= min_bytes:
-        return image_bytes
-
-    from PIL import Image
     import io as _io
 
+    from PIL import Image
+
     im = Image.open(_io.BytesIO(image_bytes))
-    im.load()
-    if im.size[0] >= UPSCALE_MIN_WIDTH:
+    if im.size[0] >= UPSCALE_TARGET_WIDTH:
         return image_bytes
-    base_w, base_h = im.size
-    best = image_bytes
-    best_size = len(image_bytes)
-    scale = 2
-    while scale <= 8:
-        out = im.convert("RGB").resize((base_w * scale, base_h * scale), Image.LANCZOS)
-        buf = _io.BytesIO()
-        out.save(buf, format="PNG")
-        if buf.tell() > best_size:
-            best_size = buf.tell()
-            best = buf.getvalue()
-        if best_size >= min_bytes:
-            return best
-        scale *= 2
-    return best
+
+    w, h = im.size
+    factor = UPSCALE_TARGET_WIDTH / w
+    out = im.convert("RGB").resize(
+        (UPSCALE_TARGET_WIDTH, max(1, round(h * factor))), Image.LANCZOS
+    )
+    buf = _io.BytesIO()
+    out.save(buf, format="PNG")
+    return buf.getvalue()
 
 
-def _payload_for_send_as(send_as: str, report_type: str, image_bytes: bytes) -> tuple[bytes, str, str]:
+async def _payload_for_send_as(send_as: str, report_type: str, image_bytes: bytes) -> tuple[bytes, str, str]:
     """Return (file_bytes, filename, mimetype) for the requested send_as format.
 
     - image    -> PNG bytes, sent as a photo (WhatsApp compresses)
-    - document -> PNG bytes (high-res, >= 2MB), documents endpoint (no compression)
+    - document -> PNG bytes upscaled to UPSCALE_TARGET_WIDTH, documents endpoint
     - pdf      -> PDF bytes from the high-res PNG (crisp zooming)
+
+    The CPU-heavy conversions (PIL resize, reportlab PDF) run in a worker
+    thread so the event loop stays responsive during sends.
     """
     mode = send_as or "image"
     if mode == "pdf":
-        hi = _ensure_min_size_png(image_bytes)
-        return _png_to_pdf(hi), f"{report_type}_report.pdf", "application/pdf"
+        hi = await asyncio.to_thread(_ensure_min_size_png, image_bytes)
+        pdf = await asyncio.to_thread(_png_to_pdf, hi)
+        return pdf, f"{report_type}_report.pdf", "application/pdf"
     if mode == "document":
-        hi = _ensure_min_size_png(image_bytes)
+        hi = await asyncio.to_thread(_ensure_min_size_png, image_bytes)
         return hi, f"{report_type}_report.png", "image/png"
     return image_bytes, f"{report_type}_report.png", "image/png"
 
@@ -447,7 +443,7 @@ async def send_direct_report(
         bot = await telegram_service.resolve_house_tg_bot(db, house)
         if not bot:
             return False, "No Telegram bot assigned to this house"
-        file_bytes, filename, mimetype = _payload_for_send_as(send_as, report_type, image_bytes)
+        file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
         try:
             if send_as == "image":
                 await telegram_service.send_photo(
@@ -493,7 +489,7 @@ async def send_direct_report(
                 error=error, chat_names=[n for _, n in targets], user_id=user_id,
             )
             return False, error
-        file_bytes, filename, mimetype = _payload_for_send_as(send_as, report_type, image_bytes)
+        file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
         for chat_id, chat_name in targets:
             try:
                 if send_as == "image":
@@ -638,7 +634,7 @@ async def _send_telegram_report(
 
     chat_name = house.telegram_chat_name or house.telegram_chat_id
     send_as = getattr(schedule, "send_as", "image") or "image"
-    file_bytes, filename, mimetype = _payload_for_send_as(send_as, report_type, image_bytes)
+    file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
     try:
         if send_as == "image":
             await telegram_service.send_photo(
@@ -770,7 +766,7 @@ async def _send_whatsapp_report(
     delivered = 0
     first_error: str | None = None
     send_as = getattr(schedule, "send_as", "image") or "image"
-    file_bytes, filename, mimetype = _payload_for_send_as(send_as, report_type, image_bytes)
+    file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
     for chat_id, chat_name in targets:
         try:
             if send_as == "image":

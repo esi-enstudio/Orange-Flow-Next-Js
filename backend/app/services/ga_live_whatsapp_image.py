@@ -102,7 +102,11 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
 # All layout math stays in the IMG_W-wide design space; ScaledDraw renders every
 # coordinate and font natively at RENDER_SCALE so text stays crisp when zoomed,
 # instead of LANCZOS-upsampling a low-res canvas.
-RENDER_SCALE = 12
+# RENDER_SCALE = 12 produced a 13824px-wide send image: a ~7s build, a 2.5MB PNG
+# and a multi-minute PDF conversion. 4 (4608px) matches the historical 4320px
+# "already high-resolution" watermark — well above any phone/WhatsApp display —
+# while cutting build to ~1.5s and making document/PDF sends near-instant.
+RENDER_SCALE = 4
 
 # The active render scale. Defaults to RENDER_SCALE; ``_temp_scale`` swaps it
 # for lighter (faster) preview renders — e.g. the WhatsApp Report Delivery
@@ -294,14 +298,17 @@ def _live_display(ci, text, live_cols):
 
 
 def _content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_total=None,
-                     total_row=None):
+                     total_row=None, total_span=0):
     """Compute integer column weights sized to the widest label/cell text.
 
     Each column is sized to fit its widest content (plus ``margin``), so every
     value stays fully visible instead of being ellipsized away. ``total_row``
-    (when given) is measured too, so wide summary labels such as
-    "Total (9 RSO)" get a column wide enough to display fully. ``max_total``
-    caps the combined weight when content cannot otherwise fit.
+    (when given) is measured too, but only for columns outside ``total_span``:
+    when the total row's leading label spans several columns (``total_span > 0``)
+    it is measured against the combined width of those columns instead, so a
+    label like "Total (9 RSO)" never inflates the serial-number column along
+    side it. ``max_total`` caps the combined weight when content cannot
+    otherwise fit.
     """
     n = len(labels)
     if n == 0:
@@ -312,12 +319,17 @@ def _content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_tota
         for r in rows:
             v = r[ci] if ci < len(r) else ""
             w = max(w, f_cell.getlength(_live_display(ci, v, live_cols)))
-        if total_row is not None:
+        if total_row is not None and (total_span == 0 or ci >= total_span):
             w = max(w, f_head.getlength(str(total_row[ci]) if ci < len(total_row) else ""))
         req[ci] = math.ceil(w + margin)
     if max_total and sum(req) > max_total:
         scale = max_total / sum(req)
         req = [max(1, int(r * scale)) for r in req]
+    if total_row is not None and total_span > 0 and len(total_row):
+        span_w = sum(req[:total_span])
+        need = f_head.getlength(str(total_row[0])) + margin
+        if need > span_w:
+            req[total_span - 1] += need - span_w
     return [max(1, r) for r in req]
 
 
@@ -333,6 +345,7 @@ def _draw_table(
     left_cols: list[int] | None = None,
     live_cols: list[int] | None = None,
     total_row: list | None = None,
+    total_span: int = 0,
     f_head,
     f_cell,
     borderless=False,
@@ -342,7 +355,13 @@ def _draw_table(
     cell_ink: str | None = None,
     live_dot: str | None = None,
 ) -> int:
-    """Draw a bordered table starting at (x, y). Returns the height used."""
+    """Draw a bordered table starting at (x, y). Returns the height used.
+
+    When ``total_span > 0`` the total row's value in column 0 is drawn as a
+    merged cell spanning columns ``0..total_span-1`` (interior vertical borders
+    are omitted inside that span on the total row), so a label like
+    "Total (9 RSO)" no longer widens the serial-number column.
+    """
     n = len(labels)
     if n == 0:
         return 0
@@ -379,11 +398,20 @@ def _draw_table(
     yy = y + head_h
     for ri, row in enumerate(all_rows):
         is_total = total_row is not None and ri == len(rows)
+        span = total_span if is_total and total_span else 1
         if is_total:
             draw.rectangle([x, yy, x + width, yy + row_h], fill=TOTAL_ROW_BG)
         font = f_head if is_total else f_cell
         color = LIVE_INK if is_total else cell_ink
         for ci in range(n):
+            if is_total and span > 1:
+                if ci == 0:
+                    merged_w = sum(widths[:span])
+                    disp = _ellipsize(draw, str(row[0] if row else ""), font, merged_w - 10)
+                    draw.text((x + 5, yy + row_h / 2), disp, font=font, fill=color, anchor="lm")
+                    continue
+                if ci < span:
+                    continue
             val = row[ci] if ci < len(row) else ""
             txt = _live_text(ci, val)
             cw = widths[ci]
@@ -400,9 +428,14 @@ def _draw_table(
     if not borderless:
         bc = border_color or TD_BORDER
         draw.rectangle([x, y, x + width, yy], outline=bc)
+        total_y0 = y + head_h + len(rows) * row_h
         for ci in range(1, n):
             lx = x + sum(widths[:ci])
-            draw.line([(lx, y), (lx, yy)], fill=bc)
+            if total_span and total_row is not None and ci < total_span:
+                draw.line([(lx, y), (lx, total_y0)], fill=bc)
+                draw.line([(lx, total_y0 + row_h), (lx, yy)], fill=bc)
+            else:
+                draw.line([(lx, y), (lx, yy)], fill=bc)
         n_inner = len(all_rows)
         if n_inner > 1:
             for r in range(1, n_inner):
@@ -426,6 +459,20 @@ def _today_target(item: dict, days_remaining: int) -> int:
     return 0
 
 
+def _ach(item: dict) -> int:
+    """Actual month achievement (unclamped, can exceed target).
+
+    ``remaining`` is stored already clamped (``max(0, target - achievement)``),
+    so deriving achievement from it would cap the value at the target and hide
+    over-achievement. Use the explicit ``achievement`` field when present and
+    only fall back to ``target - remaining`` for other callers.
+    """
+    v = item.get("achievement")
+    if v is not None:
+        return int(v)
+    return max(0, (item.get("target", 0) or 0) - (item.get("remaining", 0) or 0))
+
+
 def _sup_metrics(sup: dict, team_rso: list, team_bp: list, days_remaining: int,
                  target_override: int = None) -> tuple[int, int, float, int, int]:
     # Target comes from the authoritative supervisor_targets.total_ga when
@@ -436,9 +483,7 @@ def _sup_metrics(sup: dict, team_rso: list, team_bp: list, days_remaining: int,
         target = sum(r.get("target", 0) or 0 for r in team_rso) + sum(
             b.get("target", 0) or 0 for b in team_bp
         )
-    ach = sum(max(0, (r.get("target", 0) or 0) - (r.get("remaining", 0) or 0)) for r in team_rso) + sum(
-        max(0, (b.get("target", 0) or 0) - (b.get("remaining", 0) or 0)) for b in team_bp
-    )
+    ach = sum(_ach(r) for r in team_rso) + sum(_ach(b) for b in team_bp)
     pct = round(ach / target * 100, 1) if target else 0
     remain = max(0, target - ach)
     drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
@@ -464,7 +509,7 @@ def _team_summary_rows(data: dict, summary: dict) -> list[list]:
     sup_target_map = summary.get("supervisor_target_map", {}) or {}
 
     # Supervisor team: achievement = sum of each supervisor's team achievement
-    # (RSO + BP member targets minus their remaining).
+    # (RSO + BP member actual achievements).
     sup_ach = 0
     for sup in data.get("supervisors", []):
         team_rso, team_bp = _team_by_supervisor(sup, data)
@@ -476,15 +521,12 @@ def _team_summary_rows(data: dict, summary: dict) -> list[list]:
     sup_remain = max(0, supervisor_target - sup_ach)
     sup_drr = math.ceil(sup_remain / max(days_remaining, 1)) if sup_remain > 0 else 0
 
-    # RSO team: achievement = sum of per-RSO achievement (target − remaining).
-    rso_ach = sum(
-        max(0, (r.get("target", 0) or 0) - (r.get("remaining", 0) or 0))
-        for r in data.get("rsos", [])
-    )
+    # RSO team: achievement = sum of per-RSO actual achievement.
+    rso_ach = sum(_ach(r) for r in data.get("rsos", []))
     rso_remain = max(0, rso_target - rso_ach)
     rso_drr = math.ceil(rso_remain / max(days_remaining, 1)) if rso_remain > 0 else 0
 
-    bp_ach = sum(b.get("own_activation", 0) for b in data.get("bps", []))
+    bp_ach = sum(_ach(b) for b in data.get("bps", []))
     bp_target = summary.get("bp_target", 0)
     bp_remain = max(0, bp_target - bp_ach)
     sup_live = sum(sup.get("total_activation", 0) or 0 for sup in data.get("supervisors", []))
@@ -745,7 +787,7 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
     for i, r in enumerate(team_rso):
         monthly_target = r.get("target", 0) or 0
         remaining = r.get("remaining", 0) or 0
-        ach = max(0, monthly_target - remaining)
+        ach = _ach(r)
         pct_val = _pct(ach, monthly_target) if monthly_target else "0%"
         remain = max(0, remaining)
         drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
@@ -772,11 +814,12 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
         ]
         rso_weights = _content_weights(
             rso_labels, rso_rows, f_head, f_cell, rso_live_cols,
-            max_total=inner_w, total_row=rso_total,
+            max_total=inner_w, total_row=rso_total, total_span=4,
         )
         yy += _draw_table(draw, x + pad, yy, inner_w, rso_labels, rso_rows,
                           weights=rso_weights, left_cols=[1], live_cols=rso_live_cols,
-                          total_row=rso_total, f_head=f_head, f_cell=f_cell)
+                          total_row=rso_total, total_span=4,
+                          f_head=f_head, f_cell=f_cell)
     else:
         draw.text((x + pad + 4, yy), "No RSO assigned", font=_font(11), fill=MUTED, anchor="lm")
         yy += 16
@@ -798,7 +841,7 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
         for i, b in enumerate(team_bp):
             monthly_target = b.get("target", 0) or 0
             remaining = b.get("remaining", 0) or 0
-            ach = max(0, monthly_target - remaining)
+            ach = _ach(b)
             pct_val = _pct(ach, monthly_target) if monthly_target else "0%"
             remain = max(0, remaining)
             drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
@@ -824,11 +867,12 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
         ]
         bp_weights = _content_weights(
             bp_labels, bp_rows, f_head, f_cell, bp_live_cols,
-            max_total=inner_w, total_row=bp_total,
+            max_total=inner_w, total_row=bp_total, total_span=4,
         )
         yy += _draw_table(draw, x + pad, yy, inner_w, bp_labels, bp_rows,
                           weights=bp_weights, left_cols=[1], live_cols=bp_live_cols,
-                          total_row=bp_total, f_head=f_head, f_cell=f_cell)
+                          total_row=bp_total, total_span=4,
+                          f_head=f_head, f_cell=f_cell)
     return yy
 
 
@@ -850,7 +894,11 @@ def _render_footer(img, draw, x, y, today: date) -> int:
 def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
     supervisors = data.get("supervisors", [])
     days_remaining = summary.get("days_remaining", 0)
-    grid_cols = 1 if len(supervisors) == 1 else 2
+    # Portrait layout when more than two supervisor panels exist: a single column
+    # keeps every RSO/BP section readable and the image tall (portrait) instead
+    # of a wide landscape strip. Two or fewer supervisors keep the 2-col grid.
+    portrait = len(supervisors) > 2
+    grid_cols = 1 if portrait or len(supervisors) == 1 else 2
     panels = [(sup, _team_by_supervisor(sup, data)) for sup in supervisors]
     grid_rows = [panels[i:i + grid_cols] for i in range(0, len(panels), grid_cols)]
     grid_h = 0
@@ -897,7 +945,7 @@ def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
     if supervisors:
         y = _render_supervisor_section(img, draw, cx, y, data, summary)
         y += GAP
-        y = _render_supervisor_grid(img, cx, y, data, summary, grid_rows)
+        y = _render_supervisor_grid(img, cx, y, data, summary, grid_rows, grid_cols)
         y += GAP
     y = _render_footer(img, draw, cx, y, today)
 
@@ -906,12 +954,11 @@ def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
     return buf.getvalue()
 
 
-def _render_supervisor_grid(img, x, y, data, summary, grid_rows) -> int:
+def _render_supervisor_grid(img, x, y, data, summary, grid_rows, cols) -> int:
     draw = ScaledDraw(ImageDraw.Draw(img))
     days_remaining = summary.get("days_remaining", 0)
     sup_target_map = summary.get("supervisor_target_map", {}) or {}
     supervisors = data.get("supervisors", [])
-    cols = 1 if len(supervisors) == 1 else 2
     w = INNER
     panel_w = (w - GAP * (cols - 1)) // cols if cols > 1 else w
 
