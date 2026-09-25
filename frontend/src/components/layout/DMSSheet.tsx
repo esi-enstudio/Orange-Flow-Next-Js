@@ -16,6 +16,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
+import { useEntitlements } from "@/context/EntitlementsContext";
 
 const dmsItems = [
   {
@@ -59,8 +60,9 @@ export function DMSSheet({ open, onClose }: DMSSheetProps) {
   const pathname = usePathname();
   const { t } = useLanguage();
   const { hasPermission } = useAuth();
+  const { hasModule, hasPage } = useEntitlements();
 
-  const visibleItems = dmsItems.filter((item) => hasPermission(item.permission));
+  const visibleItems = hasModule("dms") ? dmsItems.filter((item) => hasPermission(item.permission) && hasPage(item.href)) : [];
 
   return (
     <AnimatePresence>

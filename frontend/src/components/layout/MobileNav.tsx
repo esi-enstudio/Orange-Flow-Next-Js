@@ -14,6 +14,7 @@ import {
 
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
+import { useEntitlements } from "@/context/EntitlementsContext";
 import { ReportsSheet } from "./ReportsSheet";
 import { DMSSheet } from "./DMSSheet";
 import { MoreSheet } from "./MoreSheet";
@@ -46,14 +47,15 @@ export function MobileNav() {
   const pathname = usePathname();
   const { t } = useLanguage();
   const { hasPermission } = useAuth();
+  const { hasModule } = useEntitlements();
   const [reportsOpen, setReportsOpen] = useState(false);
   const [dmsOpen, setDmsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const canViewAnyReport = reportPermissions.some(p => hasPermission(p));
-  const canViewAnyDms = dmsPermissions.some(p => hasPermission(p));
+  const canViewAnyReport = hasModule("reports") && reportPermissions.some(p => hasPermission(p));
+  const canViewAnyDms = hasModule("dms") && dmsPermissions.some(p => hasPermission(p));
 
-  const canViewEmployees = hasPermission("employees.view");
+  const canViewEmployees = hasModule("employee_hub") && hasPermission("employees.view");
 
   return (
     <>

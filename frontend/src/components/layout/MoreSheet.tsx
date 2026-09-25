@@ -28,6 +28,8 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
+import { useEntitlements } from "@/context/EntitlementsContext";
+import { moduleKeyOf } from "@/lib/planModules";
 import { useTheme } from "@/components/ThemeProvider";
 import { navItems } from "@/lib/constants";
 
@@ -47,6 +49,7 @@ export function MoreSheet({ open, onClose }: MoreSheetProps) {
   const pathname = usePathname();
   const { t, language, setLanguage } = useLanguage();
   const { hasPermission, user, logout } = useAuth();
+  const { hasModule } = useEntitlements();
   const { theme, setTheme } = useTheme();
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
@@ -57,6 +60,7 @@ export function MoreSheet({ open, onClose }: MoreSheetProps) {
   const filteredItems = navItems.filter(item => {
     const key = item.translationKey?.replace("nav.", "");
     if (mobileNavKeys.includes(key || "")) return false;
+    if (!hasModule(moduleKeyOf(item))) return false;
     if (item.permissions && item.permissions.length > 0) {
       if (!item.permissions.some(p => hasPermission(p))) return false;
     } else if (item.permission && !hasPermission(item.permission)) {

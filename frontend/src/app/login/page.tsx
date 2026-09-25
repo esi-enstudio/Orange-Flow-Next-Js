@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import apiClient from "@/lib/api";
+import apiClient, { resolveImageUrl } from "@/lib/api";
 import { Lock, User, Loader2, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useLanguage } from "@/i18n/useLanguage";
 
@@ -16,6 +16,21 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [logo, setLogo] = useState<string | null>(null);
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    apiClient.get("settings/brand").then((res) => {
+      if (!active) return;
+      const url = resolveImageUrl(res.data?.logo);
+      setLogo(url);
+      if (!url) setLogoFailed(false);
+    }).catch(() => {
+      if (active) setLogoFailed(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +64,16 @@ export default function LoginPage() {
       <div className="max-w-md w-full space-y-8 bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800">
         <div className="text-center">
           <div className="mx-auto h-12 w-12 bg-primary-500 rounded-xl flex items-center justify-center mb-4">
-            <Lock className="text-white h-6 w-6" />
+            {logo && !logoFailed ? (
+              <img
+                src={logo}
+                alt="Logo"
+                className="h-12 w-12 object-contain rounded-xl bg-white dark:bg-slate-900"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <Lock className="text-white h-6 w-6" />
+            )}
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900 dark:text-gray-100">{t('login.title')}</h2>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">

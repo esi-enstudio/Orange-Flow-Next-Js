@@ -802,6 +802,7 @@ async def _migrate_subscription_billing():
                     ("price_yearly", "NUMERIC(12,2)"),
                     ("trial_days", "INTEGER DEFAULT 0"),
                     ("feature_flags", "JSON"),
+                    ("allowed_modules", "JSON"),
                     ("limits", "JSON"),
                     ("sort_order", "INTEGER DEFAULT 0"),
                     ("is_deleted", "BOOLEAN DEFAULT FALSE"),
@@ -839,6 +840,17 @@ async def _migrate_subscription_billing():
                         continue
                     await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_def}"))
                     logger.info(f"Migration: added {tbl}.{col_name}")
+
+            # tier column must accept NULL (model declares nullable=True; custom plans use tier=null)
+            result = await conn.execute(text(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_name='subscription_packages' AND column_name='tier'"
+            ))
+            if result.scalar() == "NO":
+                await conn.execute(text(
+                    "ALTER TABLE subscription_packages ALTER COLUMN tier DROP NOT NULL"
+                ))
+                logger.info("Migration: subscription_packages.tier is now nullable")
 
             # Backfill legacy alias -> price_monthly
             result = await conn.execute(text(

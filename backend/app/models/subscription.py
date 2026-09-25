@@ -44,6 +44,10 @@ class SubscriptionPackage(Base):
 
     # Feature flags (array of feature keys, e.g. ["reports", "import", "dms_sync"])
     feature_flags = Column(JSON, nullable=True, default=list)
+    # Explicit module access list (top-level module keys). None = legacy/unrestricted (fail-open).
+    # When set, the subscribing house may only access these modules (+ the automatically
+    # included base modules). See backend/config/modules.py.
+    allowed_modules = Column(JSON, nullable=True, default=list)
     # Plan limits (dict, e.g. {"max_users": 10, "max_retailers": 500})
     limits = Column(JSON, nullable=True, default=dict)
 

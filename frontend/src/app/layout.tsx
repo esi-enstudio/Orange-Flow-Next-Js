@@ -7,6 +7,8 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/context/AuthContext";
 import { ColorProvider } from "@/context/ColorContext";
 import { BrandProvider } from "@/context/BrandContext";
+import { EntitlementsProvider } from "@/context/EntitlementsContext";
+import { ModuleAccessGuard } from "@/components/layout/ModuleAccessGuard";
 import { Toaster } from "react-hot-toast";
 import { Suspense } from "react";
 import PageProgressIndicator from "@/components/ui/PageProgressIndicator";
@@ -45,11 +47,15 @@ export default async function RootLayout({
           <AuthProvider>
             <ColorProvider>
               <BrandProvider>
+              <EntitlementsProvider>
               <DynamicPageTitle />
               <DashboardLayout>
-                {children}
+                <ModuleAccessGuard>
+                  {children}
+                </ModuleAccessGuard>
               </DashboardLayout>
               <Toaster position="top-center" reverseOrder={false} />
+              </EntitlementsProvider>
               </BrandProvider>
             </ColorProvider>
           </AuthProvider>

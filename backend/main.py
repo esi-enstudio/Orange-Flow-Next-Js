@@ -40,6 +40,7 @@ from app.services.db_service import init_db
 from app.core.automation_engine import engine
 from app.core.automation_lock import automation_locks
 from app.routers import admin_controller, admin_setup_controller
+from app.middleware.plan_module_guard import PlanModuleGuard
 
 # --- Routers ---
 from app.routers.auth import router as auth_router
@@ -167,6 +168,7 @@ async def security_headers(request: Request, call_next):
     return response
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=security_headers)
+app.add_middleware(PlanModuleGuard)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "https://orange-flow-next-js.vercel.app", "http://165.99.219.177:3000"],

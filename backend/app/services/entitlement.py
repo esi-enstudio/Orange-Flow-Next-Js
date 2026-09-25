@@ -25,12 +25,19 @@ from app.routers.deps import get_db, get_house_context, get_current_user
 from app.models.user import User
 from app.models.subscription import (
     HouseSubscription,
+    SubscriptionPackage,
     SUBSCRIPTION_STATUS_ACTIVE,
     SUBSCRIPTION_STATUS_TRALING,
     SUBSCRIPTION_STATUS_PAST_DUE,
 )
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
+from config.modules import (
+    BASE_MODULES,
+    MODULE_LEAF_ROUTES,
+    MODULE_SHARED_API_PREFIXES,
+    leaf_owners_for_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +115,36 @@ def limit_value(sub: Optional[HouseSubscription], limit_key: str) -> Optional[in
     limits = sub.package.limits or {}
     value = limits.get(limit_key)
     return int(value) if value is not None else None
+
+
+def allowed_modules(sub: Optional[HouseSubscription]) -> Optional[list]:
+    """Explicit top-level module list granted by the house's plan.
+
+    None => legacy/unrestricted (fail-open). A list => strict gating.
+    """
+    if has_plan_fallback(sub):
+        return None
+    modules = sub.package.allowed_modules or []
+    return list(modules) if modules else None
+
+
+def module_enabled(sub: Optional[HouseSubscription], module_key: str) -> bool:
+    """Whether the house's plan allows `module_key`.
+
+    Legacy/no-plan subscribers (allowed_modules None) are always allowed,
+    matching the fail-open policy. Base modules are always enabled. A module is
+    also enabled when the plan grants either the module key itself OR at least
+    one of its page-level ("leaf") routes.
+    """
+    modules = allowed_modules(sub)
+    if modules is None:
+        return True
+    if module_key in BASE_MODULES:
+        return True
+    if module_key in modules:
+        return True
+    leaves = MODULE_LEAF_ROUTES.get(module_key, ())
+    return any(leaf in modules for leaf in leaves)
 
 
 async def enforce_plan_limit(
@@ -204,6 +241,89 @@ def require_feature(feature: str):
                 detail=(
                     f"FEATURE_REQUIRED: '{feature}' is not included in your "
                     "current plan. Please upgrade to enable this feature."
+                ),
+            )
+        return None
+
+    return dep
+
+
+# ---------------------------------------------------------------------------
+# Plan module gating
+# ---------------------------------------------------------------------------
+
+def module_gated(sub: Optional[HouseSubscription], module_key: str) -> bool:
+    """True when the house has a strict plan that excludes `module_key`."""
+    return allowed_modules(sub) is not None and not module_enabled(sub, module_key)
+
+
+def api_path_allowed(
+    sub: Optional[HouseSubscription], module_key: str, path: str
+) -> bool:
+    """Per-path page-level API enforcement for plan module access.
+
+    Decision table (checked in order):
+
+    1. Legacy / no-plan / package-less (allowed_modules None)  -> allow
+    2. Base modules                                            -> allow
+    3. Whole module granted (module key in the set)            -> allow
+    4. Module not granted at all (no key, no leaf)             -> deny
+    5. Leaf-gated module (only page grants present):
+         - shared module-level prefix  -> allow
+         - path owned by a granted leaf (longest match) -> allow
+         - otherwise                    -> deny (secure fail-closed)
+    """
+    modules = allowed_modules(sub)
+    if modules is None:
+        return True
+    if module_key in BASE_MODULES:
+        return True
+    module_set = set(modules)
+    if module_key in module_set:
+        return True
+    leaves = MODULE_LEAF_ROUTES.get(module_key, ())
+    granted_leaves = [leaf for leaf in leaves if leaf in module_set]
+    if not granted_leaves:
+        return False
+    for shared in MODULE_SHARED_API_PREFIXES.get(module_key, ()):
+        if path.startswith(shared):
+            return True
+    owners = leaf_owners_for_path(module_key, path)
+    if not owners:
+        logger.warning(
+            "No page owner for %s under leaf-gated module %s — denied",
+            path, module_key,
+        )
+        return False
+    return any(owner in module_set for owner in owners)
+
+
+def require_plan_module(module_key: str):
+    """Dependency factory: gate an endpoint behind an explicit plan module.
+
+    Only meaningful for houses on a strict plan (allowed_modules set). Legacy,
+    admin-without-house, and base modules bypass. Individual permission checks
+    still apply on top.
+    """
+
+    async def dep(
+        house_context: Optional[int] = Depends(get_house_context),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        if is_admin_user(current_user) and not house_context:
+            return None
+        house_id = await _house_id_for(current_user, house_context)
+        if not house_id:
+            return None
+        sub = await get_house_subscription(db, house_id)
+        if module_gated(sub, module_key):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "PLAN_MODULE_DISABLED: "
+                    f"The '{module_key}' module is not included in your current plan. "
+                    "Please contact the administrator to add it."
                 ),
             )
         return None

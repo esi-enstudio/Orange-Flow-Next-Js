@@ -23,7 +23,6 @@ class DailySyncToggle(BaseModel):
 @router.get("/brand")
 async def get_brand_settings(
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(get_current_user),
 ):
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()

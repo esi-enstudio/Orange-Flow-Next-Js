@@ -96,13 +96,17 @@ async def get_entitlements(
     sub = await entitlement.get_house_subscription(db, house_id)
     effective = entitlement.effective_status(sub) if sub else None
     feature_gated = sub is not None and sub.package is not None
+    extra = (sub.package.allowed_modules or list()) if feature_gated else None
+    module_gated = feature_gated and bool(extra)
     return EntitlementsSchema(
         house_id=house_id,
         subscribed=entitlement.is_entitled(sub),
         status=effective,
         feature_gated=feature_gated,
+        module_gated=module_gated,
         features_enabled=(sub.package.feature_flags or list()) if feature_gated else None,
         limits=(sub.package.limits or {}) if feature_gated else None,
+        allowed_modules=extra,
         plan=PlanSchema.model_validate(sub.package) if sub and sub.package else None,
         trial_end=sub.trial_end if sub else None,
         grace_period_end=sub.grace_period_end if sub else None,

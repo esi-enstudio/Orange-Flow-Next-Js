@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
+import { useEntitlements } from "@/context/EntitlementsContext";
 
 const reportItems = [
   {
@@ -99,13 +100,15 @@ export function ReportsSheet({ open, onClose }: ReportsSheetProps) {
   const pathname = usePathname();
   const { t } = useLanguage();
   const { hasPermission } = useAuth();
+  const { hasModule, hasPage } = useEntitlements();
 
-  const visibleItems = reportItems.filter(item => {
+  const visibleItems = hasModule("reports") ? reportItems.filter(item => {
+    if (!hasPage(item.href)) return false;
     if (item.permissions && item.permissions.length > 0) {
       return item.permissions.some(p => hasPermission(p));
     }
     return !item.permission || hasPermission(item.permission as string);
-  });
+  }) : [];
 
   return (
     <AnimatePresence>

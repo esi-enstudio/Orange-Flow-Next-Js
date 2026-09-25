@@ -14,6 +14,8 @@ export interface Plan {
   features?: string | null;
   feature_flags?: string[] | null;
   limits?: Record<string, any> | null;
+  /** Explicit top-level module keys granted by this plan. null/undefined = legacy (unrestricted). */
+  allowed_modules?: string[] | null;
   is_active: boolean;
   sort_order: number;
 }
@@ -48,8 +50,10 @@ export interface Entitlements {
   subscribed: boolean;
   status?: string | null;
   feature_gated: boolean;
+  module_gated: boolean;
   features_enabled?: string[] | null;
   limits?: Record<string, any> | null;
+  allowed_modules?: string[] | null;
   plan?: Plan | null;
   trial_end?: string | null;
   grace_period_end?: string | null;

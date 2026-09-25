@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Crown, Loader2, Pencil, Plus, Save, Search, Tag, Trash2, X } from "lucide-react";
+import { Crown, Loader2, Lock, Pencil, Plus, Save, Search, Tag, Trash2, X, Zap, ChevronDown, ChevronRight, Layers } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -11,6 +12,8 @@ import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import type { Paginated, Plan } from "@/types/billing";
+import { buildPlanModuleTree, BASE_MODULES, allLeafKeys, moduleLeaves, expandGrantsToLeaves, summarizeGrants, isBaseModule, isAlwaysReachable } from "@/lib/planModules";
+import type { PlanModuleSummary } from "@/lib/planModules";
 
 interface PlanForm {
   name: string;
@@ -26,12 +29,13 @@ interface PlanForm {
   feature_flags: string;
   limits: string;
   description: string;
+  allowed_modules: string[];
 }
 
 const EMPTY_FORM: PlanForm = {
   name: "",
   slug: "",
-  tier: "basic",
+  tier: "custom",
   billing_interval: "monthly",
   price_monthly: "0",
   price_yearly: "0",
@@ -42,9 +46,18 @@ const EMPTY_FORM: PlanForm = {
   feature_flags: "",
   limits: "",
   description: "",
+  allowed_modules: [],
 };
 
 const fmtMoney = (n: number) => `৳${Number(n).toLocaleString()}`;
+
+const slugify = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 
 export default function AdminPlansPage() {
   const router = useRouter();
@@ -62,6 +75,10 @@ export default function AdminPlansPage() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Plan | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  const moduleTree = useMemo(() => buildPlanModuleTree(), []);
+  const selectableLeaves = useMemo(() => allLeafKeys(), []);
 
   const canView = hasPermission("plans.manage") || hasPermission("subscription.manage");
   const canEdit = hasPermission("plans.manage");
@@ -106,7 +123,7 @@ export default function AdminPlansPage() {
     setForm({
       name: plan.name,
       slug: plan.slug || "",
-      tier: plan.tier || "basic",
+      tier: plan.tier || "custom",
       billing_interval: plan.billing_interval,
       price_monthly: String(plan.price_monthly ?? 0),
       price_yearly: String(plan.price_yearly ?? 0),
@@ -117,11 +134,43 @@ export default function AdminPlansPage() {
       feature_flags: (plan.feature_flags || []).join(", "),
       limits: plan.limits ? JSON.stringify(plan.limits, null, 2) : "",
       description: plan.description || "",
+      allowed_modules: expandGrantsToLeaves(plan.allowed_modules || []),
     });
     setFormError("");
     setFieldErrors({});
     setModalOpen(true);
   };
+
+  const toggleGroup = useCallback(
+    (key: string, enabled: boolean) => {
+      const leaves = moduleLeaves(key);
+      setForm((prev) => ({
+        ...prev,
+        allowed_modules: enabled
+          ? Array.from(new Set([...prev.allowed_modules, ...leaves]))
+          : prev.allowed_modules.filter((m) => !leaves.includes(m)),
+      }));
+    },
+    []
+  );
+
+  const toggleLeaf = useCallback((leaf: string, enabled: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      allowed_modules: enabled
+        ? Array.from(new Set([...prev.allowed_modules, leaf]))
+        : prev.allowed_modules.filter((m) => m !== leaf),
+    }));
+  }, []);
+
+  const toggleExpand = useCallback((key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const validate = (): boolean => {
     const fe: Record<string, string> = {};
@@ -140,12 +189,25 @@ export default function AdminPlansPage() {
 
   const handleSave = async () => {
     if (!validate()) return;
+
+    // Legacy plans (allowed_modules == null) keep unrestricted access; a
+    // strict plan must always include at least one non-base module.
+    const isLegacy = editing && (editing.allowed_modules || []).length === 0;
+    const selectedModules = form.allowed_modules.filter((m) => !isBaseModule(m));
+    if (selectedModules.length === 0 && !isLegacy) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        allowed_modules: t("plans.modules_required"),
+      }));
+      return;
+    }
+
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
         name: form.name.trim(),
         slug: form.slug.trim() || null,
-        tier: form.tier,
+        tier: form.tier === "custom" ? null : form.tier,
         billing_interval: form.billing_interval,
         price_monthly: Number(form.price_monthly) || 0,
         price_yearly: Number(form.price_yearly) || 0,
@@ -158,6 +220,7 @@ export default function AdminPlansPage() {
           .map((s) => s.trim())
           .filter(Boolean),
         description: form.description || null,
+        allowed_modules: selectedModules.length > 0 ? selectedModules : null,
       };
       if (form.limits.trim()) payload.limits = JSON.parse(form.limits);
       if (editing) {
@@ -285,6 +348,36 @@ export default function AdminPlansPage() {
               </div>
               <p className="text-[11px] text-primary-500 mt-1">{t("pricing.trial_days", { days: plan.trial_days })}</p>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2 line-clamp-2">{plan.description}</p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {(() => {
+                  const chips: PlanModuleSummary[] = (plan.allowed_modules || []).length > 0
+                    ? summarizeGrants(plan.allowed_modules || [])
+                    : [];
+                  return chips.length > 0 ? (
+                    chips.map((chip) => {
+                      const group = moduleTree.find((g) => g.moduleKey === chip.moduleKey);
+                      const label = group && group.translationKey ? t(group.translationKey) : chip.moduleKey;
+                      return (
+                        <span
+                          key={chip.moduleKey}
+                          className="inline-flex items-center px-2 py-0.5 rounded-md bg-gray-100 dark:bg-slate-800 text-[11px] font-medium text-gray-600 dark:text-gray-300"
+                        >
+                          {label}
+                          {!chip.whole && chip.total > 0 && (
+                            <span className="ml-1 text-[10px] text-primary-500 font-bold">
+                              {chip.granted}/{chip.total}
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">
+                      {t("plans.modules_none")}
+                    </span>
+                  );
+                })()}
+              </div>
               {canEdit && (
                 <div className="mt-5 flex gap-2">
                   <button
@@ -336,6 +429,11 @@ export default function AdminPlansPage() {
                   <input
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    onBlur={() => {
+                      if (!form.slug.trim()) {
+                        setForm((prev) => ({ ...prev, slug: slugify(prev.name) }));
+                      }
+                    }}
                     className={inputCls}
                   />
                   {fieldErrors.name && <p className="text-xs text-red-500 mt-1">{fieldErrors.name}</p>}
@@ -355,9 +453,9 @@ export default function AdminPlansPage() {
                     onChange={(e) => setForm({ ...form, tier: e.target.value })}
                     className={inputCls}
                   >
-                    {["basic", "standard", "premium"].map((tr) => (
+                    {["basic", "standard", "premium", "custom"].map((tr) => (
                       <option key={tr} value={tr}>
-                        {tr}
+                        {tr === "custom" ? t("plans.tier_custom") : tr}
                       </option>
                     ))}
                   </select>
@@ -412,6 +510,143 @@ export default function AdminPlansPage() {
                     onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
                     className={inputCls}
                   />
+                </div>
+                <div className="md:col-span-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                        {t("plans.modules_title")}
+                      </label>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{t("plans.modules_always_on")}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForm((prev) => ({ ...prev, allowed_modules: moduleLeaves("dms") }));
+                          setExpandedGroups(new Set(["dms"]));
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 text-xs font-bold hover:bg-yellow-100 dark:hover:bg-yellow-500/20 transition-colors cursor-pointer"
+                      >
+                        <Zap className="w-3.5 h-3.5" /> {t("plans.modules_preset_dms")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm((prev) => ({ ...prev, allowed_modules: [...selectableLeaves] }))}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 text-xs font-bold hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-colors cursor-pointer"
+                      >
+                        <Layers className="w-3.5 h-3.5" /> {t("plans.modules_select_all")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm((prev) => ({ ...prev, allowed_modules: [] }))}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 text-xs font-bold hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                      >
+                        {t("plans.modules_clear")}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden">
+                    {/* Base modules — always included */}
+                    <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-slate-800/60">
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded border-2 border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900">
+                        <Lock className="w-3 h-3 text-gray-400" />
+                      </span>
+                      <span className="flex-1 text-sm font-bold text-gray-400">{t("plans.modules_base")}</span>
+                      <span className="text-[11px] text-gray-400">
+                        {Array.from(BASE_MODULES).map((m) => m).join(", ")}
+                      </span>
+                    </div>
+
+                    {moduleTree
+                      .filter((g) => !isBaseModule(g.moduleKey) && !isAlwaysReachable(g.moduleKey))
+                      .map((group) => {
+                        const leaves = group.children.map((c) => c.href);
+                        const selectedLeaves = leaves.filter((l) => form.allowed_modules.includes(l));
+                        const allSelected = leaves.length > 0 && selectedLeaves.length === leaves.length;
+                        const someSelected = selectedLeaves.length > 0 && !allSelected;
+                        const expanded = expandedGroups.has(group.moduleKey);
+                        const groupLabel = group.translationKey ? t(group.translationKey) : group.title;
+                        return (
+                          <div key={group.moduleKey} className="border-t border-gray-100 dark:border-slate-800">
+                            <div
+                              className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-slate-800/40"
+                              onClick={() => toggleExpand(group.moduleKey)}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={allSelected}
+                                onChange={() => toggleGroup(group.moduleKey, !allSelected)}
+                                onClick={(e) => e.stopPropagation()}
+                                ref={(el) => {
+                                  if (el) el.indeterminate = someSelected;
+                                }}
+                                className="w-4 h-4 accent-primary-600 cursor-pointer"
+                              />
+                              <span className="flex-1 text-sm font-bold text-gray-700 dark:text-gray-200">{groupLabel}</span>
+                              <span className="text-[11px] text-gray-400">{group.children.length || 1}</span>
+                              {expanded ? (
+                                <ChevronDown className="w-4 h-4 text-gray-300 dark:text-gray-600" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4 text-gray-300 dark:text-gray-600" />
+                              )}
+                            </div>
+                            <AnimatePresence initial={false}>
+                              {expanded && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: "auto", opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.2 }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="px-10 pb-3 space-y-0.5">
+                                    {group.children.map((child) => {
+                                      const childSelected = form.allowed_modules.includes(child.href);
+                                      const childLabel = child.translationKey ? t(child.translationKey) : child.href;
+                                      return (
+                                        <div
+                                          key={child.key}
+                                          className="flex items-center gap-2.5 py-1.5 cursor-pointer"
+                                          onClick={() => toggleLeaf(child.href, !childSelected)}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={childSelected}
+                                            onChange={() => toggleLeaf(child.href, !childSelected)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="w-3.5 h-3.5 accent-primary-600 cursor-pointer"
+                                          />
+                                          <span className="text-[11px] text-gray-500 dark:text-gray-400">{childLabel}</span>
+                                          <span className="text-[11px] text-gray-300 dark:text-gray-600 ml-auto">{child.href}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        );
+                      })}
+                  </div>
+
+                  <p
+                    className={`text-sm mt-2 font-semibold ${
+                      form.allowed_modules.length === 0
+                        ? "text-red-500 dark:text-red-400"
+                        : "text-gray-500 dark:text-gray-400"
+                    }`}
+                  >
+                    {t("plans.modules_count", { count: form.allowed_modules.length, total: selectableLeaves.length })}
+                    {form.allowed_modules.length === 0 && (
+                      <span className="ml-2 text-xs font-medium">{t("plans.modules_required_hint")}</span>
+                    )}
+                  </p>
+                  {fieldErrors.allowed_modules && (
+                    <p className="text-xs text-red-500 mt-1">{fieldErrors.allowed_modules}</p>
+                  )}
                 </div>
                 <div className="md:col-span-2">
                   <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("plans.features")}</label>

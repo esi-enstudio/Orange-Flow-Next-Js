@@ -39,6 +39,9 @@ import {
 export interface NavItem {
   title: string;
   translationKey?: string;
+  /** Top-level module key for plan-based module access (see backend/config/modules.py).
+   *  Auto-derived from `translationKey` (strip "nav.") or href if omitted. */
+  moduleKey?: string;
   href?: string;
   icon: LucideIcon;
   color?: string;
@@ -67,6 +70,7 @@ export const navItems: NavItem[] = [
   {
     title: "Dashboard",
     translationKey: "nav.dashboard",
+    moduleKey: "dashboard",
     href: "/",
     icon: LayoutDashboard,
     color: "text-blue-500",
@@ -74,6 +78,7 @@ export const navItems: NavItem[] = [
   {
     title: "To-Do List",
     translationKey: "nav.todos",
+    moduleKey: "todos",
     href: "/todos",
     icon: ListTodo,
     color: "text-primary-500",
@@ -81,6 +86,7 @@ export const navItems: NavItem[] = [
   {
     title: "Live Monitor",
     translationKey: "nav.live_monitor",
+    moduleKey: "live_monitor",
     href: "/live-monitor",
     icon: Activity,
     color: "text-rose-500",
@@ -89,6 +95,7 @@ export const navItems: NavItem[] = [
   {
     title: "Data Import",
     translationKey: "nav.data_import",
+    moduleKey: "data_import",
     icon: Upload,
     color: "text-emerald-500",
     children: [
@@ -105,6 +112,7 @@ export const navItems: NavItem[] = [
   {
     title: "Employee Hub",
     translationKey: "nav.employee_hub",
+    moduleKey: "employee_hub",
     icon: Users2,
     color: "text-purple-500",
     children: [
@@ -115,6 +123,7 @@ export const navItems: NavItem[] = [
   {
     title: "Retailers",
     translationKey: "nav.retailers",
+    moduleKey: "retailers",
     icon: Tag,
     color: "text-orange-500",
     children: [
@@ -129,6 +138,7 @@ export const navItems: NavItem[] = [
   {
     title: "Commercial & Sales",
     translationKey: "nav.sales",
+    moduleKey: "commercial_sales",
     icon: Banknote,
     color: "text-green-500",
     children: [
@@ -146,6 +156,7 @@ export const navItems: NavItem[] = [
   {
     title: "Lifting",
     translationKey: "nav.lifting",
+    moduleKey: "lifting",
     icon: Banknote,
     color: "text-green-500",
     children: [
@@ -156,6 +167,7 @@ export const navItems: NavItem[] = [
   {
     title: "Stock & Sales",
     translationKey: "nav.stock_sales",
+    moduleKey: "stock_sales",
     icon: Warehouse,
     color: "text-emerald-500",
     children: [
@@ -166,6 +178,7 @@ export const navItems: NavItem[] = [
   {
     title: "DMS Automation",
     translationKey: "nav.dms",
+    moduleKey: "dms",
     icon: Zap,
     color: "text-yellow-500",
     children: [
@@ -179,6 +192,7 @@ export const navItems: NavItem[] = [
   {
     title: "Reports",
     translationKey: "nav.reports_center",
+    moduleKey: "reports",
     icon: BarChart3,
     color: "text-primary-500",
     children: [
@@ -198,6 +212,7 @@ export const navItems: NavItem[] = [
   {
     title: "SIM Management",
     translationKey: "nav.sim_management",
+    moduleKey: "sim_management",
     icon: Smartphone,
     color: "text-indigo-500",
     children: [
@@ -208,6 +223,7 @@ export const navItems: NavItem[] = [
   {
     title: "Performance",
     translationKey: "nav.performance",
+    moduleKey: "performance",
     icon: Target,
     color: "text-rose-500",
     children: [
@@ -219,6 +235,7 @@ export const navItems: NavItem[] = [
   {
     title: "Targets",
     translationKey: "nav.targets",
+    moduleKey: "targets",
     icon: Crosshair,
     color: "text-rose-500",
     children: [
@@ -231,6 +248,7 @@ export const navItems: NavItem[] = [
   {
     title: "Roles & Permissions",
     translationKey: "nav.roles_permissions",
+    moduleKey: "roles_permissions",
     icon: Shield,
     color: "text-red-500",
     children: [
@@ -241,6 +259,7 @@ export const navItems: NavItem[] = [
   {
     title: "Zoom In",
     translationKey: "nav.zoom_in",
+    moduleKey: "zoom_in",
     icon: Search,
     color: "text-rose-500",
     permission: "zoom_in.view",
@@ -255,6 +274,7 @@ export const navItems: NavItem[] = [
   {
     title: "Administration",
     translationKey: "nav.administration",
+    moduleKey: "administration",
     icon: ShieldCheck,
     color: "text-cyan-500",
     children: [
@@ -270,6 +290,7 @@ export const navItems: NavItem[] = [
   {
     title: "Billing & Subscription",
     translationKey: "nav.billing_group",
+    moduleKey: "billing_group",
     icon: CreditCard,
     color: "text-violet-500",
     children: [
@@ -282,6 +303,7 @@ export const navItems: NavItem[] = [
   {
     title: "WhatsApp",
     translationKey: "nav.whatsapp",
+    moduleKey: "whatsapp",
     href: "/whatsapp",
     icon: MessageCircle,
     color: "text-green-500",
@@ -290,6 +312,7 @@ export const navItems: NavItem[] = [
   {
     title: "Telegram",
     translationKey: "nav.telegram",
+    moduleKey: "telegram",
     href: "/telegram",
     icon: Send,
     color: "text-sky-500",

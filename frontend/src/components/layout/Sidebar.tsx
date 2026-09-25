@@ -7,6 +7,8 @@ import { cn, getProfilePicUrl } from "@/lib/utils";
 import { navItems } from "@/lib/constants";
 import { ChevronRight, ChevronDown, LogOut, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useEntitlements } from "@/context/EntitlementsContext";
+import { moduleKeyOf } from "@/lib/planModules";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useBrand } from "@/context/BrandContext";
@@ -23,6 +25,7 @@ function isPathMatch(href: string, pathname: string): boolean {
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
+  const { hasModule, hasPage } = useEntitlements();
   const { t } = useLanguage();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [openNested, setOpenNested] = useState<string | null>(null);
@@ -38,9 +41,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       return true;
     };
 
-    function filterChildren(children: any[]): any[] {
+function filterChildren(children: any[]): any[] {
       return children
         .filter(child => canShow(child))
+        .filter(child => child.href ? hasPage(child.href) : true)
         .map(child => {
           if (child.children) {
             const filtered = filterChildren(child.children);
@@ -53,6 +57,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     return navItems
       .map(item => ({ ...item })) // Shallow clone parent
       .filter(item => {
+        // 0. Plan module access — hide whole groups excluded by the plan
+        if (!hasModule(moduleKeyOf(item))) return false;
+
         // 1. If it has a direct permission, check it
         if (!canShow(item)) return false;
 
@@ -61,14 +68,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           const visibleChildren = filterChildren(item.children);
           // If no children are visible, hide the parent
           if (visibleChildren.length === 0) return false;
-          
+
           // Assign cloned children
           item.children = visibleChildren;
         }
 
         return true;
       });
-  }, [hasPermission]);
+  }, [hasPermission, hasModule, hasPage]);
 
   // Auto-open parent menu if a child is active
   React.useEffect(() => {

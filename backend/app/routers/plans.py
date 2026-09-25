@@ -12,6 +12,7 @@ from app.schemas.pagination import PaginationParams, PaginatedResponse, Paginati
 from app.models.subscription import SubscriptionPackage, SubscriptionTier
 from app.models.user import User
 from app.utils.timezone import now_naive
+from config.modules import valid_module_key, BASE_MODULES
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,33 @@ def _tier_or_none(value: Optional[str]):
         if tier.value == value.lower():
             return tier
     raise HTTPException(status_code=400, detail=f"Invalid tier: {value}")
+
+
+def _normalize_allowed_modules(value: Optional[list]):
+    """Validate/normalize a plan's explicit module list.
+
+    None => legacy (unrestricted). An empty list is rejected because it would
+    lock a house out of every non-base module.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise HTTPException(status_code=422, detail="allowed_modules must be a list")
+    modules = set(value)
+    unknown = [m for m in modules if not valid_module_key(m)]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown module(s): {', '.join(sorted(unknown))}",
+        )
+    if not modules:
+        raise HTTPException(
+            status_code=422,
+            detail="allowed_modules cannot be empty. Select at least one module "
+            "(base modules are always included).",
+        )
+    # Drop base modules (they are always included implicitly).
+    return sorted(modules - BASE_MODULES)
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -103,6 +131,7 @@ async def create_plan(
         features=payload.features,
         feature_flags=payload.feature_flags,
         limits=payload.limits,
+        allowed_modules=_normalize_allowed_modules(payload.allowed_modules),
         is_active=payload.is_active,
         sort_order=payload.sort_order,
     )
@@ -129,6 +158,8 @@ async def update_plan(
         raise HTTPException(status_code=404, detail="Plan not found")
 
     updates = payload.model_dump(exclude_unset=True)
+    if "allowed_modules" in updates:
+        updates["allowed_modules"] = _normalize_allowed_modules(updates["allowed_modules"])
     if "tier" in updates and updates["tier"] is not None:
         tier = _tier_or_none(updates["tier"])
         dup = (await db.execute(select(SubscriptionPackage).where(

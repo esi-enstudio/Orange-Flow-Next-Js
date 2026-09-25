@@ -20,6 +20,7 @@ class PlanSchema(BaseModel):
     features: Optional[str] = None
     feature_flags: Optional[List[str]] = None
     limits: Optional[Dict[str, Any]] = None
+    allowed_modules: Optional[List[str]] = None
     is_active: bool = True
     sort_order: int = 0
 
@@ -41,6 +42,7 @@ class PlanUpsert(BaseModel):
     features: Optional[str] = None
     feature_flags: Optional[List[str]] = None
     limits: Optional[Dict[str, Any]] = None
+    allowed_modules: Optional[List[str]] = None
     is_active: bool = True
     sort_order: int = 0
 
@@ -77,8 +79,10 @@ class EntitlementsSchema(BaseModel):
     subscribed: bool
     status: Optional[str] = None
     feature_gated: bool = False  # True when a plan is enforcing features (not legacy)
+    module_gated: bool = False  # True when a plan enforces explicit module access
     features_enabled: Optional[List[str]] = None
     limits: Optional[Dict[str, Any]] = None
+    allowed_modules: Optional[List[str]] = None
     plan: Optional[PlanSchema] = None
     trial_end: Optional[datetime] = None
     grace_period_end: Optional[datetime] = None
