@@ -160,7 +160,6 @@ export const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
   deploy: "Deploy",
   imports: "Imports",
   settings: "Settings",
-  expenses: "Expenses",
 };
 
 export function displayNameForModule(key: string): string {

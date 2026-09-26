@@ -1,3 +1,4 @@
+import json
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import text
@@ -996,6 +997,78 @@ async def _migrate_bts_own_plan_module():
         logger.warning(f"Migration warning (bts standalone plan module): {e}")
 
 
+# Legacy grant keys remapped onto the new `commission` module.
+_COMMISSION_KEY_REMAP = {
+    "commercial_sales": "commission",
+    "/commercial/commission": "commission",
+}
+# Keys with no surviving page — dropped (that page never existed).
+_DROPPED_COMMERCIAL_KEYS = ("/commercial/expenses",)
+
+
+def _rewrite_allowed_modules(modules: list) -> list:
+    """Map a legacy `allowed_modules` list onto the post-split module catalog.
+
+    - `commercial_sales`       -> `commission` (the group's only real page)
+    - `/commercial/commission` -> `commission` (page moved to /commission)
+    - `/commercial/expenses`   -> dropped (that page never existed)
+
+    Order is preserved and duplicates are collapsed.
+    """
+    out = []
+    for key in modules:
+        if key in _DROPPED_COMMERCIAL_KEYS:
+            continue
+        key = _COMMISSION_KEY_REMAP.get(key, key)
+        if key not in out:
+            out.append(key)
+    return out
+
+
+async def _migrate_commission_own_plan_module():
+    """Commission became its own module (`commission`) and moved /commercial/commission
+    -> /commission. The `commercial_sales` group it lived in no longer exists.
+
+    Rewrite every plan's `allowed_modules` so no subscriber silently loses the
+    page: module key and page-leaf grants are both remapped onto `commission`,
+    and the now-meaningless `commercial_sales` / `/commercial/expenses` keys are
+    pruned. Legacy NULL (unrestricted) plans are left untouched. Idempotent.
+    """
+    try:
+        async with engine.begin() as conn:
+            exists = await conn.execute(text(
+                "SELECT to_regclass('public.subscription_packages') IS NOT NULL AS exists"
+            ))
+            if not exists.scalar():
+                return
+            rows = await conn.execute(text(
+                """
+                SELECT id, allowed_modules
+                FROM subscription_packages
+                WHERE allowed_modules IS NOT NULL
+                  AND jsonb_typeof(allowed_modules::jsonb) = 'array'
+                FOR UPDATE
+                """
+            ))
+            updated = 0
+            for pkg_id, current in rows:
+                new = _rewrite_allowed_modules(list(current or []))
+                if new == list(current or []):
+                    continue
+                await conn.execute(
+                    text("UPDATE subscription_packages SET allowed_modules = :mods, updated_at = NOW() WHERE id = :id"),
+                    {"mods": json.dumps(new), "id": pkg_id},
+                )
+                updated += 1
+            if updated:
+                logger.info(
+                    f"Migration: remapped allowed_modules to the new 'commission' module "
+                    f"for {updated} plan(s)"
+                )
+    except Exception as e:
+        logger.warning(f"Migration warning (commission standalone plan module): {e}")
+
+
 async def _migrate_seed_rule_contexts():
     """Seed the built-in report rule contexts (idempotent).
 
@@ -1160,6 +1233,7 @@ async def init_db():
         await _migrate_subscription_billing()
         await _migrate_billing_tables_extra()
         await _migrate_bts_own_plan_module()
+        await _migrate_commission_own_plan_module()
     except Exception as e:
         error_msg = str(e).lower()
         if "already exists" in error_msg:

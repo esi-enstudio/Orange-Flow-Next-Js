@@ -289,8 +289,7 @@
       "display_name": "Navigation",
       "permissions": [
         "imports.view",
-        "settings.view",
-        "expenses.view"
+        "settings.view"
       ]
     },
     "zoom_in": {

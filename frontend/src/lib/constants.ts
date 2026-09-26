@@ -145,22 +145,13 @@ export const navItems: NavItem[] = [
     ],
   },
   {
-    title: "Commercial & Sales",
-    translationKey: "nav.sales",
-    moduleKey: "commercial_sales",
-    icon: Banknote,
+    title: "Commission",
+    translationKey: "nav.commission",
+    moduleKey: "commission",
+    href: "/commission",
+    icon: Calculator,
     color: "text-green-500",
-    children: [
-      {
-        title: "Commission",
-        translationKey: "nav.commission",
-        icon: Calculator,
-        color: "text-green-500",
-        permission: "commission.view",
-        href: "/commercial/commission",
-      },
-      { title: "Daily Expenses", translationKey: "nav.expenses", href: "/commercial/expenses", permission: "expenses.view" },
-    ]
+    permission: "commission.view",
   },
   {
     title: "Lifting",

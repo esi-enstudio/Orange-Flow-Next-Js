@@ -75,7 +75,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/stock", "stock_sales"),
     ("/api/sales", "stock_sales"),
 
-    ("/api/commission", "commercial_sales"),
+    ("/api/commission", "commission"),
 
     ("/api/house-targets", "targets"),
     ("/api/supervisor-targets", "targets"),
@@ -162,7 +162,10 @@ MODULE_LEAF_ROUTES: dict = {
         "/retailers/import-marking",
         "/retailers/marking-history",
     ),
-    "commercial_sales": ("/commercial/commission", "/commercial/expenses"),
+    # Commission is a standalone module (own plan key `commission`), rendered as
+    # its own top-level sidebar item. It was previously a sub-page of the now
+    # removed `commercial_sales` group at /commercial/commission.
+    "commission": ("/commission",),
     "lifting": ("/liftings", "/liftings/products"),
     "stock_sales": ("/stock", "/sales"),
     "dms": (
@@ -245,9 +248,8 @@ LEAF_TO_API_PREFIXES: dict = {
     "/retailers/import-marking": ("/api/retailer-markings",),
     "/retailers/marking-history": ("/api/retailer-markings",),
 
-    # ---- commercial_sales ----
-    "/commercial/commission": ("/api/commission",),
-    "/commercial/expenses": ("/api/commission",),
+    # ---- commission ----
+    "/commission": ("/api/commission",),
 
     # ---- lifting ----
     "/liftings": ("/api/lifting",),
