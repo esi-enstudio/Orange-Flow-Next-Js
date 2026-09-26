@@ -2,22 +2,25 @@
 
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
-import { Bell, Search, Loader2, CloudDownload } from "lucide-react";
+import { Bell, Search, Loader2, CloudDownload, Minimize2 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/context/AuthContext";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
-import { getProfilePicUrl } from "@/lib/utils";
+import { getProfilePicUrl, cn } from "@/lib/utils";
 
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useLanguage } from "@/i18n/useLanguage";
+import { useFullscreen } from "@/context/FullscreenContext";
+import { FullscreenControls } from "./FullscreenControls";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user } = useAuth();
   const { t } = useLanguage();
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { isFocusMode, revealSidebar, revealHeader, setRevealHeader, setFocusMode } = useFullscreen();
   const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup" || pathname === "/forgot-password" || pathname === "/reset-password";
 
   if (loading) {
@@ -39,9 +42,29 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-[#F8FAFC] dark:bg-slate-950 transition-colors duration-300">
-      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        focusMode={isFocusMode}
+        revealed={revealSidebar}
+      />
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="hidden md:flex h-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 items-center justify-between px-4 md:px-8 sticky top-0 z-40 transition-colors duration-300 gap-4">
+        <header
+          onMouseEnter={() => isFocusMode && setRevealHeader(true)}
+          onMouseLeave={() => isFocusMode && setRevealHeader(false)}
+          className={cn(
+            // A single transition-property covers both the colour and transform changes:
+            // stacking `transition-colors` and `transition-transform` would make them
+            // fight over the same CSS property and the slide animation would be dropped.
+            "hidden md:flex h-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 items-center justify-between px-4 md:px-8 z-40 duration-300 transition-[color,background-color,border-color,outline-color,transform] gap-4",
+            isFocusMode
+              ? cn(
+                  "fixed inset-x-0 top-0 shadow-lg ease-out",
+                  revealHeader ? "translate-y-0" : "-translate-y-full"
+                )
+              : "sticky top-0"
+          )}
+        >
           <div className="flex items-center gap-3 md:gap-6 flex-1 min-w-0">
             <div className="relative hidden lg:block max-w-xs w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -63,8 +86,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                <Link href="/sync" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-500/10 rounded-xl transition-all" title="DMS Sync">
                  <CloudDownload className="w-5 h-5" />
                </Link>
-               <LanguageSwitcher />
-               <ThemeToggle />
+                <LanguageSwitcher />
+                <ThemeToggle />
+                <FullscreenControls />
                
                <button className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl transition-all relative">
                  <Bell className="w-5 h-5" />
@@ -90,11 +114,31 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
         
-        <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8">
+        <main className={cn(
+          "flex-1",
+          isFocusMode
+            ? "p-2 md:p-4 pb-6"
+            : "p-4 md:p-8 pb-24 md:pb-8"
+        )}>
           {children}
         </main>
       </div>
-      <MobileNav />
+
+      {!isFocusMode && <MobileNav />}
+
+      {/* Focus mode escape hatch — touch devices have no hover to reveal the chrome. */}
+      {isFocusMode && (
+        <button
+          type="button"
+          onClick={() => setFocusMode(false)}
+          title={t("common.fullscreen.exit_focus")}
+          aria-label={t("common.fullscreen.exit_focus")}
+          className="fixed bottom-4 right-4 z-[102] flex items-center gap-2 h-11 px-4 rounded-full bg-primary-500 text-white text-sm font-semibold shadow-lg shadow-primary-500/30 hover:bg-primary-600 active:scale-95 transition-all cursor-pointer"
+        >
+          <Minimize2 className="w-4 h-4" />
+          <span className="hidden sm:inline">{t("common.fullscreen.exit_focus")}</span>
+        </button>
+      )}
     </div>
   );
 }

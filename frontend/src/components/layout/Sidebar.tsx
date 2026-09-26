@@ -12,17 +12,22 @@ import { moduleKeyOf } from "@/lib/planModules";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useBrand } from "@/context/BrandContext";
+import { useFullscreen } from "@/context/FullscreenContext";
 
 interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
+  /** Focus mode: detach the desktop sidebar from the flow so it can slide in on hover. */
+  focusMode?: boolean;
+  /** Focus mode only: keep the sidebar pinned open while the pointer is over it. */
+  revealed?: boolean;
 }
 
 function isPathMatch(href: string, pathname: string): boolean {
   return href === pathname || pathname.startsWith(href.endsWith("/") ? href : `${href}/`);
 }
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
+export function Sidebar({ isOpen, onClose, focusMode, revealed }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
   const { hasModule, hasPage } = useEntitlements();
@@ -30,6 +35,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [openNested, setOpenNested] = useState<string | null>(null);
   const { brand } = useBrand();
+  const { setRevealSidebar } = useFullscreen();
 
   // Filter items based on permissions - use memo to prevent mutation of constant
   const filteredNavItems = React.useMemo(() => {
@@ -322,7 +328,20 @@ function filterChildren(children: any[]): any[] {
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 h-screen sticky top-0 transition-colors duration-300 scrollbar-hide">
+      <aside
+        onMouseEnter={() => focusMode && setRevealSidebar(true)}
+        onMouseLeave={() => focusMode && setRevealSidebar(false)}
+        className={cn(
+          // One transition-property for both colour and transform — see DashboardLayout.
+          "hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 h-screen scrollbar-hide duration-300 transition-[color,background-color,border-color,outline-color,transform]",
+          focusMode
+            ? cn(
+                "fixed inset-y-0 left-0 z-[101] shadow-2xl ease-out",
+                revealed ? "translate-x-0" : "-translate-x-full"
+              )
+            : "sticky top-0"
+        )}
+      >
         {sidebarContent}
       </aside>
 

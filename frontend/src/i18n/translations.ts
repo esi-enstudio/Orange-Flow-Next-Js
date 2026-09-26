@@ -3,6 +3,14 @@ export type Language = 'en' | 'bn';
 export const translations = {
   en: {
     common: {
+      fullscreen: {
+        focus_on: "Focus mode on",
+        focus_off: "Focus mode off",
+        native_enter: "Enter full screen",
+        native_exit: "Exit full screen",
+        exit_focus: "Exit focus mode",
+        unsupported: "Full screen is not supported by this browser",
+      },
       search: "Search...",
       loading: "Loading system...",
       user: "User",
@@ -3749,6 +3757,14 @@ export const translations = {
   },
   bn: {
     common: {
+      fullscreen: {
+        focus_on: "ফোকাস মোড চালু",
+        focus_off: "ফোকাস মোড বন্দ",
+        native_enter: "ফোল স্ক্রিন ঘুক্কে",
+        native_exit: "ফোল স্ক্রিন থরতে",
+        exit_focus: "ফোকাস মোড থরতে",
+        unsupported: "আপনার ব্রাওরার ফোল স্ক্রিন পরিশতিব নয়",
+      },
       search: "Search...",
       loading: "Loading system...",
       user: "User",
