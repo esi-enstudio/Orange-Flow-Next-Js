@@ -61,7 +61,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/zoom-in", "zoom_in"),
 
     ("/api/houses", "data_import"),
-    ("/api/bts", "data_import"),
+    ("/api/bts", "bts"),
     ("/api/v1/scratch-card-serials", "data_import"),
 
     ("/api/employees", "employee_hub"),
@@ -143,7 +143,6 @@ MODULE_LEAF_ROUTES: dict = {
     "live_monitor": ("/live-monitor",),
     "data_import": (
         "/houses",
-        "/bts",
         "/import/activations",
         "/import/itopup-details",
         "/import/live-activations",
@@ -151,6 +150,9 @@ MODULE_LEAF_ROUTES: dict = {
         "/import/sim-issues",
         "/import/sc-serials",
     ),
+    # BTS is a standalone module (own plan key `bts`), rendered as its own
+    # top-level sidebar item directly below "Data Import".
+    "bts": ("/bts",),
     "employee_hub": ("/employees", "/employees/supervisors"),
     "retailers": (
         "/retailers",
@@ -219,13 +221,15 @@ LEAF_TO_API_PREFIXES: dict = {
 
     # ---- data_import ----
     "/houses": ("/api/houses",),
-    "/bts": ("/api/bts",),
     "/import/activations": ("/api/activations/import",),
     "/import/itopup-details": ("/api/itopup-details/import",),
     "/import/live-activations": ("/api/live-activations/import",),
     "/import/scratch-card": ("/api/scratch-card/import",),
     "/import/sim-issues": ("/api/sim-issues/import",),
     "/import/sc-serials": ("/api/v1/scratch-card-serials",),
+
+    # ---- bts ----
+    "/bts": ("/api/bts",),
 
     # ---- employee_hub ----
     # the employees router serves both the list and the supervisors page.

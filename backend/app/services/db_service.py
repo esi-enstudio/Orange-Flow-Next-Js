@@ -951,6 +951,51 @@ async def _migrate_billing_tables_extra():
         logger.warning(f"Migration warning (billing tables extra columns): {e}")
 
 
+async def _migrate_bts_own_plan_module():
+    """BTS was promoted from a `data_import` sub-page to its own plan module `bts`.
+
+    A plan that grants the whole `data_import` module used to include the BTS page
+    implicitly. After the split it would silently lose access, so add the `bts`
+    module key to every such plan. Idempotent, and only touches plans that
+    explicitly listed `data_import` (plans that granted individual leaves, or
+    legacy NULL = unrestricted, are left exactly as they are).
+    """
+    try:
+        async with engine.begin() as conn:
+            exists = await conn.execute(text(
+                "SELECT to_regclass('public.subscription_packages') IS NOT NULL AS exists"
+            ))
+            if not exists.scalar():
+                return
+            result = await conn.execute(text(
+                """
+                UPDATE subscription_packages
+                SET allowed_modules = (
+                        SELECT json_agg(item ORDER BY idx)
+                        FROM (
+                            SELECT idx, value AS item
+                            FROM jsonb_array_elements(allowed_modules::jsonb)
+                                 WITH ORDINALITY AS t(value, idx)
+                            UNION ALL
+                            SELECT 999999, '"bts"'::jsonb
+                        ) s
+                    ),
+                    updated_at = NOW()
+                WHERE allowed_modules IS NOT NULL
+                  AND jsonb_typeof(allowed_modules::jsonb) = 'array'
+                  AND NOT (allowed_modules::jsonb ? 'bts')
+                  AND (allowed_modules::jsonb ? 'data_import')
+                """
+            ))
+            if result.rowcount:
+                logger.info(
+                    f"Migration: granted the new 'bts' module to {result.rowcount} "
+                    "plan(s) that already had 'data_import'"
+                )
+    except Exception as e:
+        logger.warning(f"Migration warning (bts standalone plan module): {e}")
+
+
 async def _migrate_seed_rule_contexts():
     """Seed the built-in report rule contexts (idempotent).
 
@@ -1114,6 +1159,7 @@ async def init_db():
         await _migrate_telegram_columns()
         await _migrate_subscription_billing()
         await _migrate_billing_tables_extra()
+        await _migrate_bts_own_plan_module()
     except Exception as e:
         error_msg = str(e).lower()
         if "already exists" in error_msg:

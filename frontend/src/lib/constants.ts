@@ -34,6 +34,7 @@ import {
   Receipt,
   Crown,
   LayoutGrid,
+  RadioTower,
 } from "lucide-react";
 
 export interface NavItem {
@@ -100,7 +101,6 @@ export const navItems: NavItem[] = [
     color: "text-emerald-500",
     children: [
       { title: "Houses", translationKey: "nav.houses", href: "/houses", permission: "houses.view" },
-      { title: "BTS", translationKey: "nav.bts", href: "/bts", permission: "bts.view" },
       { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "imports.view" },
       { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "imports.view" },
       { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "imports.view" },
@@ -108,6 +108,15 @@ export const navItems: NavItem[] = [
       { title: "SIM Issues", translationKey: "nav.import_sim_issue", href: "/import/sim-issues", permission: "imports.view" },
       { title: "SC Serials", translationKey: "nav.import_sc_serials", href: "/import/sc-serials", permission: "scratch_card_serials.view" },
     ]
+  },
+  {
+    title: "BTS",
+    translationKey: "nav.bts",
+    moduleKey: "bts",
+    href: "/bts",
+    icon: RadioTower,
+    color: "text-cyan-500",
+    permission: "bts.view",
   },
   {
     title: "Employee Hub",
