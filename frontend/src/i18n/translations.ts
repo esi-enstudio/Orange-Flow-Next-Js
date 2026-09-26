@@ -3724,6 +3724,67 @@ export const translations = {
         delete_message: 'Are you sure you want to delete the context "{name}"?',
         delete_button: "Yes, Delete",
       },
+      copy: {
+        button: "Copy from House",
+        title: "Copy Rules from Another House",
+        subtitle: "Seed a newly onboarded house from an existing house's rule configuration",
+        context_note:
+          "Contexts (GA Live, Activation Report, etc.) are shared across every house and are not copied. Only the house-specific rules are.",
+        fields: {
+          source_house: "Copy From",
+          target_house: "Copy To",
+          select_source: "Select a source house",
+          no_target: "No house selected",
+          include_employee_ids: "Also copy employee inclusion",
+          include_employee_ids_hint:
+            "Employee selections only carry over for staff who are active in this house. Others are dropped.",
+          include_inactive: "Include inactive rules",
+          include_inactive_hint: "Off copies only rules that are currently active.",
+        },
+        buttons: {
+          preview: "Preview Changes",
+          copy: "Copy Rules",
+          copy_confirm: "Yes, Copy",
+        },
+        summary: {
+          create: "Will Create",
+          overwrite: "Will Overwrite",
+          skip: "Will Skip",
+        },
+        warnings: {
+          employee_partial:
+            "{kept} employee selection(s) matched this house and will be copied. {dropped} did not match and will be dropped.",
+          employee_dropped_all:
+            "{count} rule(s) restrict results to specific employees. Those selections will NOT be copied, so the rules will apply to every employee.",
+        },
+        rows: {
+          create: "Create",
+          overwrite: "Overwrite",
+          skip: "Skip",
+          employees_dropped: "{count} employee(s) dropped",
+        },
+        confirm: {
+          title: "Copy rule configuration?",
+          message:
+            "About {create} rule(s) will be copied from {source} into {target}. Existing rules that collide are left untouched.",
+        },
+        result: {
+          title: "Rule configuration copied",
+          summary: "Copied rules from {source}. {created} rule(s) created.",
+          created: "Created",
+          skipped: "Skipped",
+          overwritten: "Overwritten",
+        },
+        empty: {
+          no_rules: "This house has no rule configuration to copy yet.",
+        },
+        messages: {
+          preview_failed: "Failed to load the copy preview. Please try again.",
+          copy_failed: "Failed to copy rules. Please try again.",
+          pick_source: "Please choose which house to copy from.",
+          pick_target: "Please choose a target house first — use the house selector at the top of this page.",
+        },
+      },
       page: {
         contexts_title: "Contexts",
         rules: "Rules",
@@ -3746,11 +3807,13 @@ export const translations = {
           f4: { title: "Retailer Type Exclusion", desc: "Per-role: only from this role's active rule. Retailers of these types are excluded from achievement." },
           f5: { title: "Included Employees", desc: "Per-role: when set, only these employees' retailers count towards achievement." },
           f6: { title: "Dynamic Contexts", desc: "Contexts are stored in the database and can be created/edited by admins via the Manage Contexts button. Rules can be configured for any active context." },
+          f7: { title: "Copy from Another House", desc: "A super admin can seed a newly onboarded house by copying every rule from an existing house. Pick a source house, preview the diff, then confirm." },
         },
         notes: {
           n1: { title: "Only one active rule per role + section", desc: "When you activate a rule, other rules for the same context + role + section are automatically deactivated. A section rule only affects that section of the page." },
           n2: { title: "Changes apply on refresh", desc: "After saving, refresh the report page to see the effect of the updated rule." },
           n3: { title: "Contexts are system-level", desc: "New contexts are shared across all houses. Built-in contexts cannot be deleted." },
+          n4: { title: "Employee inclusion is house-specific", desc: "When copying rules, an employee selection only carries over for staff who are also active in the target house. Selections that do not match are dropped, so review the preview before copying." },
         },
       },
     },
@@ -7510,6 +7573,67 @@ employees: "Employees",
         delete_message: 'আপনি কি "{name}" কনটেক্সটটি মুছে ফেলতে চান?',
         delete_button: "হ্যাঁ, মুছুন",
       },
+      copy: {
+        button: "হাউস থেকে কপি",
+        title: "অন্য হাউস থেকে রুল কপি",
+        subtitle: "নতুন যুক্ত হওয়া হাউসকে বিদ্যমান হাউসের রুল কনফিগারেশন দিয়ে সাজান",
+        context_note:
+          "কনটেক্সট (GA Live, Activation Report ইত্যাদি) সব হাউসের জন্য সাধারণ, তাই এগুলো কপি হয় না। শুধু হাউস-নির্দিষ্ট রুলগুলো কপি হয়।",
+        fields: {
+          source_house: "যেখান থেকে",
+          target_house: "যেখানে",
+          select_source: "সোর্স হাউস নির্বাচন করুন",
+          no_target: "কোনো হাউস নির্বাচিত নয়",
+          include_employee_ids: "কর্মী অন্তর্ভুক্তিও কপি করুন",
+          include_employee_ids_hint:
+            "কর্মী নির্বাচন শুধু এই হাউসে সক্রিয় কর্মীদের জন্য কপি হবে। বাকিগুলো বাদ যাবে।",
+          include_inactive: "নিষ্ক্রিয় রুলও অন্তর্ভুক্ত করুন",
+          include_inactive_hint: "বন্ধ থাকলে শুধু বর্তমানে সক্রিয় রুল কপি হবে।",
+        },
+        buttons: {
+          preview: "পরিবর্তন দেখুন",
+          copy: "রুল কপি করুন",
+          copy_confirm: "হ্যাঁ, কপি করুন",
+        },
+        summary: {
+          create: "তৈরি হবে",
+          overwrite: "ওভাররাইট হবে",
+          skip: "বাদ যাবে",
+        },
+        warnings: {
+          employee_partial:
+            "{kept} টি কর্মী নির্বাচন এই হাউসের সাথে মিলেছে, তা কপি হবে। {dropped} টি মেলেনি, তা বাদ যাবে।",
+          employee_dropped_all:
+            "{count} টি রুল নির্দিষ্ট কর্মীদের উপর সীমাবদ্ধ। ওই নির্বাচনগুলো কপি হবে না, তাই রুলগুলো সব কর্মীর ক্ষেত্রে প্রযোজ্য হবে।",
+        },
+        rows: {
+          create: "তৈরি",
+          overwrite: "ওভাররাইট",
+          skip: "বাদ",
+          employees_dropped: "{count} জন কর্মী বাদ",
+        },
+        confirm: {
+          title: "রুল কনফিগারেশন কপি করবেন?",
+          message:
+            "{source} থেকে {target}-এ আনুমানিক {create} টি রুল কপি হবে। সংঘর্ষ করা পুরনো রুল অপরিবর্তিত থাকবে।",
+        },
+        result: {
+          title: "রুল কনফিগারেশন কপি হয়েছে",
+          summary: "{source} থেকে রুল কপি হয়েছে। {created} টি রুল তৈরি হয়েছে।",
+          created: "তৈরি",
+          skipped: "বাদ",
+          overwritten: "ওভাররাইট",
+        },
+        empty: {
+          no_rules: "এই হাউসে এখনও কপি করার মতো কোনো রুল কনফিগারেশন নেই।",
+        },
+        messages: {
+          preview_failed: "কপি প্রিভিউ লোড করা যায়নি। আবার চেষ্টা করুন।",
+          copy_failed: "রুল কপি করা যায়নি। আবার চেষ্টা করুন।",
+          pick_source: "যেখান থেকে কপি করবেন তা নির্বাচন করুন।",
+          pick_target: "প্রথমে লক্ষ্য হাউস নির্বাচন করুন — পেজের উপরের হাউস সিলেক্টর ব্যবহার করুন।",
+        },
+      },
       page: {
         contexts_title: "কনটেক্সট",
         rules: "রুল",
@@ -7532,11 +7656,13 @@ employees: "Employees",
           f4: { title: "রিটেইলার ধরন বাদ", desc: "প্রতি ভূমিকা: শুধুমাত্র এই ভূমিকার সক্রিয় রুল থেকে। এই ধরনের রিটেইলারদের অর্জন থেকে বাদ দেওয়া হয়।" },
           f5: { title: "অন্তর্ভুক্ত কর্মী", desc: "প্রতি ভূমিকা: সেট করলে শুধুমাত্র এই কর্মীদের রিটেইলার অর্জনে গণ্য হবে।" },
           f6: { title: "ডাইনামিক কনটেক্সট", desc: "কনটেক্সট ডেটাবেসে সংরক্ষিত থাকে এবং একজন অ্যাডমিন 'কনটেক্সট পরিচালনা' বাটন দিয়ে তৈরি/সম্পাদনা করতে পারেন। যেকোনো সক্রিয় কনটেক্সটের জন্য রুল কনফিগার করা যায়।" },
+          f7: { title: "অন্য হাউস থেকে কপি", desc: "একজন সুপার অ্যাডমিন নতুন যুক্ত হওয়া হাউসকে বিদ্যমান হাউসের সব রুল কপি করে সাজাতে পারেন। সোর্স হাউস বেছে নিন, পরিবর্তনের প্রিভিউ দেখুন, তারপর নিশ্চিত করুন।" },
         },
         notes: {
-          n1: { title: "প্রতি ভূমিকা + সেকশনে শুধুমাত্র একটি সক্রিয় রুল", desc: "রুল সক্রিয় করলে একই কনটেক্সট + ভূমিকা + সেকশনের অন্যান্য রুল স্বয়ংক্রিয়ভাবে নিষ্ক্রিয় হয়ে যায়। একটি সেকশন রুল শুধুমাত্র পেজের সেই অংশে প্রযোজ্য।" },
+          n1: { title: "প্রতি ভূমিকা + সেকশনে শুধুমাত্র একটি সক্রিয় রুল", desc: "রুল সক্রিয় করলে একই কনটেক্সট + ��ভূমিকা + সেকশনের অন্যান্য রুল স্বয়ংক্রিয়ভাবে নিষ্ক্রিয় হয়ে যায়। একটি সেকশন রুল শুধুমাত্র পেজের সেই অংশে প্রযোজ্য।" },
           n2: { title: "পরিবর্তন রিফ্রেশে প্রযোজ্য", desc: "সেভ করার পর, আপডেটেড রুলের প্রভাব দেখতে রিপোর্ট পেজ রিফ্রেশ করুন।" },
           n3: { title: "কনটেক্সট সিস্টেম-স্তরের", desc: "নতুন কনটেক্সট সব হাউসে ভাগ করা থাকে। বিল্ট-ইন কনটেক্সট মুছা যায় না।" },
+          n4: { title: "কর্মী অন্তর্ভুক্তি হাউস-নির্দিষ্ট", desc: "রুল কপি করার সময় কর্মী নির্বাচন শুধুমাত্র লক্ষ্য হাউসে সক্রিয় কর্মীদের জন্য কপি হয়। যেগুলো মেলে না সেগুলো বাদ পড়ে, তাই কপি করার আগে প্রিভিউ দেখে নিন।" },
         },
       },
     },

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertCircle, Building2, CheckCircle2, ChevronRight, Loader2, Settings2, Sliders,
+  AlertCircle, Building2, CheckCircle2, ChevronRight, Copy, Loader2, Settings2, Sliders,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { useLanguage } from "@/i18n/useLanguage";
 import PageGuideModal from "@/components/PageGuideModal";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import type { DraftPayload } from "./_components/RuleFormPanel";
+import CopyFromHouseModal from "./_components/CopyFromHouseModal";
 import ManageContextsModal from "./_components/ManageContextsModal";
 import RuleListPanel from "./_components/RuleListPanel";
 import RuleFormPanel from "./_components/RuleFormPanel";
@@ -45,6 +46,10 @@ export default function RuleConfigPage() {
 
   // Backend enforces admin-only context management (is_admin_user); mirror it in the UI.
   const canManageContexts = hasPermission("rule_config.manage_contexts") && isAdminUser;
+  // Copying reads another tenant's rules, so the backend additionally requires
+  // a super admin on top of the dedicated permission.
+  const canCopyFromHouse = hasPermission("rule_config.import_from_house") && isAdminUser;
+  const [copyOpen, setCopyOpen] = useState(false);
   const [houses, setHouses] = useState<{ id: number; name: string; code: string; display_name: string }[]>([]);
   const [selectedHouseId, setSelectedHouseId] = useState<string>(
     selectedHouse?.id ? String(selectedHouse.id) : ""
@@ -103,6 +108,17 @@ export default function RuleConfigPage() {
       }).catch(() => {});
     }
   }, [canView, selectedHouseId]);
+
+  // The global house switcher (AuthContext) can change after this page mounts.
+  // Without this, the local selection stays empty/stale, the X-House-ID header
+  // is omitted, and every house-scoped request fails with HTTP 400.
+  useEffect(() => {
+    if (selectedHouse?.id) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setSelectedHouseId((prev) => (prev === String(selectedHouse.id) ? prev : String(selectedHouse.id)));
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+  }, [selectedHouse?.id]);
 
   const contextOptions = useMemo(
     () => options?.contexts ?? [],
@@ -407,6 +423,15 @@ export default function RuleConfigPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {canCopyFromHouse && (
+            <button
+              onClick={() => setCopyOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+            >
+              <Copy className="w-4 h-4" />
+              {t("rule_config.copy.button")}
+            </button>
+          )}
           {houses.length > 1 && (
             <div className="relative">
               <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -625,6 +650,15 @@ export default function RuleConfigPage() {
         open={manageContextsOpen}
         onClose={() => setManageContextsOpen(false)}
         onSaved={load}
+      />
+
+      <CopyFromHouseModal
+        open={copyOpen}
+        onClose={() => setCopyOpen(false)}
+        onCopied={load}
+        houses={houses}
+        targetHouseId={houseId}
+        headers={headers}
       />
     </div>
   );

@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
+from app.models.house import House
 from app.models.product import Product
 from app.models.rule_config import ReportRuleMaster, RuleContext
 from app.models.user import User
@@ -20,9 +21,11 @@ from app.services.retailer_marking_service import get_active_markings
 from app.services.rule_config_service import (
     TARGET_ROLES,
     _set_children,
+    build_copy_plan,
     context_key_exists,
     context_to_dict,
     deactivate_other_active_rules,
+    execute_copy_plan,
     get_contexts,
     get_rule_children,
     rule_to_dict,
@@ -495,6 +498,162 @@ async def list_rules(
             has_prev=pagination.page > 1,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Cross-house rule copy
+# ---------------------------------------------------------------------------
+#
+# Contexts are system-level (no house_id) so a new house already sees every
+# context — only the house-scoped rules are copied. See
+# `app.services.rule_config_service.build_copy_plan` for the diff rules.
+#
+# These literal paths are declared before `/{rule_id}` on purpose: FastAPI
+# matches routes in registration order, so a later `/{rule_id}` would otherwise
+# swallow `/copy-from-house/preview` and fail int parsing.
+
+class CopyFromHouseRequest(BaseModel):
+    source_house_id: int = Field(..., gt=0)
+    include_employee_ids: bool = False
+    include_inactive: bool = True
+    mode: str = Field("skip", pattern="^(skip|overwrite)$")
+
+
+def _require_admin_for_copy(current_user: User) -> None:
+    """Cross-house copy reads another tenant's configuration.
+
+    Only a platform admin may read one house's rules to seed another house, so
+    a house-scoped permission alone is not sufficient.
+    """
+    if not is_admin_user(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only a super admin can copy rule configuration between houses",
+        )
+
+
+async def _get_house_or_404(db: AsyncSession, house_id: int) -> House:
+    house = await db.get(House, house_id)
+    if not house:
+        raise HTTPException(status_code=404, detail="House not found")
+    return house
+
+
+@router.get("/copy-from-house/preview")
+async def preview_copy_from_house(
+    source_house_id: int = Query(..., gt=0),
+    target_house_id: Optional[int] = Query(None),
+    include_employee_ids: bool = Query(False),
+    include_inactive: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission(f"{MODULE}.import_from_house")),
+    house_context: Optional[int] = Depends(require_house_context),
+):
+    """Diff a source house's rules against the target house. No writes."""
+    _require_admin_for_copy(current_user)
+
+    target_house_id = target_house_id or house_context
+    if source_house_id == target_house_id:
+        raise HTTPException(
+            status_code=400, detail="Source and target house must be different"
+        )
+
+    source = await _get_house_or_404(db, source_house_id)
+    target = await _get_house_or_404(db, target_house_id)
+
+    plan = await build_copy_plan(
+        db,
+        source_house_id=source_house_id,
+        target_house_id=target_house_id,
+        include_employee_ids=include_employee_ids,
+        include_inactive=include_inactive,
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "source_house": {"id": source.id, "name": source.name, "code": source.code},
+            "target_house": {"id": target.id, "name": target.name, "code": target.code},
+            "copy_contexts": False,
+            "context_note": "Contexts are shared across all houses and are not copied.",
+            **plan,
+        },
+    }
+
+
+@router.post("/copy-from-house")
+async def copy_from_house(
+    data: CopyFromHouseRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission(f"{MODULE}.import_from_house")),
+    house_context: Optional[int] = Depends(require_house_context),
+):
+    """Clone a source house's rules into the target house."""
+    _require_admin_for_copy(current_user)
+
+    if data.source_house_id == house_context:
+        raise HTTPException(
+            status_code=400, detail="Source and target house must be different"
+        )
+
+    source = await _get_house_or_404(db, data.source_house_id)
+    target = await _get_house_or_404(db, house_context)
+
+    plan = await build_copy_plan(
+        db,
+        source_house_id=data.source_house_id,
+        target_house_id=house_context,
+        include_employee_ids=data.include_employee_ids,
+        include_inactive=data.include_inactive,
+    )
+
+    if not plan["rows"]:
+        raise HTTPException(
+            status_code=400,
+            detail="The source house has no rule configuration to copy",
+        )
+
+    result = await execute_copy_plan(
+        db,
+        plan,
+        target_house_id=house_context,
+        user_id=current_user.id,
+        mode=data.mode,
+        include_employee_ids=data.include_employee_ids,
+    )
+    await db.commit()
+
+    await log_activity(
+        db,
+        current_user.id,
+        current_user.name,
+        MODULE,
+        "import",
+        record_id=target.id,
+        record_identifier=f"{source.name} -> {target.name}",
+        new_values={
+            "source_house_id": source.id,
+            "source_house_name": source.name,
+            "target_house_id": target.id,
+            "target_house_name": target.name,
+            "mode": data.mode,
+            "include_employee_ids": data.include_employee_ids,
+            "include_inactive": data.include_inactive,
+            **result,
+        },
+        request=request,
+        status_code=201,
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "source_house": {"id": source.id, "name": source.name, "code": source.code},
+            "target_house": {"id": target.id, "name": target.name, "code": target.code},
+            **result,
+        },
+    }
 
 
 @router.get("/{rule_id}")

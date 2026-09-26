@@ -293,3 +293,379 @@ async def soft_delete_rule(db: AsyncSession, rule: ReportRuleMaster, user_id: in
     rule.is_active = False
     rule.deleted_by = user_id
     rule.deleted_at = now_naive()
+
+
+# ---------------------------------------------------------------------------
+# Cross-house rule copy
+# ---------------------------------------------------------------------------
+#
+# Rule contexts (``rule_contexts``) are deliberately system-level — the model
+# carries no ``house_id`` and ``GET /rule-config/contexts`` ignores the house
+# header — so a new house inherits every context automatically and nothing is
+# copied. Only ``report_rule_masters`` (which *is* house-scoped) plus its
+# configuration child rows are cloned.
+
+
+def _rule_scope_key(rule: ReportRuleMaster) -> tuple:
+    """Identity of a rule's configuration slot, ignoring its name.
+
+    Two rules occupy the same slot when they target the same context + role +
+    section + column for a house. A copy collides with a target-house rule on
+    the same key.
+    """
+    return (
+        rule.context_key,
+        rule.target_role,
+        rule.apply_to or "all",
+        rule.column_key or "all",
+    )
+
+
+async def get_house_rules(
+    db: AsyncSession, house_id: int, include_inactive: bool = True
+) -> list[ReportRuleMaster]:
+    """All live (non-deleted) rules of one house, oldest first."""
+    query = select(ReportRuleMaster).where(
+        ReportRuleMaster.house_id == house_id,
+        ReportRuleMaster.is_deleted.is_(False),
+    )
+    if not include_inactive:
+        query = query.where(ReportRuleMaster.is_active.is_(True))
+    query = query.order_by(ReportRuleMaster.id.asc())
+    return list((await db.execute(query)).scalars().all())
+
+
+async def get_house_rules_children(
+    db: AsyncSession, rule_ids: list[int]
+) -> dict[int, dict]:
+    """Batch-load child selections for many rules at once.
+
+    Avoids the N+1 query storm a per-rule :func:`get_rule_children` would cause
+    on a house with hundreds of rules.
+    """
+    if not rule_ids:
+        return {}
+    ids = set(rule_ids)
+
+    codes_rows = (
+        await db.execute(
+            select(RuleExcludedProductCode.rule_id, RuleExcludedProductCode.product_code).where(
+                RuleExcludedProductCode.rule_id.in_(ids),
+                RuleExcludedProductCode.is_deleted.is_(False),
+            )
+        )
+    ).all()
+    types_rows = (
+        await db.execute(
+            select(RuleExcludedRetailerType.rule_id, RuleExcludedRetailerType.retailer_type).where(
+                RuleExcludedRetailerType.rule_id.in_(ids),
+                RuleExcludedRetailerType.is_deleted.is_(False),
+            )
+        )
+    ).all()
+    emp_rows = (
+        await db.execute(
+            select(RuleIncludedEmployeeId.rule_id, RuleIncludedEmployeeId.user_id).where(
+                RuleIncludedEmployeeId.rule_id.in_(ids),
+                RuleIncludedEmployeeId.is_deleted.is_(False),
+            )
+        )
+    ).all()
+
+    out: dict[int, dict] = {
+        rid: {
+            "excluded_product_codes": [],
+            "excluded_retailer_types": [],
+            "included_employee_ids": [],
+        }
+        for rid in ids
+    }
+    for rid, code in codes_rows:
+        out[rid]["excluded_product_codes"].append(code)
+    for rid, name in types_rows:
+        out[rid]["excluded_retailer_types"].append(name)
+    for rid, uid in emp_rows:
+        out[rid]["included_employee_ids"].append(uid)
+    return out
+
+
+async def build_copy_plan(
+    db: AsyncSession,
+    source_house_id: int,
+    target_house_id: int,
+    include_employee_ids: bool = False,
+    include_inactive: bool = True,
+) -> dict:
+    """Diff a source house's rules against the target house — no writes.
+
+    Returns per-rule rows so the UI can show exactly what a copy would create,
+    which existing rules it would collide with, and how many employee
+    selections it would have to drop because those employees are not active in
+    the *target* house.
+    """
+    source_rules = await get_house_rules(db, source_house_id, include_inactive=include_inactive)
+    target_rules = await get_house_rules(db, target_house_id, include_inactive=include_inactive)
+
+    all_ids = [r.id for r in source_rules] + [r.id for r in target_rules]
+    children = await get_house_rules_children(db, all_ids)
+
+    target_by_scope: dict[tuple, ReportRuleMaster] = {}
+    for rule in target_rules:
+        target_by_scope.setdefault(_rule_scope_key(rule), rule)
+
+    # Employee selections only survive the copy when the same user_id is an
+    # Active employee of the *target* house. Employee.user_id is a global login
+    # id, so a user who serves two houses maps across, but a source-house-only
+    # employee does not exist in the target house at all.
+    emp_ids_in_source: set[int] = set()
+    for rule in source_rules:
+        for uid in children.get(rule.id, {}).get("included_employee_ids", []):
+            if uid:
+                emp_ids_in_source.add(int(uid))
+
+    valid_target_emp_ids: set[int] = set()
+    if emp_ids_in_source:
+        from app.models.employee import Employee  # local import: avoids cycle
+
+        valid_target_emp_rows = (
+            await db.execute(
+                select(Employee.user_id).where(
+                    Employee.house_id == target_house_id,
+                    Employee.status == "Active",
+                    Employee.user_id.in_(sorted(emp_ids_in_source)),
+                )
+            )
+        ).all()
+        valid_target_emp_ids = {r[0] for r in valid_target_emp_rows if r[0] is not None}
+
+    rows: list[dict] = []
+    to_create = 0
+    to_skip = 0
+    to_overwrite = 0
+    total_emp_dropped = 0
+    rules_with_emp_dropped = 0
+
+    for rule in source_rules:
+        src_children = children.get(rule.id, {"included_employee_ids": []})
+        src_emp = [int(u) for u in src_children.get("included_employee_ids", []) if u]
+        kept_emp = (
+            [u for u in sorted(set(src_emp)) if u in valid_target_emp_ids]
+            if include_employee_ids
+            else []
+        )
+        dropped_emp = (len(set(src_emp)) - len(kept_emp)) if include_employee_ids else len(set(src_emp))
+
+        existing = target_by_scope.get(_rule_scope_key(rule))
+        action = "create"
+        if existing is not None:
+            if existing.is_active and rule.is_active:
+                # Both sides active on the same slot — the copy must demote the
+                # target's rule, otherwise the partial unique index rejects it.
+                action = "overwrite"
+            else:
+                action = "skip"
+
+        if action == "create":
+            to_create += 1
+        elif action == "overwrite":
+            to_overwrite += 1
+        else:
+            to_skip += 1
+
+        if dropped_emp:
+            total_emp_dropped += dropped_emp
+            rules_with_emp_dropped += 1
+
+        rows.append(
+            {
+                "source_rule_id": rule.id,
+                "context_key": rule.context_key,
+                "rule_name": rule.rule_name,
+                "target_role": rule.target_role,
+                "apply_to": rule.apply_to or "all",
+                "column_key": rule.column_key or "all",
+                "is_active": rule.is_active,
+                "action": action,
+                "existing_rule_id": existing.id if existing is not None else None,
+                "existing_rule_name": existing.rule_name if existing is not None else None,
+                "source_employee_count": len(set(src_emp)),
+                "kept_employee_count": len(kept_emp),
+                "dropped_employee_count": dropped_emp,
+            }
+        )
+
+    return {
+        "source_rule_count": len(source_rules),
+        "to_create": to_create,
+        "to_skip": to_skip,
+        "to_overwrite": to_overwrite,
+        "rules_with_employee_selection": sum(
+            1 for r in source_rules if children.get(r.id, {}).get("included_employee_ids")
+        ),
+        "total_employee_selections": total_emp_dropped,
+        "valid_target_employee_count": len(valid_target_emp_ids),
+        "rows": rows,
+    }
+
+
+async def execute_copy_plan(
+    db: AsyncSession,
+    plan: dict,
+    target_house_id: int,
+    user_id: int,
+    mode: str,
+    include_employee_ids: bool = False,
+) -> dict:
+    """Apply a copy plan produced by :func:`build_copy_plan`.
+
+    ``mode="skip"`` leaves colliding target rules untouched; ``mode="overwrite"``
+    replaces their selection and activation state. Each created active rule first
+    demotes any other active rule on the same
+    (house, context, role, apply_to, column) slot so the partial unique index
+    ``uq_rule_master_active_house_context_role`` holds.
+    """
+    if mode not in ("skip", "overwrite"):
+        raise ValueError(f"Invalid copy mode: {mode}")
+
+    created_ids: list[int] = []
+    overwritten_ids: list[int] = []
+    skipped = 0
+
+    # Batch-load every source rule's children once — a per-rule fetch would
+    # issue 3N queries on a house with many rules.
+    source_ids = [
+        r["source_rule_id"]
+        for r in plan.get("rows", [])
+        if r.get("source_rule_id")
+        and not (
+            r["action"] == "skip"
+            or (r["action"] == "overwrite" and mode == "skip")
+        )
+    ]
+    source_children = await get_house_rules_children(db, source_ids)
+    # Employee selections survive only when the same login is an Active employee
+    # of the target house, so validate the whole batch in one query too.
+    all_emp_ids = sorted(
+        {
+            int(u)
+            for c in source_children.values()
+            for u in c.get("included_employee_ids", [])
+            if u
+        }
+    )
+    valid_emp_ids = set(
+        await _valid_target_employee_ids(db, target_house_id, all_emp_ids)
+    )
+
+    for row in plan.get("rows", []):
+        if row["action"] == "skip":
+            skipped += 1
+            continue
+        if row["action"] == "overwrite" and mode == "skip":
+            # The user chose not to touch colliding rules, so a slot that
+            # already holds an active target rule stays as-is.
+            skipped += 1
+            continue
+
+        source_rule = await db.get(ReportRuleMaster, row["source_rule_id"])
+        if source_rule is None or source_rule.is_deleted:
+            skipped += 1
+            continue
+
+        src_children = source_children.get(
+            source_rule.id,
+            {"excluded_product_codes": [], "excluded_retailer_types": [], "included_employee_ids": []},
+        )
+        employee_ids = (
+            sorted({int(u) for u in src_children["included_employee_ids"] if u} & valid_emp_ids)
+            if include_employee_ids
+            else []
+        )
+
+        if row["action"] == "overwrite" and row.get("existing_rule_id"):
+            target_rule = await db.get(ReportRuleMaster, row["existing_rule_id"])
+            if target_rule is not None and not target_rule.is_deleted:
+                target_rule.rule_name = source_rule.rule_name
+                target_rule.is_active = source_rule.is_active
+                target_rule.updated_by = user_id
+                await db.flush()
+                await _set_children(
+                    db,
+                    target_rule.id,
+                    {
+                        "excluded_product_codes": src_children["excluded_product_codes"],
+                        "excluded_retailer_types": src_children["excluded_retailer_types"],
+                        "included_employee_ids": employee_ids,
+                    },
+                    user_id,
+                )
+                overwritten_ids.append(target_rule.id)
+                continue
+            # The colliding target rule was deleted between the plan and the
+            # apply — fall through and create a fresh row instead.
+
+        if source_rule.is_active:
+            await deactivate_other_active_rules(
+                db,
+                target_house_id,
+                source_rule.context_key,
+                source_rule.target_role,
+                apply_to=source_rule.apply_to or "all",
+                column_key=source_rule.column_key or "all",
+            )
+            await db.flush()
+
+        new_rule = ReportRuleMaster(
+            house_id=target_house_id,
+            context_key=source_rule.context_key,
+            rule_name=source_rule.rule_name,
+            target_role=source_rule.target_role,
+            apply_to=source_rule.apply_to or "all",
+            column_key=source_rule.column_key or "all",
+            is_active=source_rule.is_active,
+            created_by=user_id,
+            updated_by=user_id,
+        )
+        db.add(new_rule)
+        await db.flush()
+
+        await _set_children(
+            db,
+            new_rule.id,
+            {
+                "excluded_product_codes": src_children["excluded_product_codes"],
+                "excluded_retailer_types": src_children["excluded_retailer_types"],
+                "included_employee_ids": employee_ids,
+            },
+            user_id,
+        )
+        created_ids.append(new_rule.id)
+
+    return {
+        "created": len(created_ids),
+        "overwritten": len(overwritten_ids),
+        "skipped": skipped,
+        "created_rule_ids": created_ids,
+        "overwritten_rule_ids": overwritten_ids,
+    }
+
+
+async def _valid_target_employee_ids(
+    db: AsyncSession, house_id: int, user_ids: list[int]
+) -> list[int]:
+    """Filter employee user_ids down to Active employees of ``house_id``."""
+    unique_ids = sorted({int(u) for u in (user_ids or []) if u and int(u) > 0})
+    if not unique_ids:
+        return []
+    from app.models.employee import Employee  # local import: avoids cycle
+
+    rows = (
+        await db.execute(
+            select(Employee.user_id).where(
+                Employee.house_id == house_id,
+                Employee.status == "Active",
+                Employee.user_id.in_(unique_ids),
+            )
+        )
+    ).all()
+    return sorted({r[0] for r in rows if r[0] is not None})

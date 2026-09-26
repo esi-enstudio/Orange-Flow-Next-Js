@@ -32,6 +32,7 @@ from app.models.user import User
 from app.models.role import Role
 from app.models.house import House
 from app.services.user_employee import ensure_supervisor_employee, conflict_detail
+from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.validation import validate_image, MAX_FILE_SIZE
 import logging
@@ -139,7 +140,17 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me", response_model=UserSchema)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Admins bypass the users_houses pivot (mirrors GET /houses/accessible).
+    # Without this, an admin with no explicit house rows gets houses: [], the
+    # frontend cannot resolve a default house, and every house-scoped page
+    # silently loads nothing because no X-House-ID header is ever sent.
+    if is_admin_user(current_user) and not current_user.houses:
+        result = await db.execute(select(House).order_by(House.name))
+        current_user.houses = list(result.scalars().all())
     return current_user
 
 @router.put("/profile", response_model=UserSchema)

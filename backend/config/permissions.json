@@ -246,7 +246,8 @@
         "rule_config.create",
         "rule_config.edit",
         "rule_config.delete",
-        "rule_config.manage_contexts"
+        "rule_config.manage_contexts",
+        "rule_config.import_from_house"
       ]
     },
     "filters": {
