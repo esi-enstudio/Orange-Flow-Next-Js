@@ -45,6 +45,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
 
     # ---- module-bound prefixes (longest first) -------------------------------------
     ("/api/v1/database-backups", "administration"),
+    ("/api/v1/restore-points", "administration"),
     ("/api/v1/deploy", "administration"),
     ("/api/rule-config", "administration"),
     ("/api/settings", "administration"),

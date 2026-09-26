@@ -83,3 +83,13 @@ temp_downloads/
 backend/uploads/
 # Deploy runtime state (shared between host & backend container)
 backend/.deploy/
+
+# Database dumps & restore point snapshots.
+# These are large binary artifacts that must NEVER be committed — they would
+# bloat the repo, slow every git operation, and (because a `git reset --hard`
+# deletes files tracked in HEAD but absent in the target commit) get silently
+# destroyed by a rollback. They are runtime data, not source.
+# Note: `backend/backups/*` (not the directory itself) so the .gitkeep
+# negation below is still reachable — git does not descend into excluded dirs.
+backend/backups/*
+!backend/backups/.gitkeep

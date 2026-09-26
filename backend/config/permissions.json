@@ -465,6 +465,15 @@
         "database_backup.delete"
       ]
     },
+    "restore_point": {
+      "display_name": "Restore Points",
+      "permissions": [
+        "restore_point.view",
+        "restore_point.create",
+        "restore_point.restore",
+        "restore_point.delete"
+      ]
+    },
     "subscription": {
       "display_name": "Subscription",
       "permissions": [

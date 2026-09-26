@@ -81,8 +81,16 @@ class Settings(BaseSettings):
     BILLING_RENEWAL_REMINDER_DAYS: int = 5  # issue renewal invoice N days before period end
     BILLING_TRIAL_END_REMINDER_DAYS: int = 3
     BILLING_TAX_PERCENT: int = 0
-    BILLING_INVOICE_DRY_RUN: bool = False  # when True: invoicing works without a real gateway
+    BILLING_INVOICE_DRY_RUN: bool = False  # when True, invoicing works without a real gateway
     DEFAULT_SUBSCRIPTION_PLAN_SLUG: str = "basic"  # assigned when a house subscribes without explicit plan
+
+    # ---- Restore Points (rollback safety net) ----
+    # The backend does not execute snapshots itself; it asks the deploy-service
+    # container to, because that is the only process with the repo, the docker
+    # socket and the database all in reach at once.
+    RESTORE_POINTS_ENABLED: bool = True
+    # Docker-compose service name of the deploy container.
+    DEPLOY_SERVICE_URL: str = "http://deploy-service:8100"
 
     @model_validator(mode="after")
     def validate_secret_key(self) -> "Settings":

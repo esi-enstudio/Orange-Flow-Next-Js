@@ -41,11 +41,13 @@ host_systemctl() {
   host systemctl "$@"
 }
 
+LAST_STATUS_STATE="none"
 write_status() {
   local state="$1" exit_code="${2:-0}" message="${3:-}"
   cat > "$STATUS_FILE" <<EOF
 {"state":"${state}","exit_code":${exit_code},"message":"${message}","timestamp":"$(date -Iseconds)"}
 EOF
+  LAST_STATUS_STATE="$state"
 }
 
 elapsed() {
@@ -67,8 +69,10 @@ if ! flock -n 9; then
   exit 1
 fi
 
-# Cleanup trap
-trap 'write_status "failed" $? "Deploy interrupted"; echo "[DEPLOY_FAILED: interrupted]" >&2' EXIT
+# Cleanup trap. Only fills in a generic failure if the script was still
+# "running" — every explicit `write_status "failed" ...` before an exit carries
+# a specific, actionable reason, and the trap must not overwrite it.
+trap 'if [ "$LAST_STATUS_STATE" = "running" ]; then write_status "failed" $? "Deploy interrupted"; echo "[DEPLOY_FAILED: interrupted]" >&2; fi' EXIT
 
 write_status "running" 0 "Deploy started"
 echo "========================================================================"
@@ -77,22 +81,59 @@ echo "  Host project : $HOST_PROJECT_DIR"
 echo "  Started      : $(date)"
 echo "========================================================================"
 
-# ── Step 1: Pull latest code ────────────────────────────────────────────────
+# ── Step 1: Capture a restore point of the current (known-good) state ──────
+# This runs BEFORE the pull, so the snapshot records the code that is working
+# right now. If the incoming commits break the system, this is the snapshot the
+# user rolls back to.
+#
+# Set SKIP_RESTORE_POINT=1 to bypass (e.g. a hotfix deploy that must not be
+# blocked by a failing database).
+echo ""
+echo "[DEPLOY_STEP:restore_point]"
+echo "==> [0/4] Capturing a restore point of the current state"
+
+SNAPSHOT_SCRIPT="$PROJECT_DIR/deploy-service/snapshot.sh"
+if [ "${SKIP_RESTORE_POINT:-0}" = "1" ]; then
+  echo "    SKIPPED (SKIP_RESTORE_POINT=1)"
+elif [ ! -f "$SNAPSHOT_SCRIPT" ]; then
+  echo "    snapshot.sh not found at $SNAPSHOT_SCRIPT — skipping" >&2
+elif bash "$SNAPSHOT_SCRIPT" "Before deploy at $(date -Iseconds)" manual; then
+  echo "==> Restore point captured"
+else
+  # Aborting here is deliberate. A deploy with no way back is exactly the
+  # failure mode restore points exist to prevent, and a database that cannot be
+  # dumped would very likely break the deploy too.
+  echo "ERROR: Could not capture a restore point before deploying." >&2
+  echo "       Nothing has been changed yet, so the running system is still intact." >&2
+  echo "       Fix the cause, or re-run with SKIP_RESTORE_POINT=1 to deploy anyway." >&2
+  write_status "failed" 1 "restore point capture failed"
+  echo "[DEPLOY_FAILED:restore_point_failed]"
+  exit 1
+fi
+
+# ── Step 2: Pull latest code ────────────────────────────────────────────────
 echo ""
 echo "[DEPLOY_STEP:pulling]"
 echo "==> [1/4] Pulling latest code"
 cd "$PROJECT_DIR"
 
-# Snapshot THIS script's md5 BEFORE pulling, so we can detect if git pull
-# delivers a newer version of deploy.sh itself (see self-restart below).
-PULL_SCRIPT="$PROJECT_DIR/deploy-service/deploy.sh"
-PRE_PULL_MD5=$(md5sum "$PULL_SCRIPT" 2>/dev/null | awk '{print $1}')
+# Snapshot the md5 of every file whose change must invalidate the rest of this
+# run, BEFORE pulling.
+#
+#  - deploy.sh itself -> self-restart below, so a bugfix reaches production
+#  - backend/Dockerfile, docker-compose.yml -> backend image needs rebuilding
+#  - deploy-service/* -> deploy-service runs server.js from its IMAGE, so a new
+#    server.js (e.g. the restore point endpoints) needs a rebuild + recreate
+PRE_PULL_MD5=$(md5sum "$PROJECT_DIR/deploy-service/deploy.sh" 2>/dev/null | awk '{print $1}')
 PRE_PULL_DOCKERFILE_MD5=$(md5sum "$PROJECT_DIR/backend/Dockerfile" 2>/dev/null | awk '{print $1}')
 PRE_PULL_COMPOSE_MD5=$(md5sum "$PROJECT_DIR/docker-compose.yml" 2>/dev/null | awk '{print $1}')
+PRE_PULL_DEPLOYSVC_MD5=$(cat "$PROJECT_DIR/deploy-service/server.js" \
+  "$PROJECT_DIR/deploy-service/Dockerfile" \
+  "$PROJECT_DIR/deploy-service/package.json" 2>/dev/null | md5sum | awk '{print $1}')
 
 # Fetch + explicit single-branch merge. Plain `git pull --ff-only` derives its
 # merge heads from FETCH_HEAD, which races with the background workers also
-# running `git fetch` on this repo (host auto-deploy / commit-refresh /
+# running `git fetch` on this repo (host deploy-worker commit-refresh /
 # server.js startup). That race can produce "fatal: Cannot fast-forward to
 # multiple branches." Merging an explicit ref avoids the ambiguity entirely.
 if ! git fetch --prune origin main; then
@@ -114,12 +155,12 @@ echo "==> git pull successful"
 # delivered a NEWER deploy.sh (e.g. a bugfix like `npm install --include=dev`),
 # this stale in-memory copy would keep running the OLD flow and the fix would
 # never take effect. Restart with the freshly-pulled script instead.
-POST_PULL_MD5=$(md5sum "$PULL_SCRIPT" 2>/dev/null | awk '{print $1}')
+POST_PULL_MD5=$(md5sum "$PROJECT_DIR/deploy-service/deploy.sh" 2>/dev/null | awk '{print $1}')
 if [ -n "$PRE_PULL_MD5" ] && [ -n "$POST_PULL_MD5" ] && [ "$PRE_PULL_MD5" != "$POST_PULL_MD5" ]; then
   echo "==> deploy.sh changed during pull — restarting with the updated script"
   # `exec 9>` above is re-run in the new process; opening the lock file again
   # closes the inherited fd and re-acquires the flock cleanly.
-  exec bash "$PULL_SCRIPT"
+  exec bash "$PROJECT_DIR/deploy-service/deploy.sh"
 fi
 
 # ── Step 2 & 3: Install deps + Build frontend (on HOST via nsenter) ────────
@@ -230,6 +271,29 @@ if docker restart orange_flow_backend; then
   echo "==> Backend restarted"
 else
   echo "WARNING: Failed to restart backend container"
+fi
+
+# ── Deploy service: rebuild image if its sources changed ────────────────────
+# server.js is baked into the deploy-service IMAGE, so a new server.js (e.g. the
+# /api/restore-point/* endpoints) is invisible to the running container until the
+# image is rebuilt and the container is recreated. `docker restart` would keep the
+# old server.js, so `up -d --build` is required here.
+#
+# This is done AFTER the backend restart on purpose: recreating the deploy
+# service kills the process tree that is running this script's output stream, so
+# it must be the last thing the deploy does.
+POST_PULL_DEPLOYSVC_MD5=$(cat "$PROJECT_DIR/deploy-service/server.js" \
+  "$PROJECT_DIR/deploy-service/Dockerfile" \
+  "$PROJECT_DIR/deploy-service/package.json" 2>/dev/null | md5sum | awk '{print $1}')
+
+if [ -n "${PRE_PULL_DEPLOYSVC_MD5:-}" ] && [ "$PRE_PULL_DEPLOYSVC_MD5" != "${POST_PULL_DEPLOYSVC_MD5:-}" ]; then
+  echo ""
+  echo "--> Deploy service sources changed — rebuilding + recreating"
+  if docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d --build deploy-service; then
+    echo "==> Deploy service rebuilt (log streaming for THIS deploy stops here; the new service is live)"
+  else
+    echo "WARNING: deploy-service rebuild failed — the previous version is still running" >&2
+  fi
 fi
 
 # ── Step 5: Verify ──────────────────────────────────────────────────────────

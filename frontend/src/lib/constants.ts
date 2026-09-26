@@ -284,6 +284,7 @@ export const navItems: NavItem[] = [
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
       { title: "Server Deploy", translationKey: "nav.deploy", href: "/deploy", permission: "app_settings.manage" },
       { title: "Backup & Restore", translationKey: "nav.database_backups", href: "/database-backups", permissions: ["database_backup.view", "database_backup.create", "database_backup.download", "database_backup.restore", "database_backup.delete"] },
+      { title: "Restore Points", translationKey: "nav.restore_points", href: "/restore-points", permissions: ["restore_point.view", "restore_point.create", "restore_point.restore", "restore_point.delete"] },
       { title: "Rule Configuration", translationKey: "nav.rule_config", href: "/rule-config", permission: "rule_config.view" },
     ]
   },

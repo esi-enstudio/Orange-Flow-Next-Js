@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # deploy-worker.sh — Fast (every 30s) host worker for the manual-deploy UI.
 #
+# This is the ONLY automated host process left: there is no auto-deploy poller
+# any more. Deploys happen only when a super admin triggers one from the deploy
+# UI (POST /api/deploy/trigger), which writes the "deploy-trigger" file this
+# worker picks up. Nothing pulls and deploys on its own.
+#
 # Two responsibilities:
 #   1. Refresh ./backend/.deploy/commits.json with how many commits are behind
 #      origin/main and their commit messages (so the UI badge + confirm modal
 #      have fresh data). The backend container reads this file (shared bind mount).
 #   2. Watch for a "deploy-trigger" file. When present, run deploy.sh and stream
 #      its output to ./backend/.deploy/deploy.log + write status to status.json.
-#
-# This is separate from auto-deploy-poll.sh (which auto-pulls every 5 min).
 set -euo pipefail
 
 PROJECT_DIR="/opt/Orange-Flow-Next-Js"
