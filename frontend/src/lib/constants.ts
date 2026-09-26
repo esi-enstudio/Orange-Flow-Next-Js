@@ -85,6 +85,15 @@ export const navItems: NavItem[] = [
     color: "text-primary-500",
   },
   {
+    title: "Houses",
+    translationKey: "nav.houses",
+    moduleKey: "houses",
+    href: "/houses",
+    icon: Warehouse,
+    color: "text-indigo-500",
+    permission: "houses.view",
+  },
+  {
     title: "Live Monitor",
     translationKey: "nav.live_monitor",
     moduleKey: "live_monitor",
@@ -100,7 +109,6 @@ export const navItems: NavItem[] = [
     icon: Upload,
     color: "text-emerald-500",
     children: [
-      { title: "Houses", translationKey: "nav.houses", href: "/houses", permission: "houses.view" },
       { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "imports.view" },
       { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "imports.view" },
       { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "imports.view" },

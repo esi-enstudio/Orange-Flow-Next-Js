@@ -161,7 +161,7 @@ export function FullscreenProvider({ children }: { children: ReactNode }) {
   // native fullscreen and it never reaches the page.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "f" || !event.shiftKey) return;
+      if (event.key?.toLowerCase() !== "f" || !event.shiftKey) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       event.preventDefault();

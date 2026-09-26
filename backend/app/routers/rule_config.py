@@ -545,11 +545,17 @@ async def preview_copy_from_house(
     target_house_id: Optional[int] = Query(None),
     include_employee_ids: bool = Query(False),
     include_inactive: bool = Query(True),
+    mode: str = Query("skip", pattern="^(skip|overwrite)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission(f"{MODULE}.import_from_house")),
     house_context: Optional[int] = Depends(require_house_context),
 ):
-    """Diff a source house's rules against the target house. No writes."""
+    """Diff a source house's rules against the target house. No writes.
+
+    ``mode`` must be the same value that will be sent to
+    ``POST /copy-from-house``, so the returned counts describe the copy that
+    will actually happen.
+    """
     _require_admin_for_copy(current_user)
 
     target_house_id = target_house_id or house_context
@@ -567,6 +573,7 @@ async def preview_copy_from_house(
         target_house_id=target_house_id,
         include_employee_ids=include_employee_ids,
         include_inactive=include_inactive,
+        mode=mode,
     )
 
     return {
@@ -606,7 +613,12 @@ async def copy_from_house(
         target_house_id=house_context,
         include_employee_ids=data.include_employee_ids,
         include_inactive=data.include_inactive,
+        mode=data.mode,
     )
+
+    print(f"🔍 Copy plan generated: source={data.source_house_id}, target={house_context}")
+    print(f"📊 Plan summary: {plan.get('source_rule_count', 0)} rules, {plan.get('to_create', 0)} to_create, {plan.get('to_skip', 0)} to_skip")
+    print(f"📋 Rows count: {len(plan.get('rows', []))}")
 
     if not plan["rows"]:
         raise HTTPException(
@@ -614,6 +626,7 @@ async def copy_from_house(
             detail="The source house has no rule configuration to copy",
         )
 
+    print(f"🚀 Executing copy plan with mode={data.mode}")
     result = await execute_copy_plan(
         db,
         plan,
@@ -622,6 +635,7 @@ async def copy_from_house(
         mode=data.mode,
         include_employee_ids=data.include_employee_ids,
     )
+    print(f"✅ Copy result: created={result.get('created', 0)}, overwritten={result.get('overwritten', 0)}, skipped={result.get('skipped', 0)}")
     await db.commit()
 
     await log_activity(

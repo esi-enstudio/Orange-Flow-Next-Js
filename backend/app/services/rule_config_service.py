@@ -395,14 +395,23 @@ async def build_copy_plan(
     target_house_id: int,
     include_employee_ids: bool = False,
     include_inactive: bool = True,
+    mode: str = "skip",
 ) -> dict:
-    """Diff a source house's rules against the target house — no writes.
+    """Diff a source house's rules against the target house. No writes.
 
     Returns per-rule rows so the UI can show exactly what a copy would create,
     which existing rules it would collide with, and how many employee
     selections it would have to drop because those employees are not active in
     the *target* house.
+
+    ``mode`` must match the mode the copy will be applied with, otherwise the
+    preview lies: a collision reported as ``overwrite`` while the apply runs in
+    ``skip`` mode reports "will overwrite 4" and then copies nothing. In
+    ``skip`` mode every collision is therefore reported as ``skip``.
     """
+    if mode not in ("skip", "overwrite"):
+        raise ValueError(f"Invalid copy mode: {mode}")
+
     source_rules = await get_house_rules(db, source_house_id, include_inactive=include_inactive)
     target_rules = await get_house_rules(db, target_house_id, include_inactive=include_inactive)
 
@@ -442,28 +451,45 @@ async def build_copy_plan(
     to_create = 0
     to_skip = 0
     to_overwrite = 0
-    total_emp_dropped = 0
+    total_emp_selections = 0
+    kept_emp_selections = 0
+    dropped_emp_selections = 0
     rules_with_emp_dropped = 0
 
     for rule in source_rules:
         src_children = children.get(rule.id, {"included_employee_ids": []})
         src_emp = [int(u) for u in src_children.get("included_employee_ids", []) if u]
+        src_emp_set = set(src_emp)
         kept_emp = (
-            [u for u in sorted(set(src_emp)) if u in valid_target_emp_ids]
+            sorted(u for u in src_emp_set if u in valid_target_emp_ids)
             if include_employee_ids
             else []
         )
-        dropped_emp = (len(set(src_emp)) - len(kept_emp)) if include_employee_ids else len(set(src_emp))
+        kept_set = set(kept_emp)
+        dropped_emp = len(src_emp_set - kept_set)
 
         existing = target_by_scope.get(_rule_scope_key(rule))
-        action = "create"
-        if existing is not None:
-            if existing.is_active and rule.is_active:
-                # Both sides active on the same slot — the copy must demote the
-                # target's rule, otherwise the partial unique index rejects it.
-                action = "overwrite"
-            else:
-                action = "skip"
+        if existing is None:
+            # Nothing occupies the slot in the target house.
+            action = "create"
+        elif existing.is_active and not rule.is_active:
+            # Copying an inactive source rule would switch off a target rule
+            # that is currently doing the work — never do that implicitly.
+            action = "skip"
+        elif existing.is_active and rule.is_active:
+            # Both sides active on one slot: the target rule must be demoted or
+            # replaced, otherwise the partial unique index rejects the insert.
+            action = "overwrite"
+        else:
+            # Target slot only holds a leftover inactive rule, so the slot is
+            # effectively free — a fresh active row is the correct outcome.
+            # Reporting "skip" here silently dropped the source rule.
+            action = "create" if rule.is_active else "overwrite"
+
+        if action == "overwrite" and mode == "skip":
+            # The apply will leave colliding target rules untouched, so the
+            # preview must not promise an overwrite it will not perform.
+            action = "skip"
 
         if action == "create":
             to_create += 1
@@ -472,8 +498,10 @@ async def build_copy_plan(
         else:
             to_skip += 1
 
+        total_emp_selections += len(src_emp_set)
+        kept_emp_selections += len(kept_set)
+        dropped_emp_selections += dropped_emp
         if dropped_emp:
-            total_emp_dropped += dropped_emp
             rules_with_emp_dropped += 1
 
         rows.append(
@@ -488,13 +516,14 @@ async def build_copy_plan(
                 "action": action,
                 "existing_rule_id": existing.id if existing is not None else None,
                 "existing_rule_name": existing.rule_name if existing is not None else None,
-                "source_employee_count": len(set(src_emp)),
-                "kept_employee_count": len(kept_emp),
+                "source_employee_count": len(src_emp_set),
+                "kept_employee_count": len(kept_set),
                 "dropped_employee_count": dropped_emp,
             }
         )
 
     return {
+        "mode": mode,
         "source_rule_count": len(source_rules),
         "to_create": to_create,
         "to_skip": to_skip,
@@ -502,7 +531,9 @@ async def build_copy_plan(
         "rules_with_employee_selection": sum(
             1 for r in source_rules if children.get(r.id, {}).get("included_employee_ids")
         ),
-        "total_employee_selections": total_emp_dropped,
+        "total_employee_selections": total_emp_selections,
+        "kept_employee_selections": kept_emp_selections,
+        "dropped_employee_selections": dropped_emp_selections,
         "valid_target_employee_count": len(valid_target_emp_ids),
         "rows": rows,
     }

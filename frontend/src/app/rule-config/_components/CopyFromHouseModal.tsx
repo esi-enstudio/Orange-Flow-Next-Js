@@ -43,6 +43,7 @@ function extractError(err: unknown, fallback: string): string {
 }
 
 type CopyAction = "create" | "overwrite" | "skip";
+type CopyMode = "skip" | "overwrite";
 
 interface PlanRow {
   source_rule_id: number;
@@ -60,6 +61,7 @@ interface PlanRow {
 }
 
 interface CopyPlan {
+  mode: CopyMode;
   source_house: { id: number; name: string; code: string };
   target_house: { id: number; name: string; code: string };
   copy_contexts: boolean;
@@ -70,6 +72,8 @@ interface CopyPlan {
   to_overwrite: number;
   rules_with_employee_selection: number;
   total_employee_selections: number;
+  kept_employee_selections: number;
+  dropped_employee_selections: number;
   valid_target_employee_count: number;
   rows: PlanRow[];
 }
@@ -112,6 +116,7 @@ export default function CopyFromHouseModal({
 
   const [mounted] = useState(() => typeof document !== "undefined");
   const [sourceHouseId, setSourceHouseId] = useState<string>("");
+  const [mode, setMode] = useState<CopyMode>("skip");
   const [includeEmployeeIds, setIncludeEmployeeIds] = useState(false);
   const [includeInactive, setIncludeInactive] = useState(true);
   const [plan, setPlan] = useState<CopyPlan | null>(null);
@@ -125,6 +130,7 @@ export default function CopyFromHouseModal({
     if (!open) return;
     /* eslint-disable react-hooks/set-state-in-effect */
     setSourceHouseId("");
+    setMode("skip");
     setIncludeEmployeeIds(false);
     setIncludeInactive(true);
     setPlan(null);
@@ -161,27 +167,38 @@ export default function CopyFromHouseModal({
       setError(tC("messages.pick_target"));
       return;
     }
+    console.log('🔍 Copy Plan Debug:', {
+      sourceHouseId,
+      targetHouseId,
+      headers,
+      includeEmployeeIds,
+      includeInactive,
+      mode,
+    });
     setLoadingPlan(true);
     setError(null);
     setPlan(null);
     try {
       const params = new URLSearchParams({
         source_house_id: sourceHouseId,
-        target_house_id: String(targetHouseId),
         include_employee_ids: String(includeEmployeeIds),
         include_inactive: String(includeInactive),
+        mode,
       });
+      console.log('📤 Preview API call:', `/rule-config/copy-from-house/preview?${params.toString()}`);
       const res = await apiClient.get<{ data: CopyPlan }>(
         `/rule-config/copy-from-house/preview?${params.toString()}`,
         { headers }
       );
+      console.log('✅ Preview response:', res.data);
       setPlan(res.data.data ?? null);
     } catch (err) {
+      console.error('❌ Preview error:', err);
       setError(extractError(err, tC("messages.preview_failed")));
     } finally {
       setLoadingPlan(false);
     }
-  }, [sourceHouseId, targetHouseId, includeEmployeeIds, includeInactive, headers, tC]);
+  }, [sourceHouseId, targetHouseId, includeEmployeeIds, includeInactive, mode, headers, tC]);
 
   const runCopy = useCallback(async () => {
     if (!sourceHouseId || !targetHouseId) {
@@ -189,34 +206,49 @@ export default function CopyFromHouseModal({
       setError(tC("messages.pick_target"));
       return;
     }
+    console.log('🚀 Copy Execution Debug:', {
+      sourceHouseId,
+      targetHouseId,
+      headers,
+      includeEmployeeIds,
+      includeInactive,
+      mode,
+    });
     setCopying(true);
     setError(null);
     try {
+      const payload = {
+        source_house_id: Number(sourceHouseId),
+        include_employee_ids: includeEmployeeIds,
+        include_inactive: includeInactive,
+        mode,
+      };
+      console.log('📤 Copy API call:', '/rule-config/copy-from-house', payload, headers);
       const res = await apiClient.post<{ data: CopyResult }>(
         "/rule-config/copy-from-house",
-        {
-          source_house_id: Number(sourceHouseId),
-          include_employee_ids: includeEmployeeIds,
-          include_inactive: includeInactive,
-          mode: "skip",
-        },
+        payload,
         { headers }
       );
+      console.log('✅ Copy response:', res.data);
       setResult(res.data.data ?? null);
       setPlan(null);
       setConfirmOpen(false);
     } catch (err) {
+      console.error('❌ Copy error:', err);
       setError(extractError(err, tC("messages.copy_failed")));
       setConfirmOpen(false);
     } finally {
       setCopying(false);
     }
-  }, [sourceHouseId, targetHouseId, includeEmployeeIds, includeInactive, headers, tC]);
+  }, [sourceHouseId, targetHouseId, includeEmployeeIds, includeInactive, mode, headers, tC]);
 
   if (!open || !mounted) return null;
 
   const hasRules = (plan?.source_rule_count ?? 0) > 0;
-  const copiesNothing = hasRules && (plan?.to_create ?? 0) === 0 && (plan?.to_overwrite ?? 0) === 0;
+  // The preview is mode-aware, so this is the exact number of rules the apply
+  // will write. Anything else enabled a Copy button that copied nothing.
+  const willWrite = (plan?.to_create ?? 0) + (plan?.to_overwrite ?? 0);
+  const nothingToDo = !plan || !hasRules || willWrite === 0;
 
   return (
     <>
@@ -284,6 +316,7 @@ export default function CopyFromHouseModal({
                         {tC("result.summary", {
                           source: result.source_house.name,
                           created: result.created,
+                          overwritten: result.overwritten,
                         })}
                       </p>
                     </div>
@@ -349,6 +382,46 @@ export default function CopyFromHouseModal({
                     <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-xs text-blue-700 dark:text-blue-300">
                       <Info className="w-4 h-4 shrink-0 mt-0.5" />
                       <p>{tC("context_note")}</p>
+                    </div>
+
+                    {/* Collision handling — decides what happens to rules the
+                        target house already has on the same slot. */}
+                    <div>
+                      <p className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                        {tC("mode.label")}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {(["skip", "overwrite"] as CopyMode[]).map((m) => (
+                          <label
+                            key={m}
+                            className={cn(
+                              "flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors",
+                              mode === m
+                                ? "border-primary-500 bg-primary-50 dark:bg-primary-500/10"
+                                : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              name="copy-mode"
+                              checked={mode === m}
+                              onChange={() => {
+                                setMode(m);
+                                setPlan(null);
+                              }}
+                              className="mt-0.5 w-4 h-4 border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                                {tC(`mode.${m}.label`)}
+                              </p>
+                              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                {tC(`mode.${m}.hint`)}
+                              </p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
                     </div>
 
                     <button
@@ -444,20 +517,22 @@ export default function CopyFromHouseModal({
                         <div
                           className={cn(
                             "flex items-start gap-2 px-3.5 py-2.5 rounded-xl border text-xs",
-                            includeEmployeeIds
-                              ? plan.total_employee_selections > 0
-                                ? "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-300"
-                                : "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                            includeEmployeeIds && plan.dropped_employee_selections === 0
+                              ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
                               : "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-300"
                           )}
                         >
                           <Users className="w-4 h-4 shrink-0 mt-0.5" />
                           <p>
                             {includeEmployeeIds
-                              ? tC("warnings.employee_partial", {
-                                  kept: plan.valid_target_employee_count,
-                                  dropped: plan.total_employee_selections,
-                                })
+                              ? plan.dropped_employee_selections === 0
+                                ? tC("warnings.employee_all_kept", {
+                                    count: plan.kept_employee_selections,
+                                  })
+                                : tC("warnings.employee_partial", {
+                                    kept: plan.kept_employee_selections,
+                                    dropped: plan.dropped_employee_selections,
+                                  })
                               : tC("warnings.employee_dropped_all", {
                                   count: plan.rules_with_employee_selection,
                                 })}
@@ -542,13 +617,8 @@ export default function CopyFromHouseModal({
                   </button>
                   <button
                     onClick={() => setConfirmOpen(true)}
-                    disabled={
-                      copying ||
-                      !plan ||
-                      !hasRules ||
-                      copiesNothing ||
-                      (plan.to_create === 0 && plan.to_overwrite === 0)
-                    }
+                    disabled={copying || nothingToDo}
+                    title={nothingToDo ? tC("messages.nothing_to_copy") : undefined}
                     className="px-5 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-400 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                     {tC("buttons.copy")}
@@ -569,11 +639,16 @@ export default function CopyFromHouseModal({
         title={tC("confirm.title")}
         message={
           plan
-            ? tC("confirm.message", {
-                source: plan.source_house.name,
-                target: plan.target_house.name,
-                create: plan.to_create,
-              })
+            ? tC(
+                plan.to_overwrite > 0 ? "confirm.message_overwrite" : "confirm.message",
+                {
+                  source: plan.source_house.name,
+                  target: plan.target_house.name,
+                  create: plan.to_create,
+                  overwrite: plan.to_overwrite,
+                  skip: plan.to_skip,
+                }
+              )
             : ""
         }
         confirmText={tC("buttons.copy_confirm")}

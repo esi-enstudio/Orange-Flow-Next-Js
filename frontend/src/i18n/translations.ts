@@ -3738,8 +3738,19 @@ export const translations = {
           include_employee_ids: "Also copy employee inclusion",
           include_employee_ids_hint:
             "Employee selections only carry over for staff who are active in this house. Others are dropped.",
-          include_inactive: "Include inactive rules",
-          include_inactive_hint: "Off copies only rules that are currently active.",
+        include_inactive: "Include inactive rules",
+        include_inactive_hint: "Off copies only rules that are currently active.",
+        },
+        mode: {
+          label: "If the target house already has a rule in the same slot",
+          skip: {
+            label: "Keep the target house's rule",
+            hint: "Safest. Colliding rules are left exactly as they are.",
+          },
+          overwrite: {
+            label: "Overwrite with the source rule",
+            hint: "The target rule is replaced by the source rule's settings.",
+          },
         },
         buttons: {
           preview: "Preview Changes",
@@ -3754,6 +3765,7 @@ export const translations = {
         warnings: {
           employee_partial:
             "{kept} employee selection(s) matched this house and will be copied. {dropped} did not match and will be dropped.",
+          employee_all_kept: "All {count} employee selection(s) matched this house and will be copied.",
           employee_dropped_all:
             "{count} rule(s) restrict results to specific employees. Those selections will NOT be copied, so the rules will apply to every employee.",
         },
@@ -3767,10 +3779,12 @@ export const translations = {
           title: "Copy rule configuration?",
           message:
             "About {create} rule(s) will be copied from {source} into {target}. Existing rules that collide are left untouched.",
+          message_overwrite:
+            "{create} rule(s) will be created and {overwrite} existing rule(s) in {target} will be overwritten using the settings from {source}. {skip} rule(s) will be left untouched.",
         },
         result: {
           title: "Rule configuration copied",
-          summary: "Copied rules from {source}. {created} rule(s) created.",
+          summary: "Copied rules from {source}. {created} rule(s) created, {overwritten} overwritten.",
           created: "Created",
           skipped: "Skipped",
           overwritten: "Overwritten",
@@ -3783,6 +3797,8 @@ export const translations = {
           copy_failed: "Failed to copy rules. Please try again.",
           pick_source: "Please choose which house to copy from.",
           pick_target: "Please choose a target house first — use the house selector at the top of this page.",
+          nothing_to_copy:
+            "Nothing to copy with these settings. Change the collision handling above, or turn on \"Include inactive rules\".",
         },
       },
       page: {
@@ -3808,6 +3824,7 @@ export const translations = {
           f5: { title: "Included Employees", desc: "Per-role: when set, only these employees' retailers count towards achievement." },
           f6: { title: "Dynamic Contexts", desc: "Contexts are stored in the database and can be created/edited by admins via the Manage Contexts button. Rules can be configured for any active context." },
           f7: { title: "Copy from Another House", desc: "A super admin can seed a newly onboarded house by copying every rule from an existing house. Pick a source house, preview the diff, then confirm." },
+          f8: { title: "Collision Handling", desc: "When the target house already has a rule in the same context + role + section + column, choose whether to keep the target's rule (safe) or overwrite it with the source rule's settings. The preview always reflects the option you picked." },
         },
         notes: {
           n1: { title: "Only one active rule per role + section", desc: "When you activate a rule, other rules for the same context + role + section are automatically deactivated. A section rule only affects that section of the page." },
@@ -7590,6 +7607,17 @@ employees: "Employees",
           include_inactive: "নিষ্ক্রিয় রুলও অন্তর্ভুক্ত করুন",
           include_inactive_hint: "বন্ধ থাকলে শুধু বর্তমানে সক্রিয় রুল কপি হবে।",
         },
+        mode: {
+          label: "লক্ষ্য হাউসে যদি একই স্লটে ইতিমধ্যে রুল থাকে",
+          skip: {
+            label: "লক্ষ্য হাউসের রুল রাখুন",
+            hint: "সবচেয়ে নিরাপদ। সংঘর্ষ করা রুল অপরিবর্তিত থাকবে।",
+          },
+          overwrite: {
+            label: "সোর্স রুল দিয়ে ওভাররাইট করুন",
+            hint: "লক্ষ্য হাউসের রুলটি সোর্স রুলের সেটিংস দিয়ে প্রতিস্থাপিত হবে।",
+          },
+        },
         buttons: {
           preview: "পরিবর্তন দেখুন",
           copy: "রুল কপি করুন",
@@ -7603,6 +7631,7 @@ employees: "Employees",
         warnings: {
           employee_partial:
             "{kept} টি কর্মী নির্বাচন এই হাউসের সাথে মিলেছে, তা কপি হবে। {dropped} টি মেলেনি, তা বাদ যাবে।",
+          employee_all_kept: "{count} টি কর্মী নির্বাচনই এই হাউসের সাথে মিলেছে, সবগুলো কপি হবে।",
           employee_dropped_all:
             "{count} টি রুল নির্দিষ্ট কর্মীদের উপর সীমাবদ্ধ। ওই নির্বাচনগুলো কপি হবে না, তাই রুলগুলো সব কর্মীর ক্ষেত্রে প্রযোজ্য হবে।",
         },
@@ -7616,10 +7645,12 @@ employees: "Employees",
           title: "রুল কনফিগারেশন কপি করবেন?",
           message:
             "{source} থেকে {target}-এ আনুমানিক {create} টি রুল কপি হবে। সংঘর্ষ করা পুরনো রুল অপরিবর্তিত থাকবে।",
+          message_overwrite:
+            "{create} টি রুল তৈরি হবে এবং {target}-এর {overwrite} টি বিদ্যমান রুল {source}-এর সেটিংস দিয়ে ওভাররাইট হবে। {skip} টি রুল অপরিবর্তিত থাকবে।",
         },
         result: {
           title: "রুল কনফিগারেশন কপি হয়েছে",
-          summary: "{source} থেকে রুল কপি হয়েছে। {created} টি রুল তৈরি হয়েছে।",
+          summary: "{source} থেকে রুল কপি হয়েছে। {created} টি রুল তৈরি হয়েছে, {overwritten} টি ওভাররাইট হয়েছে।",
           created: "তৈরি",
           skipped: "বাদ",
           overwritten: "ওভাররাইট",
@@ -7632,6 +7663,8 @@ employees: "Employees",
           copy_failed: "রুল কপি করা যায়নি। আবার চেষ্টা করুন।",
           pick_source: "যেখান থেকে কপি করবেন তা নির্বাচন করুন।",
           pick_target: "প্রথমে লক্ষ্য হাউস নির্বাচন করুন — পেজের উপরের হাউস সিলেক্টর ব্যবহার করুন।",
+          nothing_to_copy:
+            "এই সেটিংসে কিছু কপি করার মতো নেই। উপরের সংঘর্ষ ব্যবস্থাপনা পরিবর্তন করুন, অথবা \"নিষ্ক্রিয় রুলও অন্তর্ভুক্ত করুন\" চালু করুন।",
         },
       },
       page: {
@@ -7657,6 +7690,7 @@ employees: "Employees",
           f5: { title: "অন্তর্ভুক্ত কর্মী", desc: "প্রতি ভূমিকা: সেট করলে শুধুমাত্র এই কর্মীদের রিটেইলার অর্জনে গণ্য হবে।" },
           f6: { title: "ডাইনামিক কনটেক্সট", desc: "কনটেক্সট ডেটাবেসে সংরক্ষিত থাকে এবং একজন অ্যাডমিন 'কনটেক্সট পরিচালনা' বাটন দিয়ে তৈরি/সম্পাদনা করতে পারেন। যেকোনো সক্রিয় কনটেক্সটের জন্য রুল কনফিগার করা যায়।" },
           f7: { title: "অন্য হাউস থেকে কপি", desc: "একজন সুপার অ্যাডমিন নতুন যুক্ত হওয়া হাউসকে বিদ্যমান হাউসের সব রুল কপি করে সাজাতে পারেন। সোর্স হাউস বেছে নিন, পরিবর্তনের প্রিভিউ দেখুন, তারপর নিশ্চিত করুন।" },
+          f8: { title: "সংঘর্ষ ব্যবস্থাপনা", desc: "লক্ষ্য হাউসে একই কনটেক্সট + রোল + সেকশন + কলামে ইতিমধ্যে রুল থাকলে, সেটি রাখবেন (নিরাপদ) নাকি সোর্স রুলের সেটিংস দিয়ে ওভাররাইট করবেন তা বেছে নিন। প্রিভিউ সবসময় আপনার বেছে নেওয়া অপশন অনুযায়ী দেখায়।" },
         },
         notes: {
           n1: { title: "প্রতি ভূমিকা + সেকশনে শুধুমাত্র একটি সক্রিয় রুল", desc: "রুল সক্রিয় করলে একই কনটেক্সট + ��ভূমিকা + সেকশনের অন্যান্য রুল স্বয়ংক্রিয়ভাবে নিষ্ক্রিয় হয়ে যায়। একটি সেকশন রুল শুধুমাত্র পেজের সেই অংশে প্রযোজ্য।" },

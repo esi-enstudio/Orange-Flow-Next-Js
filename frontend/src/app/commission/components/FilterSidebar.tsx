@@ -112,7 +112,7 @@ export default function FilterSidebar({ filters, onFiltersChange, isOpen, onTogg
   );
 
   return (
-    <div className="w-80 border-r border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-y-auto flex-shrink-0">
+    <div className="w-80 border-r border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-y-auto overflow-x-hidden flex-shrink-0 h-full">
       <div className="sticky top-0 bg-white dark:bg-slate-900 z-10 border-b border-gray-200 dark:border-slate-700">
         <div className="flex items-center justify-between px-4 py-3">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
