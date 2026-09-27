@@ -180,6 +180,7 @@ export default function TransactionsReportPage() {
   const [selectedEntity, setSelectedEntity] = useState<string>("");
   const [entitySearch, setEntitySearch] = useState<string>("");
   const [entityOpen, setEntityOpen] = useState(false);
+  const [entityMenu, setEntityMenu] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
 
   const [timeMode, setTimeMode] = useState<TimeMode>("month");
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -208,6 +209,7 @@ export default function TransactionsReportPage() {
   const [thrExpanded, setThrExpanded] = useState<number | null>(null);
 
   const entityDropdownRef = useRef<HTMLDivElement>(null);
+  const entityTriggerRef = useRef<HTMLButtonElement>(null);
   const thrRsoDropdownRef = useRef<HTMLDivElement>(null);
 
   const dateRange = useMemo<{ start: string; end: string }>(() => {
@@ -256,17 +258,26 @@ export default function TransactionsReportPage() {
         setThrRsoOpen(false);
       }
     };
-    const onCloseAny = () => {
+    // Scroll fired by an element does NOT bubble, so listening in the bubble phase
+    // only ever reports page/ancestor scrolling. The containment check is a
+    // belt-and-braces guard so a dropdown that is scrolled internally always
+    // survives its own scroll.
+    const onScrollOrResize = (e: Event) => {
+      const target = e.target as Node | null;
+      if (target && target !== document) {
+        if (entityDropdownRef.current?.contains(target)) return;
+        if (thrRsoDropdownRef.current?.contains(target)) return;
+      }
       setEntityOpen(false);
       setThrRsoOpen(false);
     };
     document.addEventListener("mousedown", onClick);
-    window.addEventListener("scroll", onCloseAny, true);
-    window.addEventListener("resize", onCloseAny);
+    window.addEventListener("scroll", onScrollOrResize);
+    window.addEventListener("resize", onScrollOrResize);
     return () => {
       document.removeEventListener("mousedown", onClick);
-      window.removeEventListener("scroll", onCloseAny, true);
-      window.removeEventListener("resize", onCloseAny);
+      window.removeEventListener("scroll", onScrollOrResize);
+      window.removeEventListener("resize", onScrollOrResize);
     };
   }, []);
 
@@ -379,6 +390,48 @@ export default function TransactionsReportPage() {
     setThrExpanded(null);
   };
 
+  // Height of the fixed mobile bottom bar; the dropdown must never open under it.
+  const MOBILE_NAV_CLEARANCE = 76;
+  const ENTITY_MENU_HEADER = 46;
+
+  /**
+   * Position the entity list as a fixed panel that flips above the trigger when
+   * there is not enough room below. A plain `absolute` dropdown simply grew past
+   * the viewport on short mobile screens, which put the lower half of the list
+   * (and the whole list when the trigger sat low) out of reach.
+   */
+  const toggleEntityMenu = () => {
+    if (entityOpen) {
+      setEntityOpen(false);
+      return;
+    }
+    const el = entityTriggerRef.current;
+    if (!el) {
+      setEntityOpen(true);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const isMobile = window.innerWidth < 768;
+    const footerPad = isMobile ? MOBILE_NAV_CLEARANCE : 12;
+    const maxHeight = Math.max(180, Math.min(window.innerHeight * 0.5, 360));
+
+    const width = Math.min(Math.max(rect.width, 260), window.innerWidth - 24);
+    const left = Math.max(Math.min(rect.left, window.innerWidth - width - 12), 12);
+
+    // Required height = search header + list.
+    const needed = ENTITY_MENU_HEADER + maxHeight;
+    const spaceBelow = window.innerHeight - rect.bottom - footerPad;
+    const spaceAbove = rect.top - footerPad;
+
+    const openBelow = spaceBelow >= Math.min(needed, 220) || spaceBelow >= spaceAbove;
+    const available = openBelow ? spaceBelow : spaceAbove;
+    const top = openBelow ? rect.bottom + 6 : Math.max(rect.top - 6 - available, footerPad);
+    const listHeight = Math.max(120, available - ENTITY_MENU_HEADER);
+
+    setEntityMenu({ top, left, width, maxHeight: Math.min(maxHeight, listHeight) });
+    setEntityOpen(true);
+  };
+
   const toggleThrRsoMenu = () => {
     if (thrRsoOpen) {
       setThrRsoOpen(false);
@@ -387,11 +440,15 @@ export default function TransactionsReportPage() {
     const el = thrRsoTriggerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    // Keep the panel clear of the fixed mobile bottom bar.
+    const footerPad = window.innerWidth < 768 ? 76 : 12;
     const menuW = Math.min(Math.max(rect.width, 280), window.innerWidth - 24);
     const menuH = Math.min(window.innerHeight * 0.5, 360);
     const left = Math.max(Math.min(rect.left, window.innerWidth - menuW - 12), 12);
-    const below = rect.bottom + 6 + menuH <= window.innerHeight;
-    const top = below ? rect.bottom + 6 : Math.max(rect.top - menuH - 6, 12);
+    const below = rect.bottom + 6 + menuH <= window.innerHeight - footerPad;
+    const top = below
+      ? rect.bottom + 6
+      : Math.max(rect.top - menuH - 6, footerPad);
     setThrRsoMenu({ top, left, width: menuW });
     setThrRsoOpen(true);
   };
@@ -553,9 +610,10 @@ export default function TransactionsReportPage() {
           </div>
           <div className="relative" ref={entityDropdownRef}>
             <button
-              onClick={() => setEntityOpen((v) => !v)}
+              ref={entityTriggerRef}
+              onClick={toggleEntityMenu}
               disabled={!selectedHouseId}
-              className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all disabled:opacity-50 text-left"
+              className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all disabled:opacity-50 text-left cursor-pointer disabled:cursor-not-allowed"
             >
               <span className={cn("truncate", !selectedEntity && "text-gray-400 dark:text-gray-500")}>
                 {selectedEntity
@@ -564,8 +622,11 @@ export default function TransactionsReportPage() {
               </span>
               <ChevronDown className={cn("w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform", entityOpen && "rotate-180")} />
             </button>
-            {entityOpen && (
-              <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-xl shadow-xl overflow-hidden">
+            {entityOpen && entityMenu && (
+              <div
+                className="fixed z-50 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl shadow-xl overflow-hidden"
+                style={{ top: entityMenu.top, left: entityMenu.left, width: entityMenu.width }}
+              >
                 <div className="p-2 border-b border-gray-50 dark:border-slate-800">
                   <input
                     type="text"
@@ -575,7 +636,12 @@ export default function TransactionsReportPage() {
                     className="w-full px-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
                   />
                 </div>
-                <div className="max-h-56 overflow-y-auto">
+                {/* overscroll-contain keeps a swipe inside the list from chaining
+                    to the page and shifting the panel out from under the finger. */}
+                <div
+                  className="overflow-y-auto overscroll-contain"
+                  style={{ maxHeight: entityMenu.maxHeight }}
+                >
                   {entities.length === 0 ? (
                     <p className="px-3 py-4 text-xs text-center text-gray-400">{t("transactions_report.messages.no_entities")}</p>
                   ) : (
@@ -1036,7 +1102,7 @@ export default function TransactionsReportPage() {
                         className="w-full px-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-md text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
                       />
                     </div>
-                    <div className="max-h-[min(50vh,360px)] overflow-y-auto py-1">
+                    <div className="max-h-[min(50vh,360px)] overflow-y-auto overscroll-contain py-1">
                       <button
                         type="button"
                         onClick={() => {
