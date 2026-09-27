@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Timezone
     TIME_ZONE: str = "Asia/Dhaka"
 
+    # Default country code used to expand locally-typed phone numbers
+    # (e.g. "01732547755" -> "8801732547755") into full international form.
+    DEFAULT_COUNTRY_CODE: str = "880"
+
     # WhatsApp Multi-Session Gateway (go-whatsapp-multi-session-rest-api)
     WA_GATEWAY_URL: str = "http://localhost:7001"
     WA_GATEWAY_ADMIN_KEY: str = ""

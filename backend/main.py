@@ -77,6 +77,7 @@ from app.routers.stock import router as stock_router
 from app.routers.sales import router as sales_router
 from app.routers.itopup_balance import router as itopup_balance_router
 from app.routers.whatsapp_schedules import router as whatsapp_schedules_router
+from app.routers.whatsapp_contacts import router as whatsapp_contacts_router
 from app.routers.whatsapp_gateway import router as whatsapp_gateway_router
 from app.routers.whatsapp_connections import router as whatsapp_connections_router
 from app.routers.telegram_bots import router as telegram_bots_router
@@ -145,6 +146,7 @@ app.include_router(stock_router)
 app.include_router(sales_router)
 app.include_router(itopup_balance_router)
 app.include_router(whatsapp_schedules_router)
+app.include_router(whatsapp_contacts_router)
 app.include_router(whatsapp_gateway_router)
 app.include_router(whatsapp_connections_router)
 app.include_router(telegram_bots_router)

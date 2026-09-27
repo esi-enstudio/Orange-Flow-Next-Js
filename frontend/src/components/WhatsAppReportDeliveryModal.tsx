@@ -14,7 +14,9 @@ import {
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
+import { useAuth } from "@/context/AuthContext";
 import WhatsAppConnectModal from "@/components/WhatsAppConnectModal";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
 // Report image build + WhatsApp media upload can take far longer than the
 // default 10s API timeout: the backend posts to every target sequentially and
@@ -54,11 +56,20 @@ interface WsGroup {
 }
 
 interface WsContact {
+  id: number;
+  house_id: number;
+  name: string;
+  phone_number: string;
   jid: string;
-  push_name: string;
-  full_name: string;
-  first_name: string;
-  business_name: string;
+  note: string | null;
+  is_active: boolean;
+}
+
+interface ContactFormState {
+  name: string;
+  phone_number: string;
+  note: string;
+  is_active: boolean;
 }
 
 interface TgStatus {
@@ -167,6 +178,72 @@ const emptyForm: FormState = {
   ends_never: true,
 };
 
+const emptyContactForm: ContactFormState = {
+  name: "",
+  phone_number: "",
+  note: "",
+  is_active: true,
+};
+
+// Mirrors the backend normalizer in `app/schemas/whatsapp_contact.py`.
+const DEFAULT_COUNTRY_CODE = "880";
+// A reachable national number is 9-12 digits; validated on the national part so
+// the rule is independent of the country code length.
+const NSN_MIN_DIGITS = 9;
+const NSN_MAX_DIGITS = 12;
+
+// Digits-only cleanup so "+880 1712-345 678" and "8801712345678" collapse together.
+const normalizePhone = (raw: string): string => (raw ?? "").replace(/\D/g, "");
+
+/** Returns the national significant number, or null when the format is unrecognised. */
+const toNationalNumber = (raw: string): string | null => {
+  let digits = normalizePhone(raw);
+  if (digits.startsWith("00") && digits.length > 2) digits = digits.slice(2);
+  if (!digits) return null;
+  if (digits.startsWith(DEFAULT_COUNTRY_CODE) && digits.length > DEFAULT_COUNTRY_CODE.length) {
+    return digits.slice(DEFAULT_COUNTRY_CODE.length);
+  }
+  if (digits.startsWith("0")) return digits.replace(/^0+/, "");
+  if (digits.length === 10 && digits.startsWith("1")) return digits;
+  return null;
+};
+
+/**
+ * Mirrors the backend `normalize_whatsapp_phone` so the form reflects reality
+ * before a request is sent. A local "01732547755" is accepted and stored as
+ * "8801732547755"; a number belonging to another country is rejected instead of
+ * being silently rewritten to the wrong recipient.
+ */
+const phoneIsValid = (raw: string): boolean => {
+  const nsn = toNationalNumber(raw);
+  if (!nsn) return false;
+  if (nsn.length < NSN_MIN_DIGITS || nsn.length > NSN_MAX_DIGITS) return false;
+  return (DEFAULT_COUNTRY_CODE.length + nsn.length) <= 15;
+};
+
+/** Mirrors the backend expansion so the form can show the number that will be stored. */
+const resolvePhoneE164 = (raw: string): string => {
+  const nsn = toNationalNumber(raw);
+  return nsn ? `${DEFAULT_COUNTRY_CODE}${nsn}` : normalizePhone(raw);
+};
+
+/**
+ * Renders the stored international number back in the local form people
+ * recognise (8801732547755 -> 01732547755), keeping the raw digits as a tooltip
+ * so the exact gateway address is still reachable.
+ */
+const formatPhoneForDisplay = (stored: string): string => {
+  const digits = normalizePhone(stored);
+  const cc = DEFAULT_COUNTRY_CODE;
+  if (digits.startsWith(cc) && digits.length === cc.length + 10) {
+    return `0${digits.slice(cc.length)}`;
+  }
+  if (digits.startsWith(cc) && digits.length === cc.length + 9) {
+    return `0${digits.slice(cc.length)}`;
+  }
+  return digits;
+};
+
 export default function WhatsAppReportDeliveryModal({
   open,
   houseId,
@@ -179,6 +256,14 @@ export default function WhatsAppReportDeliveryModal({
   const [tgStatus, setTgStatus] = useState<TgStatus | null>(null);
   const [groups, setGroups] = useState<WsGroup[]>([]);
   const [contacts, setContacts] = useState<WsContact[]>([]);
+  const [contactForm, setContactForm] = useState<ContactFormState>(emptyContactForm);
+  const [editingContactId, setEditingContactId] = useState<number | null>(null);
+  const [contactSaving, setContactSaving] = useState(false);
+  const [contactDeletingId, setContactDeletingId] = useState<number | null>(null);
+  const [contactDeleteTarget, setContactDeleteTarget] = useState<WsContact | null>(null);
+  const [showInactiveContacts, setShowInactiveContacts] = useState(false);
+  const [contactFormError, setContactFormError] = useState<string | null>(null);
+  const [contactFormOpen, setContactFormOpen] = useState(false);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLog[]>([]);
   const [loading, setLoading] = useState(false);
@@ -203,6 +288,11 @@ export default function WhatsAppReportDeliveryModal({
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [historyOpen, setHistoryOpen] = useState(false);
   const router = useRouter();
+
+  const { hasPermission } = useAuth();
+  const canAddContact = hasPermission("whatsapp.contact.create");
+  const canEditContact = hasPermission("whatsapp.contact.edit");
+  const canDeleteContact = hasPermission("whatsapp.contact.delete");
 
   const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
 
@@ -248,7 +338,12 @@ export default function WhatsAppReportDeliveryModal({
     const [statusRes, groupsRes, contactsRes, schedulesRes, tgRes, historyRes] = await Promise.allSettled([
       apiClient.get("/whatsapp/status", { headers: hH }),
       apiClient.get("/whatsapp/groups", { headers: hH }),
-      apiClient.get("/whatsapp/contacts", { headers: hH }),
+      // Manually maintained address book. `per_page=100` keeps the whole list in
+      // memory so the recipient picker can search it without a round trip.
+      apiClient.get("/whatsapp/contacts", {
+        params: { per_page: 100, include_inactive: showInactiveContacts, sort_by: "name", sort_order: "asc" },
+        headers: hH,
+      }),
       apiClient.get("/whatsapp-schedules", {
         params: { house_id: houseId, report_type: reportType },
         headers: hH,
@@ -266,7 +361,7 @@ export default function WhatsAppReportDeliveryModal({
     setSchedules(schedulesRes.status === "fulfilled" ? schedulesRes.value.data?.data ?? [] : []);
     setTgStatus(tgRes.status === "fulfilled" ? tgRes.value.data : null);
     setDeliveryLogs(historyRes.status === "fulfilled" ? historyRes.value.data?.data ?? [] : []);
-  }, [houseId, reportType]);
+  }, [houseId, reportType, showInactiveContacts]);
 
   useEffect(() => {
     if (open && houseId) {
@@ -287,10 +382,14 @@ export default function WhatsAppReportDeliveryModal({
     setTgStatus(null);
     setGroups([]);
     setContacts([]);
+    resetContactForm();
+    setShowInactiveContacts(false);
     setSchedules([]);
     setDeliveryLogs([]);
     setEditingId(null);
     setDeleteTarget(null);
+    setContactDeleteTarget(null);
+    setContactDeletingId(null);
     setSendNowTarget(null);
     setShowDirectConfirm(false);
     setForm(emptyForm);
@@ -332,20 +431,21 @@ export default function WhatsAppReportDeliveryModal({
     }
   }, [fetchAll]);
 
-  const contactDisplayName = (c: WsContact): string => {
-    return c.push_name || c.full_name || c.business_name || c.first_name || c.jid.split("@")[0];
-  };
+  const contactDisplayName = (c: WsContact): string => c.name || c.phone_number;
 
   const filteredContacts = useMemo(() => {
-    if (!contactSearch.trim()) return contacts.slice(0, 100);
-    const q = contactSearch.toLowerCase();
-    return contacts
-      .filter((c) => {
-        const name = contactDisplayName(c).toLowerCase();
-        const jid = c.jid.toLowerCase();
-        return name.includes(q) || jid.includes(q);
-      })
-      .slice(0, 100);
+    if (!contactSearch.trim()) return contacts;
+    const q = contactSearch.trim().toLowerCase();
+    return contacts.filter((c) => {
+      const name = contactDisplayName(c).toLowerCase();
+      const digits = normalizePhone(q);
+      return (
+        name.includes(q) ||
+        c.phone_number.includes(q) ||
+        (digits.length > 0 && c.phone_number.includes(digits)) ||
+        (c.note ?? "").toLowerCase().includes(q)
+      );
+    });
   }, [contacts, contactSearch]);
 
   const filteredGroups = useMemo(() => {
@@ -374,8 +474,13 @@ export default function WhatsAppReportDeliveryModal({
 
   const allGroupsVisibleSelected =
     filteredGroups.length > 0 && filteredGroups.every((g) => selectedGroupIds.has(g.id));
+  // Inactive contacts stay listed for reference but are never report recipients.
+  const selectableContacts = useMemo(
+    () => filteredContacts.filter((c) => c.is_active),
+    [filteredContacts]
+  );
   const allContactsVisibleSelected =
-    filteredContacts.length > 0 && filteredContacts.every((c) => selectedContactIds.has(c.jid));
+    selectableContacts.length > 0 && selectableContacts.every((c) => selectedContactIds.has(c.jid));
 
   const intervalMinutes = parseInt(form.interval_minutes, 10);
   const dailyTimeValid = TIME_RE.test(form.schedule_time);
@@ -478,6 +583,8 @@ export default function WhatsAppReportDeliveryModal({
   };
 
   const toggleContact = (jid: string) => {
+    const contact = contacts.find((c) => c.jid === jid);
+    if (contact && !contact.is_active) return;
     setSelectedContactIds((prev) => {
       const next = new Set(prev);
       if (next.has(jid)) next.delete(jid);
@@ -506,15 +613,127 @@ export default function WhatsAppReportDeliveryModal({
     if (allContactsVisibleSelected) {
       setSelectedContactIds((prev) => {
         const next = new Set(prev);
-        filteredContacts.forEach((c) => next.delete(c.jid));
+        selectableContacts.forEach((c) => next.delete(c.jid));
         return next;
       });
     } else {
       setSelectedContactIds((prev) => {
         const next = new Set(prev);
-        filteredContacts.forEach((c) => next.add(c.jid));
+        selectableContacts.forEach((c) => next.add(c.jid));
         return next;
       });
+    }
+  };
+
+  // ── Contact book CRUD (manual, per house) ────────────────────────
+
+  const resetContactForm = () => {
+    setContactForm(emptyContactForm);
+    setEditingContactId(null);
+    setContactFormError(null);
+    setContactFormOpen(false);
+  };
+
+  const startEditContact = (c: WsContact) => {
+    setEditingContactId(c.id);
+    setContactForm({
+      name: c.name,
+      phone_number: c.phone_number,
+      note: c.note ?? "",
+      is_active: c.is_active,
+    });
+    setContactFormError(null);
+    setContactFormOpen(true);
+  };
+
+  const saveContact = async () => {
+    if (!houseId) return;
+    const name = contactForm.name.trim();
+    const digits = normalizePhone(contactForm.phone_number);
+
+    if (!name) {
+      setContactFormError("Contact name is required");
+      return;
+    }
+    if (!phoneIsValid(contactForm.phone_number)) {
+      setContactFormError("Enter a valid number, e.g. 01732547755 or +8801732547755");
+      return;
+    }
+
+    setContactSaving(true);
+    setContactFormError(null);
+    try {
+      const payload = {
+        name,
+        phone_number: digits,
+        note: contactForm.note.trim() || null,
+        is_active: contactForm.is_active,
+      };
+      const res = editingContactId
+        ? await apiClient.patch(`/whatsapp/contacts/${editingContactId}`, payload)
+        : await apiClient.post("/whatsapp/contacts", payload, { headers: houseHeader });
+
+      const saved: WsContact = res.data.data;
+      // A deactivated contact must never remain queued as a report recipient.
+      if (!saved.is_active) {
+        setSelectedContactIds((prev) => {
+          const next = new Set(prev);
+          next.delete(saved.jid);
+          return next;
+        });
+      }
+      setContacts((prev) => {
+        const rest = prev.filter((c) => c.id !== saved.id);
+        return [...rest, saved].sort((a, b) =>
+          contactDisplayName(a).localeCompare(contactDisplayName(b))
+        );
+      });
+      toast.success(editingContactId ? "Contact updated" : "Contact added");
+      resetContactForm();
+    } catch (e) {
+      const axiosErr = e as {
+        response?: { data?: { detail?: string; error?: { fields?: Record<string, string> } } };
+      };
+      const fields = axiosErr.response?.data?.error?.fields;
+      setContactFormError(
+        fields?.phone_number ||
+          axiosErr.response?.data?.detail ||
+          (e as Error).message ||
+          "Could not save contact"
+      );
+    } finally {
+      setContactSaving(false);
+    }
+  };
+
+  /** Opens the confirmation dialog; nothing is removed until the user confirms. */
+  const requestDeleteContact = (c: WsContact) => {
+    setContactDeleteTarget(c);
+  };
+
+  const cancelDeleteContact = () => {
+    if (contactDeletingId !== null) return;
+    setContactDeleteTarget(null);
+  };
+
+  const deleteContact = async (c: WsContact) => {
+    setContactDeletingId(c.id);
+    try {
+      await apiClient.delete(`/whatsapp/contacts/${c.id}`);
+      setContacts((prev) => prev.filter((x) => x.id !== c.id));
+      setSelectedContactIds((prev) => {
+        const next = new Set(prev);
+        next.delete(c.jid);
+        return next;
+      });
+      if (editingContactId === c.id) resetContactForm();
+      toast.success("Contact removed");
+    } catch (e) {
+      const axiosErr = e as { response?: { data?: { detail?: string } } };
+      toast.error(axiosErr.response?.data?.detail || (e as Error).message || "Could not remove contact");
+    } finally {
+      setContactDeletingId(null);
+      setContactDeleteTarget(null);
     }
   };
 
@@ -864,7 +1083,7 @@ export default function WhatsAppReportDeliveryModal({
             type="button"
             onClick={() => setWaTargetTab("groups")}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
+              "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer",
               tab === "groups"
                 ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 shadow-sm"
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
@@ -878,7 +1097,7 @@ export default function WhatsAppReportDeliveryModal({
             type="button"
             onClick={() => setWaTargetTab("contacts")}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
+              "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer",
               tab === "contacts"
                 ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 shadow-sm"
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
@@ -941,57 +1160,253 @@ export default function WhatsAppReportDeliveryModal({
           </div>
         ) : (
           <div>
+            {/* Manual contact book — the linked device's own address book is not
+                exposed, so every recipient here is typed in and stored per house. */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-2">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
-                  type="text"
+                  type="search"
                   value={contactSearch}
                   onChange={(e) => setContactSearch(e.target.value)}
-                  placeholder="Search contacts by name or number..."
+                  placeholder="Search saved contacts by name or number..."
                   className="w-full min-h-[40px] pl-9 pr-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
                 />
               </div>
-              {filteredContacts.length > 0 && (
+              {selectableContacts.length > 0 && (
                 <button
                   type="button"
                   onClick={toggleAllContacts}
-                  className="px-2.5 min-h-[40px] rounded-xl border border-gray-200 dark:border-slate-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 shrink-0 w-full sm:w-auto"
+                  className="px-2.5 min-h-[40px] rounded-xl border border-gray-200 dark:border-slate-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 shrink-0 w-full sm:w-auto cursor-pointer"
                 >
                   {allContactsVisibleSelected ? "Deselect all" : "Select all"}
                 </button>
               )}
+              {canAddContact && (
+                <button
+                  type="button"
+                  onClick={() => (editingContactId ? resetContactForm() : setContactFormOpen((v) => !v))}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 px-3 min-h-[40px] rounded-xl text-xs font-medium shrink-0 w-full sm:w-auto cursor-pointer transition-colors",
+                    contactFormOpen && !editingContactId
+                      ? "bg-primary-500 text-white"
+                      : "border border-primary-500/40 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-500/10"
+                  )}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {contactFormOpen && !editingContactId ? "Close" : "Add contact"}
+                </button>
+              )}
             </div>
+
+            {contactFormOpen && (
+              <div className="mb-3 rounded-xl border border-primary-500/30 bg-primary-50/40 dark:bg-primary-500/5 p-3 space-y-3">
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                  {editingContactId ? "Edit contact" : "New contact"}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+                      Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={contactForm.name}
+                      onChange={(e) => {
+                        setContactForm((p) => ({ ...p, name: e.target.value }));
+                        setContactFormError(null);
+                      }}
+                      placeholder="e.g. RSO Manager"
+                      maxLength={200}
+                      className="w-full min-h-[40px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+                      WhatsApp number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      value={contactForm.phone_number}
+                      onChange={(e) => {
+                        setContactForm((p) => ({ ...p, phone_number: e.target.value }));
+                        setContactFormError(null);
+                      }}
+                      placeholder="01732547755 or +880 1732-547755"
+                      maxLength={32}
+                      className="w-full min-h-[40px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    />
+                    {contactForm.phone_number.trim() && (
+                      <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                        {phoneIsValid(contactForm.phone_number) ? (
+                          <>
+                            Will be saved as{" "}
+                            <span className="font-mono">{resolvePhoneE164(contactForm.phone_number)}</span>
+                          </>
+                        ) : (
+                          <span className="text-red-500">
+                            This number is not recognised — include the country code, e.g. 01732547755
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+                    Note <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={contactForm.note}
+                    onChange={(e) => setContactForm((p) => ({ ...p, note: e.target.value }))}
+                    placeholder="e.g. Daily GA report recipient"
+                    maxLength={500}
+                    className="w-full min-h-[40px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300 cursor-pointer select-none min-h-[32px]">
+                  <input
+                    type="checkbox"
+                    checked={contactForm.is_active}
+                    onChange={(e) => setContactForm((p) => ({ ...p, is_active: e.target.checked }))}
+                    className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 cursor-pointer"
+                  />
+                  Active — inactive contacts are kept but cannot be selected as recipients
+                </label>
+                {contactFormError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{contactFormError}</p>
+                )}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={resetContactForm}
+                    className="px-3.5 min-h-[40px] rounded-xl border border-gray-200 dark:border-slate-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-white dark:hover:bg-slate-800 cursor-pointer w-full sm:w-auto"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveContact}
+                    disabled={contactSaving}
+                    className="flex items-center justify-center gap-1.5 px-3.5 min-h-[40px] rounded-xl bg-primary-500 text-white text-xs font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto cursor-pointer"
+                  >
+                    {contactSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    {editingContactId ? "Save changes" : "Add contact"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {contacts.length > 0 && (
+              <label className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 mb-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showInactiveContacts}
+                  onChange={(e) => setShowInactiveContacts(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-gray-300 dark:border-slate-600 cursor-pointer"
+                />
+                Show inactive contacts
+              </label>
+            )}
+
             {filteredContacts.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
                 {filteredContacts.map((c) => (
-                  <button
-                    key={c.jid}
-                    type="button"
-                    onClick={() => toggleContact(c.jid)}
+                  <div
+                    key={c.id}
                     className={cn(
-                      "flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-colors min-h-[44px]",
+                      "flex items-center gap-1 rounded-xl border text-sm transition-colors",
                       selectedContactIds.has(c.jid)
-                        ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300"
-                        : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300"
+                        ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10"
+                        : "border-gray-200 dark:border-slate-700",
+                      !c.is_active && "opacity-60"
                     )}
                   >
-                    <User className="w-4 h-4 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <span className="truncate block">{contactDisplayName(c)}</span>
-                      {c.jid.includes("@s.whatsapp.net") && (
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate block">
-                          {c.jid.replace("@s.whatsapp.net", "")}
-                        </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleContact(c.jid)}
+                      disabled={!c.is_active}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-2.5 rounded-xl text-left flex-1 min-w-0 min-h-[44px]",
+                        c.is_active ? "cursor-pointer" : "cursor-not-allowed"
                       )}
-                    </div>
-                    {selectedContactIds.has(c.jid) && <CheckCircle2 className="w-4 h-4 shrink-0" />}
-                  </button>
+                    >
+                      <User className="w-4 h-4 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span
+                          className={cn(
+                            "truncate block",
+                            selectedContactIds.has(c.jid)
+                              ? "text-green-700 dark:text-green-300"
+                              : "text-gray-700 dark:text-gray-300"
+                          )}
+                        >
+                          {contactDisplayName(c)}
+                          {!c.is_active && (
+                            <span className="ml-1.5 text-[10px] font-semibold uppercase text-gray-400 dark:text-gray-500">
+                              Inactive
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate block">
+                          {formatPhoneForDisplay(c.phone_number)}
+                        </span>
+                        {c.note && (
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate block">
+                            {c.note}
+                          </span>
+                        )}
+                      </div>
+                      {selectedContactIds.has(c.jid) && (
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-green-600 dark:text-green-400" />
+                      )}
+                    </button>
+                    {(canEditContact || canDeleteContact) && (
+                      <div className="flex items-center gap-0.5 pr-1.5 shrink-0">
+                        {canEditContact && (
+                          <button
+                            type="button"
+                            onClick={() => startEditContact(c)}
+                            title="Edit contact"
+                            aria-label={`Edit ${contactDisplayName(c)}`}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-colors cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canDeleteContact && (
+                          <button
+                            type="button"
+                            onClick={() => requestDeleteContact(c)}
+                            disabled={contactDeletingId === c.id}
+                            title="Remove contact"
+                            aria-label={`Remove ${contactDisplayName(c)}`}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {contactDeletingId === c.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             ) : (
               <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
-                {contactSearch ? "No contacts match your search" : !whatsappReady ? "No contacts available — link WhatsApp first" : "No contacts available"}.
+                {contactSearch
+                  ? "No saved contacts match your search"
+                  : "No contacts saved yet — add the people who should receive this report."}
+              </p>
+            )}
+            {!canAddContact && contacts.length === 0 && (
+              <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
+                You do not have permission to add contacts.
               </p>
             )}
           </div>
@@ -2009,6 +2424,56 @@ export default function WhatsAppReportDeliveryModal({
         onClose={() => setShowConnectModal(false)}
         onConnected={() => { setShowConnectModal(false); fetchAll(); }}
       />
+
+      {/*
+        Portalled after the main overlay so it lands as the last child of the overlay
+        root. Both layers use z-[100]; being later in DOM order is what puts the
+        confirmation on top instead of behind the report modal. Keeping it outside
+        the main overlay also stops a click from bubbling to its close-on-backdrop
+        handler.
+      */}
+      {overlayRoot && createPortal(
+        <ConfirmationModal
+          isOpen={contactDeleteTarget !== null}
+          onClose={cancelDeleteContact}
+          onConfirm={() => {
+            if (contactDeleteTarget) deleteContact(contactDeleteTarget);
+          }}
+          type="danger"
+          title="Remove this contact?"
+          confirmText="Remove contact"
+          cancelText="Cancel"
+          loading={contactDeletingId !== null}
+        >
+          {contactDeleteTarget && (
+            <div className="w-full mt-5 rounded-2xl border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-4 text-left">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-sm">
+                  <User className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-gray-900 dark:text-gray-100 truncate">
+                    {contactDeleteTarget.name}
+                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+                    {formatPhoneForDisplay(contactDeleteTarget.phone_number)}
+                  </p>
+                </div>
+              </div>
+              {contactDeleteTarget.note && (
+                <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-slate-700 pt-3">
+                  {contactDeleteTarget.note}
+                </p>
+              )}
+              <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-slate-700 pt-3">
+                {selectedContactIds.has(contactDeleteTarget.jid)
+                  ? "This contact is currently selected as a report recipient and will be deselected."
+                  : "Any schedule already saved keeps its recipient list and will skip this contact."}
+              </p>
+            </div>
+          )}
+        </ConfirmationModal>
+        , overlayRoot)}
     </>
   );
 }

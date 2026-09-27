@@ -20,7 +20,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage();
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { isFocusMode, revealSidebar, revealHeader, setRevealHeader, setFocusMode } = useFullscreen();
+  const { isFocusMode, revealSidebar, revealHeader, setHeaderHovering, setFocusMode } = useFullscreen();
   const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup" || pathname === "/forgot-password" || pathname === "/reset-password";
 
   if (loading) {
@@ -50,16 +50,19 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       />
       <div className="flex-1 flex flex-col min-w-0">
         <header
-          onMouseEnter={() => isFocusMode && setRevealHeader(true)}
-          onMouseLeave={() => isFocusMode && setRevealHeader(false)}
+          // The reveal is pinned for as long as the pointer is anywhere inside the
+          // header, so the whole toolbar stays usable — it only slides away once the
+          // pointer leaves the header band.
+          onMouseEnter={() => isFocusMode && setHeaderHovering(true)}
+          onMouseLeave={() => isFocusMode && setHeaderHovering(false)}
           className={cn(
             // A single transition-property covers both the colour and transform changes:
             // stacking `transition-colors` and `transition-transform` would make them
             // fight over the same CSS property and the slide animation would be dropped.
-            "hidden md:flex h-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 items-center justify-between px-4 md:px-8 z-40 duration-300 transition-[color,background-color,border-color,outline-color,transform] gap-4",
+            "hidden md:flex h-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 items-center justify-between px-4 md:px-8 z-40 duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none transition-[color,background-color,border-color,outline-color,transform] gap-4",
             isFocusMode
               ? cn(
-                  "fixed inset-x-0 top-0 shadow-lg ease-out",
+                  "fixed inset-x-0 top-0 shadow-lg will-change-transform",
                   revealHeader ? "translate-y-0" : "-translate-y-full"
                 )
               : "sticky top-0"

@@ -433,7 +433,11 @@
         "whatsapp.connect",
         "whatsapp.disconnect",
         "whatsapp.setup",
-        "whatsapp.manage"
+        "whatsapp.manage",
+        "whatsapp.contact.view",
+        "whatsapp.contact.create",
+        "whatsapp.contact.edit",
+        "whatsapp.contact.delete"
       ]
     },
     "telegram": {
@@ -585,7 +589,11 @@
         "billing.pay",
         "plans.view",
         "payments.view",
-        "billing.edit"
+        "billing.edit",
+        "whatsapp.contact.view",
+        "whatsapp.contact.create",
+        "whatsapp.contact.edit",
+        "whatsapp.contact.delete"
       ]
     },
     {
@@ -639,7 +647,11 @@
         "billing.pay",
         "plans.view",
         "payments.view",
-        "billing.edit"
+        "billing.edit",
+        "whatsapp.contact.view",
+        "whatsapp.contact.create",
+        "whatsapp.contact.edit",
+        "whatsapp.contact.delete"
       ]
     },
     {

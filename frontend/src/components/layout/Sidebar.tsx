@@ -35,7 +35,7 @@ export function Sidebar({ isOpen, onClose, focusMode, revealed }: SidebarProps) 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [openNested, setOpenNested] = useState<string | null>(null);
   const { brand } = useBrand();
-  const { setRevealSidebar } = useFullscreen();
+  const { setSidebarHovering } = useFullscreen();
 
   // Filter items based on permissions - use memo to prevent mutation of constant
   const filteredNavItems = React.useMemo(() => {
@@ -329,14 +329,15 @@ function filterChildren(children: any[]): any[] {
     <>
       {/* Desktop Sidebar */}
       <aside
-        onMouseEnter={() => focusMode && setRevealSidebar(true)}
-        onMouseLeave={() => focusMode && setRevealSidebar(false)}
+        // Pinned while the pointer is inside the panel, so nav items stay clickable.
+        onMouseEnter={() => focusMode && setSidebarHovering(true)}
+        onMouseLeave={() => focusMode && setSidebarHovering(false)}
         className={cn(
           // One transition-property for both colour and transform — see DashboardLayout.
-          "hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 h-screen scrollbar-hide duration-300 transition-[color,background-color,border-color,outline-color,transform]",
+          "hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 h-screen scrollbar-hide duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none transition-[color,background-color,border-color,outline-color,transform]",
           focusMode
             ? cn(
-                "fixed inset-y-0 left-0 z-[101] shadow-2xl ease-out",
+                "fixed inset-y-0 left-0 z-[101] shadow-2xl will-change-transform",
                 revealed ? "translate-x-0" : "-translate-x-full"
               )
             : "sticky top-0"

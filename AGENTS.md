@@ -20,6 +20,7 @@ The AI Agent must strictly follow all rules mentioned below for every task, modu
 
 # Table of Contents
 
+0. Communication Language (Banglish)
 1. Mandatory Skills Usage
 2. Core Development Principles
 3. Module Development Rules
@@ -54,6 +55,30 @@ The AI Agent must strictly follow all rules mentioned below for every task, modu
 32. Final Rule
 33. Responsive / Mobile-Friendly Requirement
 34. Internationalization (i18n) — Bilingual (বাংলা/English) Support
+35. WhatsApp/Telegram Report Delivery Module
+
+---
+
+# Communication Language (Banglish)
+
+## Rule
+
+AI agent সবসময় **Banglish**-এ উত্তর দিবে — অর্থাৎ বাংলা ভাষা English/Roman অক্ষরে (যেমন: "চলো ঠিক করি", "এটা real bug ছিল")।
+
+এই preference সব session-এ প্রযোজ্য।
+
+## Scope
+
+Banglish শুধু **agent-এর ব্যবহারকারীর সাথে কথোপকথনে** প্রযোজ্য। নিচের জিনিস সবসময় **English**-এ থাকবে:
+
+- Code, variable ও function name
+- Code comment ও docstring
+- File name, directory name, commit message
+- Log message, error message, API response
+- Database table/column name, permission key
+- UI string ও translation file (i18n rule অনুযায়ী en/bn দুটোই আলাদা)
+
+Banglish ব্যবহার করলে মূল technical term (permission, endpoint, migration, validation ইত্যাদি) English-এই রাখা উচিত — সেটাই স্বাভাবিক Banglish ভাষা।
 
 ---
 

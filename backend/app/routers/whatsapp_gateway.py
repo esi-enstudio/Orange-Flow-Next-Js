@@ -347,38 +347,11 @@ async def whatsapp_groups(
 
 
 # ── Contacts ────────────────────────────────────────────────────────
-
-
-@router.get("/whatsapp/contacts")
-async def whatsapp_contacts(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("whatsapp.view")),
-    house_context: Optional[int] = Depends(get_house_context),
-):
-    """Get WhatsApp contacts for the current house's device.
-
-    Returns a list of individual contacts (not groups) with their JIDs,
-    push names, full names, and business names.
-    """
-    if not house_context:
-        raise HTTPException(status_code=400, detail="Select a house first")
-
-    await _verify_house_access(current_user, house_context)
-    house = await _get_house_with_wa(db, house_context)
-
-    target = await resolve_house_wa_target(db, house)
-    if not target or not target.jwt_token:
-        return {"success": True, "data": []}
-
-    try:
-        contacts = await with_target_token(
-            db,
-            target,
-            lambda token: whatsapp_service_client.get_contacts(token),
-        )
-        return {"success": True, "data": contacts}
-    except WhatsAppServiceError as e:
-        raise HTTPException(status_code=503, detail=f"{e.code}: {e.message}")
+#
+# The linked device's own address book is intentionally NOT exposed. Report
+# recipients are maintained by hand in `whatsapp_contacts` (see
+# `app/routers/whatsapp_contacts.py`) so a schedule can address a known person by
+# name instead of an opaque JID pulled from an ever-changing device cache.
 
 
 # ── Disconnect ─────────────────────────────────────────────────────
