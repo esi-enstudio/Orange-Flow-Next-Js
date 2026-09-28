@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Search, ChevronDown, Check, X } from "lucide-react";
 
 export interface SelectorItem {
@@ -27,6 +28,19 @@ interface EntitySelectorProps {
   clearLabel?: string;
   selectedLabel?: string;
   onSearchChange?: (q: string) => void;
+  /**
+   * Render the label in the visually-hidden a11y slot only. Set this when the
+   * surrounding form already renders its own visible label, so the two never
+   * duplicate each other.
+   */
+  hideLabel?: boolean;
+  /**
+   * Render the dropdown in a document.body portal with viewport-aware placement.
+   * Enable this when the trigger sits inside a clipping ancestor (overflow-hidden,
+   * collapsed accordion, scrollable card) that would otherwise cut the option list
+   * off. Defaults to false so existing usages keep their current behaviour.
+   */
+  portal?: boolean;
 }
 
 export default function EntitySelector({
@@ -46,15 +60,85 @@ export default function EntitySelector({
   clearLabel = "Clear",
   selectedLabel = "selected",
   onSearchChange,
+  hideLabel = false,
+  portal = false,
 }: EntitySelectorProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [portalPos, setPortalPos] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+    listMaxHeight: number;
+  } | null>(null);
+
+  const computePortalPos = () => {
+    const el = triggerRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const gap = 6;
+    const edge = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const spaceBelow = vh - rect.bottom - gap - edge;
+    const spaceAbove = rect.top - gap - edge;
+    // Only flip above when there is not enough room below and above is roomier.
+    const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow;
+    const avail = placeAbove ? spaceAbove : spaceBelow;
+    const width = Math.min(rect.width, vw - edge * 2);
+    const left = Math.min(Math.max(edge, rect.left), Math.max(edge, vw - width - edge));
+    // Reserve ~92px for the search row, the Select All/Clear row and padding. The
+    // floor stays at 0 so a cramped space shrinks the list instead of pushing the
+    // whole menu past the viewport edge.
+    const listMaxHeight = Math.max(0, Math.min(192, avail - 92));
+    const menuHeight = 92 + listMaxHeight + 8;
+    if (placeAbove) {
+      // An off-screen trigger would otherwise produce a negative `bottom` and park
+      // the menu outside the viewport, so keep it at least `edge` from the top.
+      const bottom = Math.max(edge, vh - rect.top + gap);
+      return { bottom, left, width, listMaxHeight };
+    }
+    return {
+      top: Math.min(rect.bottom + gap, Math.max(edge, vh - edge - menuHeight)),
+      left,
+      width,
+      listMaxHeight,
+    };
+  };
+
+  useEffect(() => {
+    if (!open || !portal) return;
+    // The trigger position at open time. A scroll only dismisses the menu when
+    // the page actually moved the trigger, so focus-induced scrolls (e.g. the
+    // search input being autofocused right after opening) do not close it.
+    const anchor = triggerRef.current?.getBoundingClientRect();
+    const onResize = () => setPortalPos(computePortalPos());
+    const onScroll = () => {
+      const now = triggerRef.current?.getBoundingClientRect();
+      if (!anchor || !now) return;
+      if (Math.abs(now.top - anchor.top) < 1 && Math.abs(now.left - anchor.left) < 1) return;
+      setOpen(false);
+      setSearch("");
+    };
+    window.addEventListener("scroll", onScroll, false);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll, false);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open, portal]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const inContainer = containerRef.current?.contains(target);
+      const inMenu = menuRef.current?.contains(target);
+      if (!inContainer && !inMenu) {
         setOpen(false);
         setSearch("");
       }
@@ -69,9 +153,24 @@ export default function EntitySelector({
     }
   }, [open]);
 
+  // Escape must dismiss the menu no matter where focus sits (trigger or the search
+  // input), and return focus to the trigger so keyboard users are not stranded.
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      setSearch("");
+      triggerRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
+  const trimmedSearch = search.trim();
   const filtered = items.filter((item) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
+    if (!trimmedSearch) return true;
+    const q = trimmedSearch.toLowerCase();
     return (
       item.label.toLowerCase().includes(q) ||
       (item.sublabel && item.sublabel.toLowerCase().includes(q)) ||
@@ -103,41 +202,24 @@ export default function EntitySelector({
     onChange(selectedIds.filter((id) => !filteredIds.includes(id)));
   };
 
-  return (
-    <div ref={containerRef} className="relative">
-      <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-        {label}{required && <span className="text-red-500"> *</span>}
-      </label>
+  // Enter picks the first matching option so the menu is fully operable without a
+  // mouse. For a single-select that selects and closes; for a multi-select it
+  // toggles the first match and keeps the menu open for further picks.
+  const commitFirstMatch = () => {
+    const first = filtered[0];
+    if (!first) {
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    toggleItem(first.id);
+    if (single) {
+      triggerRef.current?.focus();
+    }
+  };
 
-      <button
-        type="button"
-        onClick={() => !disabled && setOpen(!open)}
-        disabled={disabled}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 transition-colors"
-      >
-        <span className={`truncate ${selectedIds.length === 0 ? "text-gray-400" : "text-gray-900 dark:text-gray-100"}`}>
-          {single
-            ? selectedItem
-              ? selectedItem.label
-              : placeholder
-            : selectedIds.length === 0
-              ? placeholder
-              : `${selectedIds.length} ${selectedLabel}`}
-        </span>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {!single && selectedIds.length > 0 && (
-            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold text-white bg-primary-500 rounded-full">
-              {selectedIds.length}
-            </span>
-          )}
-          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
-        </div>
-      </button>
-
-      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-
-      {open && (
-        <div className="absolute z-50 mt-1.5 w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl shadow-lg animate-in fade-in slide-in-from-top-1 duration-150">
+    const menuBody = (
+    <>
           {(items.length > 0 || onSearchChange) && (
             <>
               <div className="relative p-2 pb-0">
@@ -149,6 +231,12 @@ export default function EntitySelector({
                   onChange={(e) => {
                     setSearch(e.target.value);
                     onSearchChange?.(e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      commitFirstMatch();
+                    }
                   }}
                   placeholder={searchPlaceholder}
                   className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary-500 dark:text-gray-100"
@@ -185,7 +273,12 @@ export default function EntitySelector({
             </>
           )}
 
-          <div className="max-h-48 overflow-y-auto scrollbar-custom p-1">
+          <div
+            role="listbox"
+            aria-multiselectable={!single}
+            className={`overflow-y-auto scrollbar-custom p-1 ${portal ? "" : "max-h-48"}`}
+            style={portal ? { maxHeight: portalPos?.listMaxHeight } : undefined}
+          >
             {items.length === 0 ? (
               <p className="text-xs text-gray-400 p-3 text-center">{emptyMessage}</p>
             ) : filtered.length === 0 ? (
@@ -197,6 +290,8 @@ export default function EntitySelector({
                   <button
                     key={item.id}
                     type="button"
+                    role="option"
+                    aria-selected={isSelected}
                     onClick={() => toggleItem(item.id)}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
                       isSelected
@@ -227,7 +322,78 @@ export default function EntitySelector({
               })
             )}
           </div>
+    </>
+  );
+
+  return (
+    <div ref={containerRef} className="relative">
+      <label
+        className={hideLabel ? "sr-only" : "block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5"}
+      >
+        {label}{required && <span className="text-red-500"> *</span>}
+      </label>
+
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={hideLabel ? label : undefined}
+        onClick={() => {
+          if (disabled) return;
+          if (!open && portal) setPortalPos(computePortalPos());
+          setOpen(!open);
+        }}
+        disabled={disabled}
+        className="w-full flex items-center justify-between gap-2 px-3 py-3 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-not-allowed"
+      >
+        {/* gray-500 rather than gray-400: gray-400 on white fails the 4.5:1
+            contrast minimum axe flags on this placeholder. */}
+        <span className={`truncate ${selectedIds.length === 0 ? "text-gray-500 dark:text-gray-400" : "text-gray-900 dark:text-gray-100"}`}>
+          {single
+            ? selectedItem
+              ? selectedItem.label
+              : placeholder
+            : selectedIds.length === 0
+              ? placeholder
+              : `${selectedIds.length} ${selectedLabel}`}
+        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!single && selectedIds.length > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold text-white bg-primary-600 rounded-full">
+              {selectedIds.length}
+            </span>
+          )}
+          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
         </div>
+      </button>
+
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+
+      {open && (
+        portal && portalPos ? (
+          createPortal(
+            <div
+              ref={menuRef}
+              style={{
+                position: "fixed",
+                top: portalPos.top,
+                bottom: portalPos.bottom,
+                left: portalPos.left,
+                width: portalPos.width,
+                zIndex: 50,
+              }}
+              className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl shadow-lg animate-in fade-in slide-in-from-top-1 duration-150"
+            >
+              {menuBody}
+            </div>,
+            document.body
+          )
+        ) : (
+          <div className="absolute z-50 mt-1.5 w-full bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl shadow-lg animate-in fade-in slide-in-from-top-1 duration-150">
+            {menuBody}
+          </div>
+        )
       )}
     </div>
   );

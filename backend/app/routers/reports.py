@@ -1,7 +1,7 @@
 import base64
 import json
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator
@@ -81,22 +81,47 @@ async def get_activations(
     service_class: Optional[str] = None,
     customer_second_contact: Optional[str] = None,
     employee_id: Optional[int] = None,
+    sim_msisdn: Optional[str] = None,
+    employee_ids: Optional[str] = None,
+    retailer_codes: Optional[str] = None,
     filter_house_id: Optional[int] = Query(None, alias="house_id"),
 
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("activations.view")),
     header_house_id: Optional[int] = Depends(get_house_context)
 ):
+    """Imported activations. The only filter surface is house / SIM-MSISDN /
+    employee / retailer / product code, matching the import page. Tenant isolation
+    still applies: an explicit `house_id` must belong to the user, otherwise the
+    X-House-ID header decides, and a non-admin is always restricted to their own
+    houses."""
+    is_admin = is_admin_user(current_user)
+    user_house_ids = [h.id for h in current_user.houses]
+    if filter_house_id:
+        _assert_house_access(current_user, filter_house_id)
     effective_house_id = filter_house_id or header_house_id
+
     query = select(Activation).options(
         joinedload(Activation.house),
         joinedload(Activation.retailer).joinedload(Retailer.employee).joinedload(Employee.user)
     )
-    if effective_house_id: query = query.where(Activation.house_id == effective_house_id)
+    if effective_house_id:
+        query = query.where(Activation.house_id == effective_house_id)
+    elif not is_admin and user_house_ids:
+        query = query.where(Activation.house_id.in_(user_house_ids))
 
     if employee_id:
         retailer_ids_subq = select(Retailer.id).where(Retailer.employee_id == employee_id)
         query = query.where(Activation.retailer_id.in_(retailer_ids_subq))
+    emp_ids = _csv_ints(employee_ids)
+    if emp_ids:
+        query = query.where(Activation.employee_id.in_(emp_ids))
+    ret_codes = _csv_strs(retailer_codes)
+    if ret_codes:
+        query = query.where(Activation.retailer_code.in_(ret_codes))
+    if sim_msisdn:
+        term = f"%{sim_msisdn.strip()}%"
+        query = query.where(or_(Activation.sim_no.ilike(term), Activation.msisdn.ilike(term)))
 
     if activation_date_from:
         try: sd = datetime.strptime(activation_date_from, "%Y-%m-%d").date()
@@ -206,71 +231,44 @@ async def get_activations(
 
     return {"total": total_count, "data": data}
 
-@router.get("/activations/filter-options")
-async def get_activation_filter_options(
-    filter_house_id: Optional[int] = Query(None, alias="house_id"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("activations.view")),
-    header_house_id: Optional[int] = Depends(get_house_context)
-):
-    effective_house_id = filter_house_id or header_house_id
-    base = select(Activation)
-    if effective_house_id: base = base.where(Activation.house_id == effective_house_id)
-
-    async def get_distinct(column):
-        q = select(column).distinct().where(column.isnot(None)).where(column != "").order_by(column)
-        result = await db.execute(q)
-        return [row[0] for row in result.all()]
-
-    promotions = await get_distinct(Activation.promotion)
-    product_codes = await get_distinct(Activation.product_code)
-    product_names = await get_distinct(Activation.product_name)
-    subscription_types = await get_distinct(Activation.subscription_type)
-    service_classes = await get_distinct(Activation.service_class)
-    bp_flags = await get_distinct(Activation.bp_flag)
-
-    return {
-        "promotions": promotions,
-        "product_codes": product_codes,
-        "product_names": product_names,
-        "subscription_types": subscription_types,
-        "service_classes": service_classes,
-        "bp_flags": bp_flags,
-    }
-
-@router.get("/activations/rso-list")
-async def get_activation_rso_list(
-    filter_house_id: Optional[int] = Query(None, alias="house_id"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("activations.view")),
-    header_house_id: Optional[int] = Depends(get_house_context)
-):
-    effective_house_id = filter_house_id or header_house_id
-    base = select(Employee).options(joinedload(Employee.user)).where(Employee.employee_type == "rso")
-    if effective_house_id:
-        base = base.where(Employee.house_id == effective_house_id)
-    result = await db.execute(base.order_by(Employee.id))
-    employees = result.scalars().unique().all()
-    return [
-        {
-            "id": e.id,
-            "name": e.user.name if e.user else e.dms_code,
-            "employee_id": e.employee_id,
-            "dms_code": e.dms_code,
-        }
-        for e in employees
-    ]
-
 @router.get("/activations/export")
 async def export_activations(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    house_id: Optional[int] = None,
+    sim_msisdn: Optional[str] = None,
+    employee_ids: Optional[str] = None,
+    retailer_codes: Optional[str] = None,
+    product_codes: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("activations.export")),
-    house_id: Optional[int] = Depends(get_house_context)
+    header_house_id: Optional[int] = Depends(get_house_context)
 ):
+    """Export honours the same filters as the table, intersected with the optional
+    date range, so the file matches the screen."""
+    is_admin = is_admin_user(current_user)
+    user_house_ids = [h.id for h in current_user.houses]
+    if house_id:
+        _assert_house_access(current_user, house_id)
+    target_house_id = house_id or header_house_id
+
     query = select(Activation).options(joinedload(Activation.house), joinedload(Activation.retailer))
-    if house_id: query = query.where(Activation.house_id == house_id)
+    if target_house_id:
+        query = query.where(Activation.house_id == target_house_id)
+    elif not is_admin and user_house_ids:
+        query = query.where(Activation.house_id.in_(user_house_ids))
+    if sim_msisdn:
+        term = f"%{sim_msisdn.strip()}%"
+        query = query.where(or_(Activation.sim_no.ilike(term), Activation.msisdn.ilike(term)))
+    emp_ids = _csv_ints(employee_ids)
+    if emp_ids:
+        query = query.where(Activation.employee_id.in_(emp_ids))
+    ret_codes = _csv_strs(retailer_codes)
+    if ret_codes:
+        query = query.where(Activation.retailer_code.in_(ret_codes))
+    prod_codes = _csv_strs(product_codes)
+    if prod_codes:
+        query = query.where(Activation.product_code.in_(prod_codes))
     if start_date:
         try: sd = datetime.strptime(start_date, "%Y-%m-%d").date()
         except: return Response("Invalid start_date format", status_code=400)
@@ -279,7 +277,7 @@ async def export_activations(
         try: ed = datetime.strptime(end_date, "%Y-%m-%d").date()
         except: return Response("Invalid end_date format", status_code=400)
         query = query.where(Activation.activation_date <= ed)
-    result = await db.execute(query.order_by(Activation.id.desc()))
+    result = await db.execute(query.order_by(Activation.id.desc()).limit(50000))
     records = result.scalars().all()
     excel_data = await export_activations_excel(records)
     return Response(
@@ -474,137 +472,325 @@ async def export_itopup_details(
         headers={"Content-Disposition": "attachment; filename=itopup_details.xlsx"}
     )
 
-@router.get("/live-activations")
-async def get_live_activations(
-    search: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
-    activation_date_from: Optional[str] = None,
-    activation_date_to: Optional[str] = None,
-    activation_time: Optional[str] = None,
-    retailer_code: Optional[str] = None,
-    retailer_name: Optional[str] = None,
-    bts_code: Optional[str] = None,
-    thana: Optional[str] = None,
-    promotion: Optional[str] = None,
-    product_code: Optional[str] = None,
-    product_name: Optional[str] = None,
-    sim_no: Optional[str] = None,
-    msisdn: Optional[str] = None,
-    selling_price_min: Optional[str] = None,
-    selling_price_max: Optional[str] = None,
-    bp_flag: Optional[str] = None,
-    bp_number: Optional[str] = None,
-    fc_bts_code: Optional[str] = None,
-    bio_bts_code: Optional[str] = None,
-    dh_lifting_date: Optional[str] = None,
-    issue_date: Optional[str] = None,
-    subscription_type: Optional[str] = None,
-    service_class: Optional[str] = None,
-    customer_second_contact: Optional[str] = None,
+def _csv_ints(raw: Optional[str]) -> List[int]:
+    """Parse a comma separated id list coming from a multi-select filter."""
+    if not raw:
+        return []
+    out: List[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(int(part))
+        except ValueError:
+            continue
+    return out
+
+
+def _csv_strs(raw: Optional[str]) -> List[str]:
+    """Parse a comma separated string list coming from a multi-select filter."""
+    if not raw:
+        return []
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def _assert_house_access(current_user: User, house_id: Optional[int]) -> None:
+    """A non-admin may only ever read a house they belong to."""
+    if house_id is None:
+        return
+    if is_admin_user(current_user):
+        return
+    if house_id not in [h.id for h in current_user.houses]:
+        raise HTTPException(status_code=403, detail="You do not have access to this house")
+
+
+@router.get("/activations/filter-options/employees")
+async def activation_filter_employees(
+    house_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.view")),
-    house_id: Optional[int] = Depends(get_house_context)
+    current_user: User = Depends(has_permission("activations.view")),
 ):
-    query = select(LiveActivation).options(joinedload(LiveActivation.house))
-    if house_id: query = query.where(LiveActivation.house_id == house_id)
+    """Employees of the selected house, used to filter the activation table."""
+    _assert_house_access(current_user, house_id)
+    result = await db.execute(
+        select(Employee).where(Employee.house_id == house_id).order_by(Employee.employee_name)
+    )
+    employees = result.scalars().all()
+    return [
+        {
+            "id": e.id,
+            "name": e.employee_name or e.dms_code,
+            "dms_code": e.dms_code,
+            "itop_number": e.itop_number,
+            "employee_type": e.employee_type,
+            "status": e.status,
+        }
+        for e in employees
+    ]
+
+
+@router.get("/activations/filter-options/retailers")
+async def activation_filter_retailers(
+    house_id: int,
+    search: Optional[str] = None,
+    limit: int = Query(200, le=1000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("activations.view")),
+):
+    """Retailers that actually have activation records in the selected house.
+
+    The options come from the activation rows rather than the retailer master:
+    an imported activation can reference a retailer code the master table has
+    not caught up with, and a code you can see in the table must always be
+    selectable here. Server-side search keeps a house's thousands of retailers
+    off the wire."""
+    _assert_house_access(current_user, house_id)
+    query = (
+        select(Activation.retailer_code, func.max(Activation.retailer_name))
+        .where(Activation.house_id == house_id, Activation.retailer_code.isnot(None))
+        .group_by(Activation.retailer_code)
+    )
     if search:
         p = f"%{search}%"
-        query = query.where(
-            (LiveActivation.sim_no.ilike(p)) | (LiveActivation.retailer_code.ilike(p)) |
-            (LiveActivation.retailer_name.ilike(p)) | (LiveActivation.msisdn.ilike(p))
+        query = query.where(Activation.retailer_code.ilike(p))
+    query = query.order_by(Activation.retailer_code).limit(limit)
+    result = await db.execute(query)
+    master = {r.retailer_code: r.name for r in (await db.execute(
+        select(Retailer).where(Retailer.house_id == house_id)
+    )).scalars().all()}
+    return [
+        {
+            "id": code,
+            "name": master.get(code) or name or code,
+            "retailer_code": code,
+            "itop_number": None,
+        }
+        for code, name in result.all()
+    ]
+
+
+@router.get("/activations/filter-options/product-codes")
+async def activation_filter_product_codes(
+    house_id: int,
+    limit: int = Query(500, le=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("activations.view")),
+):
+    """Distinct product codes present in the selected house's activation data, so
+    the filter never offers a code that cannot match a row."""
+    _assert_house_access(current_user, house_id)
+    result = await db.execute(
+        select(Activation.product_code, Activation.product_name)
+        .where(
+            Activation.house_id == house_id,
+            Activation.product_code.isnot(None),
+            Activation.product_code != "",
         )
-    if activation_date_from:
-        try:
-            sd = datetime.strptime(activation_date_from, "%Y-%m-%d").date()
-            query = query.where(LiveActivation.activation_date >= sd)
-        except:
-            pass
-    if activation_date_to:
-        try:
-            ed = datetime.strptime(activation_date_to, "%Y-%m-%d").date()
-            query = query.where(LiveActivation.activation_date <= ed)
-        except:
-            pass
-    if activation_time: query = query.where(LiveActivation.activation_time.ilike(f"%{activation_time}%"))
-    if retailer_code: query = query.where(LiveActivation.retailer_code.ilike(f"%{retailer_code}%"))
-    if retailer_name: query = query.where(LiveActivation.retailer_name.ilike(f"%{retailer_name}%"))
-    if bts_code: query = query.where(LiveActivation.bts_code.ilike(f"%{bts_code}%"))
-    if thana: query = query.where(LiveActivation.thana.ilike(f"%{thana}%"))
-    if promotion: query = query.where(LiveActivation.promotion == promotion)
-    if product_code: query = query.where(LiveActivation.product_code.ilike(f"%{product_code}%"))
-    if product_name: query = query.where(LiveActivation.product_name.ilike(f"%{product_name}%"))
-    if sim_no: query = query.where(LiveActivation.sim_no.ilike(f"%{sim_no}%"))
-    if msisdn: query = query.where(LiveActivation.msisdn.ilike(f"%{msisdn}%"))
-    if selling_price_min: query = query.where(LiveActivation.selling_price >= selling_price_min)
-    if selling_price_max: query = query.where(LiveActivation.selling_price <= selling_price_max)
-    if bp_flag: query = query.where(LiveActivation.bp_flag == bp_flag)
-    if bp_number: query = query.where(LiveActivation.bp_number.ilike(f"%{bp_number}%"))
-    if fc_bts_code: query = query.where(LiveActivation.fc_bts_code.ilike(f"%{fc_bts_code}%"))
-    if bio_bts_code: query = query.where(LiveActivation.bio_bts_code.ilike(f"%{bio_bts_code}%"))
-    if dh_lifting_date: query = query.where(LiveActivation.dh_lifting_date.ilike(f"%{dh_lifting_date}%"))
-    if issue_date: query = query.where(LiveActivation.issue_date.ilike(f"%{issue_date}%"))
-    if subscription_type: query = query.where(LiveActivation.subscription_type == subscription_type)
-    if service_class: query = query.where(LiveActivation.service_class == service_class)
-    if customer_second_contact: query = query.where(LiveActivation.customer_second_contact.ilike(f"%{customer_second_contact}%"))
+        .group_by(Activation.product_code, Activation.product_name)
+        .order_by(Activation.product_code)
+        .limit(limit)
+    )
+    rows = result.all()
+    return [{"id": code, "name": name or code} for code, name in rows]
+
+
+@router.get("/live-activations/filter-options/employees")
+async def live_activation_filter_employees(
+    house_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_activations.view")),
+):
+    """Employees of the selected house, used to filter the activation table."""
+    _assert_house_access(current_user, house_id)
+    result = await db.execute(
+        select(Employee).where(Employee.house_id == house_id).order_by(Employee.employee_name)
+    )
+    employees = result.scalars().all()
+    return [
+        {
+            "id": e.id,
+            "name": e.employee_name or e.dms_code,
+            "dms_code": e.dms_code,
+            "itop_number": e.itop_number,
+            "employee_type": e.employee_type,
+            "status": e.status,
+        }
+        for e in employees
+    ]
+
+
+@router.get("/live-activations/filter-options/retailers")
+async def live_activation_filter_retailers(
+    house_id: int,
+    search: Optional[str] = None,
+    limit: int = Query(200, le=1000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_activations.view")),
+):
+    """Retailers that actually have live activation records in the selected
+    house. See the activations variant for why the retailer master is not used
+    as the source of the options."""
+    _assert_house_access(current_user, house_id)
+    query = (
+        select(LiveActivation.retailer_code, func.max(LiveActivation.retailer_name))
+        .where(LiveActivation.house_id == house_id, LiveActivation.retailer_code.isnot(None))
+        .group_by(LiveActivation.retailer_code)
+    )
+    if search:
+        p = f"%{search}%"
+        query = query.where(LiveActivation.retailer_code.ilike(p))
+    query = query.order_by(LiveActivation.retailer_code).limit(limit)
+    result = await db.execute(query)
+    master = {r.retailer_code: r.name for r in (await db.execute(
+        select(Retailer).where(Retailer.house_id == house_id)
+    )).scalars().all()}
+    return [
+        {
+            "id": code,
+            "name": master.get(code) or name or code,
+            "retailer_code": code,
+            "itop_number": None,
+        }
+        for code, name in result.all()
+    ]
+
+
+@router.get("/live-activations/filter-options/product-codes")
+async def live_activation_filter_product_codes(
+    house_id: int,
+    limit: int = Query(500, le=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_activations.view")),
+):
+    """Distinct product codes present in the selected house's activation data, so
+    the filter never offers a code that cannot match a row."""
+    _assert_house_access(current_user, house_id)
+    result = await db.execute(
+        select(LiveActivation.product_code, LiveActivation.product_name)
+        .where(
+            LiveActivation.house_id == house_id,
+            LiveActivation.product_code.isnot(None),
+            LiveActivation.product_code != "",
+        )
+        .group_by(LiveActivation.product_code, LiveActivation.product_name)
+        .order_by(LiveActivation.product_code)
+        .limit(limit)
+    )
+    rows = result.all()
+    return [{"id": code, "name": name or code} for code, name in rows]
+
+
+@router.get("/live-activations")
+async def get_live_activations(
+    skip: int = 0,
+    limit: int = 100,
+    house_id: Optional[int] = None,
+    sim_msisdn: Optional[str] = None,
+    employee_ids: Optional[str] = None,
+    retailer_codes: Optional[str] = None,
+    product_codes: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_activations.view")),
+    header_house_id: Optional[int] = Depends(get_house_context)
+):
+    """Paginated list of imported live activations.
+
+    The only filter surface is house / employee / retailer / product code, which
+    is what the import page offers. Tenant isolation still applies: an explicit
+    `house_id` must belong to the user, otherwise the X-House-ID header decides,
+    and a non-admin is always restricted to their own houses.
+    """
+    is_admin = is_admin_user(current_user)
+    user_house_ids = [h.id for h in current_user.houses]
+    target_house_id = house_id or header_house_id
+    if house_id:
+        _assert_house_access(current_user, house_id)
+
+    query = select(LiveActivation).options(
+        joinedload(LiveActivation.house),
+        joinedload(LiveActivation.employee),
+    )
+    if target_house_id:
+        query = query.where(LiveActivation.house_id == target_house_id)
+    elif not is_admin and user_house_ids:
+        query = query.where(LiveActivation.house_id.in_(user_house_ids))
+
+    if sim_msisdn:
+        term = f"%{sim_msisdn.strip()}%"
+        query = query.where(
+            or_(LiveActivation.sim_no.ilike(term), LiveActivation.msisdn.ilike(term))
+        )
+    emp_ids = _csv_ints(employee_ids)
+    if emp_ids:
+        query = query.where(LiveActivation.employee_id.in_(emp_ids))
+    ret_codes = _csv_strs(retailer_codes)
+    if ret_codes:
+        query = query.where(LiveActivation.retailer_code.in_(ret_codes))
+    prod_codes = _csv_strs(product_codes)
+    if prod_codes:
+        query = query.where(LiveActivation.product_code.in_(prod_codes))
+
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.execute(count_query)
     total_count = total.scalar()
     result = await db.execute(query.offset(skip).limit(limit).order_by(LiveActivation.id.desc()))
     records = result.scalars().all()
-    return {"total": total_count, "data": records}
-
-@router.get("/live-activations/filter-options")
-async def get_live_activation_filter_options(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.view")),
-    house_id: Optional[int] = Depends(get_house_context)
-):
-    base = select(LiveActivation)
-    if house_id: base = base.where(LiveActivation.house_id == house_id)
-
-    async def get_distinct(column):
-        q = select(column).distinct().where(column.isnot(None)).where(column != "").order_by(column)
-        result = await db.execute(q)
-        return [row[0] for row in result.all()]
-
-    promotions = await get_distinct(LiveActivation.promotion)
-    product_codes = await get_distinct(LiveActivation.product_code)
-    product_names = await get_distinct(LiveActivation.product_name)
-    subscription_types = await get_distinct(LiveActivation.subscription_type)
-    service_classes = await get_distinct(LiveActivation.service_class)
-    bp_flags = await get_distinct(LiveActivation.bp_flag)
-
-    return {
-        "promotions": promotions,
-        "product_codes": product_codes,
-        "product_names": product_names,
-        "subscription_types": subscription_types,
-        "service_classes": service_classes,
-        "bp_flags": bp_flags,
-    }
+    # Serialize explicitly: the Employee model carries PII (nid, bank_account,
+    # salary, dob, addresses) so the relationship object must never be exposed.
+    data = []
+    for r in records:
+        item = {c.name: getattr(r, c.name) for c in LiveActivation.__table__.columns}
+        item["house"] = (
+            {"id": r.house.id, "name": r.house.name, "code": r.house.code} if r.house else None
+        )
+        emp = r.employee
+        item["rso_name"] = (emp.employee_name or emp.dms_code) if emp else None
+        item["rso_employee_id"] = emp.id if emp else None
+        item["rso_dms_code"] = emp.dms_code if emp else None
+        item["rso_itop_number"] = emp.itop_number if emp else None
+        data.append(item)
+    return {"total": total_count, "data": data}
 
 @router.get("/live-activations/export")
 async def export_live_activations(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    house_id: Optional[int] = Query(None),
+    house_id: Optional[int] = None,
+    sim_msisdn: Optional[str] = None,
+    employee_ids: Optional[str] = None,
+    retailer_codes: Optional[str] = None,
+    product_codes: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("live_activations.export")),
-    header_house_id: Optional[int] = Depends(get_house_context),
+    header_house_id: Optional[int] = Depends(get_house_context)
 ):
-    if not house_id:
-        house_id = header_house_id
+    """Export honours the same filters as the table, so the file matches the screen."""
+    is_admin = is_admin_user(current_user)
+    user_house_ids = [h.id for h in current_user.houses]
+    if house_id:
+        _assert_house_access(current_user, house_id)
+    target_house_id = house_id or header_house_id
+
     query = select(LiveActivation).options(selectinload(LiveActivation.house), selectinload(LiveActivation.retailer))
-    if house_id: query = query.where(LiveActivation.house_id == house_id)
-    if start_date:
-        try: sd = datetime.strptime(start_date, "%Y-%m-%d").date()
-        except: return Response("Invalid start_date", status_code=400)
-        query = query.where(LiveActivation.activation_date >= sd)
-    if end_date:
-        try: ed = datetime.strptime(end_date, "%Y-%m-%d").date()
-        except: return Response("Invalid end_date", status_code=400)
-        query = query.where(LiveActivation.activation_date <= ed)
+    if target_house_id:
+        query = query.where(LiveActivation.house_id == target_house_id)
+    elif not is_admin and user_house_ids:
+        query = query.where(LiveActivation.house_id.in_(user_house_ids))
+
+    if sim_msisdn:
+        term = f"%{sim_msisdn.strip()}%"
+        query = query.where(
+            or_(LiveActivation.sim_no.ilike(term), LiveActivation.msisdn.ilike(term))
+        )
+    emp_ids = _csv_ints(employee_ids)
+    if emp_ids:
+        query = query.where(LiveActivation.employee_id.in_(emp_ids))
+    ret_codes = _csv_strs(retailer_codes)
+    if ret_codes:
+        query = query.where(LiveActivation.retailer_code.in_(ret_codes))
+    prod_codes = _csv_strs(product_codes)
+    if prod_codes:
+        query = query.where(LiveActivation.product_code.in_(prod_codes))
+
     result = await db.execute(query.order_by(LiveActivation.id.desc()).limit(50000))
     records = result.scalars().all()
     excel_data = await export_live_activations_excel(records)

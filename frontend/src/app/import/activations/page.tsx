@@ -3,16 +3,18 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Search, Upload, Download, ChevronLeft, ChevronRight, ChevronDown,
-  Loader2, Database, X, CheckCircle2, Calendar, RotateCcw,
-  SlidersHorizontal, Building2, Trash2, CloudDownload,
+  Upload, Download, ChevronLeft, ChevronRight, ChevronDown,
+  Loader2, Database, X, CheckCircle2, Trash2,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
-import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
+import ActivationFilterBar, {
+  ActivationFilters,
+  defaultActivationFilters,
+} from "@/components/activation-filters/ActivationFilterBar";
 
 interface Activation {
   id: number; sim_no: string; activation_date: string; activation_time: string;
@@ -32,26 +34,9 @@ interface Pagination {
   total_pages: number; has_next: boolean; has_prev: boolean;
 }
 
-interface Filters {
-  search: string; house_id: string;
-  activation_date_from: string; activation_date_to: string;
-  employee_id: string; product_codes: string[];
-}
-
 interface HouseOption {
   id: number; name: string; code: string; display_name: string;
 }
-
-interface EmployeeOption {
-  id: number; name: string | null;
-  employee_id: string | null; dms_code: string | null;
-}
-
-const defaultFilters: Filters = {
-  search: "", house_id: "",
-  activation_date_from: "", activation_date_to: "",
-  employee_id: "", product_codes: [],
-};
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function formatDate(dateStr: string): string {
@@ -65,46 +50,44 @@ function formatDate(dateStr: string): string {
 
 export default function ImportActivationsPage() {
   const { t } = useLanguage();
-  const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
+  const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<Activation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [importProgress, setImportProgress] = useState<{percent: number; message: string} | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{message: string; count: number} | null>(null);
   const [summaryType, setSummaryType] = useState<"success" | "error">("success");
-  const [appliedFilters, setAppliedFilters] = useState<Filters | null>(null);
-  const [filters, setFilters] = useState<Filters>({ ...defaultFilters });
+  const [filters, setFilters] = useState<ActivationFilters>({ ...defaultActivationFilters });
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [houses, setHouses] = useState<HouseOption[]>([]);
-  const [searchInput, setSearchInput] = useState("");
-  const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
-  const [productCodeOptions, setProductCodeOptions] = useState<string[]>([]);
-  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
-  const [selectedProductCodes, setSelectedProductCodes] = useState<string[]>([]);
-  const [optionsLoading, setOptionsLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const perPage = 20;
+  const perPage = 10;
 
   const fetchData = useCallback(async () => {
-    if (!appliedFilters) return;
+    // The table is always scoped to one house: with no house picked nothing is
+    // requested at all, so a user can never land on every house's records.
+    if (!filters.house_id) {
+      setData([]);
+      setPagination(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const f = appliedFilters;
-      const params: Record<string, any> = {
-        skip: (page - 1) * perPage, limit: perPage,
+      // The X-House-ID header mirrors the picked house so the table and the export
+      // always cover the same house, and the backend still rejects any house the
+      // user cannot read.
+      const headers: Record<string, string> = { "X-House-ID": filters.house_id };
+      const params: Record<string, string | number> = {
+        skip: (page - 1) * perPage, limit: perPage, house_id: filters.house_id,
       };
-      const headers: Record<string, string> = {};
-      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
-      if (f.search) params.search = f.search;
-      if (f.house_id) params.house_id = f.house_id;
-      if (f.activation_date_from) params.activation_date_from = f.activation_date_from;
-      if (f.activation_date_to) params.activation_date_to = f.activation_date_to;
-      if (f.employee_id) params.employee_id = parseInt(f.employee_id, 10);
-      if (f.product_codes.length > 0) params.product_codes = f.product_codes.join(",");
+      if (filters.sim_msisdn) params.sim_msisdn = filters.sim_msisdn;
+      if (filters.employee_ids.length) params.employee_ids = filters.employee_ids.join(",");
+      if (filters.retailer_codes.length) params.retailer_codes = filters.retailer_codes.join(",");
+      if (filters.product_codes.length) params.product_codes = filters.product_codes.join(",");
       const res = await axios.get("/activations", { params, headers });
       setData(res.data.data || []);
       const total = res.data.total || 0;
@@ -118,65 +101,22 @@ export default function ImportActivationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, appliedFilters, selectedHouse]);
+  }, [page, filters]);
+
+  // Any filter change re-runs the query from the first page.
+  const handleFilterChange = useCallback((next: ActivationFilters) => {
+    setFilters(next);
+    setPage(1);
+    setExpandedId(null);
+  }, []);
 
   useEffect(() => {
-    if (appliedFilters) fetchData();
-  }, [fetchData, appliedFilters]);
+    fetchData();
+  }, [fetchData]);
 
   useEffect(() => {
     axios.get("/houses/accessible").then(r => setHouses(r.data || [])).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    const houseId = filters.house_id || (selectedHouse?.id ? String(selectedHouse.id) : "");
-    let cancelled = false;
-    const headers: Record<string, string> = {};
-    if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
-    const params: Record<string, string> = {};
-    if (houseId) params.house_id = houseId;
-    Promise.all([
-      axios.get("/activations/rso-list", { params, headers }).then(r => (r.data || []) as EmployeeOption[]),
-      axios.get("/activations/filter-options", { params, headers }).then(r => (r.data?.product_codes || []) as string[]),
-    ])
-      .then(([emps, codes]) => {
-        if (cancelled) return;
-        setEmployeeOptions(emps);
-        setProductCodeOptions(codes);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setOptionsLoading(false); });
-    return () => { cancelled = true; };
-  }, [filters.house_id, selectedHouse?.id]);
-
-  const handleApplyFilters = () => {
-    setAppliedFilters({
-      search: searchInput.trim(),
-      house_id: filters.house_id,
-      activation_date_from: filters.activation_date_from,
-      activation_date_to: filters.activation_date_to,
-      employee_id: selectedEmployeeIds[0] || "",
-      product_codes: selectedProductCodes,
-    });
-    setPage(1);
-    setExpandedId(null);
-  };
-
-  const handleClearFilters = () => {
-    setSearchInput("");
-    setSelectedEmployeeIds([]);
-    setSelectedProductCodes([]);
-    setFilters({ ...defaultFilters });
-    setAppliedFilters(null);
-    setData([]);
-    setPagination(null);
-    setPage(1);
-    setExpandedId(null);
-  };
-
-  const updateFilter = (key: keyof Filters, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-  };
 
   const handlePageChange = (newPage: number) => {
     if (newPage === page || !pagination) return;
@@ -226,7 +166,9 @@ export default function ImportActivationsPage() {
     return result;
   };
 
-  const effectiveHouseId = filters.house_id || (selectedHouse?.id ? String(selectedHouse.id) : "");
+  // The picked house is the only house context on this page: import and export
+  // both follow the filter, never a silently inherited global selection.
+  const effectiveHouseId = filters.house_id;
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -265,32 +207,6 @@ export default function ImportActivationsPage() {
     }
   };
 
-  const handleSyncFromDMS = async () => {
-    setSyncing(true);
-    setImportProgress({ percent: 0, message: "Starting sync..." });
-    try {
-      const token = Cookies.get("token");
-      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      if (effectiveHouseId) headers["X-House-ID"] = effectiveHouseId;
-      const response = await fetch(`${baseURL}/sync/activation`, {
-        method: "POST", headers,
-      });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData?.detail || errData?.message || `Request failed (${response.status})`);
-      }
-      await readSSEStream(response);
-      fetchData();
-    } catch (err: any) {
-      toast.error(err?.message || "Sync failed");
-    } finally {
-      setSyncing(false);
-      setImportProgress(null);
-    }
-  };
-
   const [showTruncateConfirm, setShowTruncateConfirm] = useState(false);
   const [truncating, setTruncating] = useState(false);
   const [truncateHouseId, setTruncateHouseId] = useState("");
@@ -322,21 +238,34 @@ export default function ImportActivationsPage() {
   const [exporting, setExporting] = useState(false);
   const todayStr = new Date().toISOString().split("T")[0];
 
-  const handleExport = async () => {
-    if (!exportStartDate || !exportEndDate) { toast.error("Please select both dates"); return; }
-    if (exportStartDate > exportEndDate) { toast.error("Start date cannot be after end date"); return; }
+  const handleExport = () => {
+    if (!filters.house_id) { toast.error(t("activations.filters.house_required_title")); return; }
+    setShowDatePicker(true);
+  };
+
+  const runExport = async (startDate: string, endDate: string) => {
+    if (!filters.house_id) { toast.error(t("activations.filters.house_required_title")); return; }
+    if (!startDate || !endDate) { toast.error("Please select both dates"); return; }
+    if (startDate > endDate) { toast.error("Start date cannot be after end date"); return; }
     setExporting(true);
     setShowDatePicker(false);
     try {
-      const params: Record<string, string> = {};
-      const headers: Record<string, string> = {};
-      if (effectiveHouseId) headers["X-House-ID"] = effectiveHouseId;
-      if (filters.house_id) params.house_id = filters.house_id;
-      params.start_date = exportStartDate;
-      params.end_date = exportEndDate;
-      const res = await axios.get("/activations/export", { params, headers, responseType: "blob" });
+      // The export shares the table's house and filters, intersected with the
+      // chosen date range, so the file always matches what the screen shows.
+      const params: Record<string, string> = {
+        house_id: filters.house_id,
+        start_date: startDate,
+        end_date: endDate,
+      };
+      if (filters.sim_msisdn) params.sim_msisdn = filters.sim_msisdn;
+      if (filters.employee_ids.length) params.employee_ids = filters.employee_ids.join(",");
+      if (filters.retailer_codes.length) params.retailer_codes = filters.retailer_codes.join(",");
+      if (filters.product_codes.length) params.product_codes = filters.product_codes.join(",");
+      const res = await axios.get("/activations/export", {
+        params, headers: { "X-House-ID": filters.house_id }, responseType: "blob",
+      });
       const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a"); a.href = url; a.download = `activations_${exportStartDate}_to_${exportEndDate}.xlsx`; a.click();
+      const a = document.createElement("a"); a.href = url; a.download = `activations_${startDate}_to_${endDate}.xlsx`; a.click();
       window.URL.revokeObjectURL(url);
       toast.success("Exported successfully");
     } catch { toast.error("Export failed"); }
@@ -344,35 +273,6 @@ export default function ImportActivationsPage() {
   };
 
   const closeDatePicker = () => { setShowDatePicker(false); setExportStartDate(""); setExportEndDate(""); };
-
-  const activeChipList: { label: string; onRemove: () => void }[] = [];
-  if (appliedFilters?.search) activeChipList.push({ label: `Search: ${appliedFilters.search}`, onRemove: () => { setSearchInput(""); setAppliedFilters(a => a ? { ...a, search: "" } : a); } });
-  if (appliedFilters?.house_id) {
-    const h = houses.find(hh => String(hh.id) === appliedFilters?.house_id);
-    if (h) activeChipList.push({ label: `House: ${h.name}`, onRemove: () => setAppliedFilters(a => a ? { ...a, house_id: "" } : a) });
-  }
-  if (appliedFilters?.activation_date_from) activeChipList.push({ label: `From: ${appliedFilters.activation_date_from}`, onRemove: () => setAppliedFilters(a => a ? { ...a, activation_date_from: "" } : a) });
-  if (appliedFilters?.activation_date_to) activeChipList.push({ label: `To: ${appliedFilters.activation_date_to}`, onRemove: () => setAppliedFilters(a => a ? { ...a, activation_date_to: "" } : a) });
-  if (appliedFilters?.employee_id) {
-    const emp = employeeOptions.find(e => String(e.id) === appliedFilters.employee_id);
-    activeChipList.push({
-      label: `RSO: ${emp?.name || appliedFilters.employee_id}`,
-      onRemove: () => { setSelectedEmployeeIds([]); setAppliedFilters(a => a ? { ...a, employee_id: "" } : a); },
-    });
-  }
-  if (appliedFilters?.product_codes?.length) {
-    appliedFilters.product_codes.forEach(pc => {
-      activeChipList.push({
-        label: `Product: ${pc}`,
-        onRemove: () => {
-          setSelectedProductCodes(prev => prev.filter(c => c !== pc));
-          setAppliedFilters(prev => prev ? { ...prev, product_codes: prev.product_codes.filter(c => c !== pc) } : prev);
-        },
-      });
-    });
-  }
-
-  const totalPages = pagination?.total_pages || 1;
 
   if (!authLoading && !hasPermission("activations.import")) { return <AccessDenied />; }
 
@@ -407,7 +307,7 @@ export default function ImportActivationsPage() {
                 className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
                 Cancel
               </button>
-              <button onClick={handleExport} disabled={exporting}
+              <button onClick={() => runExport(exportStartDate, exportEndDate)} disabled={exporting}
                 className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50">
                 {exporting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Export"}
               </button>
@@ -473,20 +373,15 @@ export default function ImportActivationsPage() {
             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4 group-hover:scale-110 transition-transform" />}
             {importing ? "Importing..." : "Import Excel"}
           </button>
-          <button onClick={() => setShowDatePicker(true)} disabled={exporting}
+          <button onClick={handleExport} disabled={exporting}
             className="group flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 group-hover:text-primary-600 transition-colors" />}
             {exporting ? "Exporting..." : "Export"}
           </button>
-          <button onClick={handleSyncFromDMS} disabled={syncing || importing}
-            className="group flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
-            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4 group-hover:scale-110 transition-transform" />}
-            {syncing ? "Syncing..." : "Sync from DMS"}
-          </button>
-          {pagination && pagination.total > 0 && (
+          {filters.house_id && pagination && pagination.total > 0 && (
             <button onClick={() => setShowTruncateConfirm(true)}
               className="group flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/50 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-              <Trash2 className="w-4 h-4" /> Clear All
+              <Trash2 className="w-4 h-4" /> Delete All
             </button>
           )}
         </div>
@@ -508,161 +403,27 @@ export default function ImportActivationsPage() {
         </div>
       )}
 
-      {/* Robust Filter Section */}
+      {/* Filter + Table Section */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-        <div className="px-4 py-3 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50 rounded-t-2xl">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="w-4 h-4 text-primary-500" />
-            <span className="text-sm font-bold dark:text-gray-100">Filters</span>
-            {appliedFilters && (
-              <span className="text-[10px] font-bold bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full">
-                Applied
-              </span>
-            )}
-          </div>
-          <button type="button" onClick={handleClearFilters} title="Reset filters"
-            className="flex items-center gap-1 text-[11px] font-bold text-red-500 hover:text-red-600 transition-colors">
-            <RotateCcw className="w-3 h-3" /> Reset
-          </button>
-        </div>
-
-        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {/* Search */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Search</label>
-            <div className="relative group">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-              <input type="text" value={searchInput} onChange={e => { setSearchInput(e.target.value); setPage(1); }}
-                placeholder="Search SIM, MSISDN, retailer..."
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-            </div>
-          </div>
-
-          {/* House */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">House</label>
-            <div className="relative">
-              <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-              <select value={filters.house_id} onChange={e => { updateFilter("house_id", e.target.value); setPage(1); setSelectedEmployeeIds([]); setSelectedProductCodes([]); }}
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
-                <option value="">All houses</option>
-                {houses.map(h => <option key={h.id} value={h.id}>{h.display_name || h.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Date Range */}
-          <div className="sm:col-span-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Date Range</label>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="relative">
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input type="date" value={filters.activation_date_from} onChange={e => { updateFilter("activation_date_from", e.target.value); setPage(1); }}
-                  className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-              </div>
-              <div className="relative">
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input type="date" value={filters.activation_date_to} onChange={e => { updateFilter("activation_date_to", e.target.value); setPage(1); }}
-                  className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-              </div>
-            </div>
-          </div>
-
-          {/* Employee Selector */}
-          <EntitySelector
-            label={t("activations.filters.employee")}
-            items={employeeOptions.map((e) => ({
-              id: String(e.id),
-              label: e.name || e.dms_code || `#${e.id}`,
-              sublabel: e.dms_code || undefined,
-            }))}
-            selectedIds={selectedEmployeeIds}
-            onChange={(ids) => setSelectedEmployeeIds(ids.map(String))}
-            placeholder={t("activations.filters.employee_placeholder")}
-            searchPlaceholder={t("activations.filters.employee_search")}
-            emptyMessage={optionsLoading ? t("activations.filters.employee_loading") : t("activations.filters.no_employees")}
-            noResultsMessage={t("activations.filters.no_employees")}
-            single={true}
-            selectAllLabel={t("common.select_all")}
-            clearLabel={t("common.clear")}
-            selectedLabel={t("activations.filters.selected")}
-          />
-
-          {/* Product Code Selector */}
-          <EntitySelector
-            label={t("activations.filters.product_code")}
-            items={productCodeOptions.map((p) => ({ id: p, label: p }))}
-            selectedIds={selectedProductCodes}
-            onChange={(ids) => setSelectedProductCodes(ids.map(String))}
-            placeholder={t("activations.filters.product_placeholder")}
-            searchPlaceholder={t("activations.filters.product_search")}
-            emptyMessage={optionsLoading ? t("activations.filters.product_loading") : t("activations.filters.no_products")}
-            noResultsMessage={t("activations.filters.no_products")}
-            selectAllLabel={t("common.select_all")}
-            clearLabel={t("common.clear")}
-            selectedLabel={t("activations.filters.selected")}
-          />
-        </div>
-
-        {activeChipList.length > 0 && (
-          <div className="px-4 pb-3 -mt-1 flex flex-wrap gap-1.5">
-            {activeChipList.map((chip, i) => (
-              <span key={i}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 rounded-full text-[10px] font-bold">
-                {chip.label}
-                <button type="button" onClick={chip.onRemove} className="hover:text-red-500 transition-colors">
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="px-4 py-3 border-t dark:border-slate-800 flex items-center justify-between gap-3 bg-gray-50/50 dark:bg-slate-900/50 rounded-b-2xl">
-          <span className="text-[11px] text-gray-400 dark:text-gray-500">
-            {appliedFilters
-              ? "Records are filtered. Click Apply to re-run with current filters."
-              : "No records loaded. Set filters and click Apply to view data."}
-          </span>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={handleClearFilters}
-              className="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors">
-              Clear
-            </button>
-            <button type="button" onClick={handleApplyFilters}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-primary-900/30">
-              <Search className="w-4 h-4" /> Apply Filters
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Table Section */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+        <ActivationFilterBar
+          apiBase="/activations"
+          filters={filters}
+          onChange={handleFilterChange}
+        />
         {/* Toolbar */}
         <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 flex-1">
-            {appliedFilters ? (
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {loading ? "Loading..." : pagination ? `${pagination.total} ${pagination.total === 1 ? "record" : "records"}` : "No records"}
-              </span>
-            ) : (
-              <span className="text-xs text-gray-400 dark:text-gray-500">Apply filters to view activations</span>
-            )}
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {loading
+                ? "Loading..."
+                : pagination
+                  ? `${pagination.total} ${pagination.total === 1 ? "record" : "records"}`
+                  : "No records"}
+            </span>
           </div>
         </div>
 
-        {!appliedFilters ? (
-          <div className="py-24 text-center px-4">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center">
-              <SlidersHorizontal className="w-8 h-8 text-primary-400" />
-            </div>
-            <p className="text-gray-600 dark:text-gray-300 font-semibold text-base">No records loaded</p>
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1 max-w-sm mx-auto">
-              Use the filters above and click <span className="font-semibold text-primary-600 dark:text-primary-400">Apply&nbsp;Filters</span> to load the activation records you need.
-            </p>
-          </div>
-        ) : loading ? (
+        {loading ? (
           <div>
             <div className="hidden lg:block">
               <div className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -712,6 +473,16 @@ export default function ImportActivationsPage() {
               ))}
             </div>
           </div>
+        ) : !filters.house_id ? (
+          <div className="py-20 px-6 text-center">
+            <Database className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+            <p className="text-gray-700 dark:text-gray-200 font-semibold">
+              {t("activations.filters.house_required_title")}
+            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mt-2">
+              {t("activations.filters.house_required_desc")}
+            </p>
+          </div>
         ) : data.length === 0 ? (
           <div className="py-20 text-center">
             <Database className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
@@ -730,8 +501,6 @@ export default function ImportActivationsPage() {
                     <th className="px-2 py-1">Retailer</th>
                     <th className="px-2 py-1">Product / Price</th>
                     <th className="px-2 py-1">BTS / Thana</th>
-                    <th className="px-2 py-1">BP</th>
-                    <th className="px-2 py-1">Sub / Class</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -764,14 +533,6 @@ export default function ImportActivationsPage() {
                       <td className="px-2 py-1 whitespace-nowrap">
                         <div className="text-gray-900 dark:text-gray-100 text-xs">{r.bts_code || "-"}</div>
                         <div className="text-[11px] text-gray-400">{r.thana || ""}</div>
-                      </td>
-                      <td className="px-2 py-1">
-                        <div className="text-gray-900 dark:text-gray-100 text-xs">{r.bp_flag || "-"}</div>
-                        <div className="text-[11px] text-gray-400">{r.bp_number || ""}</div>
-                      </td>
-                      <td className="px-2 py-1">
-                        <div className="text-gray-900 dark:text-gray-100 text-xs">{r.subscription_type || "-"}</div>
-                        <div className="text-[11px] text-gray-400">{r.service_class || ""}</div>
                       </td>
                     </tr>
                   ))}
@@ -841,16 +602,6 @@ export default function ImportActivationsPage() {
                           <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">BTS / Thana</p>
                           <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.bts_code || "-"}</p>
                           <p className="text-[11px] text-gray-500">{r.thana || ""}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">BP</p>
-                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.bp_flag || "-"}</p>
-                          <p className="text-[11px] text-gray-500">{r.bp_number || ""}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Sub / Class</p>
-                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.subscription_type || "-"}</p>
-                          <p className="text-[11px] text-gray-500">{r.service_class || ""}</p>
                         </div>
                       </div>
                     </div>

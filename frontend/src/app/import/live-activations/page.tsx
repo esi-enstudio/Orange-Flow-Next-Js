@@ -1,13 +1,15 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2, Trash2, SlidersHorizontal, CloudDownload } from "lucide-react";
+import { Upload, Download, ChevronLeft, ChevronRight, ChevronDown, Loader2, Database, X, CheckCircle2, Trash2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import LiveActivationsFilter, { LiveActivationFilters, defaultLiveActivationFilters } from "@/components/live-activations/LiveActivationsFilter";
-import { motion, AnimatePresence } from "framer-motion";
+import ActivationFilterBar, {
+  ActivationFilters,
+  defaultActivationFilters,
+} from "@/components/activation-filters/ActivationFilterBar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -17,14 +19,25 @@ interface ActivationRecord {
   retailer_code: string; retailer_name: string; bts_code: string; thana: string;
   promotion: string; product_code: string; product_name: string; msisdn: string;
   selling_price: string; house?: { id: number; name: string; code: string };
+  rso_name: string | null; rso_employee_id: number | null;
+  rso_dms_code: string | null; rso_itop_number: string | null;
+}
+
+const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function formatDate(dateStr: string): string {
+  if (!dateStr) return "-";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  } catch { return dateStr; }
 }
 
 export default function ImportLiveActivationsPage() {
   const { t } = useLanguage();
-  const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
+  const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<ActivationRecord[]>([]);
-  const [filters, setFilters] = useState<LiveActivationFilters>({ ...defaultLiveActivationFilters });
-  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<ActivationFilters>({ ...defaultActivationFilters });
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(0);
@@ -35,44 +48,43 @@ export default function ImportLiveActivationsPage() {
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{ message: string; count: number } | null>(null);
   const [summaryType, setSummaryType] = useState<"success" | "error">("success");
-  const limit = 5;
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const limit = 10;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchData = useCallback(async () => {
+    // The table is always scoped to one house: with no house picked nothing is
+    // requested at all, so a user can never land on every house's records.
+    if (!filters.house_id) {
+      setData([]);
+      setTotalRecords(0);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const params: Record<string, any> = { skip: page * limit, limit };
-      const f = filters;
-      if (f.search) params.search = f.search;
-      if (f.activation_date_from) params.activation_date_from = f.activation_date_from;
-      if (f.activation_date_to) params.activation_date_to = f.activation_date_to;
-      if (f.activation_time) params.activation_time = f.activation_time;
-      if (f.retailer_code) params.retailer_code = f.retailer_code;
-      if (f.retailer_name) params.retailer_name = f.retailer_name;
-      if (f.bts_code) params.bts_code = f.bts_code;
-      if (f.thana) params.thana = f.thana;
-      if (f.promotion) params.promotion = f.promotion;
-      if (f.product_code) params.product_code = f.product_code;
-      if (f.product_name) params.product_name = f.product_name;
-      if (f.sim_no) params.sim_no = f.sim_no;
-      if (f.msisdn) params.msisdn = f.msisdn;
-      if (f.selling_price_min) params.selling_price_min = f.selling_price_min;
-      if (f.selling_price_max) params.selling_price_max = f.selling_price_max;
-      if (f.bp_flag) params.bp_flag = f.bp_flag;
-      if (f.bp_number) params.bp_number = f.bp_number;
-      if (f.fc_bts_code) params.fc_bts_code = f.fc_bts_code;
-      if (f.bio_bts_code) params.bio_bts_code = f.bio_bts_code;
-      if (f.dh_lifting_date) params.dh_lifting_date = f.dh_lifting_date;
-      if (f.issue_date) params.issue_date = f.issue_date;
-      if (f.subscription_type) params.subscription_type = f.subscription_type;
-      if (f.service_class) params.service_class = f.service_class;
-      if (f.customer_second_contact) params.customer_second_contact = f.customer_second_contact;
-      const res = await axios.get("/live-activations", { params });
+      // House / employee / retailer / product code are the only filters the page
+      // offers. The X-House-ID header mirrors the picked house so the table and
+      // the export always cover the same house, and the backend still rejects
+      // any house the user cannot read.
+      const headers: Record<string, string> = { "X-House-ID": filters.house_id };
+      const params: Record<string, string | number> = { skip: page * limit, limit, house_id: filters.house_id };
+      if (filters.sim_msisdn) params.sim_msisdn = filters.sim_msisdn;
+      if (filters.employee_ids.length) params.employee_ids = filters.employee_ids.join(",");
+      if (filters.retailer_codes.length) params.retailer_codes = filters.retailer_codes.join(",");
+      if (filters.product_codes.length) params.product_codes = filters.product_codes.join(",");
+      const res = await axios.get("/live-activations", { params, headers });
       setData(res.data.data || []);
       setTotalRecords(res.data.total || 0);
     } catch { toast.error("Failed to load"); }
     finally { setLoading(false); }
-  }, [filters, page]);
+  }, [page, filters]);
+
+  // Any filter change re-runs the query from the first page.
+  const handleFilterChange = useCallback((next: ActivationFilters) => {
+    setFilters(next);
+    setPage(0);
+  }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -169,38 +181,25 @@ export default function ImportLiveActivationsPage() {
     }
   };
 
-  const [syncingDMS, setSyncingDMS] = useState(false);
-
-  const handleSyncFromDMS = async () => {
-    setSyncingDMS(true);
-    setImportProgress({ percent: 0, message: "Starting sync..." });
-    try {
-      const token = Cookies.get("token");
-      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
-      const response = await fetch(`${baseURL}/sync/live-activation`, {
-        method: "POST",
-        headers,
-      });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData?.detail || errData?.message || `Request failed (${response.status})`);
-      }
-      await readSSEStream(response);
-      fetchData();
-    } catch (err: any) {
-      toast.error(err?.message || "Sync failed");
-    } finally {
-      setSyncingDMS(false);
-      setImportProgress(null);
-    }
-  };
-
   const handleExport = async () => {
+    if (!filters.house_id) {
+      toast.error(t("activations.filters.house_required_title"));
+      return;
+    }
     try {
-      const res = await axios.get("/live-activations/export", { responseType: "blob" });
+      // The export shares the table's house, so the file always covers exactly
+      // what the screen shows.
+      const res = await axios.get("/live-activations/export", {
+        responseType: "blob",
+        headers: { "X-House-ID": filters.house_id },
+        params: {
+          house_id: filters.house_id,
+          sim_msisdn: filters.sim_msisdn || undefined,
+          employee_ids: filters.employee_ids.join(",") || undefined,
+          retailer_codes: filters.retailer_codes.join(",") || undefined,
+          product_codes: filters.product_codes.join(",") || undefined,
+        },
+      });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a"); a.href = url; a.download = "live_activations.xlsx"; a.click();
       window.URL.revokeObjectURL(url);
@@ -275,7 +274,7 @@ export default function ImportLiveActivationsPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-primary-100 dark:bg-primary-500/20 rounded-xl">
             <Database className="w-5 h-5 text-primary-600" />
@@ -285,103 +284,184 @@ export default function ImportLiveActivationsPage() {
             <p className="text-sm text-gray-500">Import and view live activation records</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx,.xls" />
           <button onClick={() => fileInputRef.current?.click()} disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-md">
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-md cursor-pointer disabled:cursor-not-allowed">
             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             {importing ? "Importing..." : "Import Excel"}
           </button>
           <button onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
             <Download className="w-4 h-4" /> Export
           </button>
-          <button onClick={handleSyncFromDMS} disabled={syncingDMS || importing}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-800/50 rounded-xl text-sm font-medium text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-colors disabled:opacity-50">
-            {syncingDMS ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4" />}
-            {syncingDMS ? "Syncing..." : "Sync from DMS"}
+          {/* The truncate endpoint is guarded by the same
+              `live_activations.import` permission as this page. */}
+          <button onClick={() => setShowTruncateConfirm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/50 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors cursor-pointer">
+            <Trash2 className="w-4 h-4" /> Delete All
           </button>
-          {totalRecords > 0 && (
-            <button onClick={() => setShowTruncateConfirm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/50 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-              <Trash2 className="w-4 h-4" /> Clear All
-            </button>
-          )}
         </div>
       </div>
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={cn(
-              "p-2 rounded-xl border transition-all active:scale-95 shrink-0",
-              showFilters
-                ? "bg-primary-500 text-white border-primary-500 shadow-sm"
-                : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
-            )}
-            title="Toggle filters"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
-          <div className="relative flex-1 group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-            <input type="text" placeholder="Search by SIM, retailer, MSISDN..." value={filters.search}
-              onChange={e => { setFilters(f => ({ ...f, search: e.target.value })); setPage(0); }}
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none transition-all" />
-          </div>
-        </div>
-
-        <AnimatePresence>
-          {showFilters && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="overflow-hidden border-b dark:border-slate-800"
-            >
-              <div className="p-4">
-                <LiveActivationsFilter
-                  filters={filters}
-                  onChange={(f) => { setFilters(f); setPage(0); }}
-                  onClear={() => { setFilters({ ...defaultLiveActivationFilters }); setPage(0); }}
-                />
+        <ActivationFilterBar apiBase="/live-activations" filters={filters} onChange={handleFilterChange} />
+        {loading ? (
+          <div className="divide-y divide-gray-50 dark:divide-slate-800">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="px-4 py-4 animate-pulse">
+                <div className="flex items-center gap-4">
+                  <div className="w-24 h-3 bg-gray-200 dark:bg-slate-700 rounded-md shrink-0" />
+                  <div className="w-32 h-3 bg-gray-100 dark:bg-slate-800 rounded-md shrink-0" />
+                  <div className="flex-1 h-3 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  <div className="hidden md:block w-24 h-3 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  <div className="hidden md:block w-20 h-3 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 dark:border-slate-800">
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">SIM</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Date</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Retailer</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Product</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">MSISDN</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">BTS</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Thana</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
-              ) : data.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No records</td></tr>
-              ) : data.map((r) => (
-                <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-900 dark:text-gray-100">{r.sim_no}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.activation_date || "-"}</td>
-                  <td className="px-4 py-3"><div className="font-medium text-gray-900 dark:text-gray-100">{r.retailer_name || "-"}</div><div className="text-xs text-gray-400">{r.retailer_code || ""}</div></td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.product_name || "-"}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">{r.msisdn || "-"}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.bts_code || "-"}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.thana || "-"}</td>
-                </tr>
+            ))}
+          </div>
+        ) : !filters.house_id ? (
+          <div className="py-20 px-6 text-center">
+            <Database className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+            <p className="text-gray-700 dark:text-gray-200 font-semibold">
+              {t("activations.filters.house_required_title")}
+            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mt-2">
+              {t("activations.filters.house_required_desc")}
+            </p>
+          </div>
+        ) : data.length === 0 ? (
+          <div className="py-20 text-center">
+            <Database className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+            <p className="text-gray-500 dark:text-gray-400 font-medium">{t("activations.no_data")}</p>
+          </div>
+        ) : (
+          <>
+            <div
+              className="hidden lg:block overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label={t("activations.filters.table_region")}
+            >
+              <table className="w-full text-left whitespace-nowrap">
+                <thead>
+                  <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
+                    <th className="px-2 py-1">House</th>
+                    <th className="px-2 py-1">SIM / MSISDN</th>
+                    <th className="px-2 py-1">Date / Time</th>
+                    <th className="px-2 py-1">RSO</th>
+                    <th className="px-2 py-1">Retailer</th>
+                    <th className="px-2 py-1">Product / Price</th>
+                    <th className="px-2 py-1">BTS / Thana</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
+                  {data.map((r) => (
+                    <tr key={r.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-2 py-1">
+                        <div className="text-xs text-gray-700 dark:text-gray-300">{r.house?.name || "-"}</div>
+                        <div className="text-[11px] text-gray-400">{r.house?.code || ""}</div>
+                      </td>
+                      <td className="px-2 py-1">
+                        <div className="font-mono text-xs text-gray-900 dark:text-gray-100">{r.sim_no}</div>
+                        <div className="font-mono text-[11px] text-gray-400">{r.msisdn || ""}</div>
+                      </td>
+                      <td className="px-2 py-1 whitespace-nowrap">
+                        <div className="text-gray-900 dark:text-gray-100 text-xs">{formatDate(r.activation_date)}</div>
+                        <div className="text-[11px] text-gray-400">{r.activation_time || ""}</div>
+                      </td>
+                      <td className="px-2 py-1">
+                        <div className="font-medium text-gray-900 dark:text-gray-100 text-xs">{r.rso_name || "-"}</div>
+                        <div className="text-[11px] text-gray-400">{r.rso_dms_code || ""}{r.rso_itop_number ? ` | ${r.rso_itop_number}` : ""}</div>
+                      </td>
+                      <td className="px-2 py-1">
+                        <div className="font-medium text-gray-900 dark:text-gray-100 text-xs">{r.retailer_name || "-"}</div>
+                        <div className="text-[11px] text-gray-400">{r.retailer_code || ""}</div>
+                      </td>
+                      <td className="px-2 py-1">
+                        <div className="text-gray-900 dark:text-gray-100 text-xs">{r.product_name || "-"}</div>
+                        <div className="text-[11px] text-gray-400">{r.product_code ? `${r.product_code}` : ""}{r.selling_price ? ` / ৳${r.selling_price}` : ""}</div>
+                      </td>
+                      <td className="px-2 py-1 whitespace-nowrap">
+                        <div className="text-gray-900 dark:text-gray-100 text-xs">{r.bts_code || "-"}</div>
+                        <div className="text-[11px] text-gray-400">{r.thana || ""}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+              {data.map((r) => (
+                <div key={r.id}>
+                  <button onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left cursor-pointer">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm shrink-0">
+                        <span className="text-[10px]">{r.sim_no?.slice(-3) || "?"}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{r.retailer_name || "-"}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{r.sim_no}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{formatDate(r.activation_date)}</span>
+                      <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-300", expandedId === r.id && "rotate-180")} />
+                    </div>
+                  </button>
+                  {expandedId === r.id && (
+                    <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                      <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="col-span-2">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">House</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.house?.name || "-"}</p>
+                          {r.house?.code && <p className="text-[11px] text-gray-500">{r.house.code}</p>}
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">SIM</p>
+                          <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{r.sim_no}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">MSISDN</p>
+                          <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{r.msisdn || "-"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Date / Time</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{formatDate(r.activation_date)}</p>
+                          {r.activation_time && <p className="text-[11px] text-gray-500">{r.activation_time}</p>}
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Retailer</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.retailer_name || "-"}</p>
+                          <p className="text-[11px] text-gray-500">{r.retailer_code || ""}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">RSO</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.rso_name || "-"}</p>
+                          {(r.rso_dms_code || r.rso_itop_number) && (
+                            <p className="text-[11px] text-gray-500">{r.rso_dms_code}{r.rso_itop_number ? ` | ${r.rso_itop_number}` : ""}</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Product</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.product_name || "-"}</p>
+                          <p className="text-[11px] text-gray-500">{r.product_code || ""}{r.selling_price ? ` / ৳${r.selling_price}` : ""}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">BTS / Thana</p>
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.bts_code || "-"}</p>
+                          <p className="text-[11px] text-gray-500">{r.thana || ""}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </>
+        )}
         {totalRecords > 0 && (
           <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between">
             <p className="text-xs text-gray-500 dark:text-gray-400">

@@ -302,6 +302,7 @@
 
   .shadow-primary-200 { --tw-shadow-color: var(--clr-primary-200); }
 
+
   .hover\:bg-primary-600:hover { background-color: var(--clr-primary-600); }
   .hover\:bg-primary-700:hover { background-color: var(--clr-primary-700); }
   .hover\:text-primary-600:hover { color: var(--clr-primary-600); }
