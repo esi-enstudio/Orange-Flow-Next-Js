@@ -49,7 +49,10 @@ class RuleCreate(BaseModel):
     rule_name: str = Field(..., min_length=1, max_length=200)
     target_role: str = Field(..., max_length=20)
     apply_to: str = "all"
+    # Canonical metric-column scope: "all" or a sorted comma-joined column set
+    # (e.g. "ach,market_ga"). Use column_keys for the equivalent list form.
     column_key: str = "all"
+    column_keys: Optional[list[str]] = None
     is_active: bool = True
     excluded_product_codes: list[str] = []
     excluded_retailer_types: list[str] = []
@@ -61,6 +64,7 @@ class RuleUpdate(BaseModel):
     target_role: Optional[str] = Field(None, max_length=20)
     apply_to: Optional[str] = Field(None, max_length=50)
     column_key: Optional[str] = Field(None, max_length=50)
+    column_keys: Optional[list[str]] = None
     is_active: Optional[bool] = None
     excluded_product_codes: Optional[list[str]] = None
     excluded_retailer_types: Optional[list[str]] = None
@@ -169,15 +173,93 @@ def _normalize_apply_to(raw: Optional[str]) -> str:
     return v
 
 
-def _normalize_column_key(raw: Optional[str]) -> str:
-    """Normalize a rule's metric-column scope; empty/missing means 'all'."""
+# Metric columns each (context, section) exposes to rule scoping. Sections that
+# are absent here fall back to the union of every known column key, so a new
+# section can adopt column scoping without an API change.
+RULE_COLUMN_SCOPES: dict[tuple[str, str], list[str]] = {
+    ("ga_live", "rsos"): ["ach", "market_ga"],
+    ("activation_report", "rso"): ["achieved", "market_ga", "own_ga"],
+}
+
+ALL_COLUMN_KEYS: list[str] = sorted(
+    {key for keys in RULE_COLUMN_SCOPES.values() for key in keys}
+)
+
+
+def _allowed_column_keys(context_key: Optional[str], apply_to: str) -> list[str]:
+    return RULE_COLUMN_SCOPES.get(
+        ((context_key or "").strip().lower(), (apply_to or "all").strip().lower())
+    ) or ALL_COLUMN_KEYS
+
+
+def _column_scope_allowed(
+    column_key: Optional[str], context_key: Optional[str], apply_to: str
+) -> bool:
+    """Whether an already-stored column scope is valid for a (context, section)."""
+    raw = (column_key or "all").strip().lower()
+    if raw == "all":
+        return True
+    allowed = _allowed_column_keys(context_key, apply_to)
+    keys = [k.strip() for k in raw.split(",") if k.strip()]
+    return bool(keys) and all(k in allowed for k in keys)
+
+
+def _normalize_column_key(
+    raw: Optional[str],
+    context_key: Optional[str] = None,
+    apply_to: str = "all",
+) -> str:
+    """Normalize a rule's metric-column scope; empty/missing means 'all'.
+
+    A rule may target several columns of one section, so the canonical value is
+    either ``"all"`` (every column) or a sorted, comma-joined set of column keys
+    (e.g. ``"ach,market_ga"``). Keys are validated against the columns the
+    section actually exposes, so a GA Live RSO rule cannot claim an
+    Activation-Report column and vice-versa.
+    """
     v = (raw or "all").strip().lower() or "all"
-    if len(v) > 50 or not all(c.isalnum() or c in "_-" for c in v):
+    keys: list[str] = []
+    for part in v.split(","):
+        key = part.strip()
+        if not key:
+            continue
+        if len(key) > 40 or not all(c.isalnum() or c in "_-" for c in key):
+            raise HTTPException(
+                status_code=422,
+                detail="column_key may only contain letters, digits, dashes and underscores (max 50 chars)",
+            )
+        keys.append(key)
+
+    if not keys or "all" in keys:
+        return "all"
+
+    allowed = _allowed_column_keys(context_key, apply_to)
+    invalid = sorted({k for k in keys if k not in allowed})
+    if invalid:
         raise HTTPException(
             status_code=422,
-            detail="column_key may only contain letters, digits, dashes and underscores (max 50 chars)",
+            detail={
+                "code": "VALIDATION_ERROR",
+                "message": "One or more columns are invalid for this section",
+                "fields": {
+                    "column_key": f"Not available in this section: {invalid}",
+                },
+            },
         )
-    return v
+
+    canonical = ",".join(sorted(set(keys)))
+    if len(canonical) > 50:
+        raise HTTPException(status_code=422, detail="column_key is too long (max 50 chars)")
+    return canonical
+
+
+def _column_keys_from_payload(
+    column_key: Optional[str], column_keys: Optional[list[str]]
+) -> Optional[str]:
+    """Resolve a request's column scope, accepting either the string or list form."""
+    if column_keys is not None:
+        return ",".join(column_keys)
+    return column_key
 
 
 def _accessible_house_ids(
@@ -697,7 +779,11 @@ async def create_rule(
     await _validate_constants(db, data.context_key, data.target_role)
     await _validate_included_employee_ids(db, house_context, data.included_employee_ids)
     apply_to = _normalize_apply_to(data.apply_to)
-    column_key = _normalize_column_key(data.column_key)
+    column_key = _normalize_column_key(
+        _column_keys_from_payload(data.column_key, data.column_keys),
+        data.context_key,
+        apply_to,
+    )
 
     rule = ReportRuleMaster(
         house_id=house_context,
@@ -782,11 +868,20 @@ async def update_rule(
             rule.apply_to = new_apply
             updates["apply_to"] = new_apply
 
-    if data.column_key is not None:
-        new_column = _normalize_column_key(data.column_key)
+    raw_column = _column_keys_from_payload(data.column_key, data.column_keys)
+    if raw_column is not None:
+        new_column = _normalize_column_key(raw_column, rule.context_key, rule.apply_to)
         if new_column != (rule.column_key or "all"):
             rule.column_key = new_column
             updates["column_key"] = new_column
+    elif "apply_to" in updates and not _column_scope_allowed(
+        rule.column_key, rule.context_key, rule.apply_to
+    ):
+        # The section changed without a new column scope: a column the new
+        # section does not expose must not stay attached to the rule, so the
+        # rule falls back to covering every column of the new section.
+        rule.column_key = "all"
+        updates["column_key"] = "all"
 
     any_children = any(
         [

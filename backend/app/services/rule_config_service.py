@@ -133,6 +133,25 @@ async def get_rule_children(db: AsyncSession, rule_id: int) -> dict:
     }
 
 
+def parse_column_keys(raw: Optional[str]) -> list[str]:
+    """Split a rule's metric-column scope into its individual column keys.
+
+    ``column_key`` stores the canonical scope: either ``"all"`` (every column of
+    the section) or a sorted, comma-joined list of column keys (e.g.
+    ``"ach,market_ga"``). A rule therefore covers a set of columns, and each
+    column of a report section can run its own rule set.
+    """
+    if not raw:
+        return []
+    keys = {c.strip().lower() for c in raw.split(",") if c.strip()}
+    keys.discard("all")
+    return sorted(keys)
+
+
+def _rule_is_global_column(rule: ReportRuleMaster) -> bool:
+    return (rule.column_key or "all").strip().lower() == "all"
+
+
 def rule_to_dict(rule: ReportRuleMaster, children: dict) -> dict:
     return {
         "id": rule.id,
@@ -142,6 +161,7 @@ def rule_to_dict(rule: ReportRuleMaster, children: dict) -> dict:
         "target_role": rule.target_role,
         "apply_to": rule.apply_to or "all",
         "column_key": rule.column_key or "all",
+        "column_keys": parse_column_keys(rule.column_key),
         "is_active": rule.is_active,
         "created_by": rule.created_by,
         "created_at": rule.created_at.isoformat() if rule.created_at else None,
@@ -186,22 +206,37 @@ def _pick_most_specific_rule(
 ) -> Optional[ReportRuleMaster]:
     """Pick the most specific active rule for the requested section + column.
 
-    ``role_rules`` is ordered by id DESC (newest first). Specificity beats scope:
-    an exact column+section rule (score 3) wins over exact column/global section
-    (2), over global column/exact section (1), over global+global (0). Ties go to
-    the newest rule (first in the descending list).
+    ``role_rules`` is ordered by id DESC (newest first). Rules that do not cover
+    the requested column are dropped first, so a column-scoped rule can never be
+    picked for another column (or for a section-level query). Specificity beats
+    scope: an exact single-column rule (score 3) wins over a multi-column set that
+    contains the column (2), over a global-column rule (0); an exact section adds
+    1. So a single-column+section rule (4) beats a multi-column+section rule (3),
+    which beats a global+section rule (1). Ties go to the newest rule (first in
+    the descending list).
     """
     def score(rule: ReportRuleMaster) -> int:
         s = 0
-        if column_key and (rule.column_key or "all") == column_key:
-            s += 2
+        if column_key:
+            if not _rule_is_global_column(rule):
+                if (rule.column_key or "").strip().lower() == column_key:
+                    s += 3
+                else:
+                    s += 2
         if apply_to and (rule.apply_to or "all") == apply_to:
             s += 1
         return s
 
-    if not role_rules:
+    if column_key:
+        eligible = [
+            r for r in role_rules
+            if _rule_is_global_column(r) or column_key in parse_column_keys(r.column_key)
+        ]
+    else:
+        eligible = [r for r in role_rules if _rule_is_global_column(r)]
+    if not eligible:
         return None
-    return max(role_rules, key=score)
+    return max(eligible, key=score)
 
 
 async def get_effective_rule_conditions(
@@ -216,9 +251,12 @@ async def get_effective_rule_conditions(
 
     A rule applies to a section when its ``apply_to`` is ``"all"`` (global) or
     equals the requested ``apply_to``. Likewise it applies to a metric column
-    when its ``column_key`` is ``"all"`` (global) or equals the requested
-    ``column_key``. Omitting ``apply_to`` / ``column_key`` consults only the
-    legacy global (``"all"``) rules.
+    when its ``column_key`` is ``"all"`` (every column) or its column set
+    contains the requested ``column_key``. Omitting ``apply_to`` / ``column_key``
+    consults only the legacy global (``"all"``) rules.
+
+    Column scope is matched in Python because a rule can cover several columns
+    (``column_key`` = ``"ach,market_ga"``).
 
     - ``excluded_product_codes`` is the UNION across all applicable active rules
       for the (house_id, context_key) pair.
@@ -226,6 +264,8 @@ async def get_effective_rule_conditions(
       specific applicable active rule matching ``target_role`` (exact column +
       section wins over global scopes).
     """
+    requested_column = column_key.strip().lower() if column_key else None
+
     async def applicable_rules() -> list:
         base = (
             select(ReportRuleMaster)
@@ -246,17 +286,18 @@ async def get_effective_rule_conditions(
             )
         else:
             base = base.where(ReportRuleMaster.apply_to == "all")
-        if column_key:
-            base = base.where(
-                or_(
-                    ReportRuleMaster.column_key == "all",
-                    ReportRuleMaster.column_key == column_key,
-                )
-            )
-        else:
-            base = base.where(ReportRuleMaster.column_key == "all")
-        rows = (await db.execute(base)).scalars().all()
-        return list(rows)
+        rows = list((await db.execute(base)).scalars().all())
+        if requested_column:
+            # Rules scoped to a set of columns apply only when the requested
+            # column is part of that set; global-column rules always apply.
+            return [
+                r for r in rows
+                if _rule_is_global_column(r)
+                or requested_column in parse_column_keys(r.column_key)
+            ]
+        # Section-level query: only rules that are not column-scoped. A rule
+        # scoped to a column must never leak into the section's base numbers.
+        return [r for r in rows if _rule_is_global_column(r)]
 
     matched = await applicable_rules()
 
@@ -278,7 +319,7 @@ async def get_effective_rule_conditions(
     if not role_rules:
         return conditions
 
-    rule = _pick_most_specific_rule(role_rules, apply_to, column_key)
+    rule = _pick_most_specific_rule(role_rules, apply_to, requested_column)
     if rule is None:
         return conditions
 

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { CheckCircle2, CircleDashed, Clock, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
-import type { RuleType } from "./types";
+import { parseColumnKeys, type RuleType } from "./types";
 
 interface RuleListPanelProps {
   rules: RuleType[];
@@ -89,11 +89,11 @@ export default function RuleListPanel({
                       {t(`rule_config.sections.${rule.apply_to}`)}
                     </span>
                   )}
-                  {rule.column_key && rule.column_key !== "all" && (
-                    <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 font-semibold">
-                      {t(`rule_config.columns.${rule.column_key}`)}
+                  {parseColumnKeys(rule.column_key).map((column) => (
+                    <span key={column} className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 font-semibold">
+                      {t(`rule_config.columns.${column}`)}
                     </span>
-                  )}
+                  ))}
                 </div>
                 {rule.is_active ? (
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />

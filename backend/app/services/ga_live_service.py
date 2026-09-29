@@ -34,6 +34,14 @@ SECTION_EMPLOYEE_ROLES = {
     "bps": ["bp"],
 }
 
+# Metric columns a GA Live section can scope a rule to (context_key="ga_live").
+# A rule scoped to a column only overrides that column's numbers — the section's
+# other columns keep running the section-level (global column) rule. Mirrors
+# ``RULE_COLUMN_SCOPES`` in backend/app/routers/rule_config.py.
+SECTION_RULE_COLUMNS = {
+    "rsos": ["ach", "market_ga"],
+}
+
 # GA Live sections → rule engine target_role (context_key="ga_live").
 SECTION_ROLE = {
     "total_activation": "HOUSE",
@@ -61,7 +69,9 @@ class GaLiveQueryBuilder:
         self.start_date = start_date
         self.end_date = end_date
         self._excluded_retailers: dict[str, set[int]] = {}
-        self._conditions: dict[str, dict] = {}
+        # Keyed by (section_key, column_key) — column_key is None for the
+        # section-level (global column) rule set.
+        self._conditions: dict[tuple[str, Optional[str]], dict] = {}
         self._owned_retailers: dict[str, set[int]] = {}
 
     async def _owned_retailer_ids(self, section_key: str) -> set[int]:
@@ -83,35 +93,58 @@ class GaLiveQueryBuilder:
         Product-code exclusions are the union across all active ga_live rules
         applicable to the section (global ``all`` plus section-specific rules);
         retailer-type exclusions and included employees come from the active rule
-        matching each section's ``apply_to`` + target_role. Each page section
-        (total/employee/market activation, distribution, trend, supervisor, rso,
-        bp) therefore runs its own rule set, mirroring the Activation Report.
+        matching each section's ``apply_to`` + target_role.
+
+        Each page section (total/employee/market activation, distribution, trend,
+        supervisor, rso, bp) therefore runs its own rule set, mirroring the
+        Activation Report. Sections that expose metric columns (see
+        ``SECTION_RULE_COLUMNS``) additionally load one rule set per column, so
+        e.g. the RSO table's Ach and Market GA columns can differ.
         """
         for section_key, role in SECTION_ROLE.items():
             cond = await get_effective_rule_conditions(
                 self.db, self.house_id, "ga_live", role, apply_to=section_key
             )
-            self._conditions[section_key] = cond
+            self._conditions[(section_key, None)] = cond
+            for column_key in SECTION_RULE_COLUMNS.get(section_key, []):
+                self._conditions[(section_key, column_key)] = await get_effective_rule_conditions(
+                    self.db, self.house_id, "ga_live", role,
+                    apply_to=section_key, column_key=column_key,
+                )
 
-    async def _get_exclusions(self, section_key: str) -> tuple[list[str], list[str]]:
-        cond = self._conditions.get(section_key) or {}
+    def _conditions_for(self, section_key: str, column_key: Optional[str] = None) -> dict:
+        """Rule conditions of one section column, falling back to the section."""
+        return (
+            self._conditions.get((section_key, column_key))
+            or self._conditions.get((section_key, None))
+            or {}
+        )
+
+    async def _get_exclusions(
+        self, section_key: str, column_key: Optional[str] = None
+    ) -> tuple[list[str], list[str]]:
+        cond = self._conditions_for(section_key, column_key)
         return (
             sorted(cond.get("excluded_product_codes") or []),
             cond.get("excluded_retailer_types") or [],
         )
 
-    async def _effective_excluded_codes(self, section_key: str) -> set[str]:
-        """Union of product codes excluded across all active ga_live rules."""
-        cond = self._conditions.get(section_key) or {}
+    async def _effective_excluded_codes(
+        self, section_key: str, column_key: Optional[str] = None
+    ) -> set[str]:
+        """Union of product codes excluded across all applicable ga_live rules."""
+        cond = self._conditions_for(section_key, column_key)
         return set(cond.get("excluded_product_codes") or [])
 
-    async def _selected_employee_db_ids(self, section_key: str) -> list[int]:
+    async def _selected_employee_db_ids(
+        self, section_key: str, column_key: Optional[str] = None
+    ) -> list[int]:
         """Employee IDs selected via the section rule's included_employee_ids.
 
         Rule rows store user IDs; GA Live filters by Employee.id, so map
         user_id → employee_id for this house's active employees.
         """
-        cond = self._conditions.get(section_key) or {}
+        cond = self._conditions_for(section_key, column_key)
         user_ids = cond.get("included_employee_ids") or []
         if not user_ids:
             return []
@@ -131,18 +164,20 @@ class GaLiveQueryBuilder:
             )
         return self._excluded_retailers[tag_name]
 
-    async def _build_base_query(self, section_key: str):
+    async def _build_base_query(
+        self, section_key: str, column_key: Optional[str] = None
+    ):
         query = select(LiveActivation).where(
             LiveActivation.house_id == self.house_id,
             LiveActivation.activation_date >= self.start_date,
             LiveActivation.activation_date <= self.end_date,
         )
 
-        exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key)
+        exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key, column_key)
 
         owned_ids = await self._owned_retailer_ids(section_key)
 
-        all_excluded = await self._effective_excluded_codes(section_key)
+        all_excluded = await self._effective_excluded_codes(section_key, column_key)
 
         if all_excluded:
             clause = exclude_clause(LiveActivation, all_excluded)
@@ -279,6 +314,11 @@ class GaLiveQueryBuilder:
     ) -> tuple[list, list, list, dict | None, dict | None, dict | None, dict]:
         base_act = await self._build_base_query(section_key)
         base_act_rso = await self._build_base_query("rsos")
+        # Column-scoped rule sets for the RSO table: Ach (total GA) and Market GA
+        # each run their own rule when one is configured. Without a column-scoped
+        # rule both resolve to the section rule set, so the numbers are unchanged.
+        base_act_rso_ach = await self._build_base_query("rsos", "ach")
+        base_act_rso_market = await self._build_base_query("rsos", "market_ga")
         base_act_bps = await self._build_base_query("bps")
 
         ret_rows = await self.db.execute(
@@ -654,8 +694,9 @@ class GaLiveQueryBuilder:
             rso_code = emp_id_to_code.get(rso_emp_id)
             rso_own = 0
             rso_total = 0
+            rso_market = 0
             if rso_ret_ids:
-                total_q = base_act_rso.where(LiveActivation.retailer_id.in_(rso_ret_ids))
+                total_q = base_act_rso_ach.where(LiveActivation.retailer_id.in_(rso_ret_ids))
                 if all_bp_codes_for_house:
                     total_q = total_q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
                 res = await self.db.execute(select(func.count()).select_from(total_q.subquery()))
@@ -671,6 +712,18 @@ class GaLiveQueryBuilder:
                         own_q = own_q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
                     res = await self.db.execute(select(func.count()).select_from(own_q.subquery()))
                     rso_own = res.scalar() or 0
+                # Market GA is counted under its own column rule and then has this
+                # RSO's own-code activations removed, mirroring the previous
+                # total − own split when no column rule is configured.
+                market_q = base_act_rso_market.where(LiveActivation.retailer_id.in_(rso_ret_ids))
+                if all_bp_codes_for_house:
+                    market_q = market_q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
+                res = await self.db.execute(select(func.count()).select_from(market_q.subquery()))
+                rso_market = res.scalar() or 0
+                if rso_code:
+                    market_own_q = market_q.where(LiveActivation.retailer_code == rso_code)
+                    res = await self.db.execute(select(func.count()).select_from(market_own_q.subquery()))
+                    rso_market = max(0, rso_market - (res.scalar() or 0))
             rso_name = emp_id_to_emp_name.get(rso_emp_id)
             if not rso_name:
                 rso_name = user_name_map.get(rso_uid) if rso_uid else None
@@ -686,7 +739,7 @@ class GaLiveQueryBuilder:
                 "assisted_code": rso_info[4] if rso_info else "",
                 "total_activation": rso_total,
                 "own_activation": rso_own if rso_code else 0,
-                "market_activation": rso_total - rso_own,
+                "market_activation": rso_market,
                 "target": rso_target_val,
                 "achievement": mtd_achievement,
                 "remaining": max(0, rso_target_val - mtd_achievement),

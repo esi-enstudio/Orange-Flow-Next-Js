@@ -21,6 +21,7 @@ import {
   DEFAULT_CONTEXT_META,
   ROLE_STYLE,
   ROLES,
+  parseColumnKeys,
   resolveContextIcon,
   type OptionsData,
   type Role,
@@ -251,11 +252,11 @@ export default function RuleConfigPage() {
                   {t(`rule_config.sections.${rule.apply_to}`)}
                 </span>
               )}
-              {rule.column_key && rule.column_key !== "all" && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 font-semibold">
-                  {t(`rule_config.columns.${rule.column_key}`)}
+              {parseColumnKeys(rule.column_key).map((column) => (
+                <span key={column} className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 font-semibold">
+                  {t(`rule_config.columns.${column}`)}
                 </span>
-              )}
+              ))}
             </span>
           </span>
           {rule.is_active ? (

@@ -55,10 +55,11 @@ class ReportRuleMaster(Base):
 
     A rule is scoped to a house + context_key and targets a single employee role.
     ``apply_to`` further scopes the rule to a page section (e.g. summary, rso, bp,
-    supervisor). ``column_key`` further scopes it to a single metric column inside
-    that section (e.g. achieved, market_ga, own_ga on the RSO table). ``"all"``
-    means the rule applies to every section/column that matches the role. At most
-    one active rule per
+    supervisor). ``column_key`` further scopes it to metric columns inside that
+    section and holds the canonical column scope: ``"all"`` (every column) or a
+    sorted, comma-joined set of column keys (e.g. ``"ach,market_ga"`` for the GA
+    Live RSO table, whose Ach and Market GA columns can each run their own rule).
+    At most one active rule per
     (house_id, context_key, target_role, apply_to, column_key) is allowed.
     """
 
@@ -88,7 +89,7 @@ class ReportRuleMaster(Base):
     )  # all | summary | rso | bp | supervisor
     column_key = Column(
         String(50), nullable=False, default="all", server_default=text("'all'"), index=True
-    )  # all | achieved | market_ga | own_ga
+    )  # "all" | "achieved" | "market_ga" | "own_ga" | "ach,market_ga" ...
     is_active = Column(Boolean, default=False, index=True)
 
     # Audit

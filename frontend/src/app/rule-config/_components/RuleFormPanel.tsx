@@ -5,7 +5,7 @@ import { AlertCircle, Check, Columns3, LayoutGrid, Loader2, Power, Save, Trash2 
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import EntitySelector, { type SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
-import { GA_LIVE_SECTIONS, RULE_COLUMNS, RULE_SECTIONS, ROLE_STYLE, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
+import { GA_LIVE_RSO_COLUMNS, GA_LIVE_SECTIONS, RULE_COLUMNS, RULE_SECTIONS, ROLE_STYLE, parseColumnKeys, serializeColumnKeys, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
 
 interface RuleFormPanelProps {
   rule: RuleType | null;
@@ -27,7 +27,10 @@ interface RuleFormPanelProps {
 export interface DraftPayload {
   rule_name: string;
   apply_to: string;
+  /** Canonical scope sent to the API: "all" or a sorted comma-joined column set. */
   column_key: string;
+  /** Selected columns of the section (GA Live RSO multi-select). Empty = all. */
+  column_scope: string[];
   is_active: boolean;
   excluded_product_codes: string[];
   excluded_retailer_types: string[];
@@ -53,11 +56,12 @@ export default function RuleFormPanel({
   const { t } = useLanguage();
 
   const [draft, setDraft] = useState<DraftPayload>(() => {
-    if (!rule) return { rule_name: "", apply_to: "all", column_key: "all", is_active: true, excluded_product_codes: [], excluded_retailer_types: [], included_employee_ids: [] };
+    if (!rule) return { rule_name: "", apply_to: "all", column_key: "all", column_scope: [], is_active: true, excluded_product_codes: [], excluded_retailer_types: [], included_employee_ids: [] };
     return {
       rule_name: rule.rule_name ?? "",
       apply_to: rule.apply_to ?? "all",
       column_key: rule.column_key ?? "all",
+      column_scope: rule.column_keys?.length ? [...rule.column_keys] : parseColumnKeys(rule.column_key),
       is_active: rule.is_active,
       excluded_product_codes: rule.excluded_product_codes ?? [],
       excluded_retailer_types: rule.excluded_retailer_types ?? [],
@@ -93,13 +97,23 @@ export default function RuleFormPanel({
 
   const selectedEmpCount = draft.included_employee_ids.length;
 
+  // GA Live's RSO Section lets one rule target several metric columns at once.
+  const isColumnScoped = contextKey === "ga_live" && draft.apply_to === "rsos";
+  const columnItems: SelectorItem[] = GA_LIVE_RSO_COLUMNS.map((c) => ({
+    id: c.id,
+    label: t(`rule_config.${c.labelKey}`),
+  }));
+
   async function handleSave() {
     if (!draft.rule_name.trim()) {
       setRuleNameError(t("rule_config.validation.rule_name_required"));
       return;
     }
     setRuleNameError(null);
-    const ok = await onSaveDraft(draft);
+    const payload: DraftPayload = isColumnScoped
+      ? { ...draft, column_key: serializeColumnKeys(draft.column_scope) }
+      : draft;
+    const ok = await onSaveDraft(payload);
     if (ok) {
       setDirty(false);
       setSavedFlash(true);
@@ -218,6 +232,28 @@ export default function RuleFormPanel({
             </div>
             <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5 px-1">
               {t("rule_config.fields.apply_to_hint")}
+            </p>
+          </div>
+        )}
+
+        {isColumnScoped && (
+          <div>
+            <EntitySelector
+              label={t("rule_config.fields.column_key")}
+              items={columnItems}
+              selectedIds={draft.column_scope}
+              onChange={(ids) => { setDraft((d) => ({ ...d, column_scope: ids.map(String) })); setDirty(true); }}
+              placeholder={t("rule_config.fields.column_key")}
+              searchPlaceholder={t("common.search")}
+              emptyMessage={t("rule_config.empty.columns")}
+              noResultsMessage={t("rule_config.empty.no_columns_match")}
+              selectAllLabel={t("common.select_all")}
+              clearLabel={t("common.clear")}
+              selectedLabel={t("rule_config.fields.column_key")}
+              disabled={!canWrite}
+            />
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5 px-1">
+              {t("rule_config.fields.column_scope_hint")}
             </p>
           </div>
         )}

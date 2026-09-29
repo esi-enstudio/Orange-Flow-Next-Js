@@ -13,7 +13,10 @@ export interface RuleType {
   rule_name: string;
   target_role: string;
   apply_to?: string;
+  /** Canonical metric-column scope: "all" or a sorted comma-joined set. */
   column_key?: string;
+  /** Parsed form of {@link RuleType.column_key} returned by the API. */
+  column_keys?: string[];
   is_active: boolean;
   created_at: string | null;
   updated_at: string | null;
@@ -54,6 +57,32 @@ export type GaLiveSection = (typeof GA_LIVE_SECTIONS)[number];
  */
 export const RULE_COLUMNS = ["all", "achieved", "market_ga", "own_ga"] as const;
 export type RuleColumn = (typeof RULE_COLUMNS)[number];
+
+/**
+ * Metric columns of the GA Live RSO Section table that a rule can be scoped to.
+ * Mirrors `RULE_COLUMN_SCOPES[("ga_live", "rsos")]` on the backend.
+ */
+export const GA_LIVE_RSO_COLUMNS = [
+  { id: "ach", labelKey: "columns.ach" },
+  { id: "market_ga", labelKey: "columns.market_ga" },
+] as const;
+
+/** Split a stored `column_key` ("ach,market_ga" | "all") into its column keys. */
+export function parseColumnKeys(columnKey?: string | null): string[] {
+  if (!columnKey) return [];
+  return columnKey
+    .split(",")
+    .map((key) => key.trim().toLowerCase())
+    .filter((key) => key && key !== "all");
+}
+
+/** Canonical stored form: "all" when empty, else a sorted, deduped set. */
+export function serializeColumnKeys(keys: string[]): string {
+  const clean = Array.from(
+    new Set(keys.map((key) => key.trim().toLowerCase()).filter((key) => key && key !== "all"))
+  ).sort();
+  return clean.length ? clean.join(",") : "all";
+}
 
 export interface RuleContextOption {
   id: number;
