@@ -10,7 +10,7 @@ import { Popover, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 
-import { DATE_PICKER_CELL_SIZE, DATE_PICKER_CLASS_NAMES, DATE_PICKER_PREVIEW_CLASS_NAMES } from "./calendarTheme";
+import { DATE_PICKER_CELL_SIZE, DATE_PICKER_CLASS_NAMES, DATE_PICKER_PREVIEW_CLASS_NAMES, DATE_PICKER_RANGE_CSS, type DateRangeCellState } from "./calendarTheme";
 import { formatNumber, formatYMDShort } from "./format";
 import { useMediaQuery } from "./hooks";
 import { buildPresets, matchPreset, type PresetId } from "./presets";

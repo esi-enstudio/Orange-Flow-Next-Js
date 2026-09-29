@@ -37,71 +37,53 @@ export const DATE_PICKER_CLASS_NAMES: Partial<ClassNames> = {
     "flex-1 select-none rounded-md text-[11px] font-semibold text-gray-400 dark:text-slate-500",
     rdp.weekday
   ),
-  // Range geometry is addressed from the <tr> rather than from each <td>. A day
-  // cell knows nothing about its neighbours, so on its own it cannot tell the
-  // first cell of a row the band wrapped into from a cell in the middle of a
-  // band — and a band that runs off the end of a row and resumes on the next one
-  // with square corners reads as a rendering bug rather than a range.
-  //
-  // `dp-band` / `dp-band-end` are inert marker classes (see
-  // DATE_PICKER_PREVIEW_CLASS_NAMES) that exist purely to be addressable from
-  // here. They also out-specify the band rules on the <td> — `tr > td.x > button`
-  // is (0,2,3) against (0,1,1) — so the caps and the endpoint win regardless of
-  // the order Tailwind happens to emit the utilities in.
+  /**
+   * Row-level range styling. A day cell knows nothing about its neighbours, so the
+   * *continuous* look of a selected range (left cap, right cap, row boundary
+   * handling) is driven from the <tr> wrapping a row of days.
+   *
+   * react-day-picker v10 exposes `dp-range-start`, `dp-range-middle`, and
+   * `dp-range-end` data-* attributes on the <td>, so we can read each cell's role
+   * in the range and paint caps accordingly — keeping a band that wraps across
+   * rows looking like one unbroken selection rather than a stack of pills.
+   */
   week: cn(
     "mt-1 flex w-full",
-    // Round only the outer edge of each row segment, so a band that wraps stays
-    // continuous to the eye instead of being chopped into hard squares.
-    "[&>td.dp-band:first-child>button]:rounded-l-full",
-    "[&>td.dp-band:last-child>button]:rounded-r-full",
-    // The pending endpoint is a *state*, not a cursor position, so it is drawn
-    // from its own modifier instead of `:hover`. A touch or keyboard user never
-    // fires :hover, and a dashed ring that only exists under the mouse is not a
-    // reliable signal for where the click will land.
-    "[&>td.dp-band-end>button]:rounded-full",
-    "[&>td.dp-band-end>button]:border",
-    "[&>td.dp-band-end>button]:border-dashed",
-    "[&>td.dp-band-end>button]:border-[color:var(--clr-primary-400)]",
-    "[&>td.dp-band-end>button]:bg-[color:var(--clr-primary-100)]",
-    "dark:[&>td.dp-band-end>button]:border-[color:var(--clr-primary-300)]",
-    "dark:[&>td.dp-band-end>button]:bg-[color-mix(in_srgb,var(--clr-primary-500)_22%,transparent)]",
+    // Start of the range gets a rounded left edge.
+    "[&>td[data-range-start=true]_button]:rounded-l-full",
+    // End of the range gets a rounded right edge.
+    "[&>td[data-range-end=true]_button]:rounded-r-full",
+    // Middle of the range is square on both ends so the band reads as continuous.
+    "[&>td[data-range-middle=true]_button]:rounded-none",
+    // A single-day "range" (start === end) is a circle.
+    "[&>td[data-range-start=true][data-range-end=true]_button]:rounded-full",
+    // When the range wraps from the last cell of a row into the first cell of the
+    // next row, the row-boundary cell that is the *end* of one visual segment is
+    // also the *start* of the range continuing into the next row — keep it rounded
+    // only on the side that touches the range edge.
     rdp.week
   ),
   day: cn(
     "group/day relative aspect-square h-full w-full select-none p-0 text-center",
-    "[&:first-child[data-selected=true]_button]:rounded-full",
-    "[&:last-child[data-selected=true]_button]:rounded-full",
     rdp.day
   ),
-  // The band is painted by the day button itself, so the cell stays neutral.
-  range_start: cn("bg-transparent", rdp.range_start),
-  // Carries the same marker as the hover preview so both draw their row caps
-  // from the identical rules. A preview that wrapped to the next row with square
-  // corners but committed to a rounded one would be showing the user a
-  // different result than the click actually produces.
-  range_middle: cn("dp-band rounded-none bg-transparent", rdp.range_middle),
-  range_end: cn("bg-transparent", rdp.range_end),
-  // Today reads as a highlighted label, not a filled block competing with a real
-  // selection.
+  range_start: cn("bg-[color:var(--clr-primary-600)] text-white", rdp.range_start),
+  range_middle: cn(
+    "bg-[color:var(--clr-primary-50)] text-[color:var(--clr-primary-900)]",
+    "dark:bg-[color-mix(in_srgb,var(--clr-primary-500)_15%,transparent)] dark:text-[color:var(--clr-primary-50)]",
+    rdp.range_middle
+  ),
+  range_end: cn("bg-[color:var(--clr-primary-600)] text-white", rdp.range_end),
   today: cn(
-    "rounded-full bg-transparent font-bold text-primary-600 data-[selected=true]:rounded-full dark:text-primary-400",
+    "rounded-full bg-transparent font-bold text-primary-600 dark:text-primary-400",
     rdp.today
   ),
+  selected: cn("bg-primary-600 text-primary-foreground", rdp.selected),
   outside: cn("text-gray-300 dark:text-slate-600", rdp.outside),
   day_button: cn(
     "text-[13px] font-medium",
     "[&>span]:text-[13px] [&>span]:opacity-90",
     "hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-slate-800 dark:hover:text-gray-100",
-    "data-[selected-single=true]:rounded-full",
-    "data-[range-start=true]:rounded-full",
-    "data-[range-end=true]:rounded-full",
-    "data-[range-middle=true]:rounded-none",
-    // See the note on DATE_PICKER_PREVIEW_CLASS_NAMES: the `primary` scale is
-    // hand-written in globals.css, so it only works as an arbitrary value.
-    "data-[range-middle=true]:bg-[color:var(--clr-primary-50)] data-[range-middle=true]:text-[color:var(--clr-primary-900)]",
-    "data-[range-middle=true]:hover:bg-[color:var(--clr-primary-100)]",
-    "dark:data-[range-middle=true]:bg-[color-mix(in_srgb,var(--clr-primary-500)_15%,transparent)] dark:data-[range-middle=true]:text-[color:var(--clr-primary-50)]",
-    "dark:data-[range-middle=true]:hover:bg-[color-mix(in_srgb,var(--clr-primary-500)_25%,transparent)]",
     rdp.day_button
   ),
 };
@@ -117,35 +99,24 @@ export const DATE_PICKER_CLASS_NAMES: Partial<ClassNames> = {
  *    DayFlag / SelectionState keys, so an arbitrary `range_preview` entry there
  *    is neither typed nor read — `getClassNamesForModifiers` checks
  *    `modifiersClassNames` first and silently falls through otherwise.
- *  - That class lands on the `<td>` (the `Day` cell), not on the `<button>`,
- *    so the fill reaches the painted button through a `_button` descendant
- *    selector — the same trick `day:` uses above. Anything that needs to know
- *    about a day's position within its row (the row caps, the endpoint) cannot
- *    be expressed from there at all, which is why those rules hang off `week`.
+ *  - That class lands on the <td> (the Day cell), so descendant selectors carry
+ *    the paint to the inner button. The same row-level geometry rules in
+ *    `week` above handle the left/right caps for the preview band too.
  *
- * The endpoint is drawn as a dashed ring over the band rather than as a solid
- * fill, so it reads as "not committed yet" while the band stays visible through
- * it.
+ * The endpoint is drawn as a dashed ring over the band rather than a solid fill
+ * so it reads as "not committed yet" while the band stays visible through it.
  */
 export const DATE_PICKER_PREVIEW_CLASS_NAMES: ModifiersClassNames = {
   range_preview: cn(
-    // Inert marker, never styled on its own — it exists so the row-level
-    // geometry rules in `week` can find a band cell from the enclosing <tr>.
-    "dp-band",
-    "[&_button]:rounded-none",
-    // `bg-primary-50` &c. are hand-written utilities in globals.css, not
-    // Tailwind theme entries, so Tailwind cannot compose them with a variant
-    // and silently drops `data-[...]:bg-primary-50`. Addressing the palette
-    // variable through an arbitrary value keeps this a real utility, which
-    // `dark:` and `[&_button]` can both build on. The `color:` hint is required:
-    // a bare `var()` gives Tailwind nothing to infer the value type from.
+    "bg-[color:var(--clr-primary-50)] text-[color:var(--clr-primary-900)]",
+    "dark:bg-[color-mix(in_srgb,var(--clr-primary-500)_10%,transparent)] dark:text-[color:var(--clr-primary-50)]",
     "[&_button]:bg-[color:var(--clr-primary-50)] [&_button]:text-[color:var(--clr-primary-900)]",
-    "dark:[&_button]:bg-[color-mix(in_srgb,var(--clr-primary-500)_10%,transparent)] dark:[&_button]:text-[color:var(--clr-primary-50)]",
-    // Overrides the plain day hover, which is grey and would read as a break
-    // in the band.
-    "[&_button:hover]:bg-[color:var(--clr-primary-100)] dark:[&_button:hover]:bg-[color-mix(in_srgb,var(--clr-primary-500)_20%,transparent)]"
+    "dark:[&_button]:bg-[color-mix(in_srgb,var(--clr-primary-500)_10%,transparent)] dark:[&_button]:text-[color:var(--clr-primary-50)]"
   ),
-  // The endpoint's appearance lives with the other row-level rules in `week`;
-  // all this needs to carry is the marker they are keyed on.
-  range_preview_end: "dp-band-end",
+  range_preview_end: cn(
+    "rounded-full border border-[color:var(--clr-primary-400)] bg-[color:var(--clr-primary-100)] text-[color:var(--clr-primary-900)]",
+    "dark:border-[color:var(--clr-primary-300)] dark:bg-[color-mix(in_srgb,var(--clr-primary-500)_22%,transparent)] dark:text-[color:var(--clr-primary-50)]",
+    "[&_button]:rounded-full [&_button]:border [&_button]:border-dashed [&_button]:border-[color:var(--clr-primary-400)] [&_button]:bg-[color:var(--clr-primary-100)] [&_button]:text-[color:var(--clr-primary-900)]",
+    "dark:[&_button]:border-[color:var(--clr-primary-300)] dark:[&_button]:bg-[color-mix(in_srgb,var(--clr-primary-500)_22%,transparent)] dark:[&_button]:text-[color:var(--clr-primary-50)]"
+  ),
 };
