@@ -133,6 +133,18 @@ export function isDateWithin(day: Date, min?: Date | null, max?: Date | null): b
   return true;
 }
 
+/**
+ * True when `day` sits between `lo` and `hi`, inclusive, in either order.
+ *
+ * Order-independent on purpose: dragging backwards from the start date is a
+ * normal gesture in a range picker, and hiding the band there would leave the
+ * user with no feedback at all about what they are about to select.
+ */
+export function isDayInRange(day: Date, lo: Date, hi: Date): boolean {
+  const [start, end] = compareDay(lo, hi) <= 0 ? [lo, hi] : [hi, lo];
+  return compareDay(day, start) >= 0 && compareDay(day, end) <= 0;
+}
+
 function compareDay(a: Date, b: Date): number {
   const at = a.getTime() - a.getHours() * 3_600_000 - a.getMinutes() * 60_000;
   const bt = b.getTime() - b.getHours() * 3_600_000 - b.getMinutes() * 60_000;

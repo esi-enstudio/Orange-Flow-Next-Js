@@ -10,14 +10,17 @@ import { Popover, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 
-import { DATE_PICKER_CELL_SIZE, DATE_PICKER_CLASS_NAMES } from "./calendarTheme";
+import { DATE_PICKER_CELL_SIZE, DATE_PICKER_CLASS_NAMES, DATE_PICKER_PREVIEW_CLASS_NAMES } from "./calendarTheme";
 import { formatNumber, formatYMDShort } from "./format";
 import { useMediaQuery } from "./hooks";
 import { buildPresets, matchPreset, type PresetId } from "./presets";
 import { DATE_PICKER_PANEL, DatePickerTrigger } from "./trigger";
 import {
+  compareYMD,
   dayCount,
   isDateWithin,
+  isDayInRange,
+  isSameDay,
   parseYMD,
   toYMD,
   type DateRangeValue,
@@ -79,6 +82,9 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   const { t, language } = useLanguage();
   const [open, setOpen] = React.useState(false);
+  // The day under the cursor, tracked purely to draw the preview band. Kept out
+  // of `selected` on purpose — see the note above `selected` below.
+  const [hoveredDay, setHoveredDay] = React.useState<Date | null>(null);
   // A second month only earns its width on a wide desktop; below that the panel
   // keeps a single month so it never dominates the viewport.
   const isWide = useMediaQuery("(min-width: 1280px)");
@@ -133,6 +139,26 @@ export function DateRangePicker({
   const hasBoth = Boolean(value.from && value.to);
   const isPartial = Boolean(value.from && !value.to);
 
+  // The band a click would produce. Null — i.e. no preview at all — unless a
+  // start is already waiting for its end, so a committed range is never fought
+  // over, and a reset by the parent leaves nothing stale on screen.
+  const previewRange = React.useMemo(() => {
+    if (!isPartial || !hoveredDay || !selected.from) return null;
+    if (!isDateWithin(hoveredDay, minDate, maxDate)) return null;
+    return { lo: selected.from, hi: hoveredDay };
+  }, [isPartial, hoveredDay, selected.from, minDate, maxDate]);
+
+  const previewModifiers = React.useMemo(
+    () =>
+      previewRange
+        ? {
+            range_preview: (day: Date) => isDayInRange(day, previewRange.lo, previewRange.hi),
+            range_preview_end: (day: Date) => isSameDay(day, previewRange.hi),
+          }
+        : undefined,
+    [previewRange]
+  );
+
   const displayText = isPartial
     ? `${formatYMDShort(value.from, language)} – ${selectEndDateLabel ?? t("common.date_range.select_end_date")}`
     : hasBoth
@@ -141,12 +167,23 @@ export function DateRangePicker({
 
   const showPlaceholder = !value.from && !value.to;
   const days = hasBoth ? dayCount(value.from as YMD, value.to as YMD) : 0;
+  // While the end is still being chosen, the hovered span is the honest answer
+  // to "how many days will this be?". Ordered before counting because a
+  // backwards drag makes `from` the later date, and `dayCount` is signed.
+  const previewDays = React.useMemo(() => {
+    if (!previewRange || !selected.from) return 0;
+    const anchor = toYMD(selected.from);
+    const edge = toYMD(previewRange.hi);
+    return compareYMD(anchor, edge) <= 0 ? dayCount(anchor, edge) : dayCount(edge, anchor);
+  }, [previewRange, selected.from]);
 
   const footerText = showPlaceholder
     ? (placeholder ?? t("common.date_range.placeholder"))
-    : isPartial
-      ? (selectEndDateLabel ?? t("common.date_range.select_end_date"))
-      : `${formatNumber(days, language)} ${daysSelectedLabel ?? t("common.date_range.days_selected")}`;
+    : previewDays > 0
+      ? `${formatNumber(previewDays, language)} ${daysSelectedLabel ?? t("common.date_range.days_selected")}`
+      : isPartial
+        ? (selectEndDateLabel ?? t("common.date_range.select_end_date"))
+        : `${formatNumber(days, language)} ${daysSelectedLabel ?? t("common.date_range.days_selected")}`;
 
   return (
     <div className={cn("relative", className)}>
@@ -159,7 +196,15 @@ export function DateRangePicker({
         </label>
       )}
 
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          // A stale band would survive a close/reopen and preview against a
+          // date the pointer was never over.
+          if (!next) setHoveredDay(null);
+        }}
+      >
         <DatePickerTrigger
           id={id}
           open={open}
@@ -212,7 +257,7 @@ export function DateRangePicker({
               </div>
             </div>
 
-            <div className="p-3">
+            <div className="p-3" onMouseLeave={() => setHoveredDay(null)}>
               <Calendar
                 mode="range"
                 selected={selected}
@@ -228,6 +273,9 @@ export function DateRangePicker({
                 disabled={(day: Date) => !isDateWithin(day, minDate, maxDate)}
                 className={DATE_PICKER_CELL_SIZE}
                 classNames={DATE_PICKER_CLASS_NAMES}
+                modifiers={previewModifiers}
+                modifiersClassNames={DATE_PICKER_PREVIEW_CLASS_NAMES}
+                onDayMouseEnter={(day) => setHoveredDay(day)}
               />
             </div>
           </div>
