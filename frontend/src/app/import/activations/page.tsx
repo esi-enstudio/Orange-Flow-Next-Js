@@ -15,6 +15,7 @@ import ActivationFilterBar, {
   ActivationFilters,
   defaultActivationFilters,
 } from "@/components/activation-filters/ActivationFilterBar";
+import { DateRangePicker, todayYMD } from "@/components/date-picker";
 
 interface Activation {
   id: number; sim_no: string; activation_date: string; activation_time: string;
@@ -88,6 +89,8 @@ export default function ImportActivationsPage() {
       if (filters.employee_ids.length) params.employee_ids = filters.employee_ids.join(",");
       if (filters.retailer_codes.length) params.retailer_codes = filters.retailer_codes.join(",");
       if (filters.product_codes.length) params.product_codes = filters.product_codes.join(",");
+      if (filters.activation_date_from) params.activation_date_from = filters.activation_date_from;
+      if (filters.activation_date_to) params.activation_date_to = filters.activation_date_to;
       const res = await axios.get("/activations", { params, headers });
       setData(res.data.data || []);
       const total = res.data.total || 0;
@@ -236,7 +239,7 @@ export default function ImportActivationsPage() {
   const [exportStartDate, setExportStartDate] = useState("");
   const [exportEndDate, setExportEndDate] = useState("");
   const [exporting, setExporting] = useState(false);
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = todayYMD();
 
   const handleExport = () => {
     if (!filters.house_id) { toast.error(t("activations.filters.house_required_title")); return; }
@@ -245,8 +248,8 @@ export default function ImportActivationsPage() {
 
   const runExport = async (startDate: string, endDate: string) => {
     if (!filters.house_id) { toast.error(t("activations.filters.house_required_title")); return; }
-    if (!startDate || !endDate) { toast.error("Please select both dates"); return; }
-    if (startDate > endDate) { toast.error("Start date cannot be after end date"); return; }
+    if (!startDate || !endDate) { toast.error(t("common.date_range.select_range_first")); return; }
+    if (startDate > endDate) { toast.error(t("common.date_range.invalid_order")); return; }
     setExporting(true);
     setShowDatePicker(false);
     try {
@@ -267,8 +270,8 @@ export default function ImportActivationsPage() {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a"); a.href = url; a.download = `activations_${startDate}_to_${endDate}.xlsx`; a.click();
       window.URL.revokeObjectURL(url);
-      toast.success("Exported successfully");
-    } catch { toast.error("Export failed"); }
+      toast.success(t("common.date_range.export_success"));
+    } catch { toast.error(t("common.date_range.export_error")); }
     finally { setExporting(false); closeDatePicker(); }
   };
 
@@ -285,31 +288,26 @@ export default function ImportActivationsPage() {
 
       {showDatePicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm mx-4 animate-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1">Export Activations</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">Select date range to export</p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Date</label>
-                <input type="date" value={exportStartDate} max={exportEndDate || todayStr}
-                  onChange={e => setExportStartDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-gray-100" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date</label>
-                <input type="date" value={exportEndDate} min={exportStartDate || undefined} max={todayStr}
-                  onChange={e => setExportEndDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-gray-100" />
-              </div>
-            </div>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-lg mx-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1">{t("activations.export.title")}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">{t("activations.export.subtitle")}</p>
+            <DateRangePicker
+              label={t("common.date_range.label")}
+              value={{ from: exportStartDate || null, to: exportEndDate || null }}
+              onChange={(range) => {
+                setExportStartDate(range.from ?? "");
+                setExportEndDate(range.to ?? "");
+              }}
+              max={todayStr}
+            />
             <div className="flex items-center gap-3 mt-6">
               <button onClick={closeDatePicker}
-                className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-                Cancel
+                className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                {t("common.cancel")}
               </button>
-              <button onClick={() => runExport(exportStartDate, exportEndDate)} disabled={exporting}
-                className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50">
-                {exporting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Export"}
+              <button onClick={() => runExport(exportStartDate, exportEndDate)} disabled={exporting || !exportStartDate || !exportEndDate}
+                className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                {exporting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : t("activations.export.action")}
               </button>
             </div>
           </div>
@@ -409,6 +407,7 @@ export default function ImportActivationsPage() {
           apiBase="/activations"
           filters={filters}
           onChange={handleFilterChange}
+          showDateFilter
         />
         {/* Toolbar */}
         <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between gap-4">

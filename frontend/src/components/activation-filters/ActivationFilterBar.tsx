@@ -5,6 +5,8 @@ import { Loader2, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 import axios from "@/lib/api";
 import { useLanguage } from "@/i18n/useLanguage";
 import EntitySelector, { SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
+import { DateRangePicker } from "@/components/date-picker";
+import { cn } from "@/lib/utils";
 
 export interface ActivationFilters {
   house_id: string;
@@ -12,6 +14,9 @@ export interface ActivationFilters {
   employee_ids: string[];
   retailer_codes: string[];
   product_codes: string[];
+  /** Inclusive `YYYY-MM-DD` bounds. Only surfaced when `showDateFilter` is set. */
+  activation_date_from: string;
+  activation_date_to: string;
 }
 
 export const defaultActivationFilters: ActivationFilters = {
@@ -20,6 +25,8 @@ export const defaultActivationFilters: ActivationFilters = {
   employee_ids: [],
   retailer_codes: [],
   product_codes: [],
+  activation_date_from: "",
+  activation_date_to: "",
 };
 
 export function countActiveFilters(f: ActivationFilters): number {
@@ -28,7 +35,8 @@ export function countActiveFilters(f: ActivationFilters): number {
     (f.sim_msisdn ? 1 : 0) +
     (f.employee_ids.length ? 1 : 0) +
     (f.retailer_codes.length ? 1 : 0) +
-    (f.product_codes.length ? 1 : 0)
+    (f.product_codes.length ? 1 : 0) +
+    (f.activation_date_from || f.activation_date_to ? 1 : 0)
   );
 }
 
@@ -65,9 +73,15 @@ interface Props {
   apiBase: string;
   filters: ActivationFilters;
   onChange: (filters: ActivationFilters) => void;
+  /**
+   * Opt-in: render the activation-date range picker. Left off for endpoints
+   * that do not accept `activation_date_from` / `activation_date_to`, so the
+   * control never sends a parameter the API would silently drop.
+   */
+  showDateFilter?: boolean;
 }
 
-export default function ActivationFilterBar({ apiBase, filters, onChange }: Props) {
+export default function ActivationFilterBar({ apiBase, filters, onChange, showDateFilter = false }: Props) {
   const { t } = useLanguage();
   const [houses, setHouses] = useState<HouseOption[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
@@ -173,11 +187,14 @@ export default function ActivationFilterBar({ apiBase, filters, onChange }: Prop
   const handleHouseChange = (ids: (string | number)[]) => {
     const next = String(ids[0] ?? "");
     // Switching house invalidates every dependent selection and the search term.
+    // The date range is house-independent, so it is deliberately preserved.
     setSimMsisdnInput("");
     if (simMsisdnTimer.current) clearTimeout(simMsisdnTimer.current);
     onChange({
       house_id: next, sim_msisdn: "", employee_ids: [], retailer_codes: [],
       product_codes: [],
+      activation_date_from: filtersRef.current.activation_date_from,
+      activation_date_to: filtersRef.current.activation_date_to,
     });
   };
 
@@ -226,7 +243,7 @@ export default function ActivationFilterBar({ apiBase, filters, onChange }: Prop
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className={cn("grid grid-cols-1 gap-3", showDateFilter ? "md:grid-cols-3" : "md:grid-cols-2")}>
         <EntitySelector
           label={t("activations.filters.house")}
           items={houseItems}
@@ -289,6 +306,20 @@ export default function ActivationFilterBar({ apiBase, filters, onChange }: Prop
             )}
           </div>
         </div>
+
+        {showDateFilter && (
+          <DateRangePicker
+            label={t("common.date_range.label")}
+            value={{ from: filters.activation_date_from || null, to: filters.activation_date_to || null }}
+            onChange={(range) =>
+              onChange({
+                ...filters,
+                activation_date_from: range.from ?? "",
+                activation_date_to: range.to ?? "",
+              })
+            }
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
