@@ -1173,12 +1173,14 @@ export default function GaLiveReportPage() {
                   <thead>
                     <tr>
                       <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">Name</th>
-                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Today Target</th>
-                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Own Activation</th>
-                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Market Activation</th>
-                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Total</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Target</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Ach</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">%</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Remain</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">DRR</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Own GA</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Market GA</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Total GA</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Contribution</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Yesterday GA</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Action</th>
@@ -1192,19 +1194,33 @@ export default function GaLiveReportPage() {
                           <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">{rso.dms_code ? `${rso.dms_code}${rso.itop_number ? ` • ${rso.itop_number.slice(-3)}` : ''}${rso.assisted_code ? ` • ${rso.assisted_code}` : ''}` : `#${rso.id}`}</p>
                         </td>
                         <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                          {rso.remaining > 0 ? Math.ceil(rso.remaining / Math.max(daysRemaining, 1)).toLocaleString() : "0"}
+                          {rso.target.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1 text-center font-bold text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                          {rso.total_activation.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
+                          {(() => {
+                            const pct = rso.target > 0 ? Math.round((rso.total_activation / rso.target) * 100) : 0;
+                            return (
+                              <span
+                                className="font-bold"
+                                style={{ color: pct >= 100 ? "#10b981" : pct >= 70 ? "#3b82f6" : pct >= 40 ? "#f59e0b" : "#ef4444" }}
+                              >
+                                {pct}%
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                          {rso.remaining.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                          {Math.ceil(rso.remaining / Math.max(daysRemaining, 1)).toLocaleString()}
                         </td>
                         <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">{rso.own_activation.toLocaleString()}</td>
                         <td className="px-2 py-1 text-center text-amber-600 dark:text-amber-400 border border-gray-200 dark:border-slate-600">{rso.market_activation.toLocaleString()}</td>
                         <td className="px-2 py-1 text-center font-bold text-primary-600 dark:text-primary-400 border border-gray-200 dark:border-slate-600">{rso.total_activation.toLocaleString()}</td>
-                        <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
-                          {(rso.remaining > 0 ? Math.ceil(rso.remaining / Math.max(daysRemaining, 1)) : 0) > 0
-                            ? Math.round((rso.total_activation / Math.ceil(rso.remaining / Math.max(daysRemaining, 1))) * 100) + '%'
-                            : '0%'}
-                        </td>
-                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                          {Math.max(0, Math.ceil(rso.remaining / Math.max(daysRemaining, 1)) - rso.total_activation).toLocaleString()}
-                        </td>
                         <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                           <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
                             {rso.contribution}%
@@ -1231,7 +1247,31 @@ export default function GaLiveReportPage() {
                         Total ({rsos.length} RSOs)
                       </td>
                       <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                        {rsos.reduce((s, r) => s + (r.remaining > 0 ? Math.ceil(r.remaining / Math.max(daysRemaining, 1)) : 0), 0).toLocaleString()}
+                        {rsos.reduce((s, r) => s + r.target, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-center font-bold text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        {rsos.reduce((s, r) => s + r.total_activation, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
+                        {(() => {
+                          const sumTarget = rsos.reduce((s, r) => s + r.target, 0);
+                          const sumTotal = rsos.reduce((s, r) => s + r.total_activation, 0);
+                          const pct = sumTarget > 0 ? Math.round((sumTotal / sumTarget) * 100) : 0;
+                          return (
+                            <span
+                              className="font-bold"
+                              style={{ color: pct >= 100 ? "#10b981" : pct >= 70 ? "#3b82f6" : pct >= 40 ? "#f59e0b" : "#ef4444" }}
+                            >
+                              {pct}%
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        {rsos.reduce((s, r) => s + r.remaining, 0).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        {rsos.reduce((s, r) => s + Math.ceil(r.remaining / Math.max(daysRemaining, 1)), 0).toLocaleString()}
                       </td>
                       <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 text-gray-900 dark:text-gray-100">
                         {rsos.reduce((s, r) => s + r.own_activation, 0).toLocaleString()}
@@ -1241,20 +1281,6 @@ export default function GaLiveReportPage() {
                       </td>
                       <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 font-bold text-primary-600 dark:text-primary-400">
                         {rsos.reduce((s, r) => s + r.total_activation, 0).toLocaleString()}
-                      </td>
-                      <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
-                        {(() => {
-                          const sumToday = rsos.reduce((s, r) => s + (r.remaining > 0 ? Math.ceil(r.remaining / Math.max(daysRemaining, 1)) : 0), 0);
-                          const sumTotal = rsos.reduce((s, r) => s + r.total_activation, 0);
-                          return sumToday > 0 ? Math.round((sumTotal / sumToday) * 100) + '%' : '0%';
-                        })()}
-                      </td>
-                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                        {(() => {
-                          const sumToday = rsos.reduce((s, r) => s + (r.remaining > 0 ? Math.ceil(r.remaining / Math.max(daysRemaining, 1)) : 0), 0);
-                          const sumTotal = rsos.reduce((s, r) => s + r.total_activation, 0);
-                          return Math.max(0, sumToday - sumTotal).toLocaleString();
-                        })()}
                       </td>
                       <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                         <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
