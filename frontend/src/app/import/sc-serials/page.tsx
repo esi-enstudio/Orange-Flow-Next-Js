@@ -156,11 +156,16 @@ export default function SCSerialsPage() {
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
     try {
-      const res = await apiClient.get("/v1/scratch-card-serials/stock/summary", { headers: houseHeaders });
+      // No X-House-ID here: this panel is a per-house grid (see fetchHouseDetail
+      // drill-down, per-house export and allocation below), so it must list
+      // every accessible house. Passing the header collapsed the backend into
+      // aggregate mode and the grid showed only the one globally selected house.
+      // Without the header the backend returns all houses the user can access.
+      const res = await apiClient.get("/v1/scratch-card-serials/stock/summary");
       setStockSummary(Array.isArray(res.data.data) ? res.data.data : []);
     } catch { /* silent */ }
     finally { setSummaryLoading(false); }
-  }, [selectedHouse?.id]);
+  }, []);
 
   const fetchHouseDetail = async (houseId: number) => {
     setDetailLoading(true);
