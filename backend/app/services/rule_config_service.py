@@ -310,6 +310,11 @@ async def get_effective_rule_conditions(
         "excluded_product_codes": union_codes,
         "excluded_retailer_types": [],
         "included_employee_ids": [],
+        # True when at least one active rule exists for this
+        # (house, context, section, column) scope. Callers use it to decide
+        # whether any filtering should run at all — with no rule configured the
+        # report shows raw data.
+        "has_rule": bool(matched),
     }
 
     if not target_role:

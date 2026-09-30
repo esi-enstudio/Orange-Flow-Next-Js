@@ -73,6 +73,7 @@ interface GaLiveData {
     own_activation: number;
     market_activation: number;
     target: number;
+    achievement: number;
     remaining: number;
     contribution: number;
     yesterday_own: number;
@@ -88,6 +89,7 @@ interface GaLiveData {
     pool_number: string;
     own_activation: number;
     target: number;
+    achievement: number;
     remaining: number;
     contribution: number;
     rank: number;
@@ -499,7 +501,7 @@ function ChartTooltip({ active, payload, label }: any) {
 
 /* ─────────── Main Page ─────────── */
 export default function GaLiveReportPage() {
-  const { user, hasPermission, loading: authLoading } = useAuth();
+  const { user, selectedHouse, hasPermission, loading: authLoading } = useAuth();
 
   const [data, setData] = useState<GaLiveData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -507,7 +509,11 @@ export default function GaLiveReportPage() {
   const [expandedSup, setExpandedSup] = useState<number | null>(null);
   const [rsoView, setRsoView] = useState<"grid" | "table">("grid");
   const [bpView, setBpView] = useState<"grid" | "table">("grid");
-  const [selectedHouseId, setSelectedHouseId] = useState<number | null>(null);
+  // Seed from the app-wide active house (AuthContext) so this page agrees with
+  // every other page (rule-config, activations, ga-query) about which house is
+  // active. Without this the report starts on a different house than the one a
+  // rule was configured against, and the rule silently appears to be ignored.
+  const [selectedHouseId, setSelectedHouseId] = useState<number | null>(selectedHouse?.id ?? null);
   const [allHouses, setAllHouses] = useState<Array<{ id: number; name: string; code: string }> | null>(null);
   const [targetData, setTargetData] = useState<{
     total_target: number;
@@ -553,6 +559,14 @@ export default function GaLiveReportPage() {
       apiClient.get("/houses/accessible").then(res => setAllHouses(res.data)).catch(() => {});
     }
   }, [assignedHouses, allHouses]);
+
+  // Keep the page on the app-wide active house whenever it changes (login
+  // resolves it asynchronously, and other pages may switch it).
+  useEffect(() => {
+    if (selectedHouse?.id) {
+      setSelectedHouseId((prev) => (prev === selectedHouse.id ? prev : selectedHouse.id));
+    }
+  }, [selectedHouse?.id]);
 
   const effectiveHouseId = useMemo(
     () => selectedHouseId ?? (houses.length === 1 ? houses[0].id : null),
@@ -750,7 +764,20 @@ export default function GaLiveReportPage() {
   if (!data) return <EmptyState onRefresh={fetchData} />;
 
   const { summary, distribution, supervisors, rsos, bps, top_performers, insights, trend } = data;
-  const totalActivation = summary.total_activations;
+
+  /**
+   * Contribution denominator shared by the RSO and BP tables.
+   *
+   * RSO and BP rows are two views of one house activation total, so the two
+   * tables' contribution columns must add up to 100% together -- not 100% each
+   * independently. `summary.total_activations` is not a valid denominator: it
+   * is built from the separate `total_activation` rule, which disagrees with
+   * the `own + market` rule behind the RSO table (house 2 showed 190.91%).
+   * Use the row values actually rendered instead.
+   */
+  const rsoTotalGA = rsos.reduce((s, r) => s + (r.total_activation || 0), 0);
+  const bpTotalOwn = bps.reduce((s, b) => s + (b.own_activation || 0), 0);
+  const rsoBpGrandTotal = rsoTotalGA + bpTotalOwn;
 
   const now = new Date();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -859,7 +886,7 @@ export default function GaLiveReportPage() {
                     {(performer[activationKey] as number).toLocaleString()} activations
                   </p>
                   <span className="inline-block mt-2 text-xs font-medium px-2 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400">
-                    {(performer.contribution as number).toFixed(1)}% contribution
+                    {(performer.contribution as number).toFixed(2)}% contribution
                   </span>
                 </div>
               ))}
@@ -887,7 +914,7 @@ export default function GaLiveReportPage() {
               icon={UserCheck}
               label="Employee Activation"
               value={summary.employee_activation}
-              sub={`${summary.activated_employee_count} / ${summary.total_selected_employees} (${summary.total_selected_employees > 0 ? Math.round(summary.activated_employee_count / summary.total_selected_employees * 100) : 0}%) employees activated`}
+              sub={`${summary.activated_employee_count} / ${summary.total_selected_employees} (${summary.total_selected_employees > 0 ? (summary.activated_employee_count / summary.total_selected_employees * 100).toFixed(2) : '0.00'}%) employees activated`}
               color="#10b981"
             />
           </div>
@@ -1197,25 +1224,41 @@ export default function GaLiveReportPage() {
                           {rso.target.toLocaleString()}
                         </td>
                         <td className="px-2 py-1 text-center font-bold text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                          {rso.total_activation.toLocaleString()}
+                          {rso.achievement.toLocaleString()}
                         </td>
                         <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                           {(() => {
-                            const pct = rso.target > 0 ? Math.round((rso.total_activation / rso.target) * 100) : 0;
+                            const pct = rso.target > 0 ? (rso.achievement / rso.target) * 100 : 0;
                             return (
                               <span
                                 className="font-bold"
                                 style={{ color: pct >= 100 ? "#10b981" : pct >= 70 ? "#3b82f6" : pct >= 40 ? "#f59e0b" : "#ef4444" }}
                               >
-                                {pct}%
+{pct.toFixed(2)}%
                               </span>
                             );
                           })()}
                         </td>
-                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        <td
+                          className={cn(
+                            "px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600",
+                            rso.remaining < 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-gray-900 dark:text-gray-100"
+                          )}
+                          title={rso.remaining < 0 ? `${Math.abs(rso.remaining).toLocaleString()} ahead of target` : undefined}
+                        >
                           {rso.remaining.toLocaleString()}
                         </td>
-                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        <td
+                          className={cn(
+                            "px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600",
+                            rso.remaining < 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-gray-900 dark:text-gray-100"
+                          )}
+                          title={rso.remaining < 0 ? `${Math.abs(rso.remaining).toLocaleString()} ahead of target` : undefined}
+                        >
                           {Math.ceil(rso.remaining / Math.max(daysRemaining, 1)).toLocaleString()}
                         </td>
                         <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">{rso.own_activation.toLocaleString()}</td>
@@ -1250,19 +1293,19 @@ export default function GaLiveReportPage() {
                         {rsos.reduce((s, r) => s + r.target, 0).toLocaleString()}
                       </td>
                       <td className="px-2 py-1 text-center font-bold text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                        {rsos.reduce((s, r) => s + r.total_activation, 0).toLocaleString()}
+                        {rsos.reduce((s, r) => s + r.achievement, 0).toLocaleString()}
                       </td>
                       <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
                         {(() => {
                           const sumTarget = rsos.reduce((s, r) => s + r.target, 0);
-                          const sumTotal = rsos.reduce((s, r) => s + r.total_activation, 0);
-                          const pct = sumTarget > 0 ? Math.round((sumTotal / sumTarget) * 100) : 0;
+                          const sumTotal = rsos.reduce((s, r) => s + r.achievement, 0);
+                          const pct = sumTarget > 0 ? (sumTotal / sumTarget) * 100 : 0;
                           return (
                             <span
                               className="font-bold"
                               style={{ color: pct >= 100 ? "#10b981" : pct >= 70 ? "#3b82f6" : pct >= 40 ? "#f59e0b" : "#ef4444" }}
                             >
-                              {pct}%
+                              {pct.toFixed(2)}%
                             </span>
                           );
                         })()}
@@ -1270,8 +1313,13 @@ export default function GaLiveReportPage() {
                       <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
                         {rsos.reduce((s, r) => s + r.remaining, 0).toLocaleString()}
                       </td>
-                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                        {rsos.reduce((s, r) => s + Math.ceil(r.remaining / Math.max(daysRemaining, 1)), 0).toLocaleString()}
+                      <td
+                        className={cn(
+                          "px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600",
+                          rsos.reduce((s, r) => s + r.remaining, 0) < 0 && "text-emerald-600 dark:text-emerald-400"
+                        )}
+                      >
+                        {Math.max(0, Math.ceil(rsos.reduce((s, r) => s + r.remaining, 0) / Math.max(daysRemaining, 1))).toLocaleString()}
                       </td>
                       <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 text-gray-900 dark:text-gray-100">
                         {rsos.reduce((s, r) => s + r.own_activation, 0).toLocaleString()}
@@ -1284,9 +1332,9 @@ export default function GaLiveReportPage() {
                       </td>
                       <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                         <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
-                          {totalActivation > 0
-                            ? (rsos.reduce((s, r) => s + r.total_activation, 0) / totalActivation * 100).toFixed(1)
-                            : 0}%
+                          {rsoBpGrandTotal > 0
+                            ? (rsoTotalGA / rsoBpGrandTotal * 100).toFixed(2)
+                            : '0.00'}%
                         </span>
                       </td>
                       <td className="px-2 py-1 text-center text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 whitespace-nowrap">
@@ -1332,7 +1380,8 @@ export default function GaLiveReportPage() {
           {bpView === "grid" ? (
             <div className="space-y-2">
               {bps.map((bp, idx) => {
-                const bpTodayTarget = bp.remaining > 0 ? Math.ceil(bp.remaining / Math.max(daysRemaining, 1)) : 0;
+                const bpDRR = Math.ceil(bp.remaining / Math.max(daysRemaining, 1));
+                const bpPct = bp.target > 0 ? (bp.achievement / bp.target) * 100 : 0;
                 return (
                 <div
                   key={bp.id}
@@ -1375,8 +1424,15 @@ export default function GaLiveReportPage() {
                       <p className="text-xs text-gray-400">own activation</p>
                     </div>
                     <div className="min-w-[70px] text-left sm:text-right shrink-0">
-                      <p className="font-bold text-gray-900 dark:text-gray-100 leading-tight">{bpTodayTarget.toLocaleString()}</p>
-                      <p className="text-xs text-gray-400">today target</p>
+                      <p
+                        className={cn(
+                          "font-bold leading-tight",
+                          bp.remaining < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-gray-900 dark:text-gray-100"
+                        )}
+                      >
+                        {bp.remaining.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-gray-400">remain · DRR {bpDRR.toLocaleString()} · {bpPct.toFixed(2)}%</p>
                     </div>
                     <div className="flex-1 sm:w-24 sm:flex-none sm:shrink-0">
                       <div className="flex items-center justify-between text-xs mb-1">
@@ -1407,11 +1463,12 @@ export default function GaLiveReportPage() {
                   <thead>
                     <tr>
                       <th className="text-left px-5 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">Name</th>
-                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Today Target</th>
-                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Own Activation</th>
-                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Total</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Target</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Ach</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">%</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Remain</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">DRR</th>
+                      <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Own</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Contribution</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Yesterday</th>
                       <th className="text-center px-2 py-3 font-semibold text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600">Action</th>
@@ -1419,7 +1476,6 @@ export default function GaLiveReportPage() {
                   </thead>
                   <tbody>
                     {bps.map((bp) => {
-                      const bpTodayTarget = bp.remaining > 0 ? Math.ceil(bp.remaining / Math.max(daysRemaining, 1)) : 0;
                       return (
                       <tr key={bp.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
                         <td className="px-2 py-1 border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800">
@@ -1427,16 +1483,44 @@ export default function GaLiveReportPage() {
                           <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">{bp.dms_code ? `${bp.dms_code}${bp.assisted_code ? ` • ${bp.assisted_code}` : ''}${bp.pool_number ? ` • ${bp.pool_number}` : ''}` : `#${bp.id}`}</p>
                         </td>
                         <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                          {bpTodayTarget.toLocaleString()}
+                          {bp.target.toLocaleString()}
                         </td>
-                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">{bp.own_activation.toLocaleString()}</td>
+                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">{bp.achievement.toLocaleString()}</td>
+                        <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
+                          {(() => {
+                            const pct = bp.target > 0 ? (bp.achievement / bp.target) * 100 : 0;
+                            return (
+                              <span
+                                className="font-bold"
+                                style={{ color: pct >= 100 ? "#10b981" : pct >= 70 ? "#3b82f6" : pct >= 40 ? "#f59e0b" : "#ef4444" }}
+                              >
+                                {pct.toFixed(2)}%
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600",
+                            bp.remaining < 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-gray-900 dark:text-gray-100"
+                          )}
+                          title={bp.remaining < 0 ? `${Math.abs(bp.remaining).toLocaleString()} ahead of target` : undefined}
+                        >
+                          {bp.remaining.toLocaleString()}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600",
+                            bp.remaining < 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-gray-900 dark:text-gray-100"
+                          )}
+                        >
+                          {Math.ceil(bp.remaining / Math.max(daysRemaining, 1)).toLocaleString()}
+                        </td>
                         <td className="px-2 py-1 text-center font-bold text-primary-600 dark:text-primary-400 border border-gray-200 dark:border-slate-600">{bp.own_activation.toLocaleString()}</td>
-                        <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
-                          {bpTodayTarget > 0 ? Math.round((bp.own_activation / bpTodayTarget) * 100) + '%' : '0%'}
-                        </td>
-                        <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                          {Math.max(0, bpTodayTarget - bp.own_activation).toLocaleString()}
-                        </td>
                         <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                           <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
                             {bp.contribution}%
@@ -1461,33 +1545,50 @@ export default function GaLiveReportPage() {
                         Total ({bps.length} BPs)
                       </td>
                       <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                        {bps.reduce((s, b) => s + (b.remaining > 0 ? Math.ceil(b.remaining / Math.max(daysRemaining, 1)) : 0), 0).toLocaleString()}
+                        {bps.reduce((s, b) => s + b.target, 0).toLocaleString()}
                       </td>
-                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 text-gray-900 dark:text-gray-100">
-                        {bps.reduce((s, b) => s + b.own_activation, 0).toLocaleString()}
-                      </td>
-                      <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600 font-bold text-primary-600 dark:text-primary-400">
-                        {bps.reduce((s, b) => s + b.own_activation, 0).toLocaleString()}
+                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
+                        {bps.reduce((s, b) => s + b.achievement, 0).toLocaleString()}
                       </td>
                       <td className="px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600">
                         {(() => {
-                          const sumToday = bps.reduce((s, b) => s + (b.remaining > 0 ? Math.ceil(b.remaining / Math.max(daysRemaining, 1)) : 0), 0);
-                          const sumTotal = bps.reduce((s, b) => s + b.own_activation, 0);
-                          return sumToday > 0 ? Math.round((sumTotal / sumToday) * 100) + '%' : '0%';
+                          const sumTarget = bps.reduce((s, b) => s + b.target, 0);
+                          const sumAch = bps.reduce((s, b) => s + b.achievement, 0);
+                          const pct = sumTarget > 0 ? (sumAch / sumTarget) * 100 : 0;
+                          return (
+                            <span
+                              className="font-bold"
+                              style={{ color: pct >= 100 ? "#10b981" : pct >= 70 ? "#3b82f6" : pct >= 40 ? "#f59e0b" : "#ef4444" }}
+                            >
+                              {pct.toFixed(2)}%
+                            </span>
+                          );
                         })()}
                       </td>
-                      <td className="px-2 py-1 text-center font-medium text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-slate-600">
-                        {(() => {
-                          const sumToday = bps.reduce((s, b) => s + (b.remaining > 0 ? Math.ceil(b.remaining / Math.max(daysRemaining, 1)) : 0), 0);
-                          const sumTotal = bps.reduce((s, b) => s + b.own_activation, 0);
-                          return Math.max(0, sumToday - sumTotal).toLocaleString();
-                        })()}
+                      <td
+                        className={cn(
+                          "px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600",
+                          bps.reduce((s, b) => s + b.remaining, 0) < 0 && "text-emerald-600 dark:text-emerald-400"
+                        )}
+                      >
+                        {bps.reduce((s, b) => s + b.remaining, 0).toLocaleString()}
+                      </td>
+                      <td
+                        className={cn(
+                          "px-2 py-1 text-center font-medium border border-gray-200 dark:border-slate-600",
+                          bps.reduce((s, b) => s + b.remaining, 0) < 0 && "text-emerald-600 dark:text-emerald-400"
+                        )}
+                      >
+                        {Math.max(0, Math.ceil(bps.reduce((s, b) => s + b.remaining, 0) / Math.max(daysRemaining, 1))).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-center font-bold text-primary-600 dark:text-primary-400 border border-gray-200 dark:border-slate-600">
+                        {bps.reduce((s, b) => s + b.own_activation, 0).toLocaleString()}
                       </td>
                       <td className="px-2 py-1 text-center border border-gray-200 dark:border-slate-600">
                         <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400">
-                          {totalActivation > 0
-                            ? (bps.reduce((s, b) => s + b.own_activation, 0) / totalActivation * 100).toFixed(1)
-                            : 0}%
+                          {rsoBpGrandTotal > 0
+                            ? (bpTotalOwn / rsoBpGrandTotal * 100).toFixed(2)
+                            : '0.00'}%
                         </span>
                       </td>
                       <td className="px-2 py-1 text-center text-[11px] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-600 whitespace-nowrap">

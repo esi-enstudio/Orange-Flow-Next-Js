@@ -789,7 +789,7 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
         remaining = r.get("remaining", 0) or 0
         ach = _ach(r)
         pct_val = _pct(ach, monthly_target) if monthly_target else "0%"
-        remain = max(0, remaining)
+        remain = remaining
         drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
         own = r.get("own_activation", 0) or 0
         mkt = r.get("market_activation", 0) or 0

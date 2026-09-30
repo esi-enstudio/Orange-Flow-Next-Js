@@ -39,7 +39,16 @@ SECTION_EMPLOYEE_ROLES = {
 # other columns keep running the section-level (global column) rule. Mirrors
 # ``RULE_COLUMN_SCOPES`` in backend/app/routers/rule_config.py.
 SECTION_RULE_COLUMNS = {
-    "rsos": ["ach", "market_ga"],
+    "rsos": ["ach", "market_ga", "own_ga"],
+}
+
+# RSO table columns whose numbers are counted from a retailer set that is always
+# the section employees' own retailers (each column is filtered down to one RSO's
+# shops). For these the role-ownership exemption in ``_build_base_query`` would
+# subtract exactly the candidate retailers and make the rule's retailer-type
+# exclusion a guaranteed no-op, so it is disabled for them.
+SECTION_COLUMN_NO_OWNED_EXEMPT = {
+    "rsos": {"market_ga", "own_ga"},
 }
 
 # GA Live sections → rule engine target_role (context_key="ga_live").
@@ -175,7 +184,12 @@ class GaLiveQueryBuilder:
 
         exclude_product_codes, exclude_retailer_tags = await self._get_exclusions(section_key, column_key)
 
-        owned_ids = await self._owned_retailer_ids(section_key)
+        # A column that only ever counts the section's own employees' retailers
+        # must not have those retailers exempted, otherwise the rule's
+        # retailer-type exclusion removes nothing (see
+        # SECTION_COLUMN_NO_OWNED_EXEMPT).
+        exempt_owned = column_key not in SECTION_COLUMN_NO_OWNED_EXEMPT.get(section_key, set())
+        owned_ids = await self._owned_retailer_ids(section_key) if exempt_owned else set()
 
         all_excluded = await self._effective_excluded_codes(section_key, column_key)
 
@@ -313,12 +327,13 @@ class GaLiveQueryBuilder:
         self, section_key: str
     ) -> tuple[list, list, list, dict | None, dict | None, dict | None, dict]:
         base_act = await self._build_base_query(section_key)
-        base_act_rso = await self._build_base_query("rsos")
-        # Column-scoped rule sets for the RSO table: Ach (total GA) and Market GA
-        # each run their own rule when one is configured. Without a column-scoped
-        # rule both resolve to the section rule set, so the numbers are unchanged.
-        base_act_rso_ach = await self._build_base_query("rsos", "ach")
+        # Column-scoped rule sets for the RSO table: Market GA and Own GA each
+        # run their own rule when one is configured. Total GA is not counted
+        # separately — it is the sum of those two columns, so a row always
+        # reconciles. Without a column-scoped rule each falls back to the
+        # section rule set, so the numbers are unchanged.
         base_act_rso_market = await self._build_base_query("rsos", "market_ga")
+        base_act_rso_own = await self._build_base_query("rsos", "own_ga")
         base_act_bps = await self._build_base_query("bps")
 
         ret_rows = await self.db.execute(
@@ -655,9 +670,20 @@ class GaLiveQueryBuilder:
             if ret_ids:
                 rso_emp_retailer_map[rso_emp_id] = ret_ids
                 all_rso_retailer_ids.update(ret_ids)
+        # The RSO table's Ach column is the raw month-to-date achievement counted
+        # from the `activations` table (committed activations; today's live feed
+        # lives in `live_activations`). Its rule scope is the RSO section's "ach"
+        # column, so a column-scoped rule only changes this column.
+        ach_rule_set = bool(self._conditions_for("rsos", "ach").get("has_rule"))
+        ach_selected_emp_ids = set(await self._selected_employee_db_ids("rsos", "ach"))
         if all_rso_retailer_ids and yesterday_for_mtd >= month_start:
-            # Apply section exclusions (product codes + retailer tags)
-            mtd_exclude_product_codes, mtd_exclude_retailer_tags = await self._get_exclusions("rsos")
+            # Apply the Ach column's own rules (product codes union + retailer
+            # markings). Unlike the live section query there is deliberately NO
+            # role-ownership exemption here: the Ach column counts only each
+            # RSO's own retailers, so exempting exactly those retailers would
+            # make every retailer-type exclusion a guaranteed no-op and the
+            # admin's marking filter would be silently ignored.
+            mtd_exclude_product_codes, mtd_exclude_retailer_tags = await self._get_exclusions("rsos", "ach")
             mtd_excluded_retailer_ids: set[int] = set()
             for tag in mtd_exclude_retailer_tags:
                 mtd_excluded_retailer_ids.update(await self._load_excluded_retailers_by_tag(tag))
@@ -676,7 +702,10 @@ class GaLiveQueryBuilder:
                         Activation.product_code.notin_(mtd_exclude_product_codes),
                     )
                 )
-            if all_bp_codes_for_house:
+            # BP-code exclusion only when the Ach column has a rule configured;
+            # with no rule the column is raw activation data for the RSO's
+            # retailers.
+            if all_bp_codes_for_house and ach_rule_set:
                 mtd_q = mtd_q.where(Activation.retailer_code.notin_(all_bp_codes_for_house))
             mtd_q = mtd_q.group_by(Activation.retailer_id)
             mtd_rows = await self.db.execute(mtd_q)
@@ -693,16 +722,12 @@ class GaLiveQueryBuilder:
                     rso_ret_ids.add(rid)
             rso_code = emp_id_to_code.get(rso_emp_id)
             rso_own = 0
-            rso_total = 0
             rso_market = 0
             if rso_ret_ids:
-                total_q = base_act_rso_ach.where(LiveActivation.retailer_id.in_(rso_ret_ids))
-                if all_bp_codes_for_house:
-                    total_q = total_q.where(LiveActivation.retailer_code.notin_(all_bp_codes_for_house))
-                res = await self.db.execute(select(func.count()).select_from(total_q.subquery()))
-                rso_total = res.scalar() or 0
                 if rso_code:
-                    own_q = base_act_rso.where(
+                    # Own GA is counted under the "own_ga" column rule so it can
+                    # be filtered independently of Market GA.
+                    own_q = base_act_rso_own.where(
                         and_(
                             LiveActivation.retailer_code == rso_code,
                             LiveActivation.retailer_id.in_(rso_ret_ids),
@@ -729,7 +754,9 @@ class GaLiveQueryBuilder:
                 rso_name = user_name_map.get(rso_uid) if rso_uid else None
             rso_name = rso_name or rso_info[1] or rso_info[4] or emp_id_to_biz_id.get(rso_emp_id) or f"RSO #{rso_emp_id}"
             rso_target_val = rso_target_map.get(rso_emp_id, 0)
-            mtd_achievement = sum(mtd_retailer_counts.get(rid, 0) for rid in rso_emp_retailer_map.get(rso_emp_id, set()))
+            mtd_achievement = 0
+            if not ach_selected_emp_ids or rso_emp_id in ach_selected_emp_ids:
+                mtd_achievement = sum(mtd_retailer_counts.get(rid, 0) for rid in rso_emp_retailer_map.get(rso_emp_id, set()))
             rso_data.append({
                 "id": rso_uid if rso_uid else rso_emp_id,
                 "employee_id": rso_emp_id,
@@ -737,52 +764,67 @@ class GaLiveQueryBuilder:
                 "dms_code": rso_info[1] if rso_info else "",
                 "itop_number": rso_info[2] if rso_info else "",
                 "assisted_code": rso_info[4] if rso_info else "",
-                "total_activation": rso_total,
+                "total_activation": rso_own + rso_market,
                 "own_activation": rso_own if rso_code else 0,
                 "market_activation": rso_market,
                 "target": rso_target_val,
                 "achievement": mtd_achievement,
-                "remaining": max(0, rso_target_val - mtd_achievement),
+                # Signed on purpose: clamping at 0 per row would make an
+                # over-achieved RSO contribute nothing to the column total, so
+                # sum(Remain) would not equal sum(Target) - sum(Ach). Downstream
+                # consumers (DRR, WhatsApp report) clamp this at 0 themselves.
+                "remaining": rso_target_val - mtd_achievement,
                 "contribution": 0,
             })
-# ── Yesterday RSO breakdown (with same exclusions as base_act_rso) ──
+# ── Yesterday RSO breakdown ──
+        # Both halves of the Yesterday GA cell follow the same column rules as
+        # the live columns of this table: the own-code count runs under the
+        # "own_ga" column rule and the market count under the "market_ga" column
+        # rule. With no column-scoped rule configured each falls back to the
+        # section rule set, so the numbers are unchanged.
         yesterday = self.start_date - timedelta(days=1)
-        yest_retailer_counts: dict[int, int] = {}
-        yest_code_counts: dict[str, int] = {}
-        if yesterday >= date(2020, 1, 1):
-            yest_exclude_product_codes, yest_exclude_retailer_tags = await self._get_exclusions("rsos")
-            rso_owned_ids = await self._owned_retailer_ids("rsos")
-            yest_excluded_retailer_ids: set[int] = set()
-            for tag in yest_exclude_retailer_tags:
-                excluded = await self._load_excluded_retailers_by_tag(tag)
-                if rso_owned_ids:
-                    excluded = excluded - rso_owned_ids
-                yest_excluded_retailer_ids.update(excluded)
 
-            yest_q = select(Activation.retailer_id, Activation.retailer_code).where(
+        async def _yesterday_counts(column_key: str) -> tuple[dict[int, int], dict[tuple[int, str], int]]:
+            """Yesterday activation counts per retailer and per (retailer, code)
+            pair, filtered by the given RSO column's rule set."""
+            retailer_counts: dict[int, int] = {}
+            pair_counts: dict[tuple[int, str], int] = {}
+            if yesterday < date(2020, 1, 1):
+                return retailer_counts, pair_counts
+            exclude_product_codes, exclude_retailer_tags = await self._get_exclusions("rsos", column_key)
+            # No role-ownership exemption: this column is only ever summed over
+            # the section employees' own retailers, so exempting exactly those
+            # would make the rule's retailer-type exclusion a no-op.
+            excluded_retailer_ids: set[int] = set()
+            for tag in exclude_retailer_tags:
+                excluded_retailer_ids.update(await self._load_excluded_retailers_by_tag(tag))
+
+            q = select(Activation.retailer_id, Activation.retailer_code).where(
                 Activation.house_id == self.house_id,
                 Activation.activation_date == yesterday,
             )
-            if yest_excluded_retailer_ids:
-                yest_q = yest_q.where(
-                    Activation.retailer_id.notin_(yest_excluded_retailer_ids)
-                )
-            if yest_exclude_product_codes:
-                yest_q = yest_q.where(
+            if excluded_retailer_ids:
+                q = q.where(Activation.retailer_id.notin_(excluded_retailer_ids))
+            if exclude_product_codes:
+                q = q.where(
                     and_(
                         Activation.product_code != None,
-                        Activation.product_code.notin_(yest_exclude_product_codes),
+                        Activation.product_code.notin_(exclude_product_codes),
                     )
                 )
             if all_bp_codes_for_house:
-                yest_q = yest_q.where(Activation.retailer_code.notin_(all_bp_codes_for_house))
+                q = q.where(Activation.retailer_code.notin_(all_bp_codes_for_house))
 
-            yest_rows = await self.db.execute(yest_q)
-            for rid, rcode in yest_rows.all():
+            for rid, rcode in (await self.db.execute(q)).all():
                 if rid:
-                    yest_retailer_counts[rid] = yest_retailer_counts.get(rid, 0) + 1
-                if rcode:
-                    yest_code_counts[rcode] = yest_code_counts.get(rcode, 0) + 1
+                    retailer_counts[rid] = retailer_counts.get(rid, 0) + 1
+                    if rcode:
+                        pair = (rid, rcode)
+                        pair_counts[pair] = pair_counts.get(pair, 0) + 1
+            return retailer_counts, pair_counts
+
+        _, yest_own_pairs = await _yesterday_counts("own_ga")
+        yest_market_retailers, yest_market_pairs = await _yesterday_counts("market_ga")
 
         for r in rso_data:
             emp_id = r["employee_id"]
@@ -791,13 +833,25 @@ class GaLiveQueryBuilder:
                 for rid, eid in retailer_employee_map.items():
                     if eid == emp_id:
                         ret_ids.add(rid)
-            y_total = sum(yest_retailer_counts.get(rid, 0) for rid in ret_ids)
             r_code = r.get("assisted_code")
-            y_own = yest_code_counts.get(r_code, 0) if r_code else 0
-            y_market = y_total - y_own
-            r["yesterday_own"] = y_own if r_code else 0
+            # Own GA follows the "own_ga" column rule; Market GA follows the
+            # "market_ga" column rule, minus that rule's own-code activations,
+            # mirroring how the live Market GA column is derived. Both own-code
+            # counts are restricted to this RSO's own retailer set, exactly as
+            # the live Own GA column is, so the two agree row for row.
+            y_own = (
+                sum(yest_own_pairs.get((rid, r_code), 0) for rid in ret_ids)
+                if r_code else 0
+            )
+            y_market_total = sum(yest_market_retailers.get(rid, 0) for rid in ret_ids)
+            y_market_own = (
+                sum(yest_market_pairs.get((rid, r_code), 0) for rid in ret_ids)
+                if r_code else 0
+            )
+            y_market = max(0, y_market_total - y_market_own)
+            r["yesterday_own"] = y_own
             r["yesterday_market"] = y_market
-            r["yesterday_total"] = y_total
+            r["yesterday_total"] = y_own + y_market
         rso_data.sort(key=lambda x: x["total_activation"], reverse=True)
 
         # ── Load month-to-date activation counts for BP remaining ──
@@ -855,7 +909,9 @@ class GaLiveQueryBuilder:
                 "own_activation": bp_total,
                 "target": bp_target_val,
                 "achievement": bp_mtd_achievement,
-                "remaining": max(0, bp_target_val - bp_mtd_achievement),
+                # Signed for the same reason as the RSO rows: clamping here made an
+                # over-achieved BP contribute nothing to the column total.
+                "remaining": bp_target_val - bp_mtd_achievement,
                 "contribution": 0,
                 "rank": 0,
             })
@@ -1027,12 +1083,25 @@ class GaLiveQueryBuilder:
 
         trend = await self.get_trend("trend")
 
+        # RSO and BP rows are two views of the same house activation total, so
+        # their contribution percentages must add up to 100% across BOTH tables.
+        # Dividing each table by its own column total (as an earlier revision
+        # did) made each table sum to 100% individually and broke the combined
+        # figure. `total` (house-wide) is also unusable as the denominator: it
+        # comes from the separate `total_activation` rule, which does not agree
+        # with the `own + market` rule the RSO table is built from -- house 2
+        # reported 190.91% because the denominator was 11 while the RSO rows
+        # summed to 21. Use the actual rendered row values instead.
+        rso_bp_denom = sum(r["total_activation"] for r in rsos) + sum(
+            b["own_activation"] for b in bps
+        )
+
         for s in supervisors:
-            s["contribution"] = round((s["total_activation"] / total * 100), 1) if total else 0
+            s["contribution"] = round((s["total_activation"] / rso_bp_denom * 100), 2) if rso_bp_denom else 0
         for r in rsos:
-            r["contribution"] = round((r["total_activation"] / total * 100), 1) if total else 0
+            r["contribution"] = round((r["total_activation"] / rso_bp_denom * 100), 2) if rso_bp_denom else 0
         for b in bps:
-            b["contribution"] = round((b["own_activation"] / total * 100), 1) if total else 0
+            b["contribution"] = round((b["own_activation"] / rso_bp_denom * 100), 2) if rso_bp_denom else 0
 
         insights = []
         if top_sup and top_sup["contribution"] >= 10:

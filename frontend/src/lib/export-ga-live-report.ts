@@ -303,7 +303,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
 
     const RSO_DATA_START = r;
     sortedRsos.forEach((rsoItem, i) => {
-      const drr = rsoItem.remaining > 0 ? Math.ceil(rsoItem.remaining / Math.max(daysRemaining, 1)) : 0;
+      const drr = Math.ceil(rsoItem.remaining / Math.max(daysRemaining, 1));
       dataRow(ws, r, [
         i + 1,
         rsoItem.name,

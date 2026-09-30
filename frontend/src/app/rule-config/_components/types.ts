@@ -65,6 +65,7 @@ export type RuleColumn = (typeof RULE_COLUMNS)[number];
 export const GA_LIVE_RSO_COLUMNS = [
   { id: "ach", labelKey: "columns.ach" },
   { id: "market_ga", labelKey: "columns.market_ga" },
+  { id: "own_ga", labelKey: "columns.own_ga" },
 ] as const;
 
 /** Split a stored `column_key` ("ach,market_ga" | "all") into its column keys. */
