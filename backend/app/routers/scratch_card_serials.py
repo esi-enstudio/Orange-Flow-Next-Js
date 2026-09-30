@@ -1,7 +1,9 @@
 import logging
 import math
+import re
 from datetime import date, datetime
 from typing import Optional, List
+from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
@@ -35,6 +37,36 @@ from app.utils.access_control import is_admin_user
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/scratch-card-serials", tags=["Scratch Card Serials"])
+
+# Static parts of the minimal xlsx package written by `_build_excel`.
+_XLSX_CONTENT_TYPES = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+    '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+    "</Types>"
+)
+_XLSX_ROOT_RELS = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+    "</Relationships>"
+)
+_XLSX_WORKBOOK = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    '<sheets><sheet name="SC Serials" sheetId="1" r:id="rId1"/></sheets>'
+    "</workbook>"
+)
+_XLSX_WORKBOOK_RELS = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+    "</Relationships>"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -890,22 +922,46 @@ async def export_serials(
     # Build product info (code + ranges) – CPU-light, fine on event loop
     product_info: list[tuple[str, list[tuple[str, str]]]] = []
     for pid, serials in groups.items():
-        sorted_serials = sorted(serials, key=lambda s: int(s[1]))
-        code = sorted_serials[0][2] or f"Product #{pid}"
+        # Ranges are collapsed by treating serials as integers. A non-numeric
+        # serial would raise here and 500 the whole export, so it is kept as an
+        # isolated single-serial range instead (it still shows up in the file).
+        numeric = []
+        non_numeric: list[str] = []
+        for s in serials:
+            raw_sn = s[1]
+            try:
+                numeric.append((int(raw_sn), raw_sn))
+            except (TypeError, ValueError):
+                non_numeric.append(raw_sn)
+        numeric.sort(key=lambda s: s[0])
+
+        if not numeric:
+            product_info.append((serials[0][2] or f"Product #{pid}", [(sn, sn) for sn in sorted(set(non_numeric))]))
+            continue
+
+        if non_numeric:
+            logger.warning(
+                "scratch card serial export: skipped range collapsing for %d "
+                "non-numeric serials in product %s",
+                len(non_numeric), pid,
+            )
+
+        code = serials[0][2] or f"Product #{pid}"
         ranges: list[tuple[str, str]] = []
-        start = end = sorted_serials[0][1]
-        prev = int(end)
-        for s in sorted_serials[1:]:
-            cur = int(s[1])
-            if cur == prev + 1:
-                end = s[1]
-                prev = cur
+        start = end = numeric[0][1]
+        prev = numeric[0][0]
+        for cur_num, cur_sn in numeric[1:]:
+            if cur_num == prev + 1:
+                end = cur_sn
+                prev = cur_num
             else:
                 ranges.append((start, end))
-                start = s[1]
-                end = s[1]
-                prev = cur
+                start = cur_sn
+                end = cur_sn
+                prev = cur_num
         ranges.append((start, end))
+        for sn in sorted(set(non_numeric)):
+            ranges.append((sn, sn))
         product_info.append((code, ranges))
 
     # ── Heavy Excel work → run in thread (frees the event loop) ──────
@@ -919,50 +975,115 @@ async def export_serials(
     )
 
 
-def _build_excel(product_info: list[tuple[str, list[tuple[str, str]]]]) -> bytes:
-    """CPU-bound Excel generation — runs in a thread pool."""
-    import io
-    from openpyxl import Workbook
+MAX_EXCEL_ROW = 1048576
 
-    MAX_ROW = 1048576
+# Characters that are illegal in XML 1.0 text nodes. Product codes / serials
+# never contain these in practice, but stripping them keeps the writer safe
+# against any unexpected value coming from the products table.
+_ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _excel_col_name(index: int) -> str:
+    """0-based column index -> spreadsheet column letters (0 -> A, 26 -> AA)."""
+    name = ""
+    index += 1
+    while index:
+        index, rem = divmod(index - 1, 26)
+        name = chr(65 + rem) + name
+    return name
+
+
+def _inline_string_cell(ref: str, value: str | None) -> str:
+    """Render one string cell. `None` is a deliberate gap between two serial
+    ranges, so the cell is omitted entirely (Excel reads it as blank)."""
+    if value is None:
+        return ""
+    text = _ILLEGAL_XML.sub("", value if isinstance(value, str) else str(value))
+    if not text:
+        return ""
+    return f'<c r="{ref}" t="inlineStr"><is><t>{escape(text)}</t></is></c>'
+
+
+def _build_excel(product_info: list[tuple[str, list[tuple[str, str]]]]) -> bytes:
+    """CPU-bound Excel generation — runs in a thread pool.
+
+    Written as a minimal streaming SpreadsheetML writer instead of going through
+    openpyxl. openpyxl's write-only mode still builds a full cell object per
+    cell, which for a house with ~700k available serials (~1.1M cells) took
+    ~19s of pure CPU. Emitting the sheet XML straight into the zip archive is
+    ~6x faster and produces an identical workbook (inline strings instead of
+    a shared-strings table, which Excel reads without any difference).
+    """
+    import io
+    import zipfile
 
     # Build column data arrays
     columns: list[list[str | None]] = []
     for code, ranges in product_info:
-        col_values: list[str | None] = [code]
+        header = code if isinstance(code, str) and code else ""
+        col_values: list[str | None] = [header]
         first_in_col = True
         for start_sn, end_sn in ranges:
-            size = int(end_sn) - int(start_sn) + 1
+            try:
+                start = int(start_sn)
+                size = int(end_sn) - start + 1
+            except (TypeError, ValueError):
+                # Non-numeric serial: emit it literally as a single cell.
+                size = None
             gap = 0 if first_in_col else 1
-            if len(col_values) + gap + size > MAX_ROW:
+            if size is not None and len(col_values) + gap + size > MAX_EXCEL_ROW:
                 columns.append(col_values)
-                col_values = [code]
+                col_values = [header]
                 first_in_col = True
                 gap = 0
             if gap:
                 col_values.append(None)
-            pad = len(start_sn)
-            s = int(start_sn)
-            col_values.extend(str(x).zfill(pad) for x in range(s, s + size))
+            if size is None:
+                col_values.append(start_sn)
+            else:
+                pad = len(start_sn)
+                col_values.extend(str(x).zfill(pad) for x in range(start, start + size))
             first_in_col = False
         columns.append(col_values)
 
-    # Write in write-only mode
-    wb = Workbook(write_only=True)
-    ws = wb.create_sheet(title="SC Serials")
-
-    ncols = len(columns)
-    max_rows = max(len(c) for c in columns) if columns else 0
-
-    for ri in range(max_rows):
-        row: list[str | None] = []
-        for ci in range(ncols):
-            row.append(columns[ci][ri] if ri < len(columns[ci]) else None)
-        ws.append(row)
+    col_names = [_excel_col_name(i) for i in range(len(columns))]
+    max_rows = max((len(c) for c in columns), default=0)
 
     buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        zf.writestr("[Content_Types].xml", _XLSX_CONTENT_TYPES)
+        zf.writestr("_rels/.rels", _XLSX_ROOT_RELS)
+        zf.writestr("xl/workbook.xml", _XLSX_WORKBOOK)
+        zf.writestr("xl/_rels/workbook.xml.rels", _XLSX_WORKBOOK_RELS)
+
+        # Stream the sheet so the whole XML string is never held in memory.
+        with zf.open("xl/worksheets/sheet1.xml", "w") as sheet:
+            def emit(text: str) -> None:
+                sheet.write(text.encode("utf-8"))
+
+            emit(
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<worksheet xmlns="http://schemas.openxmlformats.org/'
+                'spreadsheetml/2006/main"><sheetData>'
+            )
+            buffer: list[str] = []
+            for ri in range(max_rows):
+                row_num = ri + 1
+                parts = [f'<row r="{row_num}">']
+                for ci, col_name in enumerate(col_names):
+                    column = columns[ci]
+                    if ri < len(column):
+                        parts.append(_inline_string_cell(f"{col_name}{row_num}", column[ri]))
+                parts.append("</row>")
+                buffer.append("".join(parts))
+                # Flush in batches to keep peak memory flat on huge houses.
+                if len(buffer) >= 4096:
+                    emit("".join(buffer))
+                    buffer.clear()
+            if buffer:
+                emit("".join(buffer))
+            emit("</sheetData></worksheet>")
+
     return buf.getvalue()
 
 

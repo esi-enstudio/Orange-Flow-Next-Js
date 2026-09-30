@@ -99,6 +99,8 @@ export default function SCSerialsPage() {
   // export house select
   const [showExportHouse, setShowExportHouse] = useState(false);
   const [exportHouseId, setExportHouseId] = useState<number | "">("");
+  const [exporting, setExporting] = useState(false);
+  const [exportElapsed, setExportElapsed] = useState(0);
 
   // allocate
   const [showAllocate, setShowAllocate] = useState(false);
@@ -196,13 +198,21 @@ export default function SCSerialsPage() {
   // reset to page 1 when filters change
   useEffect(() => { setPage(1); }, [search, filterProductId, filterStatus]);
 
-  const handleExport = async (houseId: number) => {
+  const handleExport = async (houseId: number): Promise<boolean> => {
+    setExporting(true);
+    setExportElapsed(0);
+    const startedAt = Date.now();
+    // Drives the "working" copy + elapsed timer inside the modal.
+    const ticker = setInterval(() => setExportElapsed(Math.floor((Date.now() - startedAt) / 1000)), 500);
     try {
       const headers: Record<string, string> = { "X-House-ID": String(houseId) };
       const params: Record<string, string> = {};
       if (filterProductId) params.product_id = filterProductId;
       const res = await apiClient.get("/v1/scratch-card-serials/export/list", {
         params, headers, responseType: "blob",
+        // A house can hold ~700k serials and the workbook is built server-side,
+        // so this legitimately takes far longer than the shared 10s default.
+        timeout: 180000,
       });
       const house = houses.find(h => h.id === houseId);
       const houseCode = house?.code || houseId;
@@ -210,7 +220,35 @@ export default function SCSerialsPage() {
       const a = document.createElement("a"); a.href = url; a.download = `scratch_card_serials_${houseCode}.xlsx`; a.click();
       window.URL.revokeObjectURL(url);
       toast.success(t('scratch_card_serials.toast_export_success'));
-    } catch { toast.error(t('scratch_card_serials.toast_export_failed')); }
+      return true;
+    } catch (e: any) {
+      // A failed download is frequently an HTML error page, not a real blob —
+      // surface the server's real message instead of a bare "Export Failed".
+      let message = t('scratch_card_serials.toast_export_failed');
+      const data = e?.response?.data;
+      // Checked first: a timeout has no response body to read, and the shared
+      // interceptor has already replaced `e.message`.
+      if (e?.code === "ECONNABORTED" || e?.code === "ETIMEDOUT") {
+        message = t('scratch_card_serials.toast_export_timeout');
+      } else if (typeof Blob !== "undefined" && data instanceof Blob) {
+        try {
+          const text = await data.text();
+          try {
+            const parsed = JSON.parse(text);
+            message = parsed?.detail || parsed?.error?.message || message;
+          } catch { message = text.slice(0, 200) || message; }
+        } catch { /* keep the generic message */ }
+      } else if (typeof data === "string" && data) {
+        message = data.slice(0, 200);
+      } else if (data?.detail || data?.error?.message) {
+        message = data.detail || data.error.message;
+      }
+      toast.error(message);
+      return false;
+    } finally {
+      clearInterval(ticker);
+      setExporting(false);
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -1281,33 +1319,77 @@ export default function SCSerialsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-800 p-6 w-full max-w-sm">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.export_title')}</h3>
-              <button onClick={() => setShowExportHouse(false)} className="p-1 text-gray-400 hover:text-gray-600">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-slate-100">{t('scratch_card_serials.export_title')}</h3>
+              <button onClick={() => setShowExportHouse(false)} disabled={exporting}
+                className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('common.select_house')}</label>
-              <select value={exportHouseId} onChange={e => setExportHouseId(e.target.value ? Number(e.target.value) : "")}
-                className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
+              <select value={exportHouseId} onChange={e => setExportHouseId(e.target.value ? Number(e.target.value) : "")} disabled={exporting}
+                className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
                 <option value="">{t('common.select_house')}</option>
                 {houses.map(h => (
                   <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
                 ))}
               </select>
             </div>
+
+            {/* Progress — the modal deliberately stays open until the download finishes */}
+            {exporting && (
+              <div className="mb-4 rounded-xl border border-primary-100 dark:border-slate-800 bg-primary-50/60 dark:bg-slate-800/40 p-4 animate-in fade-in duration-200">
+                <div className="flex items-center gap-2.5 mb-3">
+                  <Loader2 className="w-4 h-4 text-primary-600 animate-spin shrink-0" />
+                  <span className="text-sm font-semibold text-gray-800 dark:text-slate-100">
+                    {t('scratch_card_serials.export_in_progress')}
+                  </span>
+                </div>
+                {/* Indeterminate wave — animate-pulse only, per the skeleton guidelines */}
+                <div className="flex h-2 w-full gap-1">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <span key={i}
+                      className="h-full flex-1 rounded-full bg-primary-600 animate-pulse"
+                      style={{ animationDelay: `${(i % 6) * 140}ms` }}
+                    />
+                  ))}
+                </div>
+                <ul className="mt-3 space-y-1.5">
+                  {[0, 1, 2].map(i => (
+                    <li key={i}
+                      className="h-2.5 rounded-md bg-gray-200 dark:bg-slate-700 animate-pulse"
+                      style={{ width: `${85 - i * 18}%`, animationDelay: `${i * 160}ms` }}
+                    />
+                  ))}
+                </ul>
+                <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
+                  <span>{t('scratch_card_serials.export_hint_keep_open')}</span>
+                  <span className="tabular-nums font-medium shrink-0 ml-2">
+                    {String(Math.floor(exportElapsed / 60)).padStart(2, "0")}:{String(exportElapsed % 60).padStart(2, "0")}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-2">
-              <button onClick={() => setShowExportHouse(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
+              <button onClick={() => setShowExportHouse(false)} disabled={exporting}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                 {t('common.cancel')}
               </button>
               <button onClick={async () => {
                 if (!exportHouseId) { toast.error(t('scratch_card_serials.toast_select_house')); return; }
-                setShowExportHouse(false);
-                await handleExport(Number(exportHouseId));
-              }}
-                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
-                <Download className="w-4 h-4" /> {t('scratch_card_serials.btn_export')}
+                if (exporting) return;
+                // Stay open while the workbook is generated; only close once the
+                // file is on its way, or leave it open on failure so the user
+                // can retry without re-picking the house.
+                const ok = await handleExport(Number(exportHouseId));
+                if (ok) setShowExportHouse(false);
+              }} disabled={exporting}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                {exporting
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Download className="w-4 h-4" />}
+                {exporting ? t('scratch_card_serials.exporting') : t('scratch_card_serials.btn_export')}
               </button>
             </div>
           </div>
