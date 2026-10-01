@@ -153,6 +153,20 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
+/** Percentage of achievement against target, matching the RSO Performance table on /reports/live-activations. */
+function pctOf(achievement: number, target: number): number {
+  return target > 0 ? (achievement / target) * 100 : 0;
+}
+
+/**
+ * Per-employee remaining, allowed to go negative when the target is exceeded -
+ * matching the RSO/BP tables on GA Live. The backend field is clamped at 0
+ * (max(0, target - achievement)), so the signed value is derived here.
+ */
+function remainingOf(achievement: number, target: number): number {
+  return target - achievement;
+}
+
 function KpiCard({ icon: Icon, label, value, valueColor, valueExtra, subtitle, trend }: {
   icon: any; label: string; value: string | number;
   valueColor?: string; valueExtra?: React.ReactNode; subtitle?: string | React.ReactNode; trend?: { dir: "up" | "down"; text: string };
@@ -281,15 +295,15 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">%</span>
-                  <span className="font-bold" style={{ color: emp.percentage >= 100 ? "#10b981" : emp.percentage >= 70 ? "#3b82f6" : emp.percentage >= 40 ? "#f59e0b" : "#ef4444" }}>{emp.percentage}%</span>
+                  <span className="font-bold" style={{ color: emp.percentage >= 100 ? "#10b981" : emp.percentage >= 70 ? "#3b82f6" : emp.percentage >= 40 ? "#f59e0b" : "#ef4444" }}>{pctOf(emp.achievement, emp.target).toFixed(2)}%</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{t("activation_report.remaining")}</span>
-                  <span className="text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
+                  <span className={cn(remainingOf(emp.achievement, emp.target) < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-gray-600 dark:text-gray-400")}>{formatNumber(remainingOf(emp.achievement, emp.target))}</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">DRR</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
+                  <span className={cn("font-semibold", remainingOf(emp.achievement, emp.target) < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-gray-900 dark:text-gray-100")}>{Math.ceil(remainingOf(emp.achievement, emp.target) / Math.max(daysRemaining, 1)).toLocaleString()}</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                   <span className="text-gray-500 dark:text-gray-400">{type === "rso" ? t("activation_report.daily_average_short") : t("activation_report.daily_average")}</span>
@@ -415,16 +429,32 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                         style={{ width: `${Math.min(emp.percentage, 100)}%` }}
                       />
                     </div>
-                    <span className="text-xs font-bold text-gray-600 dark:text-gray-400 w-10 text-center">
-                      {emp.percentage}%
+                    <span className="text-xs font-bold text-gray-600 dark:text-gray-400 w-16 text-center">
+                      {pctOf(emp.achievement, emp.target).toFixed(2)}%
                     </span>
                   </div>
                 </td>
-                <td className="px-2 py-1 text-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">{formatNumber(emp.remaining)}</span>
+                <td
+                  className={cn(
+                    "px-2 py-1 text-center text-sm font-medium",
+                    remainingOf(emp.achievement, emp.target) < 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-gray-600 dark:text-gray-400"
+                  )}
+                  title={remainingOf(emp.achievement, emp.target) < 0 ? `${Math.abs(remainingOf(emp.achievement, emp.target)).toLocaleString()} ahead of target` : undefined}
+                >
+                  {formatNumber(remainingOf(emp.achievement, emp.target))}
                 </td>
-                  <td className="px-2 py-1 text-center">
-                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(emp.remaining / Math.max(daysRemaining, 1))}</span>
+                  <td
+                  className={cn(
+                    "px-2 py-1 text-center text-sm font-semibold",
+                    remainingOf(emp.achievement, emp.target) < 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-gray-700 dark:text-gray-300"
+                  )}
+                  title={remainingOf(emp.achievement, emp.target) < 0 ? `${Math.abs(remainingOf(emp.achievement, emp.target)).toLocaleString()} ahead of target` : undefined}
+                >
+                  {Math.ceil(remainingOf(emp.achievement, emp.target) / Math.max(daysRemaining, 1)).toLocaleString()}
                 </td>
                 <td className="px-2 py-1 text-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">{Math.round(emp.daily_average)}</span>
@@ -475,8 +505,11 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
             {data.length > 0 && (() => {
               const totalTarget = data.reduce((s, e) => s + e.target, 0);
               const totalAchieved = data.reduce((s, e) => s + e.achievement, 0);
-              const totalPct = totalTarget ? Math.round(totalAchieved / totalTarget * 100) : 0;
-              const totalRemaining = data.reduce((s, e) => s + e.remaining, 0);
+              const totalPct = totalTarget ? (totalAchieved / totalTarget) * 100 : 0;
+              // Aggregate remaining must come from the totals, not a sum of per-employee
+              // `remaining` values: each of those is already clamped at 0 (max(0, target - achievement)),
+              // so over-achievers' surplus would be dropped and the subtotal would be overstated.
+              const totalRemaining = totalTarget - totalAchieved;
               const totalDailyAvg = totalAchieved / Math.max(daysElapsed, 1);
               const totalProjection = data.reduce((s, e) => s + e.projection, 0);
               const totalYesterday = data.reduce((s, e) => s + (e.yesterday_activation ?? 0), 0);
@@ -509,14 +542,21 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                           style={{ width: `${Math.min(totalPct, 100)}%` }}
                         />
                       </div>
-                      <span className="text-xs font-bold text-gray-600 dark:text-gray-400 w-10 text-center">{totalPct}%</span>
+                      <span className="text-xs font-bold text-gray-600 dark:text-gray-400 w-16 text-center">{totalPct.toFixed(2)}%</span>
                     </div>
                   </td>
                   <td className="px-2 py-1 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(totalRemaining)}</span>
                   </td>
-                  <td className="px-2 py-1 text-center">
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.ceil(totalRemaining / Math.max(daysRemaining, 1))}</span>
+                  <td
+                    className={cn(
+                      "px-2 py-1 text-center text-sm font-semibold",
+                      totalRemaining < 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-gray-700 dark:text-gray-300"
+                    )}
+                  >
+                    {Math.max(0, Math.ceil(totalRemaining / Math.max(daysRemaining, 1))).toLocaleString()}
                   </td>
                   <td className="px-2 py-1 text-center">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{Math.round(totalDailyAvg)}</span>
