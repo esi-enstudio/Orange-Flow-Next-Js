@@ -4,13 +4,14 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
 import {
   Search, Upload, Download, ChevronLeft, ChevronRight, ChevronDown,
-  Loader2, Database, X, CheckCircle2, Calendar, RotateCcw,
+  Loader2, Database, X, CheckCircle2, RotateCcw,
   SlidersHorizontal, Store, Building2, Trash2,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import Cookies from "js-cookie";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { DateRangePicker } from "@/components/date-picker";
 import { cn } from "@/lib/utils";
 
 interface ItopUpRecord {
@@ -567,19 +568,15 @@ export default function ImportItopUpPage() {
 
           {/* Date Range */}
           <div className="sm:col-span-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Date Range</label>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="relative">
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input type="date" value={filters.start_date} onChange={e => { updateFilter("start_date", e.target.value); setPage(1); }}
-                  className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-              </div>
-              <div className="relative">
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input type="date" value={filters.end_date} onChange={e => { updateFilter("end_date", e.target.value); setPage(1); }}
-                  className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-              </div>
-            </div>
+            <DateRangePicker
+              id="itopup-date-range"
+              label={t("common.date_range.label")}
+              value={{ from: filters.start_date || null, to: filters.end_date || null }}
+              onChange={(range) => {
+                setFilters(prev => ({ ...prev, start_date: range.from ?? "", end_date: range.to ?? "" }));
+                setPage(1);
+              }}
+            />
           </div>
 
           {/* Retailer Search */}
