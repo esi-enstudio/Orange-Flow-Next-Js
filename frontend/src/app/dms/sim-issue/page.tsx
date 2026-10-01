@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
+import { useSerialLength } from "@/hooks/useSerialLength";
+import { analyzeSerialList } from "@/lib/serialValidation";
 import { BarcodeScannerModal } from "@/components/dms/BarcodeScannerModal";
 import { fetchEventSource, EventSourceMessage } from "@microsoft/fetch-event-source";
 import Cookies from "js-cookie";
@@ -128,6 +130,8 @@ export default function SIMIssuePage() {
   const searchAbortRef = useRef<AbortController | null>(null);
   const retailersCacheRef = useRef<{ key: string; data: Retailer[] } | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [rangeValid, setRangeValid] = useState(true);
+  const serialLength = useSerialLength();
 
   useEffect(() => {
     if (logContainerRef.current) {
@@ -187,6 +191,13 @@ export default function SIMIssuePage() {
     };
   }, [retailerSearch, selectedHouseId]);
 
+  const listAnalysis = useMemo(
+    () => analyzeSerialList(inputValue, serialLength),
+    [inputValue, serialLength]
+  );
+  const hasInvalidSerialLength =
+    inputMethod === "range" ? !rangeValid : listAnalysis.invalid > 0;
+
   const parsedCount = useMemo(() => {
     function b(v: string) { try { return BigInt(v); } catch { return BigInt(0); } }
     if (!inputValue.trim()) return 0;
@@ -234,6 +245,10 @@ export default function SIMIssuePage() {
     if (!selectedHouseId) { toast.error(t("sim_issue.no_house")); return; }
     if (!selectedRetailer) { toast.error(t("sim_issue.no_retailer")); return; }
     if (!inputValue.trim()) { toast.error(t("sim_issue.no_input")); return; }
+    if (hasInvalidSerialLength) {
+      toast.error(t("common.serial_length.list_invalid", { length: serialLength }));
+      return;
+    }
     if (parsedCount > 500) { toast.error(t("sim_issue.range_too_large")); return; }
     setShowConfirm(true);
   };
@@ -368,7 +383,7 @@ export default function SIMIssuePage() {
 
   const loadExample = (type: "range" | "list") => {
     if (type === "range") {
-      const val = "898803992145808574-580";
+      const val = "898803992145808574-898803992145808580";
       setInputValue(val);
       setTimeout(() => rangeInputRef.current?.resetFromValue(val), 0);
     } else {
@@ -700,6 +715,8 @@ export default function SIMIssuePage() {
                     ref={rangeInputRef}
                     onChange={setInputValue}
                     disabled={loading}
+                    serialLength={serialLength}
+                    onValidChange={setRangeValid}
                   />
                 ) : (
                   <div className="relative group">
@@ -745,11 +762,22 @@ export default function SIMIssuePage() {
                   </motion.p>
                 )}
 
+                {hasInvalidSerialLength && (
+                  <motion.p
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="text-xs font-bold text-red-500 dark:text-red-400 flex items-center gap-1.5"
+                  >
+                    <AlertCircle className="w-4 h-4" />
+                    {t("common.serial_length.list_invalid", { length: serialLength })}
+                  </motion.p>
+                )}
+
                 {/* Submit Block */}
                 <div className="flex justify-end pt-2">
                   <button
                     type="submit"
-                    disabled={loading || parsedCount === 0 || parsedCount > 500 || !selectedHouseId || !selectedRetailer}
+                    disabled={loading || parsedCount === 0 || parsedCount > 500 || hasInvalidSerialLength || !selectedHouseId || !selectedRetailer}
                     className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-tr from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[48px]"
                   >
                     {loading ? (

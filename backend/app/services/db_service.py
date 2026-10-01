@@ -189,6 +189,22 @@ async def _migrate_app_settings_favicon():
     except Exception as e:
         logger.warning(f"Migration warning (app_settings.favicon): {e}")
 
+async def _migrate_app_settings_sim_serial_length():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='app_settings' AND column_name='sim_serial_length'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating app_settings: adding sim_serial_length column...")
+            await conn.execute(text(
+                "ALTER TABLE app_settings ADD COLUMN sim_serial_length INTEGER NOT NULL DEFAULT 18"
+            ))
+            logger.info("Migration complete: app_settings.sim_serial_length")
+    except Exception as e:
+        logger.warning(f"Migration warning (app_settings.sim_serial_length): {e}")
+
 INDEX_MIGRATIONS = [
     # activations table
     ("ix_activations_house_id", "CREATE INDEX IF NOT EXISTS ix_activations_house_id ON activations (house_id)"),
@@ -1222,6 +1238,7 @@ async def init_db():
         await _migrate_house_live_sync_enabled()
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
+        await _migrate_app_settings_sim_serial_length()
         await _migrate_live_activation_date_type()
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_lifting_soft_delete()

@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
+import { useSerialLength } from "@/hooks/useSerialLength";
+import { analyzeSerialList } from "@/lib/serialValidation";
 import { BarcodeScannerModal } from "@/components/dms/BarcodeScannerModal";
 import {
   Undo2,
@@ -118,6 +120,8 @@ export default function SIMReturnPage() {
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
   const pageSize = 10;
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [rangeValid, setRangeValid] = useState(true);
+  const serialLength = useSerialLength();
 
   useEffect(() => {
     const el = houseSelectRef.current;
@@ -180,6 +184,13 @@ export default function SIMReturnPage() {
     return total;
   }, [inputValue]);
 
+  const listAnalysis = useMemo(
+    () => analyzeSerialList(inputValue, serialLength),
+    [inputValue, serialLength]
+  );
+  const hasInvalidSerialLength =
+    inputMethod === "range" ? !rangeValid : listAnalysis.invalid > 0;
+
   useEffect(() => {
     let timer: NodeJS.Timeout;
     let tipsTimer: NodeJS.Timeout;
@@ -201,6 +212,10 @@ export default function SIMReturnPage() {
     e.preventDefault();
     if (!selectedHouseId) { toast.error(t("sim_return.no_house")); return; }
     if (!inputValue.trim()) { toast.error(t("sim_return.no_input")); return; }
+    if (hasInvalidSerialLength) {
+      toast.error(t("common.serial_length.list_invalid", { length: serialLength }));
+      return;
+    }
     if (parsedCount > 500) { toast.error(t("sim_return.range_too_large")); return; }
     setShowConfirm(true);
   };
@@ -309,7 +324,7 @@ export default function SIMReturnPage() {
 
   const loadExample = (type: "range" | "list") => {
     if (type === "range") {
-      const val = "898803992145808574-580";
+      const val = "898803992145808574-898803992145808580";
       setInputValue(val);
       setTimeout(() => rangeInputRef.current?.resetFromValue(val), 0);
     } else {
@@ -491,6 +506,8 @@ export default function SIMReturnPage() {
                 ref={rangeInputRef}
                 onChange={setInputValue}
                 disabled={loading}
+                serialLength={serialLength}
+                onValidChange={setRangeValid}
               />
             ) : (
               <div className="relative group">
@@ -536,11 +553,22 @@ export default function SIMReturnPage() {
               </motion.p>
             )}
 
+            {hasInvalidSerialLength && (
+              <motion.p
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="text-xs font-bold text-red-500 dark:text-red-400 flex items-center gap-1.5"
+              >
+                <AlertCircle className="w-4 h-4" />
+                {t("common.serial_length.list_invalid", { length: serialLength })}
+              </motion.p>
+            )}
+
             {/* Submit Action Block */}
             <div className="flex justify-end pt-2">
               <motion.button
                 type="submit"
-                disabled={loading || parsedCount === 0 || parsedCount > 500 || !selectedHouseId}
+                disabled={loading || parsedCount === 0 || parsedCount > 500 || hasInvalidSerialLength || !selectedHouseId}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 className="px-8 py-3.5 bg-gradient-to-tr from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:translate-y-[1px] flex items-center gap-2"

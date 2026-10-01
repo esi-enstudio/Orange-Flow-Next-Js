@@ -3,6 +3,11 @@
 import { useState, useCallback, useEffect, useImperativeHandle, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import { Plus, X, AlertCircle } from "lucide-react";
+import { useLanguage } from "@/i18n/useLanguage";
+import {
+  DEFAULT_SERIAL_LENGTH,
+  sanitizeSerialInput,
+} from "@/lib/serialValidation";
 
 interface RangeEntry {
   id: string;
@@ -19,6 +24,8 @@ interface SerialRangeInputProps {
   onChange: (formatted: string) => void;
   disabled?: boolean;
   maxSerials?: number;
+  serialLength?: number;
+  onValidChange?: (valid: boolean) => void;
 }
 
 function b(v: string): bigint {
@@ -57,7 +64,17 @@ function calcEnd(start: string, qty: string): string {
 
 
 export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeInputProps>(
-  function SerialRangeInput({ onChange, disabled = false, maxSerials = 500 }, ref) {
+  function SerialRangeInput(
+    {
+      onChange,
+      disabled = false,
+      maxSerials = 500,
+      serialLength = DEFAULT_SERIAL_LENGTH,
+      onValidChange,
+    },
+    ref
+  ) {
+    const { t } = useLanguage();
     const [ranges, setRanges] = useState<RangeEntry[]>([{ id: uid(), start: "", end: "", qty: "" }]);
 
     // Notify parent after render — never during render
@@ -69,23 +86,27 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
 
     const updateField = useCallback(
       (id: string, field: "start" | "end" | "qty", value: string) => {
+        const safeValue =
+          field === "qty"
+            ? value.replace(/\D/g, "")
+            : sanitizeSerialInput(value, serialLength);
         setRanges((prev) =>
           prev.map((r) => {
             if (r.id !== id) return r;
-            const updated = { ...r, [field]: value };
+            const updated = { ...r, [field]: safeValue };
 
             if (field === "end") {
-              const q = calcQty(updated.start, value);
+              const q = calcQty(updated.start, safeValue);
               if (q) updated.qty = q;
             } else if (field === "qty") {
-              const e = calcEnd(updated.start, value);
+              const e = calcEnd(updated.start, safeValue);
               if (e) updated.end = e;
             } else if (field === "start") {
               if (updated.end) {
-                const q = calcQty(value, updated.end);
+                const q = calcQty(safeValue, updated.end);
                 if (q) updated.qty = q;
               } else if (updated.qty) {
-                const e = calcEnd(value, updated.qty);
+                const e = calcEnd(safeValue, updated.qty);
                 if (e) updated.end = e;
               }
             }
@@ -94,7 +115,7 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
           })
         );
       },
-      []
+      [serialLength]
     );
 
     const addRange = useCallback(() => {
@@ -125,6 +146,16 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
 
     const exceedsLimit = totalSerials > maxSerials;
 
+    const hasInvalidLength = ranges.some(
+      (r) =>
+        (Boolean(r.start) && r.start.length !== serialLength) ||
+        (Boolean(r.end) && r.end.length !== serialLength)
+    );
+
+    useEffect(() => {
+      onValidChange?.(!hasInvalidLength);
+    }, [hasInvalidLength, onValidChange]);
+
     useImperativeHandle(ref, () => ({
       resetFromValue(val: string) {
         const parsed = parseRangeValue(val);
@@ -144,6 +175,10 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
             range.start && range.end && !range.qty
               ? calcQty(range.start, range.end)
               : range.qty;
+
+          const startError =
+            Boolean(range.start) && range.start.length !== serialLength;
+          const endError = Boolean(range.end) && range.end.length !== serialLength;
 
           return (
             <div
@@ -169,13 +204,19 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
                   }
                   disabled={disabled}
                   placeholder="898803992145808574"
+                  aria-invalid={startError}
                   className={cn(
                     "w-full px-3 py-2.5 border rounded-xl bg-gray-50/50 dark:bg-slate-800/30 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-tight",
-                    exceedsLimit
+                    exceedsLimit || startError
                       ? "focus:ring-red-500 border-red-300 dark:border-red-500/20"
                       : "focus:ring-emerald-500"
                   )}
                 />
+                {startError && (
+                  <p className="mt-1 text-[11px] font-bold text-red-500 dark:text-red-400">
+                    {t("common.serial_length.exact", { length: serialLength })}
+                  </p>
+                )}
               </div>
 
               {/* End Serial */}
@@ -197,13 +238,19 @@ export const SerialRangeInput = forwardRef<SerialRangeInputHandle, SerialRangeIn
                   }
                   disabled={disabled}
                   placeholder="898803992145808733"
+                  aria-invalid={endError}
                   className={cn(
                     "w-full px-3 py-2.5 border rounded-xl bg-gray-50/50 dark:bg-slate-800/30 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-tight",
-                    exceedsLimit
+                    exceedsLimit || endError
                       ? "focus:ring-red-500 border-red-300 dark:border-red-500/20"
                       : "focus:ring-emerald-500"
                   )}
                 />
+                {endError && (
+                  <p className="mt-1 text-[11px] font-bold text-red-500 dark:text-red-400">
+                    {t("common.serial_length.exact", { length: serialLength })}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-end gap-2 w-full sm:w-20">

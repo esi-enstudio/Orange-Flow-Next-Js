@@ -4,7 +4,7 @@ import { usePrimaryColor, PRIMARY_COLORS } from "@/context/ColorContext";
 import {
   Settings, Palette, Sun, Moon, Monitor, Check, Image, Save,
   Loader2, Upload, RefreshCw, Building2, Globe, Bell, Shield,
-  Database, ChevronRight
+  Database, ChevronRight, Hash
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import { useState, useEffect } from "react";
@@ -13,6 +13,7 @@ import toast from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useBrand } from "@/context/BrandContext";
+import { setSerialLengthCache } from "@/hooks/useSerialLength";
 
 type TabId = "general" | "appearance" | "automation";
 
@@ -60,9 +61,20 @@ export default function SettingsPage() {
   const [uploadingFavicon, setUploadingFavicon] = useState(false);
   const [dailySyncEnabled, setDailySyncEnabled] = useState(true);
   const [togglingSync, setTogglingSync] = useState(false);
+  const [simSerialLength, setSimSerialLength] = useState(18);
+  const [savingSerialLength, setSavingSerialLength] = useState(false);
 
   useEffect(() => {
     apiClient.get("settings/daily-sync").then(r => setDailySyncEnabled(r.data.enabled)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    apiClient.get("settings/sim-serial")
+      .then(r => {
+        const len = Number(r.data.serial_length);
+        if (Number.isFinite(len) && len > 0) setSimSerialLength(len);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => { setMounted(true); }, []);
@@ -92,6 +104,23 @@ export default function SettingsPage() {
       toast.success(next ? "Daily sync enabled" : "Daily sync disabled");
     } catch { toast.error("Toggle failed"); }
     finally { setTogglingSync(false); }
+  };
+
+  const handleSaveSerialLength = async () => {
+    const value = Number(simSerialLength);
+    if (!Number.isInteger(value) || value < 1 || value > 30) {
+      toast.error(t('settings.sim_serial_invalid'));
+      return;
+    }
+    setSavingSerialLength(true);
+    try {
+      const res = await apiClient.put("settings/sim-serial", { serial_length: value });
+      const saved = Number(res.data.serial_length);
+      setSimSerialLength(saved);
+      setSerialLengthCache(saved);
+      toast.success(t('settings.sim_serial_saved'));
+    } catch { toast.error(t('common.action_failed')); }
+    finally { setSavingSerialLength(false); }
   };
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -323,6 +352,43 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <Toggle enabled={dailySyncEnabled} onToggle={handleToggleSync} disabled={togglingSync} />
+                </div>
+              </div>
+            </div>
+
+            {/* SIM Serial Length */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div className="p-6">
+                <div className="flex items-start gap-4">
+                  <div className="p-2.5 bg-sky-100 dark:bg-sky-500/10 rounded-xl shrink-0">
+                    <Hash className="w-5 h-5 text-sky-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('settings.sim_serial_title')}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t('settings.sim_serial_description')}</p>
+                    <div className="mt-4 flex flex-wrap items-end gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2" htmlFor="sim-serial-length">
+                          {t('settings.sim_serial_label')}
+                        </label>
+                        <input
+                          id="sim-serial-length"
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={simSerialLength}
+                          onChange={(e) => setSimSerialLength(Number(e.target.value))}
+                          className="w-32 px-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none transition-all"
+                        />
+                      </div>
+                      <button onClick={handleSaveSerialLength} disabled={savingSerialLength}
+                        className="inline-flex items-center gap-2 px-6 py-2.5 bg-primary-500 hover:bg-primary-600 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed min-h-[44px]">
+                        {savingSerialLength ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {t('common.save_changes')}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{t('settings.sim_serial_hint')}</p>
+                  </div>
                 </div>
               </div>
             </div>

@@ -2,7 +2,7 @@ import os, shutil, logging
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from app.routers.deps import get_db, has_permission, get_current_user, get_house_context
 from app.models.app_setting import AppSetting
@@ -19,6 +19,9 @@ class AppSettingUpdate(BaseModel):
 
 class DailySyncToggle(BaseModel):
     enabled: bool
+
+class SIMSerialLengthUpdate(BaseModel):
+    serial_length: int = Field(ge=1, le=30)
 
 @router.get("/brand")
 async def get_brand_settings(
@@ -88,6 +91,33 @@ async def toggle_daily_sync(
     status = "🟢 ON" if data.enabled else "🔴 OFF"
     logger.info(f"Daily sync {status}")
     return {"enabled": bool(setting.is_daily_sync_enabled)}
+
+@router.get("/sim-serial")
+async def get_sim_serial_length(
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
+    setting = result.scalar_one_or_none()
+    length = setting.sim_serial_length if setting and setting.sim_serial_length else 18
+    return {"serial_length": int(length)}
+
+@router.put("/sim-serial")
+async def update_sim_serial_length(
+    data: SIMSerialLengthUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("app_settings.manage")),
+):
+    result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
+    setting = result.scalar_one_or_none()
+    if not setting:
+        setting = AppSetting(id=1)
+        db.add(setting)
+    setting.sim_serial_length = data.serial_length
+    await db.commit()
+    await db.refresh(setting)
+    logger.info(f"SIM serial length set to {data.serial_length}")
+    return {"serial_length": int(setting.sim_serial_length)}
 
 @router.get("/live-sync")
 async def get_live_sync_status(

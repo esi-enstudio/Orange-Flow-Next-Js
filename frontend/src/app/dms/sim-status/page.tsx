@@ -29,6 +29,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
+import { useSerialLength } from "@/hooks/useSerialLength";
+import { analyzeSerialList } from "@/lib/serialValidation";
 import { BarcodeScannerModal } from "@/components/dms/BarcodeScannerModal";
 
 interface House {
@@ -86,6 +88,8 @@ export default function SIMStatusCheckPage() {
   const [tipIndex, setTipIndex] = useState(0);
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [rangeValid, setRangeValid] = useState(true);
+  const serialLength = useSerialLength();
 
   // Query results
   const [results, setResults] = useState<SIMStatusItem[]>([]);
@@ -152,6 +156,13 @@ export default function SIMStatusCheckPage() {
     return total;
   }, [inputValue]);
 
+  const listAnalysis = useMemo(
+    () => analyzeSerialList(inputValue, serialLength),
+    [inputValue, serialLength]
+  );
+  const hasInvalidSerialLength =
+    inputMethod === "range" ? !rangeValid : listAnalysis.invalid > 0;
+
   // 3. Loading animation and tips cycling timer
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -190,6 +201,10 @@ export default function SIMStatusCheckPage() {
     }
     if (!inputValue.trim()) {
       toast.error(t("sim_status_check.no_input"));
+      return;
+    }
+    if (hasInvalidSerialLength) {
+      toast.error(t("common.serial_length.list_invalid", { length: serialLength }));
       return;
     }
     if (parsedCount > 500) {
@@ -337,7 +352,7 @@ export default function SIMStatusCheckPage() {
 
   const loadExample = (type: "range" | "list") => {
     if (type === "range") {
-      const val = "898803992145808574-580";
+      const val = "898803992145808574-898803992145808580";
       setInputValue(val);
       setTimeout(() => rangeInputRef.current?.resetFromValue(val), 0);
     } else {
@@ -511,6 +526,8 @@ export default function SIMStatusCheckPage() {
               ref={rangeInputRef}
               onChange={setInputValue}
               disabled={loading}
+              serialLength={serialLength}
+              onValidChange={setRangeValid}
             />
           ) : (
             <div className="relative group">
@@ -552,11 +569,18 @@ export default function SIMStatusCheckPage() {
             </p>
           )}
 
+          {hasInvalidSerialLength && (
+            <p className="text-xs font-bold text-red-500 dark:text-red-400 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4" />
+              {t("common.serial_length.list_invalid", { length: serialLength })}
+            </p>
+          )}
+
           {/* Submit Action Block */}
           <div className="flex justify-end pt-2">
             <button
               type="submit"
-              disabled={loading || parsedCount === 0 || parsedCount > 500 || !selectedHouseId}
+              disabled={loading || parsedCount === 0 || parsedCount > 500 || hasInvalidSerialLength || !selectedHouseId}
               className="px-8 py-3.5 bg-gradient-to-tr from-primary-600 to-orange-500 hover:from-primary-700 hover:to-orange-600 text-white rounded-2xl text-sm font-black transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:translate-y-[1px] shadow-primary-200 dark:shadow-none flex items-center gap-2"
             >
               {loading ? (

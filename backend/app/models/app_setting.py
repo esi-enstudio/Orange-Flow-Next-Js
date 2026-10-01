@@ -10,3 +10,4 @@ class AppSetting(Base):
     favicon = Column(String(255), nullable=True)
     is_daily_sync_enabled = Column(Integer, default=1)  # 1=enabled, 0=disabled
     is_live_sync_enabled = Column(Integer, default=1)  # 1=enabled, 0=disabled
+    sim_serial_length = Column(Integer, default=18)  # expected SIM serial digit length
