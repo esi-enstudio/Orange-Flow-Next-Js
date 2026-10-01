@@ -12,6 +12,7 @@ import axios from "@/lib/api";
 import Cookies from "js-cookie";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { DateRangePicker } from "@/components/date-picker";
+import EntitySelector, { type SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
 import { cn } from "@/lib/utils";
 
 interface ItopUpRecord {
@@ -21,7 +22,7 @@ interface ItopUpRecord {
     id: number; retailer_code: string; name: string; itop_number: string;
     employee?: {
       id: number; dms_code: string; itop_number: string; employee_type: string;
-      user?: { id: number; name: string };
+      employee_name?: string | null;
     };
   };
 }
@@ -43,6 +44,10 @@ interface HouseOption {
 
 interface RsoOption {
   id: number; name: string; dms_code: string; itop_number: string;
+}
+
+interface RetailerOption {
+  retailer_code: string; name: string; itop_number?: string | null;
 }
 
 const REPORT_TYPES = ["C2C", "C2S", "Balance"] as const;
@@ -88,10 +93,10 @@ export default function ImportItopUpPage() {
   const [houses, setHouses] = useState<HouseOption[]>([]);
   const [rsos, setRsos] = useState<RsoOption[]>([]);
   const [searchInput, setSearchInput] = useState("");
-  const [retailerSearchInput, setRetailerSearchInput] = useState("");
+  const [retailers, setRetailers] = useState<RetailerOption[]>([]);
+  const [retailerSearch, setRetailerSearch] = useState("");
+  const [selectedRetailer, setSelectedRetailer] = useState<RetailerOption | null>(null);
   const [rsoSearch, setRsoSearch] = useState("");
-  const [rsoOpen, setRsoOpen] = useState(false);
-  const rsoRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const perPage = 10;
 
@@ -153,13 +158,27 @@ export default function ImportItopUpPage() {
     return () => clearTimeout(timer);
   }, [filters.house_id, rsoSearch, fetchRsos]);
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (rsoRef.current && !rsoRef.current.contains(e.target as Node)) setRsoOpen(false);
+  const fetchRetailers = useCallback(async (houseId: string, search: string) => {
+    if (!houseId) {
+      setRetailers([]);
+      return;
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    const params: Record<string, string> = { house_id: houseId };
+    if (search) params.search = search;
+    try {
+      const r = await axios.get("/itopup-details/retailer-list", { params });
+      setRetailers(r.data || []);
+    } catch {
+      setRetailers([]);
+    }
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchRetailers(filters.house_id, retailerSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [filters.house_id, retailerSearch, fetchRetailers]);
 
   const handleApplyFilters = () => {
     setAppliedFilters({
@@ -167,7 +186,7 @@ export default function ImportItopUpPage() {
       report_type: filters.report_type,
       start_date: filters.start_date,
       end_date: filters.end_date,
-      retailer_search: retailerSearchInput.trim(),
+      retailer_search: filters.retailer_search.trim(),
       house_id: filters.house_id,
       rso_id: filters.rso_id,
     });
@@ -177,7 +196,8 @@ export default function ImportItopUpPage() {
 
   const handleClearFilters = () => {
     setSearchInput("");
-    setRetailerSearchInput("");
+    setRetailerSearch("");
+    setSelectedRetailer(null);
     setRsoSearch("");
     setFilters({ ...defaultFilters });
     setAppliedFilters(null);
@@ -190,6 +210,41 @@ export default function ImportItopUpPage() {
   const updateFilter = (key: keyof Filters, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
+
+  // RSO and retailer options are house-scoped, so switching house must drop both
+  // selections and the server-side search terms rather than leave stale picks.
+  const handleHouseChange = (value: string) => {
+    setFilters(prev => ({ ...prev, house_id: value, rso_id: "", retailer_search: "" }));
+    setSelectedRetailer(null);
+    setRetailerSearch("");
+    setPage(1);
+  };
+
+  // Ids are normalised to strings so the selector's identity check matches the
+  // (string) `filters.rso_id` regardless of how the API serialises the id.
+  const rsoItems: SelectorItem[] = rsos.map(r => ({
+    id: String(r.id),
+    label: r.name,
+    sublabel: [r.dms_code, r.itop_number].filter(Boolean).join(" | "),
+  }));
+
+  // The selected retailer may fall outside the current server-side search window
+  // after the term is cleared, so it is kept in the list to stop the trigger from
+  // reverting to its placeholder while the filter is still applied.
+  const retailerItems: SelectorItem[] = [
+    ...(selectedRetailer && !retailers.some(r => r.retailer_code === selectedRetailer.retailer_code)
+      ? [{
+          id: selectedRetailer.retailer_code,
+          label: selectedRetailer.name,
+          sublabel: [selectedRetailer.retailer_code, selectedRetailer.itop_number].filter(Boolean).join(" | "),
+        }]
+      : []),
+    ...retailers.map(r => ({
+      id: r.retailer_code,
+      label: r.name,
+      sublabel: [r.retailer_code, r.itop_number].filter(Boolean).join(" | "),
+    })),
+  ];
 
   const handlePageChange = (newPage: number) => {
     if (newPage === page || !pagination) return;
@@ -325,7 +380,7 @@ export default function ImportItopUpPage() {
   if (appliedFilters?.report_type) activeChipList.push({ label: `Type: ${appliedFilters.report_type}`, onRemove: () => setAppliedFilters(a => a ? { ...a, report_type: "" } : a) });
   if (appliedFilters?.start_date) activeChipList.push({ label: `From: ${appliedFilters.start_date}`, onRemove: () => setAppliedFilters(a => a ? { ...a, start_date: "" } : a) });
   if (appliedFilters?.end_date) activeChipList.push({ label: `To: ${appliedFilters.end_date}`, onRemove: () => setAppliedFilters(a => a ? { ...a, end_date: "" } : a) });
-  if (appliedFilters?.retailer_search) activeChipList.push({ label: `Retailer: ${appliedFilters.retailer_search}`, onRemove: () => { setRetailerSearchInput(""); setAppliedFilters(a => a ? { ...a, retailer_search: "" } : a); } });
+  if (appliedFilters?.retailer_search) activeChipList.push({ label: `Retailer: ${selectedRetailer?.name || appliedFilters.retailer_search}`, onRemove: () => { setSelectedRetailer(null); setRetailerSearch(""); setAppliedFilters(a => a ? { ...a, retailer_search: "" } : a); } });
   if (appliedFilters?.house_id) {
     const h = houses.find(hh => String(hh.id) === appliedFilters?.house_id);
     if (h) activeChipList.push({ label: `House: ${h.name}`, onRemove: () => setAppliedFilters(a => a ? { ...a, house_id: "" } : a) });
@@ -346,12 +401,6 @@ export default function ImportItopUpPage() {
         @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-100%); opacity: 0; } }
         .animate-slide-down { animation: slideDown 0.35s ease-out; }
         .animate-slide-up { animation: slideUp 0.35s ease-out forwards; }
-        .rso-scrollbar::-webkit-scrollbar { width: 5px; }
-        .rso-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .rso-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
-        .rso-scrollbar::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-        .dark .rso-scrollbar::-webkit-scrollbar-thumb { background: #475569; }
-        .dark .rso-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
       `}</style>
 
       {showImportModal && (
@@ -493,81 +542,62 @@ export default function ImportItopUpPage() {
         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {/* Search */}
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Search</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">Search</label>
             <div className="relative group">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors pointer-events-none" />
               <input type="text" value={searchInput} onChange={e => { setSearchInput(e.target.value); setPage(1); }}
                 placeholder="Type, date..."
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
+                className="w-full h-11 lg:h-9 pl-9 pr-3 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-primary-500 hover:border-gray-300 dark:hover:border-slate-700 transition-colors" />
             </div>
           </div>
 
           {/* House */}
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">House</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">House</label>
             <div className="relative">
-              <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-              <select value={filters.house_id} onChange={e => { updateFilter("house_id", e.target.value); setPage(1); }}
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
+              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <select value={filters.house_id} onChange={e => handleHouseChange(e.target.value)}
+                className="w-full h-11 lg:h-9 pl-9 pr-9 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 hover:border-gray-300 dark:hover:border-slate-700 transition-colors appearance-none cursor-pointer">
                 <option value="">All houses</option>
                 {houses.map(h => <option key={h.id} value={h.id}>{h.display_name || h.name}</option>)}
               </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
           </div>
 
           {/* RSO */}
-          <div className="relative" ref={rsoRef}>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">RSO</label>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-              <input type="text" value={rsoSearch} onChange={e => setRsoSearch(e.target.value)} onFocus={() => setRsoOpen(true)}
-                placeholder={filters.rso_id ? (rsos.find(rr => String(rr.id) === filters.rso_id)?.name || "Search RSO...") : "Search RSO..."}
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-            </div>
-            {rsoOpen && (
-              <div className="absolute z-50 left-0 right-0 mt-1 max-h-48 overflow-y-auto rso-scrollbar bg-white dark:bg-slate-900 border dark:border-slate-700 rounded-lg shadow-lg">
-                <button type="button" onClick={() => { updateFilter("rso_id", ""); setRsoOpen(false); setRsoSearch(""); }}
-                  className={cn("w-full text-left px-3 py-2 text-xs font-medium transition-colors",
-                    !filters.rso_id ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300" : "hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400")}>
-                  All RSOs
-                </button>
-                {rsos.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-400">No RSOs found</div>
-                ) : (
-                  rsos.map(r => {
-                    const itopLast3 = r.itop_number ? r.itop_number.slice(-3) : "";
-                    return (
-                      <button key={r.id} type="button"
-                        onClick={() => { updateFilter("rso_id", String(r.id)); setRsoOpen(false); setRsoSearch(""); }}
-                        className={cn("w-full text-left px-3 py-2 transition-colors",
-                          filters.rso_id === String(r.id)
-                            ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300"
-                            : "hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-gray-300")}>
-                        <p className="text-xs font-medium">{r.name}</p>
-                        <p className="text-[11px] text-gray-400">{r.dms_code}{itopLast3 ? ` | ${itopLast3}` : ""}</p>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </div>
+          <EntitySelector
+            label="RSO"
+            items={rsoItems}
+            selectedIds={filters.rso_id ? [filters.rso_id] : []}
+            onChange={(ids) => { updateFilter("rso_id", ids[0] != null ? String(ids[0]) : ""); setPage(1); }}
+            single
+            portal
+            placeholder="Search RSO..."
+            searchPlaceholder="Search RSO..."
+            emptyMessage="No RSOs found"
+            noResultsMessage="No RSOs found"
+            onSearchChange={(q) => setRsoSearch(q)}
+            selectAllLabel={t("common.select_all")}
+            clearLabel={t("common.clear")}
+          />
 
           {/* Report Type */}
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Report Type</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">Report Type</label>
             <div className="relative">
-              <Database className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <Database className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <select value={filters.report_type} onChange={e => { updateFilter("report_type", e.target.value); setPage(1); }}
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none">
+                className="w-full h-11 lg:h-9 pl-9 pr-9 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 hover:border-gray-300 dark:hover:border-slate-700 transition-colors appearance-none cursor-pointer">
                 <option value="">All types</option>
                 {REPORT_TYPES.map(rt => <option key={rt} value={rt}>{rt}</option>)}
               </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
           </div>
 
           {/* Date Range */}
-          <div className="sm:col-span-2">
+          <div>
             <DateRangePicker
               id="itopup-date-range"
               label={t("common.date_range.label")}
@@ -579,16 +609,28 @@ export default function ImportItopUpPage() {
             />
           </div>
 
-          {/* Retailer Search */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Retailer</label>
-            <div className="relative group">
-              <Store className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-              <input type="text" value={retailerSearchInput} onChange={e => { setRetailerSearchInput(e.target.value); setPage(1); }}
-                placeholder="Code or name..."
-                className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all" />
-            </div>
-          </div>
+          {/* Retailer */}
+          <EntitySelector
+            label="Retailer"
+            items={retailerItems}
+            selectedIds={filters.retailer_search ? [filters.retailer_search] : []}
+            onChange={(ids) => {
+              const code = ids[0] != null ? String(ids[0]) : "";
+              setSelectedRetailer(code ? retailers.find(r => r.retailer_code === code) ?? null : null);
+              updateFilter("retailer_search", code);
+              setPage(1);
+            }}
+            single
+            portal
+            disabled={!filters.house_id}
+            placeholder={filters.house_id ? "Select retailer" : "Select a house first"}
+            searchPlaceholder="Code or name..."
+            emptyMessage="No retailers found"
+            noResultsMessage="No retailers found"
+            onSearchChange={(q) => setRetailerSearch(q)}
+            selectAllLabel={t("common.select_all")}
+            clearLabel={t("common.clear")}
+          />
         </div>
 
         {activeChipList.length > 0 && (
@@ -724,7 +766,7 @@ export default function ImportItopUpPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
                   {data.map((r) => {
-                    const rsoName = r.retailer?.employee?.user?.name;
+                    const rsoName = r.retailer?.employee?.employee_name || r.retailer?.employee?.dms_code;
                     const rsoDms = r.retailer?.employee?.dms_code;
                     const rsoItop = r.retailer?.employee?.itop_number;
                     const hasRso = rsoName || rsoDms || rsoItop;
@@ -764,7 +806,7 @@ export default function ImportItopUpPage() {
             {/* Mobile Accordion — below lg */}
             <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
               {data.map((r) => {
-                const rsoName = r.retailer?.employee?.user?.name;
+                const rsoName = r.retailer?.employee?.employee_name || r.retailer?.employee?.dms_code;
                 const rsoDms = r.retailer?.employee?.dms_code;
                 const rsoItop = r.retailer?.employee?.itop_number;
                 const hasRso = rsoName || rsoDms || rsoItop;

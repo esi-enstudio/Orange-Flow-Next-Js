@@ -95,9 +95,13 @@ async def _migrate_retailer_markings():
     """One-time migration of legacy filter_tags/retailer_filters into the global
     retailer_markings/retailer_marking_assignments tables.
 
-    - Each distinct tag name becomes one global marking (code = upper(name)).
+    - Each distinct tag name becomes one global marking (code = UPPER(name)).
     - Each retailer_filters row becomes an active assignment.
       Cross-house tags with the same name collapse into the single global marking.
+    - `retailer_markings` is unique on both name and code, and two tag names that
+      differ only by case map to the same UPPER(name) code. The markings INSERT
+      therefore dedupes on the code and uses a bare ON CONFLICT DO NOTHING so a
+      collision with either constraint is skipped instead of aborting the run.
     Idempotent: guarded by the presence of migrated markings; both INSERTs use
     ON CONFLICT DO NOTHING so a partial re-run is safe.
     """
@@ -111,9 +115,9 @@ async def _migrate_retailer_markings():
             logger.info("Migrating filter_tags -> retailer_markings ...")
             await conn.execute(text(
                 "INSERT INTO retailer_markings (name, code, status, description, created_at, is_deleted) "
-                "SELECT ft.name, UPPER(ft.name), 'active', 'Migrated from filter_tags', NOW(), false "
-                "FROM (SELECT DISTINCT name FROM filter_tags) ft "
-                "ON CONFLICT (name) DO NOTHING"
+                "SELECT DISTINCT ON (UPPER(ft.name)) ft.name, UPPER(ft.name), 'active', 'Migrated from filter_tags', NOW(), false "
+                "FROM (SELECT DISTINCT name FROM filter_tags) ft ORDER BY UPPER(ft.name) "
+                "ON CONFLICT DO NOTHING"
             ))
             await conn.execute(text(
                 "INSERT INTO retailer_marking_assignments "
@@ -122,7 +126,7 @@ async def _migrate_retailer_markings():
                 "'Migrated from retailer_filters' "
                 "FROM retailer_filters rf "
                 "JOIN filter_tags ft ON ft.id = rf.tag_id "
-                "JOIN retailer_markings rm ON rm.name = ft.name "
+                "JOIN retailer_markings rm ON rm.code = UPPER(ft.name) "
                 "WHERE rm.is_deleted = false "
                 "ON CONFLICT (retailer_id, marking_id, status) DO NOTHING"
             ))

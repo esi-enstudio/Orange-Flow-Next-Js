@@ -426,6 +426,7 @@ async def get_itopup_rso_list(
         p = f"%{search}%"
         base = base.where(
             or_(
+                Employee.employee_name.ilike(p),
                 Employee.dms_code.ilike(p),
                 Employee.itop_number.ilike(p),
                 Employee.user.has(User.name.ilike(p)),
@@ -436,11 +437,57 @@ async def get_itopup_rso_list(
     return [
         {
             "id": e.id,
-            "name": e.user.name if e.user else e.dms_code,
+            # Name comes from the employees table itself (`employee_name`), not the
+            # optional linked user, so an employee without a user profile still
+            # shows a proper name instead of a blank option.
+            "name": e.employee_name or e.dms_code,
             "dms_code": e.dms_code,
             "itop_number": e.itop_number,
         }
         for e in employees
+    ]
+
+@router.get("/itopup-details/retailer-list")
+async def get_itopup_retailer_list(
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
+    search: Optional[str] = Query(None),
+    limit: int = Query(200, le=1000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("itopup.view")),
+    header_house_id: Optional[int] = Depends(get_house_context)
+):
+    """Retailers that actually have iTopUp rows in the selected house, used to
+    drive the retailer filter select.
+
+    Options come from the imported rows rather than the retailer master, so a
+    retailer you can see in the table is always selectable here. A house holds
+    thousands of retailers, so the list is searched on the server instead of
+    shipped to the browser."""
+    effective_house_id = filter_house_id or header_house_id
+    if not effective_house_id:
+        return []
+    _assert_house_access(current_user, effective_house_id)
+    base = (
+        select(Retailer)
+        .join(ITopUpDetail, ITopUpDetail.retailer_id == Retailer.id)
+        .where(ITopUpDetail.house_id == effective_house_id)
+    )
+    if search:
+        p = f"%{search}%"
+        base = base.where(
+            or_(Retailer.retailer_code.ilike(p), Retailer.name.ilike(p))
+        )
+    base = base.distinct().order_by(Retailer.retailer_code).limit(limit)
+    result = await db.execute(base)
+    retailers = result.scalars().all()
+    return [
+        {
+            "id": r.retailer_code,
+            "name": r.name or r.retailer_code,
+            "retailer_code": r.retailer_code,
+            "itop_number": r.itop_number,
+        }
+        for r in retailers
     ]
 
 @router.get("/itopup-details/export")

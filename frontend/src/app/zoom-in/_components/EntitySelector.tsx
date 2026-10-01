@@ -345,7 +345,9 @@ export default function EntitySelector({
           setOpen(!open);
         }}
         disabled={disabled}
-        className="w-full flex items-center justify-between gap-2 px-3 py-3 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-not-allowed"
+        /* Height is shared with `DatePickerTrigger` so a select and a date field
+           sitting in the same filter grid line up exactly. */
+        className="w-full flex items-center justify-between gap-2 px-3 h-11 lg:h-9 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 hover:border-gray-300 dark:hover:border-slate-700 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-not-allowed"
       >
         {/* gray-500 rather than gray-400: gray-400 on white fails the 4.5:1
             contrast minimum axe flags on this placeholder. */}
