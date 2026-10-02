@@ -5,7 +5,6 @@ at least the configured number of SIM activations (per house + month; default 2)
 Only ENABLED ('Yes') retailers with sim_seller = 'Yes' are counted.
 """
 import logging
-import math
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -32,6 +31,8 @@ from app.services.active_lso_report_service import (
     _employee_ids_by_type,
     status_for_pct,
     _r1,
+    _r2,
+    _drr,
     ROLE_RSO,
     ROLE_SUPERVISOR,
     VALID_STATUSES,
@@ -344,11 +345,11 @@ class ActiveSsoReportService:
         sup_id = sup_map.get(emp.id)
         target = target_map.get(emp.id, 0)
         achieved = counts.get("active", 0)
-        ach_pct = _r1(achieved / target * 100) if target else 0.0
-        remaining = max(0, target - achieved)
+        ach_pct = _r2(achieved / target * 100) if target else 0.0
+        remaining = target - achieved
         daily_avg = _r1(achieved / self.days_elapsed) if self.days_elapsed else 0.0
         projection = _r1(daily_avg * self.total_days)
-        drr = math.ceil(remaining / self.days_remaining) if self.days_remaining else 0
+        drr = _drr(remaining, self.days_remaining)
 
         return {
             "employee_id": emp.id,
@@ -381,11 +382,11 @@ class ActiveSsoReportService:
             rc = r["retailer_counts"]
             for k in ag["retailer_counts"]:
                 ag["retailer_counts"][k] += rc[k]
-        ag["ach_pct"] = _r1(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
+        ag["ach_pct"] = _r2(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
         ag["status"] = status_for_pct(ag["ach_pct"])
         ag["daily_avg"] = _r1(ag["achieved"] / self.days_elapsed) if self.days_elapsed else 0.0
         ag["projection"] = _r1(ag["daily_avg"] * self.total_days)
-        ag["drr"] = math.ceil(ag["remaining"] / self.days_remaining) if self.days_remaining else 0
+        ag["drr"] = _drr(ag["remaining"], self.days_remaining)
         return ag
 
     def _supervisor_summary(self, rows: List[dict]) -> List[dict]:

@@ -64,6 +64,23 @@ def _r1(value) -> float:
     return round(float(value or 0), 1)
 
 
+def _r2(value) -> float:
+    return round(float(value or 0), 2)
+
+
+def _drr(remaining, days_remaining) -> int:
+    """Daily required rate, signed.
+
+    Positive when the target is still pending (rounded up), negative when the
+    target is already over-achieved (rounded away from zero), so over-achievers
+    show e.g. ``-15`` instead of ``0``.
+    """
+    if not days_remaining:
+        return 0
+    ratio = remaining / days_remaining
+    return math.ceil(ratio) if ratio >= 0 else math.floor(ratio)
+
+
 async def employee_options(db: AsyncSession, emp_ids: Sequence[int]) -> List[dict]:
     if not emp_ids:
         return []
@@ -543,11 +560,11 @@ class ActiveLsoReportService:
         sup_id = sup_map.get(emp.id)
         target = target_map.get(emp.id, 0)
         achieved = counts.get("active", 0)
-        ach_pct = _r1(achieved / target * 100) if target else 0.0
-        remaining = max(0, target - achieved)
+        ach_pct = _r2(achieved / target * 100) if target else 0.0
+        remaining = target - achieved
         daily_avg = _r1(achieved / self.days_elapsed) if self.days_elapsed else 0.0
         projection = _r1(daily_avg * self.total_days)
-        drr = math.ceil(remaining / self.days_remaining) if self.days_remaining else 0
+        drr = _drr(remaining, self.days_remaining)
 
         return {
             "employee_id": emp.id,
@@ -581,11 +598,11 @@ class ActiveLsoReportService:
             rc = r["retailer_counts"]
             for k in ag["retailer_counts"]:
                 ag["retailer_counts"][k] += rc[k]
-        ag["ach_pct"] = _r1(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
+        ag["ach_pct"] = _r2(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
         ag["status"] = status_for_pct(ag["ach_pct"])
         ag["daily_avg"] = _r1(ag["achieved"] / self.days_elapsed) if self.days_elapsed else 0.0
         ag["projection"] = _r1(ag["daily_avg"] * self.total_days)
-        ag["drr"] = math.ceil(ag["remaining"] / self.days_remaining) if self.days_remaining else 0
+        ag["drr"] = _drr(ag["remaining"], self.days_remaining)
         return ag
 
     def _supervisor_summary(self, rows: List[dict]) -> List[dict]:
