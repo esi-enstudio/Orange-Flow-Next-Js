@@ -207,7 +207,7 @@ const MARKET_TYPES = ["Urban", "Rural", "HVLP", "BL Core"];
 
 export default function EmployeesPage() {
   const { t } = useLanguage();
-  const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
+  const { hasPermission, loading: authLoading, selectedHouse, user } = useAuth();
   const [members, setMembers] = useState<Employee[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -225,7 +225,7 @@ export default function EmployeesPage() {
   // Form State
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({
-    user_id: undefined as number | undefined,
+    user_id: null as number | null,
     house_id: undefined as number | undefined,
     employee_name: "",
     dms_code: "",
@@ -455,9 +455,12 @@ export default function EmployeesPage() {
   const openAddModal = () => {
     setEditingMember(null);
     setFormErrors({});
+    // Pre-select the house only when the user is assigned to exactly one house.
+    // Users assigned to multiple houses start with no selection so they must choose.
+    const assignedHouses = user?.houses ?? [];
     setFormData({
-      user_id: undefined,
-      house_id: selectedHouse?.id || undefined,
+      user_id: null,
+      house_id: assignedHouses.length === 1 ? assignedHouses[0].id : undefined,
       employee_name: "",
       dms_code: "",
       itop_number: "",
@@ -503,7 +506,9 @@ export default function EmployeesPage() {
     setEditingMember(m);
     setFormErrors({});
     setFormData({
-      user_id: m.user_id,
+      // Tagged user is optional. Use the resolved linked user (not the raw
+      // user_id) so a stale/dangling id does not get re-sent and rejected.
+      user_id: m.user?.id ?? null,
       house_id: m.house_id,
       employee_name: m.employee_name || "",
       dms_code: m.dms_code,
@@ -548,6 +553,33 @@ export default function EmployeesPage() {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Required profile fields. Validated here so the messages are localized and
+    // shown inline under each field (the backend re-validates independently).
+    const requiredFields: { key: string; labelKey: string }[] = [
+      { key: "house_id", labelKey: "field_house" },
+      { key: "status", labelKey: "field_status" },
+      { key: "employee_type", labelKey: "field_emp_type" },
+      { key: "dms_code", labelKey: "field_dms_code" },
+      { key: "itop_number", labelKey: "field_itop" },
+      { key: "joining_date", labelKey: "field_joining_date" },
+      { key: "employee_name", labelKey: "field_full_name" },
+    ];
+    const validationErrors: Record<string, string> = {};
+    for (const { key, labelKey } of requiredFields) {
+      const value = (formData as Record<string, unknown>)[key];
+      if (value === undefined || value === null || String(value).trim() === "") {
+        validationErrors[key] = t('employees.validation_required', { field: t(`employees.${labelKey}`) });
+      }
+    }
+    // Resigned Date becomes visible and mandatory whenever the status is
+    // Resigned/Inactive, so block the save until it is provided.
+    if ((formData.status === "Resigned" || formData.status === "Inactive") && !formData.resigned_date) {
+      validationErrors.resigned_date = t('employees.validation_resigned_date_required');
+    }
+    if (Object.keys(validationErrors).length > 0) {
+      setFormErrors(validationErrors);
+      return;
+    }
     setFormLoading(true);
     setFormErrors({});
     try {
@@ -1459,7 +1491,7 @@ export default function EmployeesPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_house')} *</label>
+                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_house')} <span className="text-red-500">*</span></label>
                     <div className="relative group">
                       <div className={cn(
                         "absolute left-3 top-1/2 -translate-y-1/2 transition-colors pointer-events-none",
@@ -1528,7 +1560,7 @@ export default function EmployeesPage() {
                               onClick={() => {
                                 const roleNames = (u.roles || []).map(r => r.name.toLowerCase());
                                 const primaryRole = roleNames.find(rn => ["rso","bp","supervisor","manager","bsp","rbsp"].includes(rn)) || "";
-                                setFormData({...formData, user_id: formData.user_id === u.id ? undefined : u.id, employee_type: primaryRole});
+                                setFormData({...formData, user_id: formData.user_id === u.id ? null : u.id, employee_type: primaryRole});
                                 setShowUserDropdown(false);
                                 setUserSearchQuery('');
                               }}
@@ -1580,7 +1612,18 @@ export default function EmployeesPage() {
                           formErrors.status ? "border-red-500/50 ring-1 ring-red-500/10" : "border-transparent focus:ring-1 focus:ring-primary-500 focus:bg-white dark:focus:bg-slate-800"
                         )}
                         value={formData.status}
-                        onChange={e => setFormData({...formData, status: e.target.value})}
+                        onChange={e => {
+                          const status = e.target.value;
+                          const keepDate = status === "Resigned" || status === "Inactive";
+                          setFormData({
+                            ...formData,
+                            status,
+                            // Clear the date when it no longer applies so a hidden
+                            // stale value is never submitted with an active status.
+                            resigned_date: keepDate ? formData.resigned_date : "",
+                          });
+                        }}
+                        required
                       >
                         <option value="Active">{t('common.active')}</option>
                         <option value="Resigned">{t('common.resigned')}</option>
@@ -1608,6 +1651,7 @@ export default function EmployeesPage() {
                         )}
                         value={formData.employee_type}
                         onChange={e => setFormData({...formData, employee_type: e.target.value})}
+                        required
                       >
                         <option value="">{t('employees.field_emp_type_placeholder')}</option>
                         <option value="rso">RSO</option>
@@ -1623,8 +1667,8 @@ export default function EmployeesPage() {
                   </div>
 
                   <InputField label={t('employees.field_sr_no')} value={formData.sr_no} onChange={(v: string) => setFormData({...formData, sr_no: v})} error={formErrors.sr_no} />
-                  <InputField label={t('employees.field_dms_code')} icon={Smartphone} value={formData.dms_code} onChange={(v: string) => setFormData({...formData, dms_code: v})} error={formErrors.dms_code} />
-                  <InputField label={t('employees.field_itop')} type="tel" icon={SmartphoneNfc} value={formData.itop_number} onChange={(v: string) => setFormData({...formData, itop_number: v})} error={formErrors.itop_number} />
+                  <InputField label={t('employees.field_dms_code')} icon={Smartphone} required value={formData.dms_code} onChange={(v: string) => setFormData({...formData, dms_code: v})} error={formErrors.dms_code} />
+                  <InputField label={t('employees.field_itop')} type="tel" icon={SmartphoneNfc} required value={formData.itop_number} onChange={(v: string) => setFormData({...formData, itop_number: v})} error={formErrors.itop_number} />
                   <InputField label={t('employees.field_personal_number')} type="tel" icon={Phone} value={formData.personal_number} onChange={(v: string) => setFormData({...formData, personal_number: v})} error={formErrors.personal_number} />
                 </div>
               </div>
@@ -1636,8 +1680,10 @@ export default function EmployeesPage() {
                   <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_professional')}</h4>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  <InputField label={t('employees.field_joining_date')} icon={Calendar} type="date" value={formData.joining_date} onChange={(v: string) => setFormData({...formData, joining_date: v})} error={formErrors.joining_date} />
-                  <InputField label={t('employees.field_resigned_date')} icon={Calendar} type="date" value={formData.resigned_date} onChange={(v: string) => setFormData({...formData, resigned_date: v})} error={formErrors.resigned_date} />
+                  <InputField label={t('employees.field_joining_date')} icon={Calendar} type="date" required value={formData.joining_date} onChange={(v: string) => setFormData({...formData, joining_date: v})} error={formErrors.joining_date} />
+                  {(formData.status === "Resigned" || formData.status === "Inactive") && (
+                    <InputField label={t('employees.field_resigned_date')} icon={Calendar} type="date" required value={formData.resigned_date} onChange={(v: string) => setFormData({...formData, resigned_date: v})} error={formErrors.resigned_date} />
+                  )}
                   <InputField label={t('employees.field_salary')} type="number" icon={Banknote} value={formData.salary} onChange={(v: string) => setFormData({...formData, salary: v})} error={formErrors.salary} />
                   
                   <div className="space-y-1">
@@ -1681,7 +1727,7 @@ export default function EmployeesPage() {
                   <h4 className="text-[11px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest">{t('employees.section_personal')}</h4>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  <InputField label={t('employees.field_full_name')} icon={User} value={formData.employee_name} onChange={(v: string) => setFormData({...formData, employee_name: v})} error={formErrors.employee_name} />
+                  <InputField label={t('employees.field_full_name')} icon={User} required value={formData.employee_name} onChange={(v: string) => setFormData({...formData, employee_name: v})} error={formErrors.employee_name} />
                   <InputField label={t('employees.field_father_name')} icon={User} value={formData.fathers_name} onChange={(v: string) => setFormData({...formData, fathers_name: v})} />
                   <InputField label={t('employees.field_mother_name')} icon={User} value={formData.mothers_name} onChange={(v: string) => setFormData({...formData, mothers_name: v})} />
                   <InputField label={t('employees.field_dob')} icon={Calendar} type="date" value={formData.dob} onChange={(v: string) => setFormData({...formData, dob: v})} error={formErrors.dob} />

@@ -484,6 +484,23 @@ async def _count_retailers(db: AsyncSession, emp_id: int) -> int:
 
 @router.post("", response_model=EmployeeSchema)
 async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.create"))):
+    # Mandatory profile fields for a new employee. Re-validated here because the
+    # frontend check cannot be trusted.
+    required_fields = [
+        ("status", emp_data.status, "Status"),
+        ("employee_type", emp_data.employee_type, "Employee Type"),
+        ("dms_code", emp_data.dms_code, "DMS Code"),
+        ("itop_number", emp_data.itop_number, "iTop Number"),
+        ("joining_date", emp_data.joining_date, "Joining Date"),
+        ("employee_name", emp_data.employee_name, "Full Name"),
+    ]
+    missing = [
+        {"loc": ["body", field], "msg": f"{label} is required", "type": "value_error"}
+        for field, value, label in required_fields
+        if value is None or not str(value).strip()
+    ]
+    if missing:
+        raise HTTPException(status_code=422, detail=missing)
     house = await db.get(House, emp_data.house_id)
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
@@ -526,7 +543,9 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
     if emp_data.dms_code and emp_data.dms_code != emp.dms_code:
         existing = (await db.execute(select(Employee).where(Employee.dms_code == emp_data.dms_code))).scalar_one_or_none()
         if existing: raise HTTPException(status_code=422, detail=[{"loc": ["body", "dms_code"], "msg": "DMS code already in use by another employee", "type": "value_error"}])
-    if emp_data.user_id:
+    # Tagged user is optional. Only validate when the tag is actually being changed;
+    # a legacy/dangling user_id that is left untouched must not block the save.
+    if emp_data.user_id and emp_data.user_id != emp.user_id:
         user = await db.get(User, emp_data.user_id)
         if not user:
             raise HTTPException(status_code=422, detail=[{"loc": ["body", "user_id"], "msg": "User not found", "type": "value_error"}])
