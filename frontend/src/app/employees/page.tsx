@@ -336,9 +336,11 @@ export default function EmployeesPage() {
     params.set("sort_order", sortDir);
     if (filters.search) params.set("search", filters.search);
     if (filters.role) params.set("employee_type", filters.role.toLowerCase());
-    // Use selectedHouse from header for house filtering (multi-tenant isolation)
-    const effectiveHouseId = filters.house_id ?? selectedHouse?.id;
-    if (effectiveHouseId) params.set("filter_house_id", String(effectiveHouseId));
+    // Only scope by the house the user explicitly picked in the filter (defaults to
+    // "All houses"). We must NOT implicitly fall back to selectedHouse/houses[0] here:
+    // that silently hid employees of other houses from search. When no house is chosen
+    // the backend returns all houses the user is allowed to see.
+    if (filters.house_id) params.set("filter_house_id", String(filters.house_id));
     if (activeStatusTab) params.set("status", activeStatusTab);
     if (filters.market_type) params.set("market_type", filters.market_type);
     if (filters.motor_bike) params.set("motor_bike", filters.motor_bike);
@@ -369,8 +371,7 @@ export default function EmployeesPage() {
     try {
       const qs = buildQueryString();
       const headers: Record<string, string> = {};
-      const effectiveHouseId = filters.house_id ?? selectedHouse?.id;
-      if (effectiveHouseId) headers["X-House-ID"] = String(effectiveHouseId);
+      if (filters.house_id) headers["X-House-ID"] = String(filters.house_id);
       
       // Fetch employees and status counts in parallel
       const [empRes, countsRes, housesRes, usersRes] = await Promise.all([

@@ -155,6 +155,8 @@ async def list_employees(
                 Employee.assisted_retailer_code.ilike(search_pattern),
                 Employee.agency_id.ilike(search_pattern),
                 Employee.nid.ilike(search_pattern),
+                Employee.employee_name.ilike(search_pattern),
+                Employee.employee_id.ilike(search_pattern),
                 Employee.user.has(User.name.ilike(search_pattern)),
             )
         )
@@ -343,6 +345,8 @@ async def get_employee_status_counts(
                 Employee.assisted_retailer_code.ilike(search_pattern),
                 Employee.agency_id.ilike(search_pattern),
                 Employee.nid.ilike(search_pattern),
+                Employee.employee_name.ilike(search_pattern),
+                Employee.employee_id.ilike(search_pattern),
                 Employee.user.has(User.name.ilike(search_pattern)),
             )
         )
