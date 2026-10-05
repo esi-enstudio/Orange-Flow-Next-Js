@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
 import WhatsAppConnectModal from "@/components/WhatsAppConnectModal";
+import ImageLightbox from "@/components/ui/ImageLightbox";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
 // Report image build + WhatsApp media upload can take far longer than the
@@ -2364,59 +2365,14 @@ export default function WhatsAppReportDeliveryModal({
       </AnimatePresence>
       , overlayRoot)}
 
-      {/* Report image preview */}
-      {overlayRoot && createPortal(
-      <AnimatePresence>
-        {previewUrl && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[115] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2 sm:p-4"
-            onClick={closePreview}
-          >
-            <motion.div
-              initial={{ scale: 0.94, y: 12, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.94, y: 12, opacity: 0 }}
-              transition={{ type: "spring", damping: 26, stiffness: 320 }}
-              className="w-full max-w-3xl max-h-[92vh] bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-100 dark:border-slate-800 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-                    {reportTitle} — Preview
-                  </span>
-                </div>
-                <button
-                  onClick={closePreview}
-                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors shrink-0"
-                  aria-label="Close preview"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-auto p-2 sm:p-4 bg-gray-100 dark:bg-slate-950">
-                <img
-                  src={previewUrl}
-                  alt={`${reportTitle} preview`}
-                  className="w-full h-auto rounded-xl shadow-sm"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-100 dark:border-slate-800 shrink-0">
-                <button
-                  onClick={closePreview}
-                  className="px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      , overlayRoot)}
+      {/* Report image preview - full-screen, with zoom/pan for tall reports */}
+      <ImageLightbox
+        open={!!previewUrl}
+        src={previewUrl}
+        alt={`${reportTitle} preview`}
+        title={reportTitle}
+        onClose={closePreview}
+      />
 
       <WhatsAppConnectModal
         open={showConnectModal}
