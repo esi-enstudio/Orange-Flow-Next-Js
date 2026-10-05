@@ -128,7 +128,6 @@ export default function CopyFromHouseModal({
 
   useEffect(() => {
     if (!open) return;
-    /* eslint-disable react-hooks/set-state-in-effect */
     setSourceHouseId("");
     setMode("skip");
     setIncludeEmployeeIds(false);
@@ -137,7 +136,6 @@ export default function CopyFromHouseModal({
     setError(null);
     setResult(null);
     setConfirmOpen(false);
-    /* eslint-enable react-hooks/set-state-in-effect */
   }, [open]);
 
   useEffect(() => {
@@ -167,14 +165,6 @@ export default function CopyFromHouseModal({
       setError(tC("messages.pick_target"));
       return;
     }
-    console.log('🔍 Copy Plan Debug:', {
-      sourceHouseId,
-      targetHouseId,
-      headers,
-      includeEmployeeIds,
-      includeInactive,
-      mode,
-    });
     setLoadingPlan(true);
     setError(null);
     setPlan(null);
@@ -185,12 +175,10 @@ export default function CopyFromHouseModal({
         include_inactive: String(includeInactive),
         mode,
       });
-      console.log('📤 Preview API call:', `/rule-config/copy-from-house/preview?${params.toString()}`);
       const res = await apiClient.get<{ data: CopyPlan }>(
         `/rule-config/copy-from-house/preview?${params.toString()}`,
         { headers }
       );
-      console.log('✅ Preview response:', res.data);
       setPlan(res.data.data ?? null);
     } catch (err) {
       console.error('❌ Preview error:', err);
@@ -206,14 +194,6 @@ export default function CopyFromHouseModal({
       setError(tC("messages.pick_target"));
       return;
     }
-    console.log('🚀 Copy Execution Debug:', {
-      sourceHouseId,
-      targetHouseId,
-      headers,
-      includeEmployeeIds,
-      includeInactive,
-      mode,
-    });
     setCopying(true);
     setError(null);
     try {
@@ -223,13 +203,11 @@ export default function CopyFromHouseModal({
         include_inactive: includeInactive,
         mode,
       };
-      console.log('📤 Copy API call:', '/rule-config/copy-from-house', payload, headers);
       const res = await apiClient.post<{ data: CopyResult }>(
         "/rule-config/copy-from-house",
         payload,
         { headers }
       );
-      console.log('✅ Copy response:', res.data);
       setResult(res.data.data ?? null);
       setPlan(null);
       setConfirmOpen(false);
@@ -653,6 +631,9 @@ export default function CopyFromHouseModal({
         }
         confirmText={tC("buttons.copy_confirm")}
         loading={copying}
+        /* Must out-rank this modal's own z-[210] backdrop, otherwise the
+           confirm renders behind it and the copy can never be confirmed. */
+        zIndex="z-[220]"
         onClose={() => {
           if (!copying) setConfirmOpen(false);
         }}

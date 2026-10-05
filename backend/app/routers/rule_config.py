@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -36,6 +37,7 @@ from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
 
 router = APIRouter(prefix="/api/rule-config", tags=["rule-config"])
+logger = logging.getLogger(__name__)
 
 MODULE = "rule_config"
 
@@ -698,9 +700,18 @@ async def copy_from_house(
         mode=data.mode,
     )
 
-    print(f"🔍 Copy plan generated: source={data.source_house_id}, target={house_context}")
-    print(f"📊 Plan summary: {plan.get('source_rule_count', 0)} rules, {plan.get('to_create', 0)} to_create, {plan.get('to_skip', 0)} to_skip")
-    print(f"📋 Rows count: {len(plan.get('rows', []))}")
+    logger.info(
+        "Copy plan generated: source=%s, target=%s",
+        data.source_house_id,
+        house_context,
+    )
+    logger.info(
+        "Plan summary: %s rules, %s to_create, %s to_skip",
+        plan.get("source_rule_count", 0),
+        plan.get("to_create", 0),
+        plan.get("to_skip", 0),
+    )
+    logger.info("Plan rows: %s", len(plan.get("rows", [])))
 
     if not plan["rows"]:
         raise HTTPException(
@@ -708,7 +719,7 @@ async def copy_from_house(
             detail="The source house has no rule configuration to copy",
         )
 
-    print(f"🚀 Executing copy plan with mode={data.mode}")
+    logger.info("Executing copy plan with mode=%s", data.mode)
     result = await execute_copy_plan(
         db,
         plan,
@@ -717,7 +728,12 @@ async def copy_from_house(
         mode=data.mode,
         include_employee_ids=data.include_employee_ids,
     )
-    print(f"✅ Copy result: created={result.get('created', 0)}, overwritten={result.get('overwritten', 0)}, skipped={result.get('skipped', 0)}")
+    logger.info(
+        "Copy result: created=%s, overwritten=%s, skipped=%s",
+        result.get("created", 0),
+        result.get("overwritten", 0),
+        result.get("skipped", 0),
+    )
     await db.commit()
 
     await log_activity(

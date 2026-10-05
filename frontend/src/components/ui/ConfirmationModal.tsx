@@ -18,6 +18,16 @@ interface ConfirmationModalProps {
   cancelText?: string;
   type?: ConfirmType;
   loading?: boolean;
+  /**
+   * Tailwind z-index class for the overlay.
+   *
+   * Must be HIGHER than the z-index of the modal that opens this confirm,
+   * otherwise the confirm renders underneath that modal's backdrop and becomes
+   * invisible/unclickable. Defaults to z-[100], which suits parents at z-[100]
+   * or below (those let document order decide). Parents on a higher layer (e.g.
+   * CopyFromHouseModal at z-[210]) must pass a higher value.
+   */
+  zIndex?: string;
   children?: React.ReactNode;
 }
 
@@ -31,6 +41,7 @@ export function ConfirmationModal({
   cancelText,
   type = "warning",
   loading = false,
+  zIndex = "z-[100]",
   children,
 }: ConfirmationModalProps) {
   const { t } = useLanguage();
@@ -67,7 +78,7 @@ export function ConfirmationModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+    <div className={cn("fixed inset-0 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300", zIndex)}>
       <motion.div 
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -95,7 +106,7 @@ export function ConfirmationModal({
             onClick={onConfirm}
             disabled={loading}
             className={cn(
-              "w-full py-4 rounded-2xl text-white font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-50",
+              "w-full py-4 rounded-2xl text-white font-bold transition-all shadow-lg active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
               current.btnBg
             )}
           >
@@ -104,7 +115,7 @@ export function ConfirmationModal({
           <button
             onClick={onClose}
             disabled={loading}
-            className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
+            className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {resolvedCancel}
           </button>
