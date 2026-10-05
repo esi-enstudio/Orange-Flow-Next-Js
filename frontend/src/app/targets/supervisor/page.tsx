@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
-import { Search, Upload, Download, ChevronLeft, ChevronRight, ChevronUp, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown } from "lucide-react";
+import { Search, Upload, Download, ChevronLeft, ChevronRight, ChevronUp, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import apiClient from "@/lib/api";
@@ -53,9 +53,11 @@ type ErrDict = Record<string, string>;
 
 export default function SupervisorTargetsPage() {
   const { t, language } = useLanguage();
-  const { hasPermission, loading: authLoading } = useAuth();
+  const { hasPermission, loading: authLoading, user } = useAuth();
   const [data, setData] = useState<SupervisorTargetRecord[]>([]);
   const [search, setSearch] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filters, setFilters] = useState({ house_id: 0, target_date: "", sort_order: "desc" });
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(1);
@@ -121,7 +123,11 @@ export default function SupervisorTargetsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get("/supervisor-targets", { params: { search: search || undefined, page, per_page: perPage } });
+      const params: Record<string, any> = { page, per_page: perPage, sort_by: "target_date", sort_order: filters.sort_order };
+      if (search) params.search = search;
+      if (filters.target_date) params.target_date = filters.target_date + "-01";
+      if (filters.house_id) params.house_id = String(filters.house_id);
+      const res = await axios.get("/supervisor-targets", { params });
       setData(res.data?.data || []);
       setTotalRecords(res.data?.pagination?.total || 0);
       setTotalPages(res.data?.pagination?.total_pages || 1);
@@ -131,7 +137,7 @@ export default function SupervisorTargetsPage() {
       console.error("Fetch supervisor targets error:", err);
     }
     finally { setLoading(false); }
-  }, [search, page]);
+  }, [search, page, filters]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -339,7 +345,11 @@ export default function SupervisorTargetsPage() {
 
   const handleExport = async () => {
     try {
-      const res = await axios.get("/supervisor-targets/export", { responseType: "blob" });
+      const params: Record<string, any> = {};
+      if (search) params.search = search;
+      if (filters.target_date) params.target_date = filters.target_date + "-01";
+      if (filters.house_id) params.house_id = String(filters.house_id);
+      const res = await axios.get("/supervisor-targets/export", { params, responseType: "blob" });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a"); a.href = url; a.download = "supervisor_targets.xlsx"; a.click();
       window.URL.revokeObjectURL(url);
@@ -362,6 +372,8 @@ export default function SupervisorTargetsPage() {
   if (!authLoading && !hasPermission("targets.view")) { return <AccessDenied />; }
 
   const canEdit = hasPermission("targets.edit");
+  const activeFilterCount = (filters.house_id ? 1 : 0) + (filters.target_date ? 1 : 0);
+  const clearFilters = () => { setFilters({ house_id: 0, target_date: "", sort_order: "desc" }); setPage(1); };
 
   return (
     <div className="p-6 space-y-6">
@@ -475,18 +487,74 @@ export default function SupervisorTargetsPage() {
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
         <div className="p-4 border-b border-gray-100 dark:border-slate-800">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder={t('supervisor_targets.search_placeholder')} value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1); }}
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none dark:text-gray-100" />
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[220px] max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input type="text" placeholder={t('supervisor_targets.search_placeholder')} value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none dark:text-gray-100" />
+            </div>
+            <button onClick={() => setFilterOpen(!filterOpen)}
+              className={`relative flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-medium transition-colors cursor-pointer ${
+                filterOpen || activeFilterCount > 0
+                  ? "bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-500/10 dark:border-rose-800 dark:text-rose-400"
+                  : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+              }`}>
+              <SlidersHorizontal className="w-4 h-4" />
+              {t('supervisor_targets.filters')}
+              {activeFilterCount > 0 && (
+                <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold">{activeFilterCount}</span>
+              )}
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${filterOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {activeFilterCount > 0 && (
+              <button onClick={clearFilters}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors cursor-pointer">
+                <RotateCcw className="w-3.5 h-3.5" /> {t('supervisor_targets.clear_filters')}
+              </button>
+            )}
           </div>
         </div>
+
+        {filterOpen && (
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-800/30">
+            <div className="flex items-end gap-4 flex-wrap">
+              {(user?.houses?.length ?? 0) > 1 && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase block">{t('supervisor_targets.filter_house')}</label>
+                  <select value={filters.house_id} onChange={e => { setFilters(f => ({ ...f, house_id: parseInt(e.target.value) })); setPage(1); }}
+                    className="py-2 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs dark:text-gray-200 outline-none focus:border-rose-500/40 transition-all cursor-pointer">
+                    <option value={0} className="dark:bg-slate-800">{t('supervisor_targets.filter_all_houses')}</option>
+                    {user?.houses?.map(h => (
+                      <option key={h.id} value={h.id} className="dark:bg-slate-800">{h.name} ({h.code})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase block">{t('supervisor_targets.filter_month')}</label>
+                <input type="month" value={filters.target_date}
+                  onChange={e => { setFilters(f => ({ ...f, target_date: e.target.value })); setPage(1); }}
+                  className="py-2 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs dark:text-gray-200 outline-none focus:border-rose-500/40 transition-all cursor-pointer" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase block">{t('supervisor_targets.filter_sort')}</label>
+                <select value={filters.sort_order} onChange={e => { setFilters(f => ({ ...f, sort_order: e.target.value })); setPage(1); }}
+                  className="py-2 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs dark:text-gray-200 outline-none focus:border-rose-500/40 transition-all cursor-pointer">
+                  <option value="desc" className="dark:bg-slate-800">{t('supervisor_targets.sort_newest')}</option>
+                  <option value="asc" className="dark:bg-slate-800">{t('supervisor_targets.sort_oldest')}</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Desktop Table */}
         <div className="hidden lg:block overflow-x-auto scrollbar-custom">
           <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-800">
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_house')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_date')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_employee')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_ev_secondary')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_sc_secondary')}</th>
@@ -497,17 +565,31 @@ export default function SupervisorTargetsPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_dsso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_dso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_dlso')}</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_date')}</th>
                 {canEdit && <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('supervisor_targets.table_actions')}</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={canEdit ? 12 : 11} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} className="border-b border-gray-50 dark:border-slate-800/50 animate-pulse">
+                    {Array.from({ length: canEdit ? 13 : 12 }).map((__, j) => (
+                      <td key={j} className="px-4 py-4">
+                        <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded-md" style={{ width: j === 0 ? "70%" : "50%" }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
               ) : data.length === 0 ? (
-                <tr><td colSpan={canEdit ? 12 : 11} className="text-center py-12 text-gray-400">{t('supervisor_targets.no_data')}</td></tr>
+                <tr><td colSpan={canEdit ? 13 : 12} className="text-center py-12 text-gray-400">{t('supervisor_targets.no_data')}</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.house?.name || "-"}</div>
+                    {r.house?.code && (
+                      <div className="text-xs text-gray-400 mt-0.5">{r.house.code}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString(language, { month: 'long', year: 'numeric' }) : "-"}</td>
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900 dark:text-gray-100">{r.employee?.user?.name || r.employee?.pool_number || `#${r.employee_id}`}</div>
                     {r.employee?.dms_code && (
@@ -523,7 +605,6 @@ export default function SupervisorTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dsso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dlso}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString(language, { month: 'long' }) : "-"}</td>
                   {canEdit && (
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
@@ -545,7 +626,16 @@ export default function SupervisorTargetsPage() {
         {/* Mobile Accordion */}
         <div className="lg:hidden divide-y dark:divide-slate-800">
           {loading ? (
-            <div className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-4 py-4 animate-pulse">
+                <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                </div>
+                <div className="h-3 w-12 bg-gray-200 dark:bg-slate-700 rounded-md" />
+              </div>
+            ))
           ) : data.length === 0 ? (
             <div className="text-center py-12 text-gray-400">{t('supervisor_targets.no_data')}</div>
           ) : data.map((r) => (
@@ -561,9 +651,12 @@ export default function SupervisorTargetsPage() {
                   {r.employee?.dms_code && (
                     <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{r.employee.dms_code}</div>
                   )}
+                  {r.house?.name && (
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{r.house.name}{r.house.code ? ` (${r.house.code})` : ""}</div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0 ml-2">
-                  <span className="text-xs text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString(language, { month: 'long' }) : "-"}</span>
+                  <span className="text-xs text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString(language, { month: 'long', year: 'numeric' }) : "-"}</span>
                   {expandedId === r.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                 </div>
               </button>
@@ -573,6 +666,8 @@ export default function SupervisorTargetsPage() {
               >
                 <div className="px-4 pb-3 pt-1 space-y-1.5">
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_house')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.house?.name || "-"}{r.house?.code ? ` (${r.house.code})` : ""}</span></div>
+                    <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_date')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.target_date ? new Date(r.target_date).toLocaleDateString(language, { month: 'long', year: 'numeric' }) : "-"}</span></div>
                     <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_ev_secondary')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.ev_secondary}</span></div>
                     <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_sc_secondary')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.sc_secondary}</span></div>
                     <div><span className="text-[11px] text-gray-500 dark:text-gray-400">{t('supervisor_targets.table_recharge')}:</span> <span className="font-medium text-gray-800 dark:text-gray-200">{r.total_recharge}</span></div>

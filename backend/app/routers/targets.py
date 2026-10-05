@@ -1,7 +1,7 @@
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, Query, Response, HTTPException
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from datetime import date, datetime
@@ -170,6 +170,7 @@ async def get_house_target(
 async def get_supervisor_targets(
     pagination: PaginationParams = Depends(),
     target_date_param: Optional[str] = Query(None, alias="target_date"),
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
     db: AsyncSession = Depends(get_db),
     current_user = Depends(has_permission("targets.view")),
     house_id: Optional[int] = Depends(get_house_context)
@@ -178,16 +179,32 @@ async def get_supervisor_targets(
         select(SupervisorTarget)
         .options(joinedload(SupervisorTarget.house), joinedload(SupervisorTarget.employee).joinedload(Employee.user))
     )
-    if house_id: query = query.where(SupervisorTarget.house_id == house_id)
+    active_house = filter_house_id or house_id
+    if active_house: query = query.where(SupervisorTarget.house_id == active_house)
     if target_date_param:
         query = query.where(SupervisorTarget.target_date == date.fromisoformat(target_date_param))
     if pagination.search:
-        query = query.where(SupervisorTarget.employee.has(Employee.dms_code.ilike(f"%{pagination.search}%")))
+        term = f"%{pagination.search}%"
+        query = query.where(
+            SupervisorTarget.employee.has(
+                or_(
+                    Employee.dms_code.ilike(term),
+                    Employee.pool_number.ilike(term),
+                    Employee.itop_number.ilike(term),
+                    Employee.user.has(User.name.ilike(term)),
+                )
+            )
+        )
+    sort_column = SupervisorTarget.target_date if pagination.sort_by == "target_date" else SupervisorTarget.id
+    if (pagination.sort_order or "desc").lower() == "asc":
+        query = query.order_by(sort_column.asc(), SupervisorTarget.id.asc())
+    else:
+        query = query.order_by(sort_column.desc(), SupervisorTarget.id.desc())
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.execute(count_query)
     total_count = total.scalar()
     offset = (pagination.page - 1) * pagination.per_page
-    result = await db.execute(query.offset(offset).limit(pagination.per_page).order_by(SupervisorTarget.id.desc()))
+    result = await db.execute(query.offset(offset).limit(pagination.per_page))
     records = result.unique().scalars().all()
     total_pages = max(1, (total_count + pagination.per_page - 1) // pagination.per_page)
     return {
@@ -215,9 +232,31 @@ async def download_supervisor_target_sample(
     )
 
 @router.get("/supervisor-targets/export")
-async def export_supervisor_targets(db: AsyncSession = Depends(get_db), current_user = Depends(has_permission("targets.export")), house_id: Optional[int] = Depends(get_house_context)):
+async def export_supervisor_targets(
+    search: Optional[str] = None,
+    target_date_param: Optional[str] = Query(None, alias="target_date"),
+    filter_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("targets.export")),
+    house_id: Optional[int] = Depends(get_house_context)
+):
     query = select(SupervisorTarget).options(joinedload(SupervisorTarget.house))
-    if house_id: query = query.where(SupervisorTarget.house_id == house_id)
+    active_house = filter_house_id or house_id
+    if active_house: query = query.where(SupervisorTarget.house_id == active_house)
+    if target_date_param:
+        query = query.where(SupervisorTarget.target_date == date.fromisoformat(target_date_param))
+    if search:
+        term = f"%{search}%"
+        query = query.where(
+            SupervisorTarget.employee.has(
+                or_(
+                    Employee.dms_code.ilike(term),
+                    Employee.pool_number.ilike(term),
+                    Employee.itop_number.ilike(term),
+                    Employee.user.has(User.name.ilike(term)),
+                )
+            )
+        )
     result = await db.execute(query.order_by(SupervisorTarget.id.desc()))
     records = result.scalars().all()
     excel_data = await export_supervisor_targets_excel(records)

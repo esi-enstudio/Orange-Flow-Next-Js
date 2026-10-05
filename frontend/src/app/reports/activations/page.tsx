@@ -656,16 +656,13 @@ function LeaderboardCard({ data, title, icon: Icon, color, t }: {
 }
 
 export default function ActivationDashboardPage() {
-  const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
+  const { hasPermission, loading: authLoading } = useAuth();
   const canViewActivationsReport = hasPermission("reports.view") || hasPermission("activations.view");
   const router = useRouter();
   const { t, language } = useLanguage();
 
   const today = new Date();
-  const [selectedHouseId, setSelectedHouseId] = useState<string>(
-    selectedHouse?.id ? String(selectedHouse.id) : ""
-  );
-  const [houseInitialized, setHouseInitialized] = useState(false);
+  const [selectedHouseId, setSelectedHouseId] = useState<string>("");
   const [houses, setHouses] = useState<{ id: number; name: string; code: string; display_name: string }[]>([]);
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [year, setYear] = useState(today.getFullYear());
@@ -691,13 +688,6 @@ export default function ActivationDashboardPage() {
     }
   }, [authLoading, canViewActivationsReport, router]);
 
-  useEffect(() => {
-    if (!authLoading && selectedHouse?.id && !houseInitialized) {
-      setSelectedHouseId(String(selectedHouse.id));
-      setHouseInitialized(true);
-    }
-  }, [authLoading, selectedHouse, houseInitialized]);
-
   const fetchDashboard = useCallback(async () => {
     if (!selectedHouseId) {
       setData(null);
@@ -720,7 +710,13 @@ export default function ActivationDashboardPage() {
   useEffect(() => {
     if (!authLoading && canViewActivationsReport) {
       apiClient.get("houses/accessible").then(res => {
-        setHouses(res.data);
+        const accessibleHouses = res.data ?? [];
+        setHouses(accessibleHouses);
+        // Single-house user: no selector is rendered, so auto-select the only
+        // house. Multi-house users start with no house selected by default.
+        if (accessibleHouses.length === 1) {
+          setSelectedHouseId(String(accessibleHouses[0].id));
+        }
       }).catch(() => {});
     }
   }, [authLoading, canViewActivationsReport]);
