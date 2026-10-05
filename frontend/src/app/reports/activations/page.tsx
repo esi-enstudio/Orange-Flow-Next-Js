@@ -925,7 +925,7 @@ export default function ActivationDashboardPage() {
             <KpiCard
               icon={Award}
               label={t("activation_report.achievement_pct")}
-              value={`${s.achievement_percentage}%`}
+              value={`${s.achievement_percentage.toFixed(2)}%`}
               valueColor={
                 s.achievement_percentage >= 100 ? "text-emerald-600 dark:text-emerald-400" :
                 s.achievement_percentage >= 70 ? "text-blue-600 dark:text-blue-400" :

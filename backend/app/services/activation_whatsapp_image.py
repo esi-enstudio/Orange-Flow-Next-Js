@@ -18,7 +18,10 @@ PNG mirroring the `/reports/activations` dashboard rules:
                        column
     * Subtotal      -> aggregated per table using the dashboard formulas
 
-Layout:
+Layout (one continuous portrait strip - the canvas height is measured from the
+    same walk that draws it, so the header is painted exactly once at the top,
+    every block is fully visible, and the footer is painted exactly once at the
+    very bottom):
     * Navy header with a light "YESTERDAY ACTIVATION" metric card on the right
     * House metric-card rows (large numbers)
     * Per-supervisor navy banner with Target / Ach / Ach% / Remain / DRR /
@@ -128,17 +131,35 @@ HEADER_H = 28
 ROW_H = 30
 SUB_H = 26
 FOOTER_H = 44
-BLK_GAP = 8             # gap between banner and the first table (reduced)
-TBL_SPLIT_GAP = 10      # gap between the RSO and BP tables inside one block (reduced)
+BLK_GAP = 8             # gap between banner and the first table
+TBL_SPLIT_GAP = 10      # gap between the RSO and BP tables inside one block
 CAPTION_H = 24          # small labelled band above each table
-AFTER_SUMMARY_GAP = 5   # gap between the summary region and the first banner (balanced)
+BLOCK_GAP = 12          # gap between two consecutive supervisor blocks
+FOOTER_GAP = 16         # breathing room between the last block and the footer
+                         # (the footer is a plain white band with no top rule, so
+                         # without this it would butt straight against the last
+                         # table border; matches the bottom margin the GA Live /
+                         # Active LSO / Active SSO builders also reserve)
 
-# Summary region: table (2 rows x 56px) + gap (8px) + days card (36px) + bottom gap (5px)
-SUMMARY_HEIGHT = (2 * 56) + 8 + 36 + 5
-BLOCKS_TOP = HDR_H + 12 + SUMMARY_HEIGHT + AFTER_SUMMARY_GAP
+# Summary region -- every value mirrors _draw_summary_table so the measured
+# canvas height can never drift from the drawn one.
+SUMMARY_COLS = 4          # metric columns in the house summary grid
+SUMMARY_METRIC_COUNT = 8  # fixed number of summary metrics (=> 2 rows)
+SUMMARY_ROW_H = 56        # height of one summary metric row
+SUMMARY_GRID_GAP = 8      # gap between the metric grid and the days card
+SUMMARY_INFO_H = 36       # height of the "Days: x/y Elapsed" card
+SUMMARY_TAIL_GAP = 5      # trailing gap, already returned by _draw_summary_table
+SUMMARY_GAP = HDR_H + 12  # header -> summary region
 
 # Minimum canvas height stays portrait (taller than wide) for small datasets.
 PORTRAIT_MIN_RATIO = 1.0
+
+
+def _summary_height() -> int:
+    """Height of the whole summary region, i.e. what _draw_summary_table returns
+    as its next-y (relative to the region's own top edge)."""
+    rows = math.ceil(SUMMARY_METRIC_COUNT / SUMMARY_COLS)
+    return rows * SUMMARY_ROW_H + SUMMARY_GRID_GAP + SUMMARY_INFO_H + SUMMARY_TAIL_GAP
 
 PAD_X = 8          # horizontal padding inside each table cell
 
@@ -361,10 +382,10 @@ def _draw_summary_table(draw, y, summary) -> int:
     ]
 
     # Calculate column widths
-    num_cols = 4  # 4 columns
+    num_cols = SUMMARY_COLS
     avail_width = TBL_X1 - TBL_X0
     col_width = avail_width / num_cols
-    row_height = 56
+    row_height = SUMMARY_ROW_H
 
     # Draw table with shadow
     x0, y0 = TBL_X0, y
@@ -407,7 +428,7 @@ def _draw_summary_table(draw, y, summary) -> int:
     draw.rounded_rectangle([x0, y0, TBL_X1, y0 + table_height],
                           radius=12, outline=OUTER_LINE, width=2)
 
-    y = y0 + table_height + 8  # Reduced gap
+    y = y0 + table_height + SUMMARY_GRID_GAP
 
     # Days info subtitle with modern styling
     days_elapsed = summary.get("days_elapsed") or 0
@@ -419,7 +440,7 @@ def _draw_summary_table(draw, y, summary) -> int:
     # Info card for days
     info_x0, info_y0 = x0, y
     info_width = TBL_X1 - TBL_X0
-    info_height = 36
+    info_height = SUMMARY_INFO_H
 
     draw.rounded_rectangle([info_x0, info_y0, info_x0 + info_width, info_y0 + info_height],
                           radius=8, fill=ACCENT_SOFT, outline=ACCENT, width=1)
@@ -430,7 +451,7 @@ def _draw_summary_table(draw, y, summary) -> int:
               f"{with_friday} (with Fri)  •  {fridays} Fridays Left",
               font=_font(11.5, True), fill=PRIMARY, anchor="mm")
 
-    return y + info_height + 5  # Balanced gap - increased from 2 to 5
+    return y + info_height + SUMMARY_TAIL_GAP
 
 
 # -- Supervisor banner --
@@ -999,16 +1020,24 @@ def _build_blocks(dashboard: dict, days_remaining: int, days_elapsed: int) -> li
 
 
 # -- Block rendering + sizing --
-def _table_height(n_rows: int) -> int:
-    return HEADER_H + ROW_H * n_rows + SUB_H
+def _table_height(n_rows: int, has_subtotal: bool = True) -> int:
+    """Rendered height of one employee table.
+
+    ``has_subtotal`` must mirror _draw_table: the subtotal band is only painted
+    when a subtotal row exists, so charging SUB_H unconditionally made the
+    measured canvas taller than the drawn content.
+    """
+    return HEADER_H + ROW_H * n_rows + (SUB_H if has_subtotal else 0)
 
 
 def _block_estimate(block: dict) -> int:
+    """Exact height _draw_block will consume for this block."""
     h = BANNER_H + BLK_GAP
     if block["rso_rows"]:
-        h += CAPTION_H + _table_height(len(block["rso_rows"])) + TBL_SPLIT_GAP
+        h += CAPTION_H + _table_height(len(block["rso_rows"]), block["rso_sub"] is not None)
+        h += TBL_SPLIT_GAP
     if block["bp_rows"]:
-        h += CAPTION_H + _table_height(len(block["bp_rows"]))
+        h += CAPTION_H + _table_height(len(block["bp_rows"]), block["bp_sub"] is not None)
     return h
 
 
@@ -1022,14 +1051,14 @@ def _draw_block(draw, block: dict) -> None:
         yy = _draw_table_caption(draw, yy, "RSO - Team Performance",
                                  len(block["rso_rows"]), "rso", TBL_X0 + _rso_w)
         _draw_table(draw, yy, "rso", block["rso_rows"], block["rso_sub"])
-        yy += _table_height(len(block["rso_rows"])) + TBL_SPLIT_GAP
+        yy += _table_height(len(block["rso_rows"]), block["rso_sub"] is not None) + TBL_SPLIT_GAP
     if block["bp_rows"]:
         _bp_w = _compute_widths(draw, _table_specs("bp"),
                                 block["bp_rows"], block["bp_sub"], "bp")[1]
         yy = _draw_table_caption(draw, yy, "BP - Team Performance",
                                  len(block["bp_rows"]), "bp", TBL_X0 + _bp_w)
         _draw_table(draw, yy, "bp", block["bp_rows"], block["bp_sub"])
-        yy += _table_height(len(block["bp_rows"]))
+        yy += _table_height(len(block["bp_rows"]), block["bp_sub"] is not None)
     block["bottom"] = yy
 
 
@@ -1055,6 +1084,19 @@ def _draw_footer(draw, y) -> None:
               font=_font(11.5, True), fill=MUTED, anchor="rm")
 
 
+def _content_height(blocks: list[dict]) -> int:
+    """Measured height of everything drawn between the header and the footer.
+
+    Walks the exact same sequence the render pass uses - summary region, then
+    every block separated by BLOCK_GAP - so the canvas is derived from the real
+    layout instead of a second, independent estimate.
+    """
+    h = SUMMARY_GAP + _summary_height()
+    h += sum(_block_estimate(b) for b in blocks)
+    h += BLOCK_GAP * max(len(blocks) - 1, 0)
+    return h
+
+
 def _render_image(house_name: str, house_code: str, dashboard: dict,
                   today: date) -> bytes:
     summary = dashboard.get("summary", {})
@@ -1062,38 +1104,33 @@ def _render_image(house_name: str, house_code: str, dashboard: dict,
     days_elapsed = int(summary.get("days_elapsed") or 1)
 
     blocks = _build_blocks(dashboard, days_remaining, days_elapsed)
-    est = sum(_block_estimate(b) for b in blocks)
 
-    canvas_h = max(BLOCKS_TOP + est + 16 + FOOTER_H,
+    canvas_h = max(_content_height(blocks) + FOOTER_GAP + FOOTER_H,
                    int(WIDTH * PORTRAIT_MIN_RATIO) + FOOTER_H)
-
-    # Layout pass: place blocks, inserting a repeated header band (new page)
-    # when a block would overflow past the footer.
-    page_headers = []
-    cursor = BLOCKS_TOP
-    for i, b in enumerate(blocks):
-        eh = _block_estimate(b)
-        if i and cursor + eh > canvas_h - FOOTER_H - 16:
-            top = canvas_h - FOOTER_H + 8
-            canvas_h += HDR_H + 48
-            page_headers.append(top)
-            cursor = top + HDR_H + 12
-        # Add gap between blocks (except first one)
-        if i > 0:
-            cursor += 12
-        b["y"] = cursor
-        cursor += eh
 
     s = _active_scale()
     img = Image.new("RGB", (WIDTH * s, max(int(canvas_h), 60) * s), BG_COLOR)
     draw = ScaledDraw(ImageDraw.Draw(img))
 
+    # One continuous portrait strip (same approach as the GA Live / Active LSO /
+    # Active SSO report images): header once at the top, then a single measured
+    # walk down the blocks, footer once at the very bottom.
+    #
+    # This replaces the old "layout pass + page break" logic, which re-anchored a
+    # repeated header band at `canvas_h - FOOTER_H` whenever a block did not fit
+    # the independently estimated canvas. That estimate omitted the BLOCK_GAP
+    # consumed between blocks, so the final block always looked like an overflow
+    # and painted a second header band near the bottom - while the fixed
+    # HDR_H + 48 growth still left less room than the block needed, letting the
+    # footer be painted on top of it and the rest of it fall off the canvas.
     _draw_header(draw, house_name, house_code, summary, today, 0)
-    for top in page_headers:
-        _draw_header(draw, house_name, house_code, summary, today, top)
-    _draw_summary_table(draw, HDR_H + 12, summary)
-    for b in blocks:
+    y = _draw_summary_table(draw, SUMMARY_GAP, summary)
+    for i, b in enumerate(blocks):
+        if i:
+            y += BLOCK_GAP
+        b["y"] = y
         _draw_block(draw, b)
+        y = b["bottom"]
     _draw_footer(draw, canvas_h - FOOTER_H)
 
     buf = io.BytesIO()

@@ -225,7 +225,7 @@ class ActivationReportService:
         prev_act_res = await self.db.execute(prev_act_q)
         previous_month_achievement = prev_act_res.scalar() or 0
 
-        achievement_pct = round((achievement / monthly_target * 100), 1) if monthly_target else 0
+        achievement_pct = round((achievement / monthly_target * 100), 2) if monthly_target else 0
         remaining = max(0, monthly_target - achievement)
         excl_friday_days = max(self._days_remaining - self._remaining_fridays, 1)
         daily_required = math.ceil(remaining / excl_friday_days) if self._days_remaining else 0
