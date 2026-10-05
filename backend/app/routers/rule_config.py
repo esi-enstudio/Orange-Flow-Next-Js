@@ -983,3 +983,65 @@ async def delete_rule(
         request=request, status_code=200,
     )
     return {"message": "Rule deleted successfully"}
+
+
+# ---------------------------------------------------------------------------
+# Bulk delete
+# ---------------------------------------------------------------------------
+
+class BulkDeleteRequest(BaseModel):
+    rule_ids: list[int] = Field(..., min_length=1)
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_rules(
+    data: BulkDeleteRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission(f"{MODULE}.delete")),
+    house_context: Optional[int] = Depends(get_house_context),
+):
+    """Soft-delete several rules at once.
+
+    Each rule is validated for house-level access before deletion.  An audit log
+    entry is written per rule so the audit trail is identical to individual deletes.
+    Rules that are not found (already deleted or wrong house) are silently skipped;
+    the response reports how many were actually deleted.
+    """
+    unique_ids = list(dict.fromkeys(data.rule_ids))  # dedup, preserve order
+    if not unique_ids:
+        raise HTTPException(status_code=422, detail="rule_ids must not be empty")
+
+    allowed = _accessible_house_ids(current_user, house_context)
+    deleted_names: list[str] = []
+    skipped: list[int] = []
+
+    for rule_id in unique_ids:
+        rule = await db.get(ReportRuleMaster, rule_id)
+        if not rule or rule.is_deleted:
+            skipped.append(rule_id)
+            continue
+        if allowed is not None and rule.house_id not in allowed:
+            skipped.append(rule_id)
+            continue
+
+        children = await get_rule_children(db, rule.id)
+        old = rule_to_dict(rule, children)
+        await soft_delete_rule(db, rule, current_user.id)
+
+        await log_activity(
+            db, current_user.id, current_user.name, MODULE, "delete",
+            record_id=rule.id, record_identifier=rule.rule_name,
+            old_values=old, new_values=None,
+            request=request, status_code=200,
+        )
+        deleted_names.append(rule.rule_name)
+
+    await db.commit()
+
+    return {
+        "success": True,
+        "deleted": len(deleted_names),
+        "skipped": len(skipped),
+        "deleted_names": deleted_names,
+    }

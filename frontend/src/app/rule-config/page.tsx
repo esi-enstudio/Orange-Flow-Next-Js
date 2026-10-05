@@ -78,12 +78,14 @@ export default function RuleConfigPage() {
     return ROLES.includes(p as Role) ? (p as Role) : "HOUSE";
   });
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [creatingNew, setCreatingNew] = useState(true);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RuleType | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [authRedirect, setAuthRedirect] = useState(false);
@@ -115,9 +117,8 @@ export default function RuleConfigPage() {
   // is omitted, and every house-scoped request fails with HTTP 400.
   useEffect(() => {
     if (selectedHouse?.id) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       setSelectedHouseId((prev) => (prev === String(selectedHouse.id) ? prev : String(selectedHouse.id)));
-      /* eslint-enable react-hooks/set-state-in-effect */
+      setSelectedIds(new Set());
     }
   }, [selectedHouse?.id]);
 
@@ -154,17 +155,16 @@ export default function RuleConfigPage() {
   );
 
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
     if (paramCtx) {
       setActiveContext(paramCtx);
       setSelectedId(null);
       setCreatingNew(true);
+      setSelectedIds(new Set());
     }
     if (paramRole) {
       const r = paramRole.toUpperCase();
       if (ROLES.includes(r as Role)) setActiveRole(r as Role);
     }
-    /* eslint-enable react-hooks/set-state-in-effect */
   }, [paramCtx, paramRole]);
 
   const load = useCallback(async () => {
@@ -195,7 +195,6 @@ export default function RuleConfigPage() {
 
   useEffect(() => {
     if (canView && houseId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       load();
     }
   }, [canView, houseId, load]);
@@ -317,12 +316,39 @@ export default function RuleConfigPage() {
       await apiClient.delete(`/rule-config/${rule.id}`, { headers });
       setSelectedId(null);
       setCreatingNew(true);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(rule.id);
+        return next;
+      });
       await load();
     } catch {
       setError("Failed to delete rule");
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await apiClient.post<{ success: boolean; deleted: number }>(
+        "/rule-config/bulk-delete",
+        { rule_ids: Array.from(selectedIds) },
+        { headers }
+      );
+      setSelectedIds(new Set());
+      setCreatingNew(true);
+      setDeleteTarget(null);
+      await load();
+    } catch {
+      setError("Failed to delete selected rules");
+    } finally {
+      setDeleting(false);
+      setBulkDeleteOpen(false);
     }
   }
 
@@ -602,8 +628,12 @@ export default function RuleConfigPage() {
                 rules={roleRules}
                 selectedId={creatingNew ? null : selectedId}
                 canCreate={canCreate || canEdit}
+                canDelete={canDelete}
                 onCreate={handleCreateNew}
                 onSelect={handleSelectRule}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={setSelectedIds}
+                onBulkDelete={() => setBulkDeleteOpen(true)}
               />
             </div>
             <div className="min-h-[320px] xl:min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
@@ -645,6 +675,17 @@ export default function RuleConfigPage() {
         loading={deleting}
         onClose={() => { if (!deleting) setDeleteTarget(null); }}
         onConfirm={() => { if (deleteTarget) handleDelete(deleteTarget); }}
+      />
+
+      <ConfirmationModal
+        isOpen={bulkDeleteOpen}
+        type="danger"
+        title={t("rule_config.messages.bulk_delete_title", { count: selectedIds.size })}
+        message={t("rule_config.messages.bulk_delete_message", { count: selectedIds.size })}
+        confirmText={t("common.delete")}
+        loading={deleting}
+        onClose={() => { if (!deleting) setBulkDeleteOpen(false); }}
+        onConfirm={handleBulkDelete}
       />
 
       <ManageContextsModal
