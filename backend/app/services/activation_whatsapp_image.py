@@ -299,12 +299,12 @@ def _fmt(n) -> str:
 
 
 def _pct(v) -> str:
+    """Percentage with a fixed 2-decimal format (e.g. 6.98%, 100.00%)."""
     try:
         v = float(v)
     except (TypeError, ValueError):
-        return "0%"
-    # Always return integer percentage (no decimal)
-    return f"{int(round(v))}%"
+        return "0.00%"
+    return f"{v:.2f}%"
 
 
 def _ceil_div(n: float, d: int) -> int:

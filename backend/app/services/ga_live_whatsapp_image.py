@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # RENDER_SCALE below — the size is intended, not a decompression bomb.
 Image.MAX_IMAGE_PIXELS = None
 
-from app.services.ga_live_whatsapp_text import _load_report_data, _fmt, _pct
+from app.services.ga_live_whatsapp_text import _load_report_data, _fmt
 from app.utils.timezone import now_naive
 
 FONT_REG = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
@@ -193,6 +193,25 @@ def _hex(c: str):
     return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
 
 
+PCT_MAX_TEXT = "100.00%"  # widest value _pct() can emit
+
+
+def _pct(part, whole) -> str:
+    """Percentage with a fixed 2-decimal format (e.g. 6.98%, 100.00%).
+
+    Deliberately local to the image builder instead of reusing the shared
+    ``ga_live_whatsapp_text._pct``, which renders 1 decimal and feeds the text
+    report's fixed-width tables whose ``%`` column is only 6 chars wide - with 2
+    decimals ``100.00%`` would be silently truncated to ``100.00`` there.
+    """
+    try:
+        if not whole:
+            return "0.00%"
+        return f"{float(part) / float(whole) * 100:.2f}%"
+    except (TypeError, ValueError, ZeroDivisionError):
+        return "0.00%"
+
+
 def _blend(c1: str, c2: str, f: float) -> str:
     a = _hex(c1)
     b = _hex(c2)
@@ -330,6 +349,17 @@ def _content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_tota
         need = f_head.getlength(str(total_row[0])) + margin
         if need > span_w:
             req[total_span - 1] += need - span_w
+    # Percentage columns are floored to the widest value _pct() can ever emit,
+    # independently of this render's data. Sizing them purely from the current
+    # content meant a render full of small percentages (e.g. "6.98%") narrowed
+    # the column, and a later 100.00% was ellipsized to "100.0...". Applied last
+    # because the max_total cap above only shrinks the total, which makes every
+    # column proportionally wider in pixels - so a weight equal to the required
+    # pixels is always enough.
+    pct_min = math.ceil(f_cell.getlength(PCT_MAX_TEXT) + margin)
+    for ci, lb in enumerate(labels):
+        if str(lb).strip() == "%":
+            req[ci] = max(req[ci], pct_min)
     return [max(1, r) for r in req]
 
 
@@ -704,7 +734,7 @@ def _render_supervisor_section(img, draw, x, y, data, summary) -> int:
         "", "Total", "-",
         _n(sums["rso"]), _n(sums["bp"]),
         _fmt(sums["target"]), _fmt(sums["ach"]),
-        _pct(sums["ach"], sums["target"]) if sums["target"] else "0%",
+        _pct(sums["ach"], sums["target"]) if sums["target"] else "0.00%",
         _fmt(sums["remain"]), _fmt(sums["drr"]),
         _n(sums["live"]),
     ]
@@ -788,7 +818,7 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
         monthly_target = r.get("target", 0) or 0
         remaining = r.get("remaining", 0) or 0
         ach = _ach(r)
-        pct_val = _pct(ach, monthly_target) if monthly_target else "0%"
+        pct_val = _pct(ach, monthly_target) if monthly_target else "0.00%"
         remain = remaining
         drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
         own = r.get("own_activation", 0) or 0
@@ -805,7 +835,7 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
             _n(own), _n(mkt),
         ])
     if team_rso:
-        su_pct = _pct(su["ach"], su["trg"]) if su["trg"] else "0%"
+        su_pct = _pct(su["ach"], su["trg"]) if su["trg"] else "0.00%"
         su_drr = math.ceil(su["rem"] / max(days_remaining, 1)) if su["rem"] > 0 else 0
         rso_total = [
             f"Total ({len(team_rso)} RSO)", "", "", "",
@@ -842,7 +872,7 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
             monthly_target = b.get("target", 0) or 0
             remaining = b.get("remaining", 0) or 0
             ach = _ach(b)
-            pct_val = _pct(ach, monthly_target) if monthly_target else "0%"
+            pct_val = _pct(ach, monthly_target) if monthly_target else "0.00%"
             remain = max(0, remaining)
             drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
             own = b.get("own_activation", 0) or 0
@@ -858,7 +888,7 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
                 _fmt(monthly_target), _fmt(ach), pct_val, _fmt(remain), _fmt(drr),
                 _n(own), _n(mkt),
             ])
-        su2_pct = _pct(su2["ach"], su2["trg"]) if su2["trg"] else "0%"
+        su2_pct = _pct(su2["ach"], su2["trg"]) if su2["trg"] else "0.00%"
         su2_drr = math.ceil(su2["rem"] / max(days_remaining, 1)) if su2["rem"] > 0 else 0
         bp_total = [
             f"Total ({len(team_bp)} BP)", "", "", "",
