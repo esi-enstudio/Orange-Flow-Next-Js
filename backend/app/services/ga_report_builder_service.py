@@ -57,12 +57,21 @@ def is_slab_column(key: str) -> bool:
     return key.startswith("slab_") and key.rsplit("_", 1)[-1] in SLAB_METRIC_SUFFIXES
 
 
+SLAB_METRIC_LABELS = {
+    "target": "Target",
+    "achievement": "Ach",
+    "achievement_pct": "Ach %",
+    "remaining": "Remain",
+}
+
+
 def slab_column_label(key: str) -> str:
     try:
         _, num, metric = key.split("_", 2)
-        return f"Slab {num} {metric.replace('_', ' ').title()}"
     except ValueError:
         return key
+    label = SLAB_METRIC_LABELS.get(metric, metric.replace("_", " ").title())
+    return f"Slab {num} {label}"
 
 COLUMN_REGISTRY: list[dict[str, Any]] = [
     # house
@@ -70,8 +79,8 @@ COLUMN_REGISTRY: list[dict[str, Any]] = [
     {"key": "house_name", "label": "House Name", "category": "house", "type": "string", "sortable": True},
     # rso
     {"key": "rso_name", "label": "RSO Name", "category": "rso", "type": "string", "sortable": True},
-    {"key": "rso_itop_number", "label": "RSO iTopUp No", "category": "rso", "type": "string", "sortable": True},
-    {"key": "rso_dms_code", "label": "RSO DMS Code", "category": "rso", "type": "string", "sortable": True},
+    {"key": "rso_itop_number", "label": "iTopUp No", "category": "rso", "type": "string", "sortable": True},
+    {"key": "rso_dms_code", "label": "DMS Code", "category": "rso", "type": "string", "sortable": True},
     {"key": "rso_assisted_code", "label": "RSO Assisted Code", "category": "rso", "type": "string", "sortable": True},
     {"key": "rso_pool_number", "label": "RSO Pool No", "category": "rso", "type": "string", "sortable": True},
     # bp
@@ -192,7 +201,10 @@ class GaReportBuilderService:
                     "code": r.retailer_code,
                     "name": r.name,
                     "itop_number": r.itop_number or "",
-                    "rso_name": r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else ""),
+                    "rso_name": (
+                        (r.employee.employee_name or (r.employee.user.name if r.employee.user else "") or r.employee.dms_code or "")
+                        if r.employee else ""
+                    ),
                 }
                 for r in retailers
             ]
@@ -218,7 +230,7 @@ class GaReportBuilderService:
             {
                 "id": e.id,
                 "code": e.dms_code or "",
-                "name": (e.user.name if e.user else None) or e.employee_name or e.dms_code or f"#{e.id}",
+                "name": e.employee_name or (e.user.name if e.user else None) or e.dms_code or f"#{e.id}",
                 "itop_number": e.itop_number or "",
                 "pool_number": e.pool_number or "",
                 "assisted_code": e.assisted_retailer_code or "",
@@ -226,10 +238,35 @@ class GaReportBuilderService:
             for e in employees
         ]
 
+    async def _product_code_options(self, limit: int = 500) -> list[dict]:
+        """Distinct product codes present in this house's activation data, so the
+        exclusion picker never offers a code that cannot match a row."""
+        codes: dict[str, str] = {}
+        for model in (Activation, LiveActivation):
+            res = await self.db.execute(
+                select(model.product_code, func.max(model.product_name))
+                .where(
+                    model.house_id == self.cfg.house_id,
+                    model.product_code != None,  # noqa: E711
+                    model.product_code != "",
+                )
+                .group_by(model.product_code)
+                .order_by(model.product_code)
+                .limit(limit)
+            )
+            for code, name in res.all():
+                if not code:
+                    continue
+                codes.setdefault(code, "")
+                if name and not codes[code]:
+                    codes[code] = name
+        return [{"code": c, "name": codes[c]} for c in sorted(codes)]
+
     async def get_exclusion_options(self) -> dict:
         markings = await get_active_markings(self.db)
         return {
             "retailer_tags": [{"id": m.id, "name": m.name} for m in markings],
+            "product_codes": await self._product_code_options(),
         }
 
     # ------------------------------------------------------------ data access
@@ -482,7 +519,10 @@ class GaReportBuilderService:
                 "retailer_thana": r.thana or "",
                 "retailer_address": r.address or "",
                 "retailer_contact_no": r.contact_no or "",
-                "rso_name": r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else ""),
+                "rso_name": (
+                    (r.employee.employee_name or (r.employee.user.name if r.employee.user else "") or r.employee.dms_code or "")
+                    if r.employee else ""
+                ),
                 "rso_itop_number": r.employee.itop_number or "" if r.employee else "",
                 "rso_dms_code": r.employee.dms_code or "" if r.employee else "",
                 "rso_assisted_code": r.employee.assisted_retailer_code or "" if r.employee else "",
@@ -574,13 +614,13 @@ class GaReportBuilderService:
         for emp in employees:
             if entity_type == "rso":
                 row = {
-                    "rso_name": emp.user.name if emp.user else (emp.dms_code or f"#{emp.id}"),
+                    "rso_name": emp.employee_name or (emp.user.name if emp.user else "") or emp.dms_code or f"#{emp.id}",
                     "rso_dms_code": emp.dms_code or "",
                     "rso_itop_number": emp.itop_number or "",
                 }
             else:
                 row = {
-                    "bp_name": emp.user.name if emp.user else (emp.dms_code or f"#{emp.id}"),
+                    "bp_name": emp.employee_name or (emp.user.name if emp.user else "") or emp.dms_code or f"#{emp.id}",
                     "bp_pool_number": emp.pool_number or "",
                     "bp_assisted_code": emp.assisted_retailer_code or "",
                 }

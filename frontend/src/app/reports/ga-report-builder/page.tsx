@@ -503,6 +503,7 @@ function EventManagerModal({
   open, onClose, houseId, events, onSaved, canCreate, canEdit, canDelete, canPermanentDelete,
   columnsMeta, rsoItems, bpItems, fetchAllEntities,
   tags,
+  productCodeItems,
 }: {
   open: boolean;
   onClose: () => void;
@@ -518,6 +519,7 @@ function EventManagerModal({
   bpItems: EntityOption[];
   fetchAllEntities: (type: "rso" | "bp" | "retailer") => Promise<EntityOption[]>;
   tags: TagOption[];
+  productCodeItems: SelectorItem[];
 }) {
   const { t } = useLanguage();
   const todayStr = (() => {
@@ -693,6 +695,15 @@ function EventManagerModal({
       filters: {
         exclude_product_codes: codes,
         exclude_retailer_tags: tags.includes(name) ? tags.filter((x) => x !== name) : [...tags, name],
+      },
+    });
+  };
+
+  const productCodeChange = (ids: (string | number)[]) => {
+    updateConfig({
+      filters: {
+        exclude_product_codes: ids.map(String),
+        exclude_retailer_tags: config.filters?.exclude_retailer_tags ?? [],
       },
     });
   };
@@ -1309,6 +1320,19 @@ function EventManagerModal({
                         displayField="name"
                         keyField="name"
                       />
+                      <EntitySelector
+                        label={t("ga_report_builder.filters.exclude_product_codes")}
+                        items={productCodeItems}
+                        selectedIds={config.filters?.exclude_product_codes ?? []}
+                        onChange={productCodeChange}
+                        placeholder={t("ga_report_builder.filters.exclude_product_codes_placeholder")}
+                        searchPlaceholder={t("ga_report_builder.filters.exclude_product_codes_search")}
+                        emptyMessage={t("ga_report_builder.filters.exclude_product_codes_empty")}
+                        noResultsMessage={t("ga_report_builder.filters.no_results")}
+                        selectAllLabel={t("ga_report_builder.target.select_all")}
+                        clearLabel={t("ga_report_builder.target.deselect_all")}
+                        selectedLabel={t("ga_report_builder.filters.selected_short")}
+                      />
                     </div>
               </div>
             </div>
@@ -1548,6 +1572,7 @@ export default function GaReportBuilderPage() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [tags, setTags] = useState<TagOption[]>([]);
+  const [productCodeItems, setProductCodeItems] = useState<SelectorItem[]>([]);
 
   const [rsoItems, setRsoItems] = useState<EntityOption[]>([]);
   const [rsoLoading, setRsoLoading] = useState(false);
@@ -1610,6 +1635,64 @@ export default function GaReportBuilderPage() {
     return [];
   }, [payload.target_type, payload.rso_ids, payload.bp_ids, configEntityItems]);
 
+  /* ── "% of monthly target" bulk applier (Report Configuration modal, RSO/BP grid) ── */
+  const [percentInput, setPercentInput] = useState("");
+  const [percentSlab, setPercentSlab] = useState(1);
+  const [monthlyTargets, setMonthlyTargets] = useState<Record<string, number | null>>({});
+  const [monthlyTargetsLoading, setMonthlyTargetsLoading] = useState(false);
+
+  const fetchMonthlyTargets = useCallback(async () => {
+    const type = payload.target_type;
+    if (type !== "rso" && type !== "bp") return;
+    const ids = (type === "rso" ? payload.rso_ids : payload.bp_ids) ?? [];
+    if (ids.length === 0 || !effectiveHouseId) {
+      setMonthlyTargets({});
+      return;
+    }
+    setMonthlyTargetsLoading(true);
+    try {
+      const res = await apiClient.get("/ga-report-builder/monthly-targets", {
+        params: { entity_type: type, entity_ids: ids.join(","), house_id: effectiveHouseId },
+      });
+      const data = res.data?.data as Record<string, { monthly_target: number | null }> | undefined;
+      const map: Record<string, number | null> = {};
+      for (const id of ids) map[String(id)] = data?.[String(id)]?.monthly_target ?? null;
+      setMonthlyTargets(map);
+    } catch {
+      setMonthlyTargets({});
+    } finally {
+      setMonthlyTargetsLoading(false);
+    }
+  }, [payload.target_type, payload.rso_ids, payload.bp_ids, effectiveHouseId]);
+
+  useEffect(() => {
+    if (configOpen) void fetchMonthlyTargets();
+  }, [configOpen, fetchMonthlyTargets]);
+
+  const applyPercentTargets = () => {
+    const pct = Number(percentInput);
+    if (!pct || pct <= 0) return;
+    const slab = Math.min(Math.max(1, percentSlab), payload.slabs ?? 1);
+    const updates = new Map<number, number>();
+    for (const e of configEntityRows) {
+      const monthly = monthlyTargets[String(e.id)];
+      if (monthly == null) continue; // no running-month target — skip
+      updates.set(e.id, Math.round((monthly * pct) / 100));
+    }
+    if (updates.size === 0) return;
+    setPayload((p) => {
+      const rest = p.targets.filter(
+        (t) => !(t.slab === slab && t.entity_id != null && updates.has(t.entity_id))
+      );
+      const added = [...updates].map(([entity_id, target_value]) => ({ entity_id, slab, target_value }));
+      return { ...p, targets: [...rest, ...added] };
+    });
+  };
+
+  const percentMissingCount = configEntityRows.filter(
+    (e) => monthlyTargets[String(e.id)] == null
+  ).length;
+
   /* ── initial loads ── */
   useEffect(() => {
     if (assignedHouses.length === 0 && !allHouses) {
@@ -1647,6 +1730,10 @@ export default function GaReportBuilderPage() {
       const res = await apiClient.get("/ga-report-builder/exclusions", { params: { house_id: houseId } });
       const d = res.data?.data;
       setTags(d?.retailer_tags ?? []);
+      const codes = (d?.product_codes ?? []) as Array<{ code: string; name?: string }>;
+      setProductCodeItems(
+        codes.map((c) => ({ id: c.code, label: c.code, sublabel: c.name || undefined }))
+      );
     } catch { /* silent */ }
   }, []);
 
@@ -2365,6 +2452,62 @@ export default function GaReportBuilderPage() {
               {(payload.target_type ?? "retailer") !== "retailer" && (
                 <div className="mb-4">
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.target.targets")}</label>
+                  {configEntityRows.length > 0 && (
+                    <div className="mb-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/30 p-3 space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+                        <div className="flex-1">
+                          <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            {t("ga_report_builder.target.percent_label")}
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={percentInput}
+                              onChange={(e) => setPercentInput(e.target.value)}
+                              placeholder="28"
+                              className="w-full min-h-[44px] pl-3 pr-8 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+                          </div>
+                        </div>
+                        {(payload.slabs ?? 1) > 1 && (
+                          <div>
+                            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                              {t("ga_report_builder.target.percent_slab")}
+                            </label>
+                            <select
+                              value={percentSlab}
+                              onChange={(e) => setPercentSlab(Number(e.target.value))}
+                              className="min-h-[44px] px-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                            >
+                              {Array.from({ length: payload.slabs ?? 1 }).map((_, i) => (
+                                <option key={i} value={i + 1}>
+                                  {t("ga_report_builder.slab.label", { number: i + 1 })}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={applyPercentTargets}
+                          disabled={!percentInput || Number(percentInput) <= 0 || monthlyTargetsLoading}
+                          className="min-h-[44px] px-4 rounded-lg bg-primary-600 text-white text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                        >
+                          {t("ga_report_builder.target.percent_apply")}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                        {monthlyTargetsLoading
+                          ? t("ga_report_builder.target.percent_loading")
+                          : percentMissingCount > 0
+                            ? t("ga_report_builder.target.percent_missing", { count: percentMissingCount })
+                            : t("ga_report_builder.target.percent_hint")}
+                      </p>
+                    </div>
+                  )}
                   {configEntityRows.length === 0 ? (
                     <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
                       {t("ga_report_builder.target.no_selection")}
@@ -2391,7 +2534,14 @@ export default function GaReportBuilderPage() {
                             <tr key={e.id}>
                               <td className="px-2 py-1">
                                 <p className="font-medium text-gray-800 dark:text-gray-200">{e.name}</p>
-                                <p className="text-[11px] text-gray-500 dark:text-gray-400">{e.code}</p>
+                                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                                  {e.code}
+                                  {monthlyTargets[String(e.id)] != null && (
+                                    <span className="text-gray-400 dark:text-gray-500">
+                                      {' '}· {t("ga_report_builder.target.monthly_ref", { target: monthlyTargets[String(e.id)] as number })}
+                                    </span>
+                                  )}
+                                </p>
                               </td>
                               {Array.from({ length: payload.slabs ?? 1 }).map((_, i) => {
                                 const entry = payload.targets.find((te) => String(te.entity_id) === String(e.id) && te.slab === i + 1);
@@ -2469,6 +2619,23 @@ export default function GaReportBuilderPage() {
                   searchable={false}
                   displayField="name"
                   keyField="name"
+                />
+                <EntitySelector
+                  label={t("ga_report_builder.filters.exclude_product_codes")}
+                  items={productCodeItems}
+                  selectedIds={payload.filters.exclude_product_codes}
+                  onChange={(ids) =>
+                    updatePayload({
+                      filters: { ...payload.filters, exclude_product_codes: ids.map(String) },
+                    })
+                  }
+                  placeholder={t("ga_report_builder.filters.exclude_product_codes_placeholder")}
+                  searchPlaceholder={t("ga_report_builder.filters.exclude_product_codes_search")}
+                  emptyMessage={t("ga_report_builder.filters.exclude_product_codes_empty")}
+                  noResultsMessage={t("ga_report_builder.filters.no_results")}
+                  selectAllLabel={t("ga_report_builder.target.select_all")}
+                  clearLabel={t("ga_report_builder.target.deselect_all")}
+                  selectedLabel={t("ga_report_builder.filters.selected_short")}
                 />
               </div>
 
@@ -2549,6 +2716,7 @@ export default function GaReportBuilderPage() {
         bpItems={bpItems}
         fetchAllEntities={fetchAllEntities}
         tags={tags}
+        productCodeItems={productCodeItems}
       />
       <ConfirmationModal
         isOpen={!!quickDeleteTarget}
