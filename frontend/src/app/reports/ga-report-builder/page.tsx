@@ -548,6 +548,11 @@ function EventManagerModal({
     rso: [], bp: [], retailer: [],
   });
   const [modalEntityLoading, setModalEntityLoading] = useState(false);
+  // "% of monthly target" bulk applier (RSO/BP target grids)
+  const [percentInput, setPercentInput] = useState("");
+  const [percentSlab, setPercentSlab] = useState(1);
+  const [monthlyTargets, setMonthlyTargets] = useState<Record<string, number | null>>({});
+  const [monthlyTargetsLoading, setMonthlyTargetsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const toSelectorItems = (type: "rso" | "bp" | "retailer", list: EntityOption[]): SelectorItem[] => {
@@ -620,6 +625,9 @@ function EventManagerModal({
     setUploadSlab(1);
     setLocalRsoItems([]);
     setLocalBpItems([]);
+    setPercentInput("");
+    setPercentSlab(1);
+    setMonthlyTargets({});
   };
 
   useEffect(() => {
@@ -696,6 +704,56 @@ function EventManagerModal({
     setUploadRows([]);
     setUploadSummary(null);
   };
+
+  /* ── % of monthly target: bulk apply ── */
+  const fetchMonthlyTargets = useCallback(async () => {
+    const type = config.target_type;
+    if (type !== "rso" && type !== "bp") return;
+    const ids = (type === "rso" ? config.rso_ids : config.bp_ids) ?? [];
+    if (ids.length === 0 || !houseId) {
+      setMonthlyTargets({});
+      return;
+    }
+    setMonthlyTargetsLoading(true);
+    try {
+      const res = await apiClient.get("/ga-report-builder/monthly-targets", {
+        params: { entity_type: type, entity_ids: ids.join(","), house_id: houseId },
+      });
+      const data = res.data?.data as Record<string, { monthly_target: number | null }> | undefined;
+      const map: Record<string, number | null> = {};
+      for (const id of ids) map[String(id)] = data?.[String(id)]?.monthly_target ?? null;
+      setMonthlyTargets(map);
+    } catch {
+      setMonthlyTargets({});
+    } finally {
+      setMonthlyTargetsLoading(false);
+    }
+  }, [config.target_type, config.rso_ids, config.bp_ids, houseId]);
+
+  useEffect(() => {
+    void fetchMonthlyTargets();
+  }, [fetchMonthlyTargets]);
+
+  const applyPercentTargets = () => {
+    const pct = Number(percentInput);
+    if (!pct || pct <= 0) return;
+    const slab = Math.min(Math.max(1, percentSlab), config.slabs ?? 1);
+    setTargetValues((prev) => {
+      const next = { ...prev };
+      for (const e of entityRows) {
+        const monthly = monthlyTargets[String(e.id)];
+        if (monthly == null) continue; // no running-month target — skip
+        const row = { ...(next[String(e.id)] ?? {}) };
+        row[slab] = Math.round((monthly * pct) / 100);
+        next[String(e.id)] = row;
+      }
+      return next;
+    });
+  };
+
+  const percentMissingCount = entityRows.filter(
+    (e) => monthlyTargets[String(e.id)] == null
+  ).length;
 
   const adjustSlabs = (delta: number) => {
     const next = Math.min(10, Math.max(1, (config.slabs ?? 1) + delta));
@@ -1035,6 +1093,62 @@ function EventManagerModal({
                     <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
                       {t("ga_report_builder.target.targets")}
                     </label>
+                    {entityRows.length > 0 && (
+                      <div className="mb-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/30 p-3 space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+                          <div className="flex-1">
+                            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                              {t("ga_report_builder.target.percent_label")}
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={percentInput}
+                                onChange={(e) => setPercentInput(e.target.value)}
+                                placeholder="28"
+                                className="w-full min-h-[44px] pl-3 pr-8 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+                            </div>
+                          </div>
+                          {(config.slabs ?? 1) > 1 && (
+                            <div>
+                              <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                                {t("ga_report_builder.target.percent_slab")}
+                              </label>
+                              <select
+                                value={percentSlab}
+                                onChange={(e) => setPercentSlab(Number(e.target.value))}
+                                className="min-h-[44px] px-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                              >
+                                {Array.from({ length: config.slabs ?? 1 }).map((_, i) => (
+                                  <option key={i} value={i + 1}>
+                                    {t("ga_report_builder.slab.label", { number: i + 1 })}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={applyPercentTargets}
+                            disabled={!percentInput || Number(percentInput) <= 0 || monthlyTargetsLoading}
+                            className="min-h-[44px] px-4 rounded-lg bg-primary-600 text-white text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                          >
+                            {t("ga_report_builder.target.percent_apply")}
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                          {monthlyTargetsLoading
+                            ? t("ga_report_builder.target.percent_loading")
+                            : percentMissingCount > 0
+                              ? t("ga_report_builder.target.percent_missing", { count: percentMissingCount })
+                              : t("ga_report_builder.target.percent_hint")}
+                        </p>
+                      </div>
+                    )}
                     {entityRows.length === 0 ? (
                       <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
                         {t("ga_report_builder.target.no_selection")}
@@ -1061,7 +1175,14 @@ function EventManagerModal({
                               <tr key={e.id}>
                                 <td className="px-2 py-1">
                                   <p className="font-medium text-gray-800 dark:text-gray-200">{e.name}</p>
-                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{e.code}</p>
+                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                                    {e.code}
+                                    {monthlyTargets[String(e.id)] != null && (
+                                      <span className="text-gray-400 dark:text-gray-500">
+                                        {' '}· {t("ga_report_builder.target.monthly_ref", { target: monthlyTargets[String(e.id)] as number })}
+                                      </span>
+                                    )}
+                                  </p>
                                 </td>
                                 {Array.from({ length: config.slabs ?? 1 }).map((_, i) => (
                                   <td key={i} className="px-2 py-1">

@@ -15,6 +15,11 @@ from app.models.ga_report_event import GaReportEvent
 from app.models.ga_report_template import GaReportTemplate
 from app.models.ga_report_target import GaReportTarget
 from app.models.retailer import Retailer
+from app.models.rso_target import RSOTarget
+from app.models.bp_target import BpTarget
+from app.models.employee import Employee
+from datetime import date as date_type
+from calendar import monthrange
 from app.services.ga_report_builder_service import (
     GaReportBuilderService,
     ReportConfig,
@@ -305,6 +310,74 @@ async def get_entities(
     _require_house_id(target_house_id)
     service = GaReportBuilderService(db, ReportConfig({"house_id": target_house_id}))
     return {"success": True, "data": await service.get_entities(entity_type, search, limit=limit)}
+
+
+@router.get("/ga-report-builder/monthly-targets")
+async def get_monthly_targets(
+    entity_type: str = Query("rso", pattern="^(rso|bp)$"),
+    entity_ids: str = Query(..., description="Comma-separated employee ids"),
+    q_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("ga_report_builder.view")),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    """Running month's GA target for the given RSO/BP employees.
+
+    Mirrors ga_live_service: RSO target = RSOTarget.ga, BP target = BpTarget.ga_target,
+    resolved for the month that contains today.
+    """
+    target_house_id = await _resolve_house(db, current_user, q_house_id, header_house_id)
+    _require_house_id(target_house_id)
+
+    try:
+        ids = [int(x) for x in entity_ids.split(",") if x.strip().isdigit()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entity_ids")
+    ids = list(dict.fromkeys(ids))[:500]
+    if not ids:
+        return {"success": True, "data": {}}
+
+    today = now_naive().date()
+    month_start = date_type(today.year, today.month, 1)
+    month_end = date_type(today.year, today.month, monthrange(today.year, today.month)[1])
+
+    targets: dict[int, Optional[int]] = {i: None for i in ids}
+    if entity_type == "rso":
+        res = await db.execute(
+            select(RSOTarget.employee_id, RSOTarget.ga).where(
+                RSOTarget.employee_id.in_(ids),
+                RSOTarget.house_id == target_house_id,
+                RSOTarget.target_date >= month_start,
+                RSOTarget.target_date <= month_end,
+            )
+        )
+        for emp_id, ga in res.all():
+            targets[emp_id] = ga or 0
+    else:
+        res = await db.execute(
+            select(BpTarget.employee_id, BpTarget.ga_target).where(
+                BpTarget.employee_id.in_(ids),
+                BpTarget.house_id == target_house_id,
+                BpTarget.target_date >= month_start,
+                BpTarget.target_date <= month_end,
+            )
+        )
+        for emp_id, ga in res.all():
+            targets[emp_id] = ga or 0
+
+    # Include itop_number for display alongside the target
+    emp_res = await db.execute(
+        select(Employee.id, Employee.itop_number).where(Employee.id.in_(ids))
+    )
+    itop_map = {eid: (itop or "") for eid, itop in emp_res.all()}
+
+    return {
+        "success": True,
+        "data": {
+            str(eid): {"monthly_target": val, "itop_number": itop_map.get(eid, "")}
+            for eid, val in targets.items()
+        },
+    }
 
 
 @router.get("/ga-report-builder/exclusions")
