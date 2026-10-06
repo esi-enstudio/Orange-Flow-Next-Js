@@ -1666,7 +1666,7 @@ export const translations = {
         label: "Slab {number}",
         target: "Target",
         achievement: "Ach",
-        achievement_pct: "Ach %",
+        achievement_pct: "Ach%",
         remaining: "Remain",
       },
       columns: {

@@ -1457,7 +1457,7 @@ function ReportTable({
   const fmt = (key: string, val: string | number) => {
     if (isPct(key)) {
       const n = Number(val);
-      return Number.isNaN(n) ? "—" : `${n.toLocaleString()}%`;
+      return Number.isNaN(n) ? "—" : `${n.toFixed(2)}%`;
     }
     if (isNum(key)) return Number(val).toLocaleString();
     return String(val ?? "—");
@@ -1481,7 +1481,7 @@ function ReportTable({
             <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60">
               <th className="px-2 py-2 text-left font-semibold text-xs text-gray-500 dark:text-gray-400 w-10">#</th>
               {columns.map((c) => (
-                <th key={c} className="px-2 py-2 text-left font-semibold text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <th key={c} className={cn("px-2 py-2 font-semibold text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap", isNum(c) || isPct(c) ? "text-center" : "text-left")}>
                   {label(c)}
                 </th>
               ))}
@@ -1492,7 +1492,7 @@ function ReportTable({
               <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-800/40">
                 <td className="px-2 py-1 text-gray-400 text-xs">{i + 1}</td>
                 {columns.map((c) => (
-                  <td key={c} className={cn("px-2 py-1", isNum(c) && "tabular-nums")}>
+                  <td key={c} className={cn("px-2 py-1", (isNum(c) || isPct(c)) && "text-center tabular-nums")}>
                     <span className={cn(isNum(c) && "font-medium")}>{fmt(c, row[c])}</span>
                   </td>
                 ))}
@@ -1504,7 +1504,7 @@ function ReportTable({
                   <span className="text-xs text-gray-400 uppercase">{t("ga_report_builder.builder.totals")}</span>
                 </td>
                 {columns.map((c) => (
-                  <td key={c} className="px-2 py-2">
+                  <td key={c} className={cn("px-2 py-2", (isNum(c) || isPct(c)) && "text-center")}>
                     {c in totals ? (
                       <span className="font-bold text-primary-600 dark:text-primary-400 tabular-nums">{fmt(c, totals[c])}</span>
                     ) : (
@@ -1545,7 +1545,7 @@ function ReportTable({
                   {columns.map((c) => (
                     <div key={c} className="flex items-center justify-between gap-3 px-3 py-1.5 rounded-lg bg-gray-50 dark:bg-slate-800/50">
                       <span className="text-xs text-gray-500 dark:text-gray-400">{label(c)}</span>
-                      <span className={cn("text-sm font-medium text-gray-800 dark:text-gray-200", isNum(c) && "tabular-nums")}>
+                      <span className={cn("text-sm font-medium text-gray-800 dark:text-gray-200", (isNum(c) || isPct(c)) && "tabular-nums")}>
                         {fmt(c, row[c])}
                       </span>
                     </div>
