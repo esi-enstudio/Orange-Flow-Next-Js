@@ -557,7 +557,12 @@ function EventManagerModal({
     if (type === "bp") {
       return list.map((i) => ({ id: i.id, label: i.name, sublabel: i.pool_number || i.code }));
     }
-    return list.map((i) => ({ id: i.id, label: i.name, sublabel: i.code }));
+    // RSO — "dms_code · itop_number" on one secondary line
+    return list.map((i) => ({
+      id: i.id,
+      label: i.name,
+      sublabel: [i.code, i.itop_number].filter(Boolean).join(" · ") || undefined,
+    }));
   };
 
   const loadModalEntities = async (type: "rso" | "bp" | "retailer") => {
@@ -1688,7 +1693,12 @@ export default function GaReportBuilderPage() {
         ? all.map((i) => ({ id: i.code, label: i.code, sublabel: i.name }))
         : type === "bp"
           ? all.map((i) => ({ id: i.id, label: i.name, sublabel: i.pool_number || i.code }))
-          : all.map((i) => ({ id: i.id, label: i.name, sublabel: i.code }));
+          : all.map((i) => ({
+              id: i.id,
+              label: i.name,
+              // RSO — "dms_code · itop_number" on one secondary line
+              sublabel: [i.code, i.itop_number].filter(Boolean).join(" · ") || undefined,
+            }));
       setConfigEntityItems((prev) => ({ ...prev, [type]: items }));
     } catch { /* silent */ } finally {
       setConfigEntityLoading(false);

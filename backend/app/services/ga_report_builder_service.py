@@ -218,7 +218,7 @@ class GaReportBuilderService:
             {
                 "id": e.id,
                 "code": e.dms_code or "",
-                "name": e.user.name if e.user else (e.dms_code or f"#{e.id}"),
+                "name": (e.user.name if e.user else None) or e.employee_name or e.dms_code or f"#{e.id}",
                 "itop_number": e.itop_number or "",
                 "pool_number": e.pool_number or "",
                 "assisted_code": e.assisted_retailer_code or "",
