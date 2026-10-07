@@ -918,9 +918,9 @@ export default function ActivationDashboardPage() {
               subtitle={s.previous_month_target > 0
                 ? t("activation_report.last_month_achievement", {
                     count: s.previous_month_achievement,
-                    pct: Math.round((s.previous_month_achievement / s.previous_month_target) * 100),
+                    pct: ((s.previous_month_achievement / s.previous_month_target) * 100).toFixed(2),
                   })
-                : t("activation_report.last_month_achievement", { count: s.previous_month_achievement, pct: 0 })}
+                : t("activation_report.last_month_achievement", { count: s.previous_month_achievement, pct: "0.00" })}
             />
             <KpiCard
               icon={Award}
@@ -932,7 +932,7 @@ export default function ActivationDashboardPage() {
                 s.achievement_percentage >= 40 ? "text-amber-600 dark:text-amber-400" :
                 "text-rose-600 dark:text-rose-400"
               }
-              subtitle={`${t("activation_report.expected_pct")}: ${s.expected_percentage}%`}
+              subtitle={`${t("activation_report.expected_pct")}: ${s.expected_percentage.toFixed(2)}%`}
             />
             <KpiCard
               icon={BarChart3}
@@ -964,12 +964,12 @@ export default function ActivationDashboardPage() {
                 s.expected_percentage >= 70 ? "text-blue-600 dark:text-blue-400" :
                 "text-amber-600 dark:text-amber-400"
               }
-              subtitle={`${t("activation_report.expected_pct")}: ${s.expected_percentage}%`}
+              subtitle={`${t("activation_report.expected_pct")}: ${s.expected_percentage.toFixed(2)}%`}
             />
             <KpiCard
               icon={Sparkles}
               label={t("activation_report.expected_pct")}
-              value={`${s.expected_percentage}%`}
+              value={`${s.expected_percentage.toFixed(2)}%`}
               valueColor={
                 s.expected_percentage >= 100 ? "text-emerald-600 dark:text-emerald-400" :
                 s.expected_percentage >= 70 ? "text-blue-600 dark:text-blue-400" :
