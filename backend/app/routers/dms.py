@@ -5,21 +5,25 @@ import asyncio
 from datetime import date, datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, has_permission
+from app.routers.deps import get_db, has_permission, require_house_context
 from app.models.user import User
 from app.models.house import House
 from app.models.retailer import Retailer
 from app.models.sim_issue import SimIssue
 from app.utils.access_control import is_admin_user
+from app.utils.activity_logger import log_activity
 from app.core.session_manager import session_manager
-from app.services.Automation.dms_scraper import get_smart_search_results
+from app.services.Automation.dms_scraper import (
+    get_smart_search_results,
+    get_receive_sim_from_retailer_list,
+)
 from app.services.Automation.Tasks.sim_issue import run_sim_issue_status, run_finalize_issue
 
 logger = logging.getLogger("app.routers.dms")
@@ -587,6 +591,122 @@ async def return_sim(
         house_code=house.code,
         total_processed=len(serials),
         results=results_list
+    )
+
+
+class ReceiveSimRequestItem(BaseModel):
+    distributor_name: str = ""
+    retailer_name: str = ""
+    receive_date: str = ""
+    sim_qty: int = 0
+    status: str = Field("", description="S = Pending, A = Approved, R = Rejected")
+    remarks: Optional[str] = None
+    create_by: str = ""
+    details_url: Optional[str] = None
+
+
+class ReceiveSimRequestListResponse(BaseModel):
+    success: bool = True
+    house_id: int
+    house_name: str
+    house_code: str
+    status: str
+    total: int
+    data: List[ReceiveSimRequestItem]
+
+
+@router.get("/sim-return/receive-requests", response_model=ReceiveSimRequestListResponse)
+async def list_receive_sim_requests(
+    request: Request,
+    status_filter: str = Query(
+        "S",
+        alias="status",
+        description="S = Pending, A = Approved, R = Rejected",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("dms.sim_return")),
+    house_id: int = Depends(require_house_context),
+):
+    """Read-only list of 'Receive SIM From Retailer' requests scraped from DMS,
+    filtered by approval status (S/Pending, A/Approved, R/Rejected)."""
+    status_filter = (status_filter or "S").strip().upper()
+    if status_filter not in ("S", "A", "R"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid status. Allowed values: S (Pending), A (Approved), R (Rejected)."
+        )
+
+    result = await db.execute(select(House).where(House.id == house_id))
+    house = result.scalar_one_or_none()
+
+    if not house:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Distribution house not found."
+        )
+
+    if not house.dms_user or not house.dms_pass or not house.dms_house_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DMS credentials are not configured for this distribution house. Please configure them in House Settings."
+        )
+
+    credentials = {
+        "user": house.dms_user,
+        "pass": house.dms_pass,
+        "house_id": house.dms_house_id,
+        "house_name": house.name,
+        "code": house.code
+    }
+
+    page = None
+    context = None
+    try:
+        page, context = await session_manager.get_valid_page(credentials)
+    except Exception as e:
+        logger.error(f"❌ [Receive SIM] {house.name} ({house.code}) failed to get session: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DMS session login failed: {str(e)}"
+        )
+
+    try:
+        rows, error = await get_receive_sim_from_retailer_list(page, status_filter)
+    except Exception as e:
+        logger.error(f"❌ [Receive SIM] {house.name} ({house.code}) scrape crashed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch receive SIM requests: {str(e)}"
+        )
+    finally:
+        try:
+            if page:
+                await page.close()
+            if context:
+                await context.close()
+            logger.info(f"🚪 [{house.name}] Receive SIM tab & session closed.")
+        except Exception:
+            pass
+
+    if error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch receive SIM requests: {error}"
+        )
+
+    await log_activity(
+        db, current_user.id, current_user.name, "dms", "view",
+        record_identifier=f"receive_sim_requests:{status_filter}:{house.code}",
+        request=request, status_code=200,
+    )
+
+    return ReceiveSimRequestListResponse(
+        house_id=house.id,
+        house_name=house.name,
+        house_code=house.code,
+        status=status_filter,
+        total=len(rows),
+        data=[ReceiveSimRequestItem(**row) for row in rows],
     )
 
 

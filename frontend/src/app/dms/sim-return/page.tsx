@@ -12,6 +12,7 @@ import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/Seria
 import { useSerialLength } from "@/hooks/useSerialLength";
 import { analyzeSerialList } from "@/lib/serialValidation";
 import { BarcodeScannerModal } from "@/components/dms/BarcodeScannerModal";
+import PageGuideModal from "@/components/PageGuideModal";
 import {
   Undo2,
   Search,
@@ -31,7 +32,10 @@ import {
   AlertCircle,
   Smartphone,
   ChevronDown,
-  ScanBarcode
+  ScanBarcode,
+  Inbox,
+  RefreshCw,
+  ExternalLink
 } from "lucide-react";
 
 interface House {
@@ -45,6 +49,19 @@ interface ReturnResultItem {
   sim_no: string;
   status: "Success" | "Returned" | "Failed" | "Already Returned";
   remarks: string | null;
+}
+
+type ReceiveStatus = "S" | "A" | "R";
+
+interface ReceiveSimRequest {
+  distributor_name: string;
+  retailer_name: string;
+  receive_date: string;
+  sim_qty: number;
+  status: string;
+  remarks: string | null;
+  create_by: string;
+  details_url: string | null;
 }
 
 const loadingTipsEn = [
@@ -122,6 +139,16 @@ export default function SIMReturnPage() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [rangeValid, setRangeValid] = useState(true);
   const serialLength = useSerialLength();
+
+  // Receive SIM From Retailer — live DMS list
+  const [receiveStatus, setReceiveStatus] = useState<ReceiveStatus>("S");
+  const [receiveRows, setReceiveRows] = useState<ReceiveSimRequest[]>([]);
+  const [receiveLoading, setReceiveLoading] = useState(false);
+  const [receiveError, setReceiveError] = useState<string | null>(null);
+  const [receiveLoaded, setReceiveLoaded] = useState(false);
+  const [receiveSearch, setReceiveSearch] = useState("");
+  const [receivePage, setReceivePage] = useState(1);
+  const [receiveExpandedId, setReceiveExpandedId] = useState<number | null>(null);
 
   useEffect(() => {
     const el = houseSelectRef.current;
@@ -289,6 +316,83 @@ export default function SIMReturnPage() {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
   }, [totalPages]);
 
+  const fetchReceiveRequests = useCallback(async (statusFilter: ReceiveStatus) => {
+    if (!selectedHouseId) return;
+    setReceiveLoading(true);
+    setReceiveError(null);
+    try {
+      const res = await apiClient.get("dms/sim-return/receive-requests", {
+        params: { status: statusFilter },
+        headers: { "X-House-ID": String(selectedHouseId) },
+        timeout: 180000,
+      });
+      setReceiveRows(res.data?.data || []);
+      setReceiveLoaded(true);
+      setReceivePage(1);
+      setReceiveSearch("");
+      setReceiveExpandedId(null);
+    } catch (err: any) {
+      setReceiveRows([]);
+      setReceiveError(
+        err?.response?.data?.detail || err?.message || t("sim_return.receive.load_failed")
+      );
+    } finally {
+      setReceiveLoading(false);
+    }
+  }, [selectedHouseId, t]);
+
+  const resetReceiveSection = useCallback(() => {
+    setReceiveStatus("S");
+    setReceiveRows([]);
+    setReceiveLoaded(false);
+    setReceiveError(null);
+    setReceiveSearch("");
+    setReceivePage(1);
+    setReceiveExpandedId(null);
+  }, []);
+
+  const receiveFiltered = useMemo(() => {
+    if (!receiveSearch.trim()) return receiveRows;
+    const q = receiveSearch.toLowerCase();
+    return receiveRows.filter((r) =>
+      r.retailer_name.toLowerCase().includes(q) ||
+      r.distributor_name.toLowerCase().includes(q) ||
+      r.create_by.toLowerCase().includes(q) ||
+      (r.remarks || "").toLowerCase().includes(q)
+    );
+  }, [receiveRows, receiveSearch]);
+
+  const receiveTotalPages = Math.ceil(receiveFiltered.length / pageSize);
+  const receivePagedRows = useMemo(() => {
+    const start = (receivePage - 1) * pageSize;
+    return receiveFiltered.slice(start, start + pageSize);
+  }, [receiveFiltered, receivePage]);
+
+  const getReceiveBadge = (rawStatus: string) => {
+    if (rawStatus === "A") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 whitespace-nowrap">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          {t("sim_return.receive.status_approved")}
+        </span>
+      );
+    }
+    if (rawStatus === "R") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 border border-red-200 dark:border-red-500/20 whitespace-nowrap">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+          {t("sim_return.receive.status_rejected")}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 whitespace-nowrap">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+        {t("sim_return.receive.status_pending")}
+      </span>
+    );
+  };
+
   const getStatusBadge = (status: ReturnResultItem["status"]) => {
     switch (status) {
       case "Returned":
@@ -381,37 +485,41 @@ export default function SIMReturnPage() {
           </div>
 
           {/* House Select Dropdown */}
-          <motion.div variants={itemVariants} className="flex flex-col gap-2 max-w-sm w-full">
-            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-              <Building className="w-3.5 h-3.5" />
-              {t("sim_return.select_house")}
-            </label>
-            <div className="relative">
-              <select
-                ref={houseSelectRef}
-                value={selectedHouseId}
-                onChange={(e) => {
-                      setSelectedHouseId(e.target.value === "" ? "" : Number(e.target.value));
-                      setInputValue("");
-                      setResults([]);
-                      setHouseInfo(null);
-                      setSearchQuery("");
-                      setStatusFilter("All");
-                      setCurrentPage(1);
-                      setInputMethod("range");
-                    }}
-                disabled={loading}
-                className="w-full pl-4 pr-10 py-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer disabled:opacity-60 appearance-none"
-              >
-                <option value="" className="dark:bg-slate-800 dark:text-gray-400">-- {t("sim_return.select_house")} --</option>
-                {houses.map((house) => (
-                  <option key={house.id} value={house.id} className="dark:bg-slate-800 dark:text-gray-100">{house.display_name}</option>
-                ))}
-              </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                <ChevronDown className="w-4 h-4" />
+          <motion.div variants={itemVariants} className="flex items-end gap-3 max-w-lg w-full">
+            <div className="flex flex-col gap-2 flex-1 min-w-0">
+              <label className="text-xs font-bold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                <Building className="w-3.5 h-3.5" />
+                {t("sim_return.select_house")}
+              </label>
+              <div className="relative">
+                <select
+                  ref={houseSelectRef}
+                  value={selectedHouseId}
+                  onChange={(e) => {
+                        setSelectedHouseId(e.target.value === "" ? "" : Number(e.target.value));
+                        setInputValue("");
+                        setResults([]);
+                        setHouseInfo(null);
+                        setSearchQuery("");
+                        setStatusFilter("All");
+                        setCurrentPage(1);
+                        setInputMethod("range");
+                        resetReceiveSection();
+                      }}
+                  disabled={loading}
+                  className="w-full pl-4 pr-10 py-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer disabled:opacity-60 appearance-none"
+                >
+                  <option value="" className="dark:bg-slate-800 dark:text-gray-400">-- {t("sim_return.select_house")} --</option>
+                  {houses.map((house) => (
+                    <option key={house.id} value={house.id} className="dark:bg-slate-800 dark:text-gray-100">{house.display_name}</option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                  <ChevronDown className="w-4 h-4" />
+                </div>
               </div>
             </div>
+            <PageGuideModal pageKey="sim_return" />
           </motion.div>
         </motion.div>
 
@@ -863,6 +971,399 @@ export default function SIMReturnPage() {
             </motion.div>
           </motion.div>
         )}
+
+        {/* Receive SIM From Retailer — live DMS list */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm"
+        >
+          <div className="p-6 md:p-8 border-b border-gray-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-500 text-white shadow-lg shadow-sky-200 dark:shadow-none">
+                <Inbox className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                  {t("sim_return.receive.title")}
+                  {receiveLoaded && !receiveLoading && (
+                    <span className="text-[11px] font-bold text-gray-400 dark:text-gray-500 font-mono">
+                      ({receiveRows.length})
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+                  {t("sim_return.receive.subtitle")}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-end gap-2.5">
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="receive-status"
+                  className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide"
+                >
+                  {t("sim_return.receive.status_label")}
+                </label>
+                <div className="relative">
+                  <select
+                    id="receive-status"
+                    value={receiveStatus}
+                    onChange={(e) => {
+                      const next = e.target.value as ReceiveStatus;
+                      setReceiveStatus(next);
+                      if (receiveLoaded && !receiveLoading) fetchReceiveRequests(next);
+                    }}
+                    disabled={receiveLoading || !selectedHouseId}
+                    className="w-full pl-4 pr-10 py-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed appearance-none min-h-[44px]"
+                  >
+                    <option value="S" className="dark:bg-slate-800 dark:text-gray-100">
+                      {t("sim_return.receive.status_pending")}
+                    </option>
+                    <option value="A" className="dark:bg-slate-800 dark:text-gray-100">
+                      {t("sim_return.receive.status_approved")}
+                    </option>
+                    <option value="R" className="dark:bg-slate-800 dark:text-gray-100">
+                      {t("sim_return.receive.status_rejected")}
+                    </option>
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => fetchReceiveRequests(receiveStatus)}
+                disabled={receiveLoading || !selectedHouseId}
+                className="flex items-center gap-2 px-5 py-3 bg-gradient-to-tr from-sky-600 to-indigo-500 hover:from-sky-700 hover:to-indigo-600 text-white rounded-2xl text-sm font-black transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer min-h-[44px] whitespace-nowrap"
+              >
+                {receiveLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : receiveLoaded ? (
+                  <RefreshCw className="w-4 h-4" />
+                ) : (
+                  <Search className="w-4 h-4" />
+                )}
+                {receiveLoaded ? t("sim_return.receive.refresh") : t("sim_return.receive.load")}
+              </button>
+            </div>
+          </div>
+
+          {!selectedHouseId ? (
+            <div className="p-10 flex flex-col items-center text-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+                <Building className="w-7 h-7 text-gray-400 dark:text-gray-500" />
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md">
+                {t("sim_return.receive.select_house_hint")}
+              </p>
+            </div>
+          ) : receiveLoading ? (
+            <div className="p-5 space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 animate-pulse">
+                  <div className="space-y-2 flex-1 min-w-0">
+                    <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    <div className="h-2.5 w-28 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  </div>
+                  <div className="hidden sm:block h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                  <div className="h-5 w-16 rounded-full bg-gray-200 dark:bg-slate-700" />
+                </div>
+              ))}
+              <p className="text-xs text-gray-400 dark:text-gray-500 text-center pt-2">
+                {t("sim_return.receive.loading")}
+              </p>
+            </div>
+          ) : receiveError ? (
+            <div className="p-10 flex flex-col items-center text-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
+                <AlertTriangle className="w-7 h-7 text-red-500" />
+              </div>
+              <p className="text-sm font-medium text-red-500 dark:text-red-400 max-w-md">
+                {receiveError}
+              </p>
+              <button
+                type="button"
+                onClick={() => fetchReceiveRequests(receiveStatus)}
+                className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-black transition-colors cursor-pointer min-h-[44px]"
+              >
+                {t("sim_return.receive.retry")}
+              </button>
+            </div>
+          ) : !receiveLoaded ? (
+            <div className="p-10 flex flex-col items-center text-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-sky-50 dark:bg-sky-500/10 flex items-center justify-center">
+                <Inbox className="w-7 h-7 text-sky-500" />
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md">
+                {t("sim_return.receive.initial_hint")}
+              </p>
+              <button
+                type="button"
+                onClick={() => fetchReceiveRequests(receiveStatus)}
+                className="px-5 py-2.5 bg-gradient-to-tr from-sky-600 to-indigo-500 hover:from-sky-700 hover:to-indigo-600 text-white rounded-xl text-xs font-black transition-colors cursor-pointer min-h-[44px] flex items-center gap-2"
+              >
+                <Search className="w-4 h-4" />
+                {t("sim_return.receive.load")}
+              </button>
+            </div>
+          ) : receiveRows.length === 0 ? (
+            <div className="p-10 flex flex-col items-center text-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+                <Inbox className="w-7 h-7 text-gray-400 dark:text-gray-500" />
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {t("sim_return.receive.no_data")}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="p-5 border-b border-gray-100 dark:border-slate-800/80 bg-gray-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full max-w-sm">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={receiveSearch}
+                    onChange={(e) => {
+                      setReceiveSearch(e.target.value);
+                      setReceivePage(1);
+                      setReceiveExpandedId(null);
+                    }}
+                    placeholder={t("sim_return.receive.search_placeholder")}
+                    className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700/60 rounded-2xl text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all font-medium"
+                  />
+                </div>
+                <span className="text-xs font-bold text-gray-400 dark:text-gray-500">
+                  {t("sim_return.receive.showing", {
+                    start: receiveFiltered.length === 0 ? 0 : (receivePage - 1) * pageSize + 1,
+                    end: Math.min(receivePage * pageSize, receiveFiltered.length),
+                    total: receiveFiltered.length,
+                  })}
+                </span>
+              </div>
+
+              {receiveFiltered.length === 0 ? (
+                <div className="p-10 flex flex-col items-center text-center gap-3">
+                  <div className="w-14 h-14 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+                    <Search className="w-7 h-7 text-gray-400 dark:text-gray-500" />
+                  </div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {t("sim_return.receive.no_match")}
+                  </p>
+                </div>
+              ) : (
+                <>
+              {/* Desktop table */}
+              <div className="hidden lg:block overflow-x-auto">
+                <table className="w-full text-left border-collapse whitespace-nowrap">
+                  <thead>
+                    <tr className="border-b border-gray-100 dark:border-slate-800/60 bg-gray-50/20 dark:bg-slate-900/10">
+                      <th className="px-2 py-3 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {t("sim_return.receive.table_distributor")}
+                      </th>
+                      <th className="px-2 py-3 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {t("sim_return.receive.table_retailer")}
+                      </th>
+                      <th className="px-2 py-3 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {t("sim_return.receive.table_date")}
+                      </th>
+                      <th className="px-2 py-3 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase text-right">
+                        {t("sim_return.receive.table_qty")}
+                      </th>
+                      <th className="px-2 py-3 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {t("sim_return.receive.table_status")}
+                      </th>
+                      <th className="px-2 py-3 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {t("sim_return.receive.table_remarks")}
+                      </th>
+                      <th className="px-2 py-3 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {t("sim_return.receive.table_create_by")}
+                      </th>
+                      <th className="px-2 py-3 text-xs font-black text-gray-500 dark:text-gray-400 tracking-wider uppercase text-center">
+                        {t("sim_return.receive.table_action")}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 dark:divide-slate-800/40 text-sm">
+                    {receivePagedRows.map((row, index) => (
+                      <tr
+                        key={`${row.details_url || "row"}-${index}`}
+                        className="hover:bg-gray-50/50 dark:hover:bg-slate-800/30 transition-colors font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        <td className="px-2 py-1 text-xs">
+                          {row.distributor_name || "-"}
+                        </td>
+                        <td className="px-2 py-1">
+                          <p className="text-xs font-bold text-gray-900 dark:text-gray-100">
+                            {row.retailer_name || "-"}
+                          </p>
+                        </td>
+                        <td className="px-2 py-1 text-xs whitespace-nowrap">
+                          {row.receive_date || "-"}
+                        </td>
+                        <td className="px-2 py-1 text-xs text-right font-bold text-gray-900 dark:text-gray-100">
+                          {row.sim_qty}
+                        </td>
+                        <td className="px-2 py-1">{getReceiveBadge(row.status)}</td>
+                        <td className="px-2 py-1">
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                            {row.remarks || "-"}
+                          </span>
+                        </td>
+                        <td className="px-2 py-1 text-xs">
+                          {row.create_by || "-"}
+                        </td>
+                        <td className="px-2 py-1">
+                          <div className="flex items-center justify-center">
+                            {row.details_url ? (
+                              <a
+                                href={row.details_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={t("sim_return.receive.details")}
+                                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            ) : (
+                              <span className="text-xs text-gray-300 dark:text-gray-600">-</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile accordion */}
+              <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800/40">
+                {receivePagedRows.map((row, index) => {
+                  const absIndex = (receivePage - 1) * pageSize + index;
+                  const isExpanded = receiveExpandedId === absIndex;
+                  return (
+                    <div key={`${row.details_url || "row"}-${absIndex}`}>
+                      <button
+                        type="button"
+                        onClick={() => setReceiveExpandedId(isExpanded ? null : absIndex)}
+                        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors min-h-[44px] cursor-pointer"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
+                            {row.retailer_name || "-"}
+                          </p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                            {row.distributor_name || "-"}
+                            {row.receive_date ? ` • ${row.receive_date}` : ""}
+                          </p>
+                        </div>
+                        <ChevronDown
+                          className={cn(
+                            "w-5 h-5 text-gray-400 shrink-0 transition-transform",
+                            isExpanded && "rotate-180"
+                          )}
+                        />
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-4 space-y-2 border-t border-gray-100 dark:border-slate-800 pt-3">
+                          <div className="flex items-center justify-between gap-3 text-sm">
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {t("sim_return.receive.table_date")}
+                            </span>
+                            <span className="font-semibold text-gray-900 dark:text-gray-100 text-right">
+                              {row.receive_date || "-"}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-sm">
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {t("sim_return.receive.table_qty")}
+                            </span>
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                              {row.sim_qty}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-sm">
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {t("sim_return.receive.table_status")}
+                            </span>
+                            {getReceiveBadge(row.status)}
+                          </div>
+                          <div className="flex items-start justify-between gap-3 text-sm">
+                            <span className="text-gray-500 dark:text-gray-400 shrink-0">
+                              {t("sim_return.receive.table_remarks")}
+                            </span>
+                            <span className="text-[11px] text-gray-500 dark:text-gray-400 text-right">
+                              {row.remarks || "-"}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-sm">
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {t("sim_return.receive.table_create_by")}
+                            </span>
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                              {row.create_by || "-"}
+                            </span>
+                          </div>
+                          {row.details_url && (
+                            <a
+                              href={row.details_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full mt-1 px-4 py-2.5 border border-sky-200 dark:border-sky-500/30 text-sky-600 dark:text-sky-400 rounded-xl text-sm font-medium hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors min-h-[44px] flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              {t("sim_return.receive.details")}
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {receiveTotalPages > 1 && (
+                <div className="p-5 border-t border-gray-100 dark:border-slate-800/80 bg-gray-50/20 dark:bg-slate-900/10 flex items-center justify-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReceivePage((p) => Math.max(1, p - 1));
+                      setReceiveExpandedId(null);
+                    }}
+                    disabled={receivePage === 1}
+                    className="px-3 py-2 border border-gray-200 dark:border-slate-700/60 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed min-h-[44px]"
+                  >
+                    <ChevronLeft className="w-4 h-4 inline-block mr-1" />
+                    {t("common.prev")}
+                  </button>
+
+                  <span className="text-xs font-bold text-gray-500 dark:text-gray-400">
+                    {receivePage} / {receiveTotalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReceivePage((p) => Math.min(receiveTotalPages, p + 1));
+                      setReceiveExpandedId(null);
+                    }}
+                    disabled={receivePage === receiveTotalPages}
+                    className="px-3 py-2 border border-gray-200 dark:border-slate-700/60 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed min-h-[44px]"
+                  >
+                    {t("common.next")}
+                    <ChevronRight className="w-4 h-4 inline-block ml-1" />
+                  </button>
+                </div>
+              )}
+                </>
+              )}
+            </>
+          )}
+        </motion.div>
 
         {/* Confirmation Dialog */}
         <AnimatePresence>
