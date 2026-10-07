@@ -299,7 +299,7 @@ export default function BPTargetsPage() {
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
+        <div className="p-4 flex items-center gap-3">
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
@@ -396,12 +396,15 @@ export default function BPTargetsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-50 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
+                  <tr className="bg-gray-50/50 dark:bg-slate-800/50">
+                    <th className="text-left px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      {t("bp_targets.table_house")}
+                    </th>
                     <th className="text-left px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_date")}
                     </th>
                     <th className="text-left px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      {t("bp_targets.table_bp")}
+                      {t("bp_targets.table_bp_name")}
                     </th>
                     <th className="text-right px-2 py-1 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {t("bp_targets.table_ga")}
@@ -431,8 +434,14 @@ export default function BPTargetsPage() {
                     const empName = bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
                     const dmsCode = bt.employee?.dms_code || "";
                     const poolNo = bt.employee?.pool_number || "";
+                    const houseName = bt.house?.display_name || bt.house?.name || `House #${bt.house_id}`;
+                    const houseCode = bt.house?.code || "";
                     return (
                     <tr key={bt.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/50">
+                      <td className="px-2 py-1 text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">
+                        {houseName}
+                        {houseCode ? <div className="text-[11px] text-gray-500 dark:text-gray-400">{houseCode}</div> : null}
+                      </td>
                       <td className="px-2 py-1 text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">
                         {formattedDate}
                       </td>
@@ -498,6 +507,8 @@ export default function BPTargetsPage() {
               const empName = bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
               const dmsCode = bt.employee?.dms_code || "";
               const poolNo = bt.employee?.pool_number || "";
+              const houseName = bt.house?.display_name || bt.house?.name || `House #${bt.house_id}`;
+              const houseCode = bt.house?.code || "";
               return (
                 <div
                   key={bt.id}
@@ -510,10 +521,10 @@ export default function BPTargetsPage() {
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="min-w-0">
                         <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
-                          {empName}
+                          {houseName}
                         </p>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {formattedDate}{dmsCode ? ` · ${dmsCode}` : ""}{poolNo ? ` · ${poolNo}` : ""}
+                          {formattedDate}
                         </p>
                       </div>
                     </div>
@@ -521,6 +532,13 @@ export default function BPTargetsPage() {
                   </button>
                   {isExpanded && (
                     <div className="px-4 pb-4 space-y-2 border-t border-gray-100 dark:border-slate-800 pt-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">{t("bp_targets.table_bp_name")}</span>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">{empName}</span>
+                      </div>
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {dmsCode}{poolNo ? ` | ${poolNo}` : ""}
+                      </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-gray-500 dark:text-gray-400">{t("bp_targets.table_ga")}</span>
                         <span className="font-semibold text-gray-900 dark:text-gray-100">{bt.ga_target}</span>
