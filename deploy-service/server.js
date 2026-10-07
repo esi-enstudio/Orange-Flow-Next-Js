@@ -594,6 +594,245 @@ function getSnapshot(snapshotId) {
 
 // ── HTTP Server (REST) ─────────────────────────────────────────────────────
 
+// ── Maintenance fallback page ────────────────────────────────────────────────
+// Served at :8100/maintenance so users can still see the maintenance notice
+// and live countdown even while the Next.js frontend is restarting (the
+// backend keeps running in its own container during a deploy). The page is
+// fully self-contained: system fonts, inline SVG, no external requests except
+// the same-origin status proxy below.
+
+const MAINTENANCE_BACKEND_URL =
+  process.env.MAINTENANCE_BACKEND_URL ||
+  "http://backend:8000/api/settings/maintenance";
+
+const MAINTENANCE_PAGE_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Maintenance | OrangeFlow</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 1rem; background: #020617; color: #e2e8f0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  .card {
+    width: 100%; max-width: 26rem; background: #0f172a; border: 1px solid #1e293b;
+    border-radius: 1.5rem; padding: 2.5rem 1.75rem; text-align: center;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,.5);
+  }
+  .icon {
+    width: 4rem; height: 4rem; margin: 0 auto 1.25rem; border-radius: 1rem;
+    background: rgba(245,158,11,.12); display: flex; align-items: center; justify-content: center;
+  }
+  .icon svg { width: 2rem; height: 2rem; stroke: #f59e0b; }
+  .brand { font-size: .7rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: #f59e0b; }
+  h1 { font-size: 1.35rem; font-weight: 700; margin-top: .5rem; color: #f8fafc; }
+  .msg { font-size: .875rem; line-height: 1.6; color: #94a3b8; margin-top: .9rem; }
+  .cd {
+    margin: 1.5rem auto 0; display: inline-flex; flex-direction: column; gap: .25rem;
+    background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.25);
+    border-radius: 1rem; padding: .9rem 1.6rem;
+  }
+  .cd-label { font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #fbbf24; }
+  .cd-time { font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #f8fafc; }
+  .cd[hidden] { display: none; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 44px;
+    margin-top: 1.6rem; padding: .65rem 1.5rem; border-radius: .75rem; background: #f59e0b;
+    color: #020617; font-size: .875rem; font-weight: 600; text-decoration: none; cursor: pointer;
+    border: none; transition: background .15s;
+  }
+  .btn:hover { background: #fbbf24; }
+  .btn[hidden] { display: none; }
+  .hint { font-size: .7rem; color: #64748b; margin-top: 1.1rem; }
+  .lang { margin-top: 1.25rem; display: inline-flex; gap: .4rem; }
+  .lang button {
+    font-size: .7rem; font-weight: 700; padding: .3rem .7rem; border-radius: .5rem; cursor: pointer;
+    background: transparent; color: #64748b; border: 1px solid #1e293b; transition: all .15s;
+  }
+  .lang button.on { background: #1e293b; color: #f8fafc; border-color: #334155; }
+  .online .icon { background: rgba(16,185,129,.12); }
+  .online .icon svg { stroke: #10b981; }
+  .online .brand { color: #10b981; }
+</style>
+</head>
+<body>
+<main class="card" id="card">
+  <div class="icon" id="icon"></div>
+  <p class="brand" id="brand">OrangeFlow</p>
+  <h1 id="title"></h1>
+  <p class="msg" id="msg"></p>
+  <div class="cd" id="cd" hidden>
+    <span class="cd-label" id="cdLabel"></span>
+    <span class="cd-time" id="cdTime">00:00</span>
+  </div>
+  <a class="btn" id="back" href="#" hidden></a>
+  <p class="hint" id="hint"></p>
+  <div class="lang">
+    <button id="btnEn" type="button">EN</button>
+    <button id="btnBn" type="button">&#2476;&#2494;&#2434;</button>
+  </div>
+</main>
+<script>
+(function () {
+  var T = {
+    en: {
+      title: "Under Maintenance",
+      graceTitle: "Maintenance starting soon",
+      msg: "Maintenance Mode is about to start. Please complete all your work within the next 10 minutes. The system may be temporarily unavailable once Maintenance Mode begins.",
+      cd: "Maintenance starts in",
+      back: "Back to the app",
+      hint: "This page refreshes automatically.",
+      onlineTitle: "Back online",
+      onlineMsg: "The system is available again. You can return to the app.",
+      connecting: "Connecting..."
+    },
+    bn: {
+      title: "\\u09B0\\u0995\\u09CD\\u09B7\\u09A3\\u09BE\\u09AC\\u09C7\\u0995\\u09CD\\u09B7\\u09A3 \\u099A\\u09B2\\u099B\\u09C7",
+      graceTitle: "\\u09B0\\u0995\\u09CD\\u09B7\\u09A3\\u09BE\\u09AC\\u09C7\\u0995\\u09CD\\u09B7\\u09A3 \\u09B6\\u09C1\\u09B0\\u09C1 \\u09B9\\u09A4\\u09C7 \\u09AF\\u09BE\\u099A\\u09CD\\u099B\\u09C7",
+      msg: "Maintenance Mode chalu hote jacche. Doya kore agami 10 minuter moddhe apnader shokol kaj shesh kore nin. Maintenance Mode chalu howar por system temporary vabe unavailable thakte pare.",
+      cd: "\\u09B0\\u0995\\u09CD\\u09B7\\u09A3\\u09BE\\u09AC\\u09C7\\u0995\\u09CD\\u09B7\\u09A3 \\u09B6\\u09C1\\u09B0\\u09C1 \\u09B9\\u09AC\\u09C7",
+      back: "\\u0985\\u09CD\\u09DF\\u09BE\\u09AA\\u09C7 \\u09AB\\u09BF\\u09B0\\u09C7 \\u09AF\\u09BE\\u09A8",
+      hint: "\\u098F\\u0987 \\u09AA\\u09C7\\u099C \\u09A8\\u09BF\\u099C\\u09C7 \\u09A5\\u09C7\\u0995\\u09C7 \\u0986\\u09AA\\u09A1\\u09C7\\u099F \\u09B9\\u09AC\\u09C7\\u0964",
+      onlineTitle: "\\u09B8\\u09BF\\u09B8\\u09CD\\u099F\\u09C7\\u09AE \\u099A\\u09BE\\u09B2\\u09C1 \\u0986\\u09AC\\u09BE\\u09B0",
+      onlineMsg: "\\u09B8\\u09BF\\u09B8\\u09CD\\u099F\\u09C7\\u09AE \\u0986\\u09AC\\u09BE\\u09B0 \\u09AC\\u09CD\\u09AF\\u09AC\\u09B9\\u09BE\\u09B0\\u09AF\\u09CB\\u0997\\u09CD\\u09AF \\u09B9\\u09AF\\u09BC\\u09C7\\u099B\\u09C7\\u0964 \\u0986\\u09AA\\u09A8\\u09BF \\u0985\\u09CD\\u09DF\\u09BE\\u09AA\\u09C7 \\u09AB\\u09BF\\u09B0\\u09C7 \\u09AF\\u09C7\\u09A4\\u09C7 \\u09AA\\u09BE\\u09B0\\u09C7\\u09A8\\u0964",
+      connecting: "\\u09B8\\u0982\\u09AF\\u09CB\\u0997 \\u09B9\\u099A\\u09CD\\u099B\\u09C7..."
+    }
+  };
+
+  function cookieLang() {
+    var m = document.cookie.match(/(?:^|;\\s*)lang=(bn|en)/);
+    if (m) return m[1];
+    return (navigator.language || "").toLowerCase().indexOf("bn") === 0 ? "bn" : "en";
+  }
+
+  var lang = cookieLang();
+  var last = null;        // last good status payload
+  var everFetched = false;
+  var graceEnd = null;    // local-clock deadline while in grace
+  var enforcedLocal = false; // local flip at 00:00
+
+  function $(id) { return document.getElementById(id); }
+
+  function fmt(ms) {
+    var total = Math.max(0, Math.ceil(ms / 1000));
+    var h = Math.floor(total / 3600);
+    var m = Math.floor((total % 3600) / 60);
+    var s = total % 60;
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return h > 0 ? h + ":" + p(m) + ":" + p(s) : p(m) + ":" + p(s);
+  }
+
+  function currentPhase() {
+    if (!last) return everFetched ? "unknown" : "connecting";
+    if (last.phase === "grace" && graceEnd !== null) {
+      if (Date.now() >= graceEnd) return "enforced";
+      return "grace";
+    }
+    return last.phase || "unknown";
+  }
+
+  function render() {
+    var tt = T[lang];
+    var phase = currentPhase();
+    document.documentElement.lang = lang;
+    var online = phase === "off";
+    $("card").className = "card" + (online ? " online" : "");
+    $("icon").innerHTML = online
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+
+    if (phase === "connecting") {
+      $("title").textContent = tt.connecting;
+      $("msg").textContent = "";
+      $("cd").hidden = true;
+      $("back").hidden = true;
+      $("hint").textContent = tt.hint;
+      return;
+    }
+
+    if (online) {
+      $("title").textContent = tt.onlineTitle;
+      $("msg").textContent = tt.onlineMsg;
+      $("cd").hidden = true;
+      var back = $("back");
+      back.hidden = false;
+      back.textContent = tt.back;
+      back.href = "http://" + location.hostname + ":3000/";
+      $("hint").textContent = tt.hint;
+      document.title = tt.onlineTitle + " | OrangeFlow";
+      return;
+    }
+
+    var grace = phase === "grace";
+    $("title").textContent = grace ? tt.graceTitle : tt.title;
+    var custom = last && typeof last.message === "string" && last.message.trim();
+    $("msg").textContent = custom ? last.message : tt.msg;
+    $("back").hidden = true;
+    $("hint").textContent = tt.hint;
+    $("cd").hidden = !grace;
+    if (grace) {
+      $("cdLabel").textContent = tt.cd;
+      $("cdTime").textContent = fmt(graceEnd - Date.now());
+    }
+    document.title = (grace ? tt.graceTitle : tt.title) + " | OrangeFlow";
+  }
+
+  function applyStatus(data) {
+    if (!data || typeof data !== "object" || typeof data.phase !== "string") return;
+    last = data;
+    everFetched = true;
+    if (data.phase === "grace" && data.grace_until && data.server_now) {
+      var remaining = Date.parse(data.grace_until) - Date.parse(data.server_now);
+      graceEnd = isFinite(remaining) ? Date.now() + remaining : null;
+    } else {
+      graceEnd = null;
+    }
+    render();
+  }
+
+  function poll() {
+    var done = false;
+    var timer = setTimeout(function () {
+      if (!done && !everFetched) render();
+    }, 2500);
+    fetch("/api/maintenance-status", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        done = true;
+        clearTimeout(timer);
+        applyStatus(data);
+      })
+      .catch(function () {
+        done = true;
+        clearTimeout(timer);
+        // Backend restarting: keep showing the last known state instead of
+        // falsely claiming the system is back online.
+        render();
+      });
+  }
+
+  $("btnEn").onclick = function () { lang = "en"; render(); };
+  $("btnBn").onclick = function () { lang = "bn"; render(); };
+
+  function syncLangButtons() {
+    $("btnEn").className = lang === "en" ? "on" : "";
+    $("btnBn").className = lang === "bn" ? "on" : "";
+  }
+  var _render = render;
+  render = function () { _render(); syncLangButtons(); };
+
+  setInterval(poll, 3000);
+  setInterval(function () { if (currentPhase() === "grace") render(); }, 500);
+  poll();
+})();
+</script>
+</body>
+</html>`;
+
 const server = http.createServer((req, res) => {
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -800,6 +1039,39 @@ const server = http.createServer((req, res) => {
     finishOp(false, "Cancelled by administrator");
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true, cancelled: true }));
+    return;
+  }
+
+  // Maintenance fallback page — always reachable, even mid-deploy.
+  if (url.pathname === "/maintenance" && req.method === "GET") {
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    res.end(MAINTENANCE_PAGE_HTML);
+    return;
+  }
+
+  // Same-origin status proxy for the fallback page (avoids CORS and keeps the
+  // backend URL server-side). 2s timeout so the page shows its own fallback
+  // quickly while the backend restarts.
+  if (url.pathname === "/api/maintenance-status" && req.method === "GET") {
+    const proxyReq = http.get(MAINTENANCE_BACKEND_URL, { timeout: 2000 }, (proxyRes) => {
+      const chunks = [];
+      proxyRes.on("data", (c) => chunks.push(c));
+      proxyRes.on("end", () => {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        });
+        res.end(Buffer.concat(chunks));
+      });
+    });
+    proxyReq.on("timeout", () => proxyReq.destroy(new Error("timeout")));
+    proxyReq.on("error", () => {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: { code: "BACKEND_UNAVAILABLE" } }));
+    });
     return;
   }
 

@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Timezone
     TIME_ZONE: str = "Asia/Dhaka"
 
+    # Maintenance mode: minutes of warning/grace period (countdown notification)
+    # before enforcement kicks in after a super admin enables maintenance.
+    MAINTENANCE_GRACE_MINUTES: int = 10
+
     # Default country code used to expand locally-typed phone numbers
     # (e.g. "01732547755" -> "8801732547755") into full international form.
     DEFAULT_COUNTRY_CODE: str = "880"

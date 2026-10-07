@@ -10,6 +10,9 @@ import { BrandProvider } from "@/context/BrandContext";
 import { EntitlementsProvider } from "@/context/EntitlementsContext";
 import { ModuleAccessGuard } from "@/components/layout/ModuleAccessGuard";
 import { FullscreenProvider } from "@/context/FullscreenContext";
+import { MaintenanceProvider } from "@/context/MaintenanceContext";
+import { MaintenanceGate } from "@/components/layout/MaintenanceGate";
+import { MaintenanceBanner } from "@/components/layout/MaintenanceBanner";
 import { Toaster } from "react-hot-toast";
 import { Suspense } from "react";
 import PageProgressIndicator from "@/components/ui/PageProgressIndicator";
@@ -94,6 +97,8 @@ export default async function RootLayout({
           <AuthProvider>
             <ColorProvider>
               <BrandProvider>
+              <MaintenanceProvider>
+              <MaintenanceGate>
               <EntitlementsProvider>
               <FullscreenProvider>
               <DynamicPageTitle />
@@ -102,9 +107,12 @@ export default async function RootLayout({
                   {children}
                 </ModuleAccessGuard>
               </DashboardLayout>
-              <Toaster position="top-center" reverseOrder={false} />
               </FullscreenProvider>
               </EntitlementsProvider>
+              </MaintenanceGate>
+              <MaintenanceBanner />
+              <Toaster position="top-center" reverseOrder={false} />
+              </MaintenanceProvider>
               </BrandProvider>
             </ColorProvider>
           </AuthProvider>

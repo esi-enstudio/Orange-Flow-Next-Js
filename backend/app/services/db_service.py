@@ -205,6 +205,29 @@ async def _migrate_app_settings_sim_serial_length():
     except Exception as e:
         logger.warning(f"Migration warning (app_settings.sim_serial_length): {e}")
 
+async def _migrate_app_settings_maintenance():
+    """Adds maintenance mode columns (flag + grace start + message + audit)."""
+    columns = [
+        ("maintenance_enabled", "ALTER TABLE app_settings ADD COLUMN maintenance_enabled INTEGER NOT NULL DEFAULT 0"),
+        ("maintenance_enabled_at", "ALTER TABLE app_settings ADD COLUMN maintenance_enabled_at TIMESTAMP"),
+        ("maintenance_message", "ALTER TABLE app_settings ADD COLUMN maintenance_message TEXT"),
+        ("maintenance_updated_at", "ALTER TABLE app_settings ADD COLUMN maintenance_updated_at TIMESTAMP"),
+        ("maintenance_updated_by", "ALTER TABLE app_settings ADD COLUMN maintenance_updated_by INTEGER"),
+    ]
+    try:
+        async with engine.begin() as conn:
+            for name, ddl in columns:
+                result = await conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns WHERE table_name='app_settings' AND column_name='{name}'"
+                ))
+                if result.scalar():
+                    continue
+                logger.info(f"Migrating app_settings: adding {name} column...")
+                await conn.execute(text(ddl))
+            logger.info("Migration complete: app_settings maintenance columns")
+    except Exception as e:
+        logger.warning(f"Migration warning (app_settings maintenance): {e}")
+
 INDEX_MIGRATIONS = [
     # activations table
     ("ix_activations_house_id", "CREATE INDEX IF NOT EXISTS ix_activations_house_id ON activations (house_id)"),
@@ -1239,6 +1262,7 @@ async def init_db():
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
         await _migrate_app_settings_sim_serial_length()
+        await _migrate_app_settings_maintenance()
         await _migrate_live_activation_date_type()
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_lifting_soft_delete()

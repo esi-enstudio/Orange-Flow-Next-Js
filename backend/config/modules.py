@@ -39,6 +39,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/v1/invoice", None),
     ("/uploads/", None),
     ("/api/settings/brand", None),
+    ("/api/settings/maintenance", None),  # public maintenance status (always reachable)
     ("/api/filter-tags", None),
     ("/api/retailer-filters", None),
     ("/api/shifts", None),  # helper used across modules; not a restricted module

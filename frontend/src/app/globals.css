@@ -379,3 +379,14 @@
   .dark .dark\:from-primary-500\/15 { --tw-gradient-from: color-mix(in srgb, var(--clr-primary-500) 15%, transparent); }
   .dark .dark\:to-primary-600\/10 { --tw-gradient-to: color-mix(in srgb, var(--clr-primary-600) 10%, transparent); }
 }
+
+/* Maintenance banner (fixed top): offset the page body and every sticky top
+   header by the banner height, which JS measures and publishes as
+   --maintenance-banner-h while .maintenance-banner-active is on the html tag. */
+html.maintenance-banner-active body {
+  padding-top: var(--maintenance-banner-h, 0px);
+}
+
+html.maintenance-banner-active .sticky.top-0 {
+  top: var(--maintenance-banner-h, 0px);
+}

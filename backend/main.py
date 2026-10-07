@@ -173,6 +173,11 @@ async def security_headers(request: Request, call_next):
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=security_headers)
 app.add_middleware(PlanModuleGuard)
+# Added after PlanModuleGuard and before CORS so processing order is
+# CORS (outermost, headers on every response) -> MaintenanceGuard -> plan
+# guard -> security headers. The 503 body carries its own security headers.
+from app.middleware.maintenance_guard import MaintenanceGuard  # noqa: E402
+app.add_middleware(MaintenanceGuard)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "https://orange-flow-next-js.vercel.app", "http://165.99.219.177:3000"],

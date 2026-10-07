@@ -12,6 +12,7 @@ const ROUTE_TITLE_MAP: Record<string, { en: string; bn: string }> = {
   "/setup": { en: "System Setup", bn: "সিস্টেম সেটআপ" },
   "/forgot-password": { en: "Forgot Password", bn: "পাসওয়ার্ড ভুলে গেছেন" },
   "/reset-password": { en: "Reset Password", bn: "পাসওয়ার্ড রিসেট" },
+  "/maintenance": { en: "Under Maintenance", bn: "রক্ষণাবেক্ষণ চলছে" },
   "/profile": { en: "User Profile", bn: "ব্যবহারকারীর প্রোফাইল" },
   "/settings": { en: "Settings", bn: "সেটিংস" },
   "/deploy": { en: "Deploy & Updates", bn: "ডিপ্লয় ও আপডেট" },
@@ -105,23 +106,23 @@ export function DynamicPageTitle() {
 
     apply();
 
-    // Next.js metadata re-applies the layout <title> on re-renders, which can
-    // clobber our dynamic title after async state settles (e.g. auth load).
-    // Watch the <title> element and re-apply our resolved title whenever it changes.
-    const titleEl = document.querySelector<HTMLTitleElement>("title");
-    if (titleEl) {
-      if (observerRef.current) observerRef.current.disconnect();
-      const observer = new MutationObserver(() => {
-        if (document.title !== resolvedTitle) {
-          document.title = resolvedTitle;
-        }
-      });
-      observer.observe(titleEl, { subtree: true, childList: true, characterData: true });
-      observerRef.current = observer;
-    } else {
-      if (observerRef.current) observerRef.current.disconnect();
-      observerRef.current = null;
-    }
+    // Next.js metadata re-applies the layout <title> on re-renders (and may
+    // even replace the <title> element itself), which can clobber our dynamic
+    // title after async state settles (e.g. auth load). Watch the whole <head>
+    // so node replacements are caught too, and re-apply our resolved title
+    // whenever the visible title drifts.
+    if (observerRef.current) observerRef.current.disconnect();
+    const observer = new MutationObserver(() => {
+      if (document.title !== resolvedTitle) {
+        document.title = resolvedTitle;
+      }
+    });
+    observer.observe(document.head, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    observerRef.current = observer;
 
     return () => {
       if (observerRef.current) observerRef.current.disconnect();

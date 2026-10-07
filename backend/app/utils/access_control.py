@@ -15,6 +15,14 @@ def is_admin_role(role_names: list[str]) -> bool:
 def is_admin_user(user: User) -> bool:
     return is_admin_role([r.name.lower() for r in user.roles])
 
+SUPER_ADMIN_ROLE_NAMES = frozenset({"super admin", "super_admin"})
+
+def is_super_admin_role(role_names: list[str]) -> bool:
+    return any(r in SUPER_ADMIN_ROLE_NAMES for r in role_names)
+
+def is_super_admin_user(user: User) -> bool:
+    return is_super_admin_role([r.name.lower() for r in user.roles])
+
 class AccessControl:
     def __init__(self, user: User, session: Session):
         self.user = user

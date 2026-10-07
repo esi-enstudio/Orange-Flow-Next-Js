@@ -161,10 +161,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup" || pathname === "/forgot-password" || pathname === "/reset-password";
+      const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/maintenance";
       if (!user && !isPublicPage) {
         router.push("/login");
-      } else if (user && isPublicPage) {
+      } else if (user && isPublicPage && pathname !== "/maintenance") {
         router.push("/");
       }
     }

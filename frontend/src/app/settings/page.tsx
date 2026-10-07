@@ -4,18 +4,19 @@ import { usePrimaryColor, PRIMARY_COLORS } from "@/context/ColorContext";
 import {
   Settings, Palette, Sun, Moon, Monitor, Check, Image, Save,
   Loader2, Upload, RefreshCw, Building2, Globe, Bell, Shield,
-  Database, ChevronRight, Hash
+  Database, ChevronRight, Hash, Wrench
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import apiClient, { resolveImageUrl } from "@/lib/api";
 import toast from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
+import { useMaintenance } from "@/context/MaintenanceContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useBrand } from "@/context/BrandContext";
 import { setSerialLengthCache } from "@/hooks/useSerialLength";
 
-type TabId = "general" | "appearance" | "automation";
+type TabId = "general" | "appearance" | "automation" | "maintenance";
 
 interface Tab {
   id: TabId;
@@ -32,12 +33,12 @@ const TABS: Tab[] = [
   { id: "automation", label: "Automation", icon: RefreshCw, description: "Auto-sync & scheduler", color: "text-emerald-600", bgColor: "bg-emerald-100 dark:bg-emerald-500/10" },
 ];
 
-function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: () => void; disabled?: boolean }) {
+function Toggle({ enabled, onToggle, disabled, label }: { enabled: boolean; onToggle: () => void; disabled?: boolean; label?: string }) {
   return (
-    <button onClick={onToggle} disabled={disabled}
+    <button onClick={onToggle} disabled={disabled} role="switch" aria-checked={enabled} aria-label={label}
       className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 ${
         enabled ? "bg-primary-500" : "bg-gray-300 dark:bg-slate-600"
-      } disabled:opacity-50`}>
+      } disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed`}>
       <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
         enabled ? "translate-x-6" : "translate-x-1"
       }`} />
@@ -46,8 +47,8 @@ function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: (
 }
 
 export default function SettingsPage() {
-  const { hasPermission, loading: authLoading } = useAuth();
-  const { t } = useLanguage();
+  const { hasPermission, loading: authLoading, user } = useAuth();
+  const { t, language } = useLanguage();
   const { primaryColor, setPrimaryColor } = usePrimaryColor();
   const { theme, setTheme } = useTheme();
   const { brand, updateBrand } = useBrand();
@@ -63,6 +64,90 @@ export default function SettingsPage() {
   const [togglingSync, setTogglingSync] = useState(false);
   const [simSerialLength, setSimSerialLength] = useState(18);
   const [savingSerialLength, setSavingSerialLength] = useState(false);
+
+  // Maintenance mode — strict Super Admin only (the Admin role does NOT get
+  // this tab; the backend PUT/GET enforce the same rule server-side).
+  const isSuperAdmin = !!user?.roles?.some((r) => {
+    const name = (r?.name || "").toLowerCase();
+    return name === "super admin" || name === "super_admin";
+  });
+  const {
+    phase: maintPhase,
+    timeLeft: maintTimeLeft,
+    status: maintStatus,
+    initialized: maintInitialized,
+    refresh: refreshMaintenance,
+  } = useMaintenance();
+  const [maintMessage, setMaintMessage] = useState("");
+  const [maintMessageSeeded, setMaintMessageSeeded] = useState(false);
+  const [togglingMaint, setTogglingMaint] = useState(false);
+  const [savingMaintMessage, setSavingMaintMessage] = useState(false);
+
+  const maintTabs = useMemo(() => {
+    if (!isSuperAdmin) return TABS;
+    return [
+      ...TABS,
+      {
+        id: "maintenance" as TabId,
+        label: t("maintenance.settings.tab_label"),
+        icon: Wrench,
+        description: t("maintenance.settings.tab_description"),
+        color: "text-rose-600",
+        bgColor: "bg-rose-100 dark:bg-rose-500/10",
+      },
+    ];
+  }, [isSuperAdmin, t, language]);
+
+  // Seed the message field from the server once, before any local edits.
+  useEffect(() => {
+    if (!maintInitialized || maintMessageSeeded) return;
+    setMaintMessage(maintStatus.message ?? "");
+    setMaintMessageSeeded(true);
+  }, [maintInitialized, maintMessageSeeded, maintStatus.message]);
+
+  // If the tab is no longer allowed (role changed), fall back to General.
+  useEffect(() => {
+    if (!isSuperAdmin && activeTab === "maintenance") setActiveTab("general");
+  }, [isSuperAdmin, activeTab]);
+
+  const handleToggleMaintenance = async () => {
+    setTogglingMaint(true);
+    const next = maintPhase === "off";
+    try {
+      await apiClient.put("settings/maintenance", {
+        enabled: next,
+        message: maintMessage || null,
+      });
+      await refreshMaintenance();
+      toast.success(
+        next
+          ? t("maintenance.settings.enabled_toast")
+          : t("maintenance.settings.disabled_toast")
+      );
+    } catch {
+      toast.error(t("maintenance.settings.save_failed"));
+    } finally {
+      setTogglingMaint(false);
+    }
+  };
+
+  const handleSaveMaintenanceMessage = async () => {
+    setSavingMaintMessage(true);
+    try {
+      // enabled reflects the current state — with the backend fix this only
+      // updates the message and never restarts the grace countdown.
+      await apiClient.put("settings/maintenance", {
+        enabled: maintPhase !== "off",
+        message: maintMessage,
+      });
+      await refreshMaintenance();
+      toast.success(t("settings.save_success"));
+    } catch {
+      toast.error(t("maintenance.settings.save_failed"));
+    } finally {
+      setSavingMaintMessage(false);
+    }
+  };
 
   useEffect(() => {
     apiClient.get("settings/daily-sync").then(r => setDailySyncEnabled(r.data.enabled)).catch(() => {});
@@ -176,7 +261,7 @@ export default function SettingsPage() {
 
       {/* Tab bar */}
       <div className="flex gap-2 mb-8 overflow-x-auto pb-2 scrollbar-none">
-        {TABS.map(tab => {
+        {maintTabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
@@ -351,7 +436,7 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  <Toggle enabled={dailySyncEnabled} onToggle={handleToggleSync} disabled={togglingSync} />
+                  <Toggle enabled={dailySyncEnabled} onToggle={handleToggleSync} disabled={togglingSync} label="Daily Auto Sync" />
                 </div>
               </div>
             </div>
@@ -388,6 +473,87 @@ export default function SettingsPage() {
                       </button>
                     </div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{t('settings.sim_serial_hint')}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isSuperAdmin && activeTab === "maintenance" && (
+          <div className="space-y-4">
+            {/* Status & toggle */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div className="p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <div className="p-2.5 bg-rose-100 dark:bg-rose-500/10 rounded-xl shrink-0">
+                      <Wrench className="w-5 h-5 text-rose-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('maintenance.settings.card_title')}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t('maintenance.settings.card_description')}</p>
+                      <div className="flex flex-wrap items-center gap-2 mt-3">
+                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          maintPhase === "off"
+                            ? "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400"
+                            : maintPhase === "grace"
+                              ? "bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                              : "bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400"
+                        }`}>
+                          {maintPhase === "off"
+                            ? t('maintenance.settings.status_off')
+                            : maintPhase === "grace"
+                              ? t('maintenance.settings.status_grace')
+                              : t('maintenance.settings.status_enforced')}
+                        </span>
+                        {maintPhase === "grace" && maintTimeLeft !== null && (
+                          <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold tabular-nums bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                            {t('maintenance.settings.status_badge', { time: maintTimeLeft })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="hidden sm:block text-xs font-medium text-gray-500 dark:text-gray-400 text-right max-w-[9rem]">
+                      {t('maintenance.settings.enable_label')}
+                    </span>
+                    <Toggle enabled={maintPhase !== "off"} onToggle={handleToggleMaintenance} disabled={togglingMaint} label={t('maintenance.settings.enable_label')} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Notice message */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div className="p-6">
+                <div className="flex items-start gap-4">
+                  <div className="p-2.5 bg-amber-100 dark:bg-amber-500/10 rounded-xl shrink-0">
+                    <Bell className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('maintenance.settings.message_label')}</p>
+                    <textarea
+                      id="maintenance-message"
+                      rows={3}
+                      value={maintMessage}
+                      onChange={(e) => setMaintMessage(e.target.value)}
+                      maxLength={1000}
+                      placeholder={t('maintenance.settings.message_placeholder')}
+                      className="mt-3 w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none transition-all resize-y"
+                    />
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                      {t('maintenance.settings.grace_note', { minutes: maintStatus.grace_minutes })}
+                    </p>
+                    <button
+                      onClick={handleSaveMaintenanceMessage}
+                      disabled={savingMaintMessage}
+                      className="mt-4 inline-flex items-center gap-2 px-6 py-2.5 bg-primary-500 hover:bg-primary-600 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed min-h-[44px]"
+                    >
+                      {savingMaintMessage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      {t('maintenance.settings.save')}
+                    </button>
                   </div>
                 </div>
               </div>
