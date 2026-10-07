@@ -399,8 +399,12 @@ async def distribute_bp_targets(
     all_emps = all_house_emps.unique().scalars().all()
     bp_list = []
     for emp in all_emps:
-        user_roles = [r.name.lower() for r in emp.user.roles] if emp.user else []
-        if "bp" in user_roles:
+        # `employee_type` is the authoritative BP marker; fall back to the role
+        # only for legacy rows whose type was never populated.
+        is_bp = (emp.employee_type or "").lower() == "bp"
+        if not is_bp and emp.user:
+            is_bp = any(r.name.lower() == "bp" for r in emp.user.roles)
+        if is_bp:
             bp_list.append(emp)
     if not bp_list:
         raise HTTPException(status_code=404, detail="No active BPs found in this house")

@@ -651,7 +651,13 @@ export default function BPTargetsPage() {
                   disabled={!!editingItem || !modalHouseId}
                   className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary-500 min-h-[44px] disabled:opacity-50"
                 >
-                  <option value="">{t("bp_targets.field_employee_placeholder")}</option>
+                  <option value="">
+                    {!modalHouseId
+                      ? t("bp_targets.select_house_first")
+                      : bpEmployees.length === 0
+                        ? t("bp_targets.no_bps")
+                        : t("bp_targets.field_employee_placeholder")}
+                  </option>
                   {bpEmployees.map((emp: any) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.name || emp.employee_id || `BP #${emp.id}`} — {emp.pool_number || "N/A"}

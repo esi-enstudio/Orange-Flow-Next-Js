@@ -4,11 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
-
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.routers.deps import get_db, has_permission, get_house_context
+from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context
 from app.models.bp_retailer_code import BpRetailerCode
 from app.models.employee import Employee
 from app.models.user import User
@@ -38,16 +36,21 @@ class BpRetailerCodeOut(BaseModel):
 async def list_bp_employees(
     house_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("reports.view")),
+    current_user: User = Depends(
+        has_any_permission(["bp_targets.view", "reports.view", "bp_retailer_codes.edit"])
+    ),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     is_admin = is_admin_user(current_user)
     user_house_ids = [h.id for h in current_user.houses]
 
+    # `employee_type` is the authoritative BP marker (see employee_excel.py). A BP
+    # employee may have no linked User account (user_id is nullable), so a
+    # role-only check would silently return nothing for those rows.
     query = (
         select(Employee)
         .options(joinedload(Employee.user).selectinload(User.roles))
-        .where(Employee.status == "Active")
+        .where((Employee.status == "Active") | (Employee.status.is_(None)))
     )
 
     target_house_id = house_id or house_context
@@ -64,12 +67,15 @@ async def list_bp_employees(
 
     bp_list = []
     for emp in employees:
-        user_roles = [r.name.lower() for r in emp.user.roles] if emp.user else []
-        if "bp" not in user_roles:
+        is_bp = (emp.employee_type or "").lower() == "bp"
+        if not is_bp and emp.user:
+            # Legacy fallback: rows created before employee_type was populated.
+            is_bp = any(r.name.lower() == "bp" for r in emp.user.roles)
+        if not is_bp:
             continue
         bp_list.append({
             "id": emp.id,
-            "name": emp.user.name if emp.user else None,
+            "name": (emp.user.name if emp.user else None) or emp.employee_name or emp.dms_code,
             "dms_code": emp.dms_code,
             "employee_id": emp.employee_id,
             "pool_number": emp.pool_number,
