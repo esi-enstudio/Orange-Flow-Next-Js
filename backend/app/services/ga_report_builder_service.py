@@ -54,7 +54,12 @@ def slab_column_keys(slabs: int) -> list[str]:
 
 
 def is_slab_column(key: str) -> bool:
-    return key.startswith("slab_") and key.rsplit("_", 1)[-1] in SLAB_METRIC_SUFFIXES
+    # Expected shape: slab_<number>_<metric> where metric may itself contain
+    # underscores (e.g. "slab_1_achievement_pct").
+    parts = key.split("_", 2)
+    if len(parts) != 3 or parts[0] != "slab" or not parts[1].isdigit():
+        return False
+    return parts[2] in SLAB_METRIC_SUFFIXES
 
 
 SLAB_METRIC_LABELS = {
@@ -467,7 +472,8 @@ class GaReportBuilderService:
             row[f"slab_{s}_target"] = target
             row[f"slab_{s}_achievement"] = achievement
             row[f"slab_{s}_achievement_pct"] = round((achievement / target * 100), 2) if target else 0.0
-            row[f"slab_{s}_remaining"] = max(0, target - achievement)
+            # Keep negatives (e.g. -5) so Sum(Remain) == Sum(Target) - Sum(Ach)
+            row[f"slab_{s}_remaining"] = target - achievement
         return row
 
     @staticmethod
