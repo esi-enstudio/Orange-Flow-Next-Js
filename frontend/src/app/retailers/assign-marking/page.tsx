@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -20,10 +20,10 @@ import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import { useLanguage } from "@/i18n/useLanguage";
-import { houseHeaders, type DropdownMarking, type RetailerRow } from "../retailer-marking/types";
+import { type DropdownMarking, type RetailerRow } from "../retailer-marking/types";
 
 export default function AssignPage() {
-  const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
+  const { hasPermission, loading: authLoading } = useAuth();
   const router = useRouter();
   const { t } = useLanguage();
 
@@ -39,7 +39,24 @@ export default function AssignPage() {
   const [applying, setApplying] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // "" means "All houses" — we then omit X-House-ID so the backend returns every
+  // house the user can access (admins: all, non-admins: their own houses).
+  const [houseFilter, setHouseFilter] = useState<number | "">("");
+  const [houses, setHouses] = useState<{ id: number; display_name: string }[]>([]);
+  const pageHeaders = useMemo(
+    () => (houseFilter ? { "X-House-ID": String(houseFilter) } : {}),
+    [houseFilter]
+  );
+
   const canAssign = hasPermission("retailer_markings.assign");
+
+  useEffect(() => {
+    if (authLoading || !canAssign) return;
+    apiClient
+      .get("houses/accessible")
+      .then((res) => setHouses(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setHouses([]));
+  }, [authLoading, canAssign]);
 
   useEffect(() => {
     if (!authLoading && !hasPermission("retailer_markings.assign")) {
@@ -75,7 +92,7 @@ export default function AssignPage() {
       try {
         const res = await apiClient.get("retailer-markings/retailers", {
           params: { marking: markingName, per_page: 100, sort_by: "name", sort_order: "asc" },
-          headers: houseHeaders(selectedHouse),
+          headers: pageHeaders,
         });
         setMarkedRetailers(res.data.data || []);
       } catch {
@@ -84,19 +101,24 @@ export default function AssignPage() {
         setMarkedLoading(false);
       }
     },
-    [selectedHouse]
+    [pageHeaders]
   );
 
+  // Reset the working selection whenever a different marking is picked.
+  useEffect(() => {
+    setSearch("");
+    setSearchResults([]);
+    setSelectedIds(new Set());
+  }, [selectedMarkingId]);
+
+  // Re-fetch the marked list when the marking OR the house filter changes.
   useEffect(() => {
     if (selectedMarking) {
       fetchMarkedRetailers(selectedMarking.name);
-      setSearch("");
-      setSearchResults([]);
-      setSelectedIds(new Set());
     } else {
       setMarkedRetailers([]);
     }
-  }, [selectedMarkingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedMarkingId, houseFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const searchRetailers = useCallback(
     async (query: string) => {
@@ -109,7 +131,7 @@ export default function AssignPage() {
       try {
         const res = await apiClient.get("retailer-markings/retailers", {
           params: { search: query.trim(), per_page: 100, sort_by: "name", sort_order: "asc", enabled_only: true },
-          headers: houseHeaders(selectedHouse),
+          headers: pageHeaders,
         });
         setSearchResults(res.data.data || []);
       } catch {
@@ -118,7 +140,7 @@ export default function AssignPage() {
         setSearching(false);
       }
     },
-    [selectedHouse]
+    [pageHeaders]
   );
 
   useEffect(() => {
@@ -155,11 +177,15 @@ export default function AssignPage() {
     if (!selectedMarking || selectedIds.size === 0) return;
     setApplying(true);
     try {
-      const res = await apiClient.post(`retailer-markings/${selectedMarking.id}/assign`, {
-        marking_id: selectedMarking.id,
-        retailer_ids: Array.from(selectedIds),
-        remarks: remarks.trim() || null,
-      });
+      const res = await apiClient.post(
+        `retailer-markings/${selectedMarking.id}/assign`,
+        {
+          marking_id: selectedMarking.id,
+          retailer_ids: Array.from(selectedIds),
+          remarks: remarks.trim() || null,
+        },
+        { headers: pageHeaders }
+      );
       toast.success(t("retailer_marking.toast_assigned", { count: res.data.assigned }));
       if (res.data.errors && res.data.errors.length > 0) {
         res.data.errors.slice(0, 3).forEach((e: string) => toast.error(e));
@@ -177,10 +203,14 @@ export default function AssignPage() {
     if (!selectedMarking) return;
     setApplying(true);
     try {
-      const res = await apiClient.post(`retailer-markings/${selectedMarking.id}/unassign`, {
-        retailer_ids: [retailerId],
-        remarks: remarks.trim() || "Removed from marking",
-      });
+      const res = await apiClient.post(
+        `retailer-markings/${selectedMarking.id}/unassign`,
+        {
+          retailer_ids: [retailerId],
+          remarks: remarks.trim() || "Removed from marking",
+        },
+        { headers: pageHeaders }
+      );
       toast.success(t("retailer_marking.toast_unassigned", { count: res.data.removed }));
       await fetchMarkedRetailers(selectedMarking.name);
     } catch (err: any) {
@@ -213,21 +243,42 @@ export default function AssignPage() {
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-5">
-        <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
-          {t("retailer_marking.select_marking")}
-        </label>
-        <select
-          value={selectedMarkingId}
-          onChange={(e) => setSelectedMarkingId(e.target.value ? Number(e.target.value) : "")}
-          className="w-full sm:w-80 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none"
-        >
-          <option value="">{t("retailer_marking.select_marking")}</option>
-          {markings.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name} ({m.code})
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-col sm:flex-row sm:gap-4">
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+              {t("retailer_marking.select_marking")}
+            </label>
+            <select
+              value={selectedMarkingId}
+              onChange={(e) => setSelectedMarkingId(e.target.value ? Number(e.target.value) : "")}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none cursor-pointer"
+            >
+              <option value="">{t("retailer_marking.select_marking")}</option>
+              {markings.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.code})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:w-72 shrink-0 mt-4 sm:mt-0">
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+              {t("common.select_house")}
+            </label>
+            <select
+              value={houseFilter}
+              onChange={(e) => setHouseFilter(e.target.value ? Number(e.target.value) : "")}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none cursor-pointer"
+            >
+              <option value="">{t("common.all")}</option>
+              {houses.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className="mt-4">
           <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
             {t("retailer_marking.remarks_label")}
