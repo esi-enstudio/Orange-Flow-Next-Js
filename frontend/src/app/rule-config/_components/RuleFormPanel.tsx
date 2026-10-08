@@ -94,12 +94,25 @@ export default function RuleFormPanel({
     () => (options?.retailer_types ?? []).map((rt) => ({ id: rt.name, label: rt.name, badge: rt.code })),
     [options]
   );
-  const employeeItems: SelectorItem[] = useMemo(
-    () => (options?.employees ?? [])
+  const employeeItems: SelectorItem[] = useMemo(() => {
+    const base: SelectorItem[] = (options?.employees ?? [])
       .filter((e) => e.user_id != null)
-      .map((e) => ({ id: e.user_id as number, label: e.name, sublabel: e.dms_code || undefined, badge: e.employee_type?.toUpperCase() })),
-    [options]
-  );
+      .map((e) => ({ id: e.user_id as number, label: e.name, sublabel: e.dms_code || undefined, badge: e.employee_type?.toUpperCase() }));
+    // A saved selection can outlive its employee (resigned, or the user row is
+    // gone). Such an id is missing from `items`, so it counts toward the
+    // selected badge but renders no row to uncheck — surface it as a real row
+    // so every selection stays visible and removable.
+    const known = new Set(base.map((it) => it.id));
+    const stale = draft.included_employee_ids
+      .filter((uid) => !known.has(uid))
+      .map<SelectorItem>((uid) => ({
+        id: uid,
+        label: t("rule_config.fields.unavailable_user", { id: uid }),
+        sublabel: t("rule_config.fields.unavailable_sub"),
+        badge: t("rule_config.fields.unavailable_badge"),
+      }));
+    return stale.length > 0 ? [...stale, ...base] : base;
+  }, [options, draft.included_employee_ids, t]);
 
   const selectedEmpCount = draft.included_employee_ids.length;
 
@@ -372,7 +385,17 @@ export default function RuleFormPanel({
           <div className="flex flex-wrap gap-1.5">
             {draft.included_employee_ids.map((uid) => {
               const emp: EmployeeOption | undefined = options?.employees.find((e) => e.user_id === uid);
-              if (!emp) return null;
+              if (!emp) {
+                return (
+                  <span
+                    key={uid}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-gray-400 ring-1 ring-inset ring-gray-200 dark:ring-slate-700"
+                  >
+                    {t("rule_config.fields.unavailable_user", { id: uid })}
+                    <span className="opacity-70">{t("rule_config.fields.unavailable_badge")}</span>
+                  </span>
+                );
+              }
               const meta = ROLE_STYLE[emp.employee_type?.toUpperCase() as Role] ?? ROLE_STYLE.HOUSE;
               return (
                 <span key={uid} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium", meta.chip)}>

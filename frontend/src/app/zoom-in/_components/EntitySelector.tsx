@@ -198,6 +198,14 @@ export default function EntitySelector({
   };
 
   const clearAll = () => {
+    // With a search active, clear only the matching (visible) selections. With
+    // no search, clear everything — including selected ids that are no longer
+    // present in `items` (a saved value whose option list changed since), which
+    // the visible-only filter could never remove.
+    if (!trimmedSearch) {
+      onChange([]);
+      return;
+    }
     const filteredIds = filtered.map((item) => item.id);
     onChange(selectedIds.filter((id) => !filteredIds.includes(id)));
   };
