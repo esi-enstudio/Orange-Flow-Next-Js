@@ -180,6 +180,7 @@ def _normalize_apply_to(raw: Optional[str]) -> str:
 # section can adopt column scoping without an API change.
 RULE_COLUMN_SCOPES: dict[tuple[str, str], list[str]] = {
     ("ga_live", "rsos"): ["ach", "market_ga", "own_ga"],
+    ("ga_live", "bps"): ["ach", "own"],
     ("activation_report", "rso"): ["achieved", "market_ga", "own_ga"],
 }
 

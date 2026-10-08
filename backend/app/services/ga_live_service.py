@@ -40,6 +40,7 @@ SECTION_EMPLOYEE_ROLES = {
 # ``RULE_COLUMN_SCOPES`` in backend/app/routers/rule_config.py.
 SECTION_RULE_COLUMNS = {
     "rsos": ["ach", "market_ga", "own_ga"],
+    "bps": ["ach", "own"],
 }
 
 # RSO table columns whose numbers are counted from a retailer set that is always
@@ -49,6 +50,7 @@ SECTION_RULE_COLUMNS = {
 # exclusion a guaranteed no-op, so it is disabled for them.
 SECTION_COLUMN_NO_OWNED_EXEMPT = {
     "rsos": {"market_ga", "own_ga"},
+    "bps": {"own"},
 }
 
 # GA Live sections → rule engine target_role (context_key="ga_live").
@@ -335,6 +337,10 @@ class GaLiveQueryBuilder:
         base_act_rso_market = await self._build_base_query("rsos", "market_ga")
         base_act_rso_own = await self._build_base_query("rsos", "own_ga")
         base_act_bps = await self._build_base_query("bps")
+        # The BP table's Own column (today's activations on the BP's own codes)
+        # runs its own column-scoped rule when one is configured, mirroring the
+        # RSO Market/Own columns above. It falls back to the section rule set.
+        base_act_bps_own = await self._build_base_query("bps", "own")
 
         ret_rows = await self.db.execute(
             select(Retailer.id, Retailer.retailer_code, Retailer.employee_id).where(Retailer.house_id == self.house_id)
@@ -860,13 +866,27 @@ class GaLiveQueryBuilder:
             code for codes in bp_retailer_code_map.values() for code in codes
         ))
         if all_bp_codes_mtd and yesterday_for_mtd >= month_start:
-            bp_mtd_exclude_product_codes, bp_mtd_exclude_retailer_tags = await self._get_exclusions("bps")
+            # The BP table's Ach column runs its own column-scoped rules (and
+            # own included-employee list), mirroring the RSO Ach column.
+            bp_mtd_exclude_product_codes, bp_mtd_exclude_retailer_tags = await self._get_exclusions("bps", "ach")
+            # Apply the Ach column's own rules (product codes + retailer
+            # markings), mirroring the RSO Ach column. There is deliberately NO
+            # role-ownership exemption here: the Ach column counts only each
+            # BP's own retailer codes, so exempting exactly those retailers
+            # would turn every marking exclusion into a guaranteed no-op.
+            mtd_bp_excluded_retailer_ids: set[int] = set()
+            for tag in bp_mtd_exclude_retailer_tags:
+                mtd_bp_excluded_retailer_ids.update(await self._load_excluded_retailers_by_tag(tag))
             mtd_bp_q = select(Activation.retailer_code, func.count()).where(
                 Activation.house_id == self.house_id,
                 Activation.activation_date >= month_start,
                 Activation.activation_date <= yesterday_for_mtd,
                 Activation.retailer_code.in_(all_bp_codes_mtd),
             )
+            if mtd_bp_excluded_retailer_ids:
+                mtd_bp_q = mtd_bp_q.where(
+                    Activation.retailer_id.notin_(mtd_bp_excluded_retailer_ids)
+                )
             if bp_mtd_exclude_product_codes:
                 mtd_bp_q = mtd_bp_q.where(
                     and_(
@@ -879,6 +899,11 @@ class GaLiveQueryBuilder:
             for code, cnt in mtd_bp_rows.all():
                 bp_mtd_code_counts[code] = cnt
 
+        # The Ach column's included-employee list comes from its own
+        # column-scoped rule (rule rows store user IDs, GA Live filters by
+        # Employee.id), mirroring the RSO Ach column.
+        bp_ach_selected = set(await self._selected_employee_db_ids("bps", "ach"))
+
         bp_data = []
         for bp_emp_id in bp_emp_ids_all:
             bp_info = emp_id_to_user.get(bp_emp_id)
@@ -886,7 +911,9 @@ class GaLiveQueryBuilder:
             bp_codes = bp_retailer_code_map.get(bp_emp_id, [])
             bp_total = 0
             if bp_codes:
-                bp_q = base_act_bps.where(
+                # The Own column runs its own column-scoped rule so it can be
+                # filtered independently of the Ach column.
+                bp_q = base_act_bps_own.where(
                     LiveActivation.retailer_code.in_(bp_codes)
                 )
                 res = await self.db.execute(select(func.count()).select_from(bp_q.subquery()))
@@ -898,7 +925,9 @@ class GaLiveQueryBuilder:
                 bp_name = (bp_info[1] if bp_info else None) or (bp_info[4] if bp_info else None)
             bp_name = bp_name or emp_id_to_biz_id.get(bp_emp_id) or f"BP #{bp_emp_id}"
             bp_target_val = bp_target_map.get(bp_emp_id, 0)
-            bp_mtd_achievement = sum(bp_mtd_code_counts.get(code, 0) for code in bp_codes)
+            bp_mtd_achievement = 0
+            if not bp_ach_selected or bp_emp_id in bp_ach_selected:
+                bp_mtd_achievement = sum(bp_mtd_code_counts.get(code, 0) for code in bp_codes)
             bp_data.append({
                 "id": bp_uid if bp_uid else bp_emp_id,
                 "employee_id": bp_emp_id,

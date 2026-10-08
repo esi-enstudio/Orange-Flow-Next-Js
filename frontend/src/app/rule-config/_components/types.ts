@@ -68,6 +68,12 @@ export const GA_LIVE_RSO_COLUMNS = [
   { id: "own_ga", labelKey: "columns.own_ga" },
 ] as const;
 
+/** Metric columns of the GA Live BP Performance table a rule can target. */
+export const GA_LIVE_BP_COLUMNS = [
+  { id: "ach", labelKey: "columns.ach" },
+  { id: "own", labelKey: "columns.own" },
+] as const;
+
 /** Split a stored `column_key` ("ach,market_ga" | "all") into its column keys. */
 export function parseColumnKeys(columnKey?: string | null): string[] {
   if (!columnKey) return [];
