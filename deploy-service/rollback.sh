@@ -263,10 +263,10 @@ echo ""
 echo "[ROLLBACK_STEP:restarting]"
 echo "==> [6/6] Restarting services"
 
-if host_systemctl restart orangeflow-frontend; then
+if docker restart orange_flow_frontend >/dev/null 2>&1; then
   echo "    frontend restarted"
 else
-  echo "ERROR: could not restart orangeflow-frontend via systemctl. The old" >&2
+  echo "ERROR: could not restart the orange_flow_frontend container. The old" >&2
   echo "       next start would keep serving the reverted-away build." >&2
   fail "frontend_restart_failed"
 fi
@@ -318,7 +318,7 @@ EOF
 
 if [ "$FRONTEND_OK" != "true" ]; then
   echo "The rollback itself completed (code, config and database are all reverted)," >&2
-  echo "but the frontend is not serving. Run 'systemctl restart orangeflow-frontend'" >&2
+  echo "but the frontend is not serving. Run 'docker restart orange_flow_frontend'" >&2
   echo "and redeploy to finish recovery." >&2
   fail "frontend_not_responding_after_rollback"
 fi

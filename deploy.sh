@@ -141,10 +141,12 @@ echo ""
 echo "==> [3/4] Restarting services"
 cd "$PROJECT_DIR"
 
-# Frontend is a systemd service (runs `next start` -> serves the new build)
-echo "--> Restarting frontend (systemd: orangeflow-frontend)"
-if ! systemctl restart orangeflow-frontend; then
-  echo "ERROR: Failed to restart frontend service." >&2
+# Frontend runs as the `orange_flow_frontend` docker container (the host
+# systemd unit `orangeflow-frontend` is disabled — it raced the container for
+# port 3000 and crash-looped with EADDRINUSE).
+echo "--> Restarting frontend (docker: orange_flow_frontend)"
+if ! docker restart orange_flow_frontend; then
+  echo "ERROR: Failed to restart frontend container." >&2
   write_status "failed" 4 "Frontend restart failed"
   exit 4
 fi

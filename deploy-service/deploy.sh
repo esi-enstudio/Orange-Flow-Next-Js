@@ -211,15 +211,21 @@ echo ""
 echo "[DEPLOY_STEP:restarting]"
 echo "==> [4/4] Restarting services"
 
-echo "--> Restarting frontend (systemd: orangeflow-frontend)"
+echo "--> Restarting frontend (docker: orange_flow_frontend)"
 # IMPORTANT: The frontend MUST be restarted after a rebuild so `next start`
 # loads the freshly built .next. An old `next start` process kept running
 # against an overwritten .next serves mismatched client/server chunks and
 # renders BLANK pages. A failed restart is NOT acceptable here.
-if host_systemctl restart orangeflow-frontend; then
+#
+# The frontend runs as the `orange_flow_frontend` compose container. The host
+# systemd unit `orangeflow-frontend` is intentionally DISABLED — keeping both
+# enabled made them race for port 3000 (EADDRINUSE) and crash-loop.
+if docker restart orange_flow_frontend >/dev/null 2>&1; then
   echo "==> Frontend restarted"
+elif docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d frontend; then
+  echo "==> Frontend container started (was not running)"
 else
-  echo "ERROR: Could not restart frontend service via systemctl. The old " >&2
+  echo "ERROR: Could not restart frontend container. The old " >&2
   echo "       next start process would keep serving a stale/mismatched build" >&2
   echo "       and render blank pages. Aborting deploy." >&2
   write_status "failed" 4 "frontend restart failed"
@@ -227,12 +233,12 @@ else
   exit 4
 fi
 
-# Verify the running `next start` process actually restarted after the build.
-FIS=$(host_systemctl show orangeflow-frontend -p ActiveEnterTimestamp --value 2>/dev/null || echo "")
-echo "    Frontend service ActiveEnterTimestamp: ${FIS:-unknown}"
+# Verify the running container actually restarted after the build.
+FIS=$(docker inspect -f '{{.State.StartedAt}}' orange_flow_frontend 2>/dev/null || echo "")
+echo "    Frontend container StartedAt: ${FIS:-unknown}"
 case "$FIS" in
   ""|"unknown") echo "WARNING: Could not confirm frontend restart timestamp" >&2 ;;
-  *) echo "    (built/build completed at START_TIME=$START_TIME seq)" ;;
+  *) echo "    (deploy started at epoch START_TIME=$START_TIME)" ;;
 esac
 
 # ── Backend: rebuild image if Dockerfile/docker-compose changed ──────────────
@@ -349,7 +355,7 @@ elif [ "$FRONTEND_OK" = false ]; then
   write_status "failed" 1 "Deploy failed — frontend is serving a blank/stale build. Restart needed."
   echo ""
   echo "  RESULT: Deploy FAILED — frontend serving blank/stale build" >&2
-  echo "  Fix    : run 'systemctl restart orangeflow-frontend' and redeploy." >&2
+  echo "  Fix    : run 'docker restart orange_flow_frontend' and redeploy." >&2
   echo "[DEPLOY_FAILED:frontend_blank_after_deploy]"
   exit 1
 else
