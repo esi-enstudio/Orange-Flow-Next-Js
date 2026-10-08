@@ -95,19 +95,22 @@ export default function RuleFormPanel({
     [options]
   );
   const employeeItems: SelectorItem[] = useMemo(() => {
-    const base: SelectorItem[] = (options?.employees ?? [])
-      .filter((e) => e.user_id != null)
-      .map((e) => ({ id: e.user_id as number, label: e.name, sublabel: e.dms_code || undefined, badge: e.employee_type?.toUpperCase() }));
-    // A saved selection can outlive its employee (resigned, or the user row is
-    // gone). Such an id is missing from `items`, so it counts toward the
+    const base: SelectorItem[] = (options?.employees ?? []).map((e) => ({
+      id: e.id,
+      label: e.name,
+      sublabel: e.dms_code || undefined,
+      badge: e.employee_type?.toUpperCase(),
+    }));
+    // A saved selection can outlive its employee (resigned, or the employee
+    // row is gone). Such an id is missing from `items`, so it counts toward the
     // selected badge but renders no row to uncheck — surface it as a real row
     // so every selection stays visible and removable.
     const known = new Set(base.map((it) => it.id));
     const stale = draft.included_employee_ids
-      .filter((uid) => !known.has(uid))
-      .map<SelectorItem>((uid) => ({
-        id: uid,
-        label: t("rule_config.fields.unavailable_user", { id: uid }),
+      .filter((eid) => !known.has(eid))
+      .map<SelectorItem>((eid) => ({
+        id: eid,
+        label: t("rule_config.fields.unavailable_user", { id: eid }),
         sublabel: t("rule_config.fields.unavailable_sub"),
         badge: t("rule_config.fields.unavailable_badge"),
       }));
@@ -383,22 +386,22 @@ export default function RuleFormPanel({
 
         {selectedEmpCount > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {draft.included_employee_ids.map((uid) => {
-              const emp: EmployeeOption | undefined = options?.employees.find((e) => e.user_id === uid);
+            {draft.included_employee_ids.map((eid) => {
+              const emp: EmployeeOption | undefined = options?.employees.find((e) => e.id === eid);
               if (!emp) {
                 return (
                   <span
-                    key={uid}
+                    key={eid}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-gray-400 ring-1 ring-inset ring-gray-200 dark:ring-slate-700"
                   >
-                    {t("rule_config.fields.unavailable_user", { id: uid })}
+                    {t("rule_config.fields.unavailable_user", { id: eid })}
                     <span className="opacity-70">{t("rule_config.fields.unavailable_badge")}</span>
                   </span>
                 );
               }
               const meta = ROLE_STYLE[emp.employee_type?.toUpperCase() as Role] ?? ROLE_STYLE.HOUSE;
               return (
-                <span key={uid} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium", meta.chip)}>
+                <span key={eid} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium", meta.chip)}>
                   {emp.name}
                   {emp.employee_type && <span className="opacity-70">· {emp.employee_type.toUpperCase()}</span>}
                 </span>

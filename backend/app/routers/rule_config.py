@@ -128,28 +128,28 @@ async def _validate_constants(db: AsyncSession, context_key: str, target_role: s
 async def _validate_included_employee_ids(
     db: AsyncSession,
     house_id: Optional[int],
-    user_ids: list[int],
+    employee_ids: list[int],
 ):
-    """Ensure every included user_id maps to an Active employee of the house.
+    """Ensure every included employee id is an Active employee of the house.
 
-    The rule engine looks up `Employee.user_id IN (included_employee_ids)`
-    scoped to the rule's house, so selections outside the house (or inactive)
-    would silently count zero. Reject them up front with a structured 422.
+    The rule engine filters with `Employee.id IN (included_employee_ids)`
+    scoped to the rule's house, so ids outside the house (or inactive) would
+    silently count zero. Reject them up front with a structured 422.
     """
-    if not user_ids or not house_id:
+    if not employee_ids or not house_id:
         return
-    unique_ids = sorted({uid for uid in user_ids if uid > 0})
+    unique_ids = sorted({eid for eid in employee_ids if eid > 0})
     if not unique_ids:
         return
     res = await db.execute(
-        select(Employee.user_id).where(
+        select(Employee.id).where(
             Employee.house_id == house_id,
             Employee.status == "Active",
-            Employee.user_id.in_(unique_ids),
+            Employee.id.in_(unique_ids),
         )
     )
-    valid = {r[0] for r in res.all() if r[0] is not None}
-    invalid = [uid for uid in unique_ids if uid not in valid]
+    valid = {r[0] for r in res.all()}
+    invalid = [eid for eid in unique_ids if eid not in valid]
     if invalid:
         raise HTTPException(
             status_code=422,

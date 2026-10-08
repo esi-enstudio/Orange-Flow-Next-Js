@@ -181,7 +181,7 @@ class RuleExcludedRetailerType(Base):
 
 
 class RuleIncludedEmployeeId(Base):
-    """An employee (user_id) whose rows are included by the rule.
+    """An employee (employees.id) whose rows are included by the rule.
 
     When present, only these employees' results are shown for the rule's
     house+context+target_role.
@@ -191,8 +191,8 @@ class RuleIncludedEmployeeId(Base):
     __table_args__ = (
         UniqueConstraint(
             "rule_id",
-            "user_id",
-            name="uq_rule_included_employee_id_rule_user",
+            "employee_id",
+            name="uq_rule_included_employee_id_rule_emp",
         ),
     )
 
@@ -200,10 +200,10 @@ class RuleIncludedEmployeeId(Base):
     rule_id = Column(
         Integer, ForeignKey("report_rule_masters.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    # Loose reference to employees.user_id — mirrors employees.user_id (no FK to
-    # users), so employees whose login account no longer exists can still be
-    # included in a rule.
-    user_id = Column(Integer, nullable=False, index=True)
+    # Loose reference to employees.id (no FK), so an employee row that later
+    # disappears still keeps its selection visible as a stale/unavailable chip
+    # instead of breaking the save.
+    employee_id = Column(Integer, nullable=False, index=True)
 
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)

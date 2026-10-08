@@ -37,7 +37,7 @@ interface RuleType {
 
 interface ProductOption { code: string; name: string }
 interface RetailerTypeOption { name: string; code: string }
-interface EmployeeOption { id: number; user_id: number | null; name: string; employee_type: string; dms_code: string }
+interface EmployeeOption { id: number; name: string; employee_type: string; dms_code: string }
 
 interface OptionsData {
   product_codes: ProductOption[];
@@ -70,7 +70,7 @@ export default function DefineRuleModal({
   const [isActive, setIsActive] = useState(true);
   const [excludedCodes, setExcludedCodes] = useState<string[]>([]);
   const [excludedTypes, setExcludedTypes] = useState<string[]>([]);
-  const [includedEmpUserIds, setIncludedEmpUserIds] = useState<number[]>([]);
+  const [includedEmpIds, setIncludedEmpIds] = useState<number[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -97,14 +97,14 @@ export default function DefineRuleModal({
       setIsActive(target.is_active);
       setExcludedCodes(target.excluded_product_codes ?? []);
       setExcludedTypes(target.excluded_retailer_types ?? []);
-      setIncludedEmpUserIds(target.included_employee_ids ?? []);
+      setIncludedEmpIds(target.included_employee_ids ?? []);
     } else {
       setEditingId(null);
       setRuleName("");
       setIsActive(true);
       setExcludedCodes([]);
       setExcludedTypes([]);
-      setIncludedEmpUserIds([]);
+      setIncludedEmpIds([]);
     }
     setDirty(false);
     setSaved(false);
@@ -116,7 +116,7 @@ export default function DefineRuleModal({
     setIsActive(rule.is_active);
     setExcludedCodes(rule.excluded_product_codes ?? []);
     setExcludedTypes(rule.excluded_retailer_types ?? []);
-    setIncludedEmpUserIds(rule.included_employee_ids ?? []);
+    setIncludedEmpIds(rule.included_employee_ids ?? []);
     setDirty(false);
     setSaved(false);
   }
@@ -180,9 +180,12 @@ export default function DefineRuleModal({
     [options]
   );
   const employeeItems: SelectorItem[] = useMemo(
-    () => (options?.employees ?? [])
-      .filter((e) => e.user_id != null)
-      .map((e) => ({ id: e.user_id as number, label: e.name, sublabel: e.dms_code || undefined, badge: e.employee_type?.toUpperCase() })),
+    () => (options?.employees ?? []).map((e) => ({
+      id: e.id,
+      label: e.name,
+      sublabel: e.dms_code || undefined,
+      badge: e.employee_type?.toUpperCase(),
+    })),
     [options]
   );
 
@@ -192,7 +195,7 @@ export default function DefineRuleModal({
     setIsActive(true);
     setExcludedCodes([]);
     setExcludedTypes([]);
-    setIncludedEmpUserIds([]);
+    setIncludedEmpIds([]);
     setDirty(false);
     setSaved(false);
   }
@@ -217,7 +220,7 @@ export default function DefineRuleModal({
         is_active: isActive,
         excluded_product_codes: excludedCodes,
         excluded_retailer_types: excludedTypes,
-        included_employee_ids: includedEmpUserIds,
+        included_employee_ids: includedEmpIds,
       };
       if (editingId != null) {
         await apiClient.patch(`/rule-config/${editingId}`, payload, { headers });
@@ -269,7 +272,7 @@ export default function DefineRuleModal({
     }
   }
 
-  const selectedEmpCount = includedEmpUserIds.length;
+  const selectedEmpCount = includedEmpIds.length;
 
   return (
     <AnimatePresence>
@@ -566,8 +569,8 @@ export default function DefineRuleModal({
                       <EntitySelector
                         label={t("rule_config.fields.included_employees")}
                         items={employeeItems}
-                        selectedIds={includedEmpUserIds}
-                        onChange={(ids) => { setIncludedEmpUserIds(ids.map(Number)); setDirty(true); }}
+                        selectedIds={includedEmpIds}
+                        onChange={(ids) => { setIncludedEmpIds(ids.map(Number)); setDirty(true); }}
                         placeholder={t("rule_config.fields.included_employees")}
                         searchPlaceholder={t("common.search")}
                         emptyMessage={t("rule_config.empty.employees")}
@@ -582,12 +585,12 @@ export default function DefineRuleModal({
 
                       {selectedEmpCount > 0 && (
                         <div className="flex flex-wrap gap-1.5">
-                          {includedEmpUserIds.map((uid) => {
-                            const emp = options?.employees.find((e) => e.user_id === uid);
+                          {includedEmpIds.map((eid) => {
+                            const emp = options?.employees.find((e) => e.id === eid);
                             if (!emp) return null;
                             const meta = ROLE_STYLE[emp.employee_type?.toUpperCase() as Role] ?? ROLE_STYLE.HOUSE;
                             return (
-                              <span key={uid} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium", meta.chip)}>
+                              <span key={eid} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium", meta.chip)}>
                                 {emp.name}
                                 {emp.employee_type && <span className="opacity-70">· {emp.employee_type.toUpperCase()}</span>}
                               </span>

@@ -98,7 +98,7 @@ async def _set_children(
     for eid in sorted(
         {int(i) for i in (data.get("included_employee_ids") or []) if int(i) > 0}
     ):
-        db.add(RuleIncludedEmployeeId(user_id=eid, rule_id=rule_id, created_by=user_id))
+        db.add(RuleIncludedEmployeeId(employee_id=eid, rule_id=rule_id, created_by=user_id))
 
 
 async def get_rule_children(db: AsyncSession, rule_id: int) -> dict:
@@ -120,7 +120,7 @@ async def get_rule_children(db: AsyncSession, rule_id: int) -> dict:
     ).scalars().all()
     emp_ids = (
         await db.execute(
-            select(RuleIncludedEmployeeId.user_id).where(
+            select(RuleIncludedEmployeeId.employee_id).where(
                 RuleIncludedEmployeeId.rule_id == rule_id,
                 RuleIncludedEmployeeId.is_deleted.is_(False),
             )
@@ -411,7 +411,7 @@ async def get_house_rules_children(
     ).all()
     emp_rows = (
         await db.execute(
-            select(RuleIncludedEmployeeId.rule_id, RuleIncludedEmployeeId.user_id).where(
+            select(RuleIncludedEmployeeId.rule_id, RuleIncludedEmployeeId.employee_id).where(
                 RuleIncludedEmployeeId.rule_id.in_(ids),
                 RuleIncludedEmployeeId.is_deleted.is_(False),
             )
@@ -468,30 +468,23 @@ async def build_copy_plan(
     for rule in target_rules:
         target_by_scope.setdefault(_rule_scope_key(rule), rule)
 
-    # Employee selections only survive the copy when the same user_id is an
-    # Active employee of the *target* house. Employee.user_id is a global login
-    # id, so a user who serves two houses maps across, but a source-house-only
-    # employee does not exist in the target house at all.
+    # Employee selections only survive the copy when the same person (matched by
+    # login) is an Active employee of the *target* house. Employee ids are
+    # house-scoped, so each source id is mapped source-id → login → target
+    # employee id; an employee without a login has no cross-house identity and
+    # drops out.
     emp_ids_in_source: set[int] = set()
     for rule in source_rules:
-        for uid in children.get(rule.id, {}).get("included_employee_ids", []):
-            if uid:
-                emp_ids_in_source.add(int(uid))
+        for eid in children.get(rule.id, {}).get("included_employee_ids", []):
+            if eid:
+                emp_ids_in_source.add(int(eid))
 
-    valid_target_emp_ids: set[int] = set()
-    if emp_ids_in_source:
-        from app.models.employee import Employee  # local import: avoids cycle
-
-        valid_target_emp_rows = (
-            await db.execute(
-                select(Employee.user_id).where(
-                    Employee.house_id == target_house_id,
-                    Employee.status == "Active",
-                    Employee.user_id.in_(sorted(emp_ids_in_source)),
-                )
-            )
-        ).all()
-        valid_target_emp_ids = {r[0] for r in valid_target_emp_rows if r[0] is not None}
+    target_id_by_source: dict[int, int] = (
+        await _map_employee_ids_to_house(db, sorted(emp_ids_in_source), target_house_id)
+        if emp_ids_in_source
+        else {}
+    )
+    valid_target_emp_ids: set[int] = set(target_id_by_source.values())
 
     rows: list[dict] = []
     to_create = 0
@@ -506,13 +499,12 @@ async def build_copy_plan(
         src_children = children.get(rule.id, {"included_employee_ids": []})
         src_emp = [int(u) for u in src_children.get("included_employee_ids", []) if u]
         src_emp_set = set(src_emp)
-        kept_emp = (
-            sorted(u for u in src_emp_set if u in valid_target_emp_ids)
+        kept_sources = (
+            {eid for eid in src_emp_set if eid in target_id_by_source}
             if include_employee_ids
-            else []
+            else set()
         )
-        kept_set = set(kept_emp)
-        dropped_emp = len(src_emp_set - kept_set)
+        dropped_emp = len(src_emp_set - kept_sources)
 
         existing = target_by_scope.get(_rule_scope_key(rule))
         if existing is None:
@@ -545,7 +537,7 @@ async def build_copy_plan(
             to_skip += 1
 
         total_emp_selections += len(src_emp_set)
-        kept_emp_selections += len(kept_set)
+        kept_emp_selections += len(kept_sources)
         dropped_emp_selections += dropped_emp
         if dropped_emp:
             rules_with_emp_dropped += 1
@@ -563,7 +555,7 @@ async def build_copy_plan(
                 "existing_rule_id": existing.id if existing is not None else None,
                 "existing_rule_name": existing.rule_name if existing is not None else None,
                 "source_employee_count": len(src_emp_set),
-                "kept_employee_count": len(kept_set),
+                "kept_employee_count": len(kept_sources),
                 "dropped_employee_count": dropped_emp,
             }
         )
@@ -620,8 +612,8 @@ async def execute_copy_plan(
         )
     ]
     source_children = await get_house_rules_children(db, source_ids)
-    # Employee selections survive only when the same login is an Active employee
-    # of the target house, so validate the whole batch in one query too.
+    # Employee ids are house-scoped, so map the whole batch source-id → target
+    # employee id in one pass instead of resolving rule by rule.
     all_emp_ids = sorted(
         {
             int(u)
@@ -630,9 +622,7 @@ async def execute_copy_plan(
             if u
         }
     )
-    valid_emp_ids = set(
-        await _valid_target_employee_ids(db, target_house_id, all_emp_ids)
-    )
+    target_id_by_source = await _map_employee_ids_to_house(db, all_emp_ids, target_house_id)
 
     for row in plan.get("rows", []):
         if row["action"] == "skip":
@@ -653,8 +643,15 @@ async def execute_copy_plan(
             source_rule.id,
             {"excluded_product_codes": [], "excluded_retailer_types": [], "included_employee_ids": []},
         )
+        src_emp_ids = {int(u) for u in src_children["included_employee_ids"] if u}
         employee_ids = (
-            sorted({int(u) for u in src_children["included_employee_ids"] if u} & valid_emp_ids)
+            sorted(
+                {
+                    target_id_by_source[eid]
+                    for eid in src_emp_ids
+                    if eid in target_id_by_source
+                }
+            )
             if include_employee_ids
             else []
         )
@@ -727,22 +724,50 @@ async def execute_copy_plan(
     }
 
 
-async def _valid_target_employee_ids(
-    db: AsyncSession, house_id: int, user_ids: list[int]
-) -> list[int]:
-    """Filter employee user_ids down to Active employees of ``house_id``."""
-    unique_ids = sorted({int(u) for u in (user_ids or []) if u and int(u) > 0})
+async def _map_employee_ids_to_house(
+    db: AsyncSession, employee_ids: list[int], target_house_id: int
+) -> dict[int, int]:
+    """Map source employee ids onto the same person in ``target_house_id``.
+
+    ``employees.id`` is house-scoped, so a source id is meaningless in another
+    house. The login (``employees.user_id``) is the only cross-house identity:
+    source id → login → target house's Active employee holding that login.
+    Employees without a login have no cross-house identity and drop out.
+
+    Returns ``{source_employee_id: target_employee_id}``.
+    """
+    unique_ids = sorted({int(e) for e in (employee_ids or []) if e and int(e) > 0})
     if not unique_ids:
-        return []
+        return {}
     from app.models.employee import Employee  # local import: avoids cycle
 
-    rows = (
+    src_rows = (
         await db.execute(
-            select(Employee.user_id).where(
-                Employee.house_id == house_id,
+            select(Employee.id, Employee.user_id).where(Employee.id.in_(unique_ids))
+        )
+    ).all()
+    user_by_source = {eid: uid for eid, uid in src_rows if uid}
+    if not user_by_source:
+        return {}
+
+    target_rows = (
+        await db.execute(
+            select(Employee.id, Employee.user_id).where(
+                Employee.house_id == target_house_id,
                 Employee.status == "Active",
-                Employee.user_id.in_(unique_ids),
+                Employee.user_id.in_(sorted(set(user_by_source.values()))),
             )
         )
     ).all()
-    return sorted({r[0] for r in rows if r[0] is not None})
+    # A login can hold several employee rows inside one house; the lowest id
+    # keeps the mapping deterministic.
+    target_by_user: dict[int, int] = {}
+    for eid, uid in target_rows:
+        if uid not in target_by_user or eid < target_by_user[uid]:
+            target_by_user[uid] = eid
+
+    return {
+        src: target_by_user[uid]
+        for src, uid in user_by_source.items()
+        if uid in target_by_user
+    }

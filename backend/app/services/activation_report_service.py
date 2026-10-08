@@ -79,7 +79,7 @@ class ActivationReportService:
             apply_to=apply_to, column_key=column_key,
         )
         excluded_product_codes = cond.get("excluded_product_codes") or []
-        included_user_ids: list[int] = cond.get("included_employee_ids") or []
+        included_emp_ids: list[int] = cond.get("included_employee_ids") or []
         excluded_retailer_ids: set[int] = set()
         for tag in cond.get("excluded_retailer_types") or []:
             excluded_retailer_ids |= await get_active_retailer_ids_for_marking(
@@ -94,7 +94,7 @@ class ActivationReportService:
                 excluded_retailer_ids -= owned
             except Exception:
                 pass
-        self._rule_conditions[key] = (excluded_product_codes, excluded_retailer_ids, included_user_ids)
+        self._rule_conditions[key] = (excluded_product_codes, excluded_retailer_ids, included_emp_ids)
         return self._rule_conditions[key]
 
     async def _apply_rule_filters(
@@ -367,14 +367,14 @@ class ActivationReportService:
         return emp.dms_code or emp.employee_id or f"#{emp.id}"
 
     async def get_rso_performance(self) -> list[dict]:
-        _, _, included_user_ids = await self._load_rule_conditions("RSO", apply_to="rso")
+        _, _, included_emp_ids = await self._load_rule_conditions("RSO", apply_to="rso")
         emp_q = select(Employee).where(
             Employee.house_id == self.house_id,
             Employee.employee_type == "rso",
             Employee.status == "Active",
         )
-        if included_user_ids:
-            emp_q = emp_q.where(Employee.user_id.in_(included_user_ids))
+        if included_emp_ids:
+            emp_q = emp_q.where(Employee.id.in_(included_emp_ids))
         emps = await self.db.execute(emp_q)
         employees = emps.scalars().all()
         if not employees:
@@ -410,14 +410,14 @@ class ActivationReportService:
         return results
 
     async def get_bp_performance(self) -> list[dict]:
-        _, _, included_user_ids = await self._load_rule_conditions("BP", apply_to="bp")
+        _, _, included_emp_ids = await self._load_rule_conditions("BP", apply_to="bp")
         emp_q = select(Employee).where(
             Employee.house_id == self.house_id,
             Employee.employee_type == "bp",
             Employee.status == "Active",
         )
-        if included_user_ids:
-            emp_q = emp_q.where(Employee.user_id.in_(included_user_ids))
+        if included_emp_ids:
+            emp_q = emp_q.where(Employee.id.in_(included_emp_ids))
         emps = await self.db.execute(emp_q)
         employees = emps.scalars().all()
         if not employees:
@@ -514,14 +514,14 @@ class ActivationReportService:
         return results
 
     async def get_supervisor_performance(self) -> list[dict]:
-        _, _, included_user_ids = await self._load_rule_conditions("SUPERVISOR", apply_to="supervisor")
+        _, _, included_emp_ids = await self._load_rule_conditions("SUPERVISOR", apply_to="supervisor")
         emp_q = select(Employee).where(
             Employee.house_id == self.house_id,
             Employee.employee_type == "supervisor",
             Employee.status == "Active",
         )
-        if included_user_ids:
-            emp_q = emp_q.where(Employee.user_id.in_(included_user_ids))
+        if included_emp_ids:
+            emp_q = emp_q.where(Employee.id.in_(included_emp_ids))
         emps = await self.db.execute(emp_q)
         employees = emps.scalars().all()
         if not employees:

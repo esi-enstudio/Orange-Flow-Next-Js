@@ -1221,8 +1221,8 @@ async def _migrate_rule_included_employee_user_id_fk():
     employees.user_id is a loose reference (no FK to users) and may point to a
     user account that no longer exists. Enforcing the FK here made saving any
     rule with such an employee fail with an IntegrityError (surfaced as
-    "Network Error" in the UI). The rule engine resolves user_id → Employee at
-    query time, so the hard FK is unnecessary.
+    "Network Error" in the UI). The column is a loose reference of its own, so
+    the hard FK is unnecessary.
     """
     try:
         async with engine.begin() as conn:
@@ -1239,6 +1239,69 @@ async def _migrate_rule_included_employee_user_id_fk():
         logger.warning(f"Migration warning (rule_included_employee_ids user_id FK): {e}")
 
 
+async def _migrate_rule_included_employee_to_emp_id():
+    """Convert rule_included_employee_ids from user ids to employee ids.
+
+    The column used to hold ``employees.user_id`` (the login), so employees
+    without a login account could never be picked in Included Employees. It now
+    holds ``employees.id``. Existing rows are translated through the login
+    inside the rule's own house; rows whose login maps to no employee of that
+    house are dropped because they were already unresolvable, and keeping the
+    raw number would silently re-point them at an unrelated employee id.
+    """
+    try:
+        async with engine.begin() as conn:
+            has_user_col = await conn.execute(text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'rule_included_employee_ids' AND column_name = 'user_id'"
+            ))
+            if has_user_col.scalar():
+                await conn.execute(text(
+                    "DELETE FROM rule_included_employee_ids AS t "
+                    "WHERE NOT EXISTS ("
+                    "  SELECT 1 FROM employees AS e"
+                    "  JOIN report_rule_masters AS r ON r.id = t.rule_id"
+                    "  WHERE e.user_id IS NOT NULL"
+                    "    AND e.user_id = t.user_id"
+                    "    AND e.house_id = r.house_id)"
+                ))
+                await conn.execute(text(
+                    "UPDATE rule_included_employee_ids AS t "
+                    "SET user_id = ("
+                    "  SELECT min(e.id) FROM employees AS e"
+                    "  JOIN report_rule_masters AS r ON r.id = t.rule_id"
+                    "  WHERE e.user_id = t.user_id AND e.house_id = r.house_id)"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE rule_included_employee_ids RENAME COLUMN user_id TO employee_id"
+                ))
+                logger.info("Migration: rule_included_employee_ids.user_id → employee_id")
+
+            old_idx = await conn.execute(text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE schemaname = 'public' AND indexname = 'ix_rule_included_employee_ids_user_id'"
+            ))
+            if old_idx.scalar():
+                await conn.execute(text(
+                    "ALTER INDEX ix_rule_included_employee_ids_user_id "
+                    "RENAME TO ix_rule_included_employee_ids_employee_id"
+                ))
+
+            old_con = await conn.execute(text(
+                "SELECT 1 FROM pg_constraint "
+                "WHERE conname = 'uq_rule_included_employee_id_rule_user'"
+            ))
+            if old_con.scalar():
+                await conn.execute(text(
+                    "ALTER TABLE rule_included_employee_ids "
+                    "RENAME CONSTRAINT uq_rule_included_employee_id_rule_user "
+                    "TO uq_rule_included_employee_id_rule_emp"
+                ))
+                logger.info("Migration: renamed rule_included_employee_ids unique constraint")
+    except Exception as e:
+        logger.warning(f"Migration warning (rule_included_employee_ids employee_id): {e}")
+
+
 async def init_db():
     try:
         await _drop_legacy_ga_section_config_table()
@@ -1249,6 +1312,7 @@ async def init_db():
         await _migrate_rule_apply_to()
         await _migrate_rule_column_key()
         await _migrate_rule_included_employee_user_id_fk()
+        await _migrate_rule_included_employee_to_emp_id()
         await _migrate_employee_sr_no()
         await _migrate_employee_name()
         await _migrate_supervisor_rso_pivot()

@@ -108,7 +108,6 @@ export interface ProductOption { code: string; name: string }
 export interface RetailerTypeOption { name: string; code: string }
 export interface EmployeeOption {
   id: number;
-  user_id: number | null;
   name: string;
   employee_type: string;
   dms_code: string;

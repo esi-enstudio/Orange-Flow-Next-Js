@@ -150,20 +150,20 @@ class GaLiveQueryBuilder:
     async def _selected_employee_db_ids(
         self, section_key: str, column_key: Optional[str] = None
     ) -> list[int]:
-        """Employee IDs selected via the section rule's included_employee_ids.
+        """Employee ids selected via the section rule's included_employee_ids.
 
-        Rule rows store user IDs; GA Live filters by Employee.id, so map
-        user_id → employee_id for this house's active employees.
+        Rule rows store ``Employee.id``; this re-checks house + Active so a
+        stale id (resigned or another house) cannot widen the section.
         """
         cond = self._conditions_for(section_key, column_key)
-        user_ids = cond.get("included_employee_ids") or []
-        if not user_ids:
+        employee_ids = cond.get("included_employee_ids") or []
+        if not employee_ids:
             return []
         res = await self.db.execute(
             select(Employee.id).where(
                 Employee.house_id == self.house_id,
                 Employee.status == "Active",
-                Employee.user_id.in_(user_ids),
+                Employee.id.in_(employee_ids),
             )
         )
         return [r[0] for r in res.all()]
@@ -900,8 +900,8 @@ class GaLiveQueryBuilder:
                 bp_mtd_code_counts[code] = cnt
 
         # The Ach column's included-employee list comes from its own
-        # column-scoped rule (rule rows store user IDs, GA Live filters by
-        # Employee.id), mirroring the RSO Ach column.
+        # column-scoped rule (rule rows store Employee.id, and GA Live filters
+        # by Employee.id), mirroring the RSO Ach column.
         bp_ach_selected = set(await self._selected_employee_db_ids("bps", "ach"))
 
         bp_data = []
