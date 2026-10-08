@@ -280,19 +280,20 @@ class GaLiveQueryBuilder:
     async def get_employee_activation_by_code(self, section_key: str) -> int:
         base = await self._build_base_query(section_key)
 
-        selected_emp_ids = await self._selected_employee_db_ids(section_key)
-        if not selected_emp_ids:
-            return 0
-
-        emp_rows = await self.db.execute(
-            select(Employee.assisted_retailer_code).where(
-                Employee.house_id == self.house_id,
-                Employee.status == "Active",
-                Employee.id.in_(selected_emp_ids),
-                Employee.assisted_retailer_code != None,
-            )
+        # An empty included-employee selection means the section carries no
+        # employee rule, so the count falls back to every active employee's
+        # assisted codes instead of reporting 0. When the section does name
+        # employees, only those are counted.
+        code_q = select(Employee.assisted_retailer_code).where(
+            Employee.house_id == self.house_id,
+            Employee.status == "Active",
+            Employee.assisted_retailer_code != None,
         )
-        assisted_codes = [row[0] for row in emp_rows.all() if row[0]]
+        selected_emp_ids = await self._selected_employee_db_ids(section_key)
+        if selected_emp_ids:
+            code_q = code_q.where(Employee.id.in_(selected_emp_ids))
+
+        assisted_codes = [row[0] for row in (await self.db.execute(code_q)).all() if row[0]]
         if not assisted_codes:
             return 0
         emp_q = base.where(
@@ -1059,20 +1060,18 @@ class GaLiveQueryBuilder:
         return result
 
     async def _get_employee_participation_counts(self) -> dict:
-        emp_ids = await self._selected_employee_db_ids("employee_activation")
-        if not emp_ids:
-            return {"total_selected": 0, "activated_count": 0}
-
-        emp_rows = await self.db.execute(
-            select(Employee.id, Employee.assisted_retailer_code).where(
-                Employee.house_id == self.house_id,
-                Employee.status == "Active",
-                Employee.id.in_(emp_ids),
-                Employee.assisted_retailer_code != None,
-                Employee.assisted_retailer_code != "",
-            )
+        # Mirrors get_employee_activation_by_code: with no included-employee
+        # rule the participation denominator is every active employee.
+        emp_q = select(Employee.id, Employee.assisted_retailer_code).where(
+            Employee.house_id == self.house_id,
+            Employee.status == "Active",
+            Employee.assisted_retailer_code != None,
+            Employee.assisted_retailer_code != "",
         )
-        emp_data = [(r.id, r.assisted_retailer_code) for r in emp_rows.all()]
+        emp_ids = await self._selected_employee_db_ids("employee_activation")
+        if emp_ids:
+            emp_q = emp_q.where(Employee.id.in_(emp_ids))
+        emp_data = [(r.id, r.assisted_retailer_code) for r in (await self.db.execute(emp_q)).all()]
         if not emp_data:
             return {"total_selected": 0, "activated_count": 0}
 
