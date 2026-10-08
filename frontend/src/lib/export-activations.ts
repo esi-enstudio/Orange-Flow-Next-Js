@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs';
+import type ExcelJS from 'exceljs';
 
 interface Summary {
   monthly_target: number;
@@ -198,6 +198,7 @@ export async function exportActivationsReport(payload: ExportPayload): Promise<v
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
+  const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = "Orange Flow";
   const ws = wb.addWorksheet("Activation Report", {

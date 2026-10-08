@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -17,16 +16,6 @@ import { Toaster } from "react-hot-toast";
 import { Suspense } from "react";
 import PageProgressIndicator from "@/components/ui/PageProgressIndicator";
 import { DynamicPageTitle } from "@/components/layout/DynamicPageTitle";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 const EXTENSION_ATTRIBUTES = ["bis_skin_checked"] as const;
 
@@ -82,7 +71,7 @@ export default async function RootLayout({
 
   return (
     <html lang={lang} suppressHydrationWarning>
-      <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} antialiased text-gray-900 dark:text-gray-100`}>
+      <body suppressHydrationWarning className="antialiased text-gray-900 dark:text-gray-100">
         {process.env.NODE_ENV === "development" ? (
           <script
             type={typeof window === "undefined" ? "text/javascript" : "text/plain"}

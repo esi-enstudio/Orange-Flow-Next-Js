@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs';
+import type ExcelJS from 'exceljs';
 
 interface RsoRow {
   name: string;
@@ -155,6 +155,7 @@ export async function exportLiveReport(payload: ExportPayload): Promise<void> {
   const dateStr = now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
   const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
 
+  const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = "Orange Flow";
   const ws = wb.addWorksheet("GA Live Report", {

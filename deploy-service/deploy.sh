@@ -171,7 +171,7 @@ fi
 HOST_NODE_BIN="/root/.nvm/versions/node/v24.20.0/bin"
 HOST_FRONTEND_DIR="$HOST_PROJECT_DIR/frontend"
 host_build() {
-  host env "PATH=$HOST_NODE_BIN:/usr/local/bin:/usr/bin:/bin" "NODE_ENV=production" \
+  host env "PATH=$HOST_NODE_BIN:/usr/local/bin:/usr/bin:/bin" "NODE_ENV=production" "NODE_OPTIONS=--max-old-space-size=4096" \
     bash -c "cd '$HOST_FRONTEND_DIR' && $*"
 }
 

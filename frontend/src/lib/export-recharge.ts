@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs';
+import type ExcelJS from 'exceljs';
 
 interface Summary {
   monthly_target: number;
@@ -209,6 +209,7 @@ export async function exportRechargeReport(payload: ExportPayload): Promise<void
   const isEv = report_type === "ev_secondary";
   const reportTitle = isEv ? "EV C2C Report" : "Recharge Report (C2C)";
 
+  const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = "Orange Flow";
   const ws = wb.addWorksheet("Recharge Report", {
