@@ -84,6 +84,11 @@ backend/uploads/
 # Deploy runtime state (shared between host & backend container)
 backend/.deploy/
 
+# Docker local overrides — machine-specific compose config, never committed.
+# Base services live in docker-compose.yml; this file only patches them locally.
+docker-compose.override.yml
+docker-compose.override.yaml
+
 # Database dumps & restore point snapshots.
 # These are large binary artifacts that must NEVER be committed — they would
 # bloat the repo, slow every git operation, and (because a `git reset --hard`

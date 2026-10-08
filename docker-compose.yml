@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASS:-postgres}
-      POSTGRES_DB: ${DB_NAME:-orange_flow_dev_db}
+      POSTGRES_DB: ${DB_NAME:-orange_flow_db}
     volumes:
       - postgres_data:/var/lib/postgresql
       # - ./backend/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
@@ -17,7 +17,7 @@ services:
         limits:
           memory: 2G
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-orange_flow_dev_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-orange_flow_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -104,7 +104,7 @@ services:
       - JWT_SECRET_KEY=${WA_GATEWAY_JWT_KEY:-changeme-jwt-secret-min-32-chars-long}
       - SERVER_PORT=7001
       - WHATSAPP_DATASTORE_TYPE=postgres
-      - WHATSAPP_DATASTORE_URI=postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@db:5432/${DB_NAME:-orange_flow_dev_db}?sslmode=disable
+      - WHATSAPP_DATASTORE_URI=postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@db:5432/${DB_NAME:-orange_flow_db}?sslmode=disable
     deploy:
       resources:
         limits:

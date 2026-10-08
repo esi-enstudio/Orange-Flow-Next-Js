@@ -28,9 +28,24 @@ LABEL="${1:-}"
 TRIGGER_SOURCE="${2:-manual}"
 KEEP="${RESTORE_POINT_KEEP:-10}"
 
+# Resolve DB_* defaults from the project .env when a variable is not already
+# set in the environment. The container path gets DB_NAME from `env_file: .env`
+# already; a manual `./deploy.sh` on the host does not, so without this it would
+# fall back to the built-in default and dump a database that does not exist.
+read_env_value() {
+  local key="$1" file="$PROJECT_DIR/.env"
+  [ -f "$file" ] || return 0
+  grep -E "^[[:space:]]*${key}=" "$file" | tail -n1 \
+    | cut -d= -f2- \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+          -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
 DB_CONTAINER="${DB_CONTAINER:-orange_flow_db}"
+DB_USER="${DB_USER:-$(read_env_value DB_USER)}"
 DB_USER="${DB_USER:-postgres}"
-DB_NAME="${DB_NAME:-orange_flow_dev_db}"
+DB_NAME="${DB_NAME:-$(read_env_value DB_NAME)}"
+DB_NAME="${DB_NAME:-orange_flow_db}"
 
 TS="$(date +%Y%m%d_%H%M%S)"
 

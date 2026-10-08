@@ -90,7 +90,7 @@ cp .env.example .env
 ```env
 DB_USER=postgres
 DB_PASS=postgres
-DB_NAME=orange_flow_dev_db
+DB_NAME=orange_flow_db
 DB_HOST=localhost
 DB_PORT=5433
 SECRET_KEY=                       # openssl rand -hex 32 দিয়ে generate করো
@@ -185,7 +185,7 @@ Gateway চালু হলে:
 docker logs -f orange_flow_backend
 
 # Database-এ direct connected হওয়া
-docker exec -it orange_flow_db psql -U postgres -d orange_flow_dev_db
+docker exec -it orange_flow_db psql -U postgres -d orange_flow_db
 
 # Alembic migrations চালানো (যদি models পরিবর্তন করো)
 docker exec -it orange_flow_backend alembic upgrade head

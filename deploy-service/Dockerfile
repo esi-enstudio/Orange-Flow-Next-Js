@@ -9,7 +9,7 @@ WORKDIR /app
 # fallbacks for `docker compose config` validation.
 ENV DB_CONTAINER=orange_flow_db \
     DB_USER=postgres \
-    DB_NAME=orange_flow_dev_db
+    DB_NAME=orange_flow_db
 
 COPY package.json ./
 RUN npm install --production

@@ -32,9 +32,23 @@ PROJECT_DIR="${PROJECT_DIR:-/project}"
 SNAPSHOT_ROOT="$PROJECT_DIR/backend/backups/restore_points"
 HOST_PROJECT_DIR="${HOST_PROJECT_DIR:-/opt/Orange-Flow-Next-Js}"
 
+# Resolve the live database name/owner from the project .env when not already
+# provided by the environment (see snapshot.sh for the full rationale: a manual
+# host run has no DB_NAME exported and must not fall back to a stale default).
+read_env_value() {
+  local key="$1" file="$PROJECT_DIR/.env"
+  [ -f "$file" ] || return 0
+  grep -E "^[[:space:]]*${key}=" "$file" | tail -n1 \
+    | cut -d= -f2- \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+          -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
 DB_CONTAINER="${DB_CONTAINER:-orange_flow_db}"
+DB_USER="${DB_USER:-$(read_env_value DB_USER)}"
 DB_USER="${DB_USER:-postgres}"
-DB_NAME="${DB_NAME:-orange_flow_dev_db}"
+DB_NAME="${DB_NAME:-$(read_env_value DB_NAME)}"
+DB_NAME="${DB_NAME:-orange_flow_db}"
 
 SNAPSHOT_ID="${1:-}"
 INCLUDE_CODE=1
