@@ -152,13 +152,6 @@ export default function HouseTargetsPage() {
     if (!formData.bp_ga) errors.bp_ga = "BP GA is required";
     if (!formData.rso_ga) errors.rso_ga = "RSO GA is required";
     if (!formData.ev_scr) errors.ev_scr = "EV SCR is required";
-    if (!formData.sso) errors.sso = "SSO is required";
-    if (!formData.lso) errors.lso = "LSO is required";
-    if (!formData.bso) errors.bso = "BSO is required";
-    if (!formData.ddso) errors.ddso = "DDSO is required";
-    if (!formData.dsso) errors.dsso = "DSSO is required";
-    if (!formData.dso) errors.dso = "DSO is required";
-    if (!formData.dlso) errors.dlso = "DLSO is required";
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -668,37 +661,37 @@ export default function HouseTargetsPage() {
 
                   <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest pt-2">SO Targets</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <InputField label={t('house_targets.field_sso')} type="number" required
+                    <InputField label={t('house_targets.field_sso')} type="number"
                       value={formData.sso}
                       onChange={v => setFormData({...formData, sso: v})}
                       placeholder={t('house_targets.field_sso_placeholder')}
                       error={fieldErrors.sso} />
-                    <InputField label={t('house_targets.field_lso')} type="number" required
+                    <InputField label={t('house_targets.field_lso')} type="number"
                       value={formData.lso}
                       onChange={v => setFormData({...formData, lso: v})}
                       placeholder={t('house_targets.field_lso_placeholder')}
                       error={fieldErrors.lso} />
-                    <InputField label={t('house_targets.field_bso')} type="number" required
+                    <InputField label={t('house_targets.field_bso')} type="number"
                       value={formData.bso}
                       onChange={v => setFormData({...formData, bso: v})}
                       placeholder={t('house_targets.field_bso_placeholder')}
                       error={fieldErrors.bso} />
-                    <InputField label={t('house_targets.field_ddso')} type="number" required
+                    <InputField label={t('house_targets.field_ddso')} type="number"
                       value={formData.ddso}
                       onChange={v => setFormData({...formData, ddso: v})}
                       placeholder={t('house_targets.field_ddso_placeholder')}
                       error={fieldErrors.ddso} />
-                    <InputField label={t('house_targets.field_dsso')} type="number" required
+                    <InputField label={t('house_targets.field_dsso')} type="number"
                       value={formData.dsso}
                       onChange={v => setFormData({...formData, dsso: v})}
                       placeholder={t('house_targets.field_dsso_placeholder')}
                       error={fieldErrors.dsso} />
-                    <InputField label={t('house_targets.field_dso')} type="number" required
+                    <InputField label={t('house_targets.field_dso')} type="number"
                       value={formData.dso}
                       onChange={v => setFormData({...formData, dso: v})}
                       placeholder={t('house_targets.field_dso_placeholder')}
                       error={fieldErrors.dso} />
-                    <InputField label={t('house_targets.field_dlso')} type="number" required
+                    <InputField label={t('house_targets.field_dlso')} type="number"
                       value={formData.dlso}
                       onChange={v => setFormData({...formData, dlso: v})}
                       placeholder={t('house_targets.field_dlso_placeholder')}

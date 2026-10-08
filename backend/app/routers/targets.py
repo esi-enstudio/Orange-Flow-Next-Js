@@ -83,6 +83,9 @@ async def create_house_target(
         lso=payload.lso or 0,
         bso=payload.bso or 0,
         ddso=payload.ddso or 0,
+        dsso=payload.dsso or 0,
+        dso=payload.dso or 0,
+        dlso=payload.dlso or 0,
         extra_targets=payload.extra_targets or {},
     )
     db.add(record)

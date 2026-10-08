@@ -12,13 +12,13 @@ class HouseTargetCreate(BaseModel):
     bp_ga: int
     rso_ga: int
     ev_scr: float
-    sso: int
-    lso: int
-    bso: int
-    ddso: int
-    dsso: int
-    dso: int
-    dlso: int
+    sso: Optional[int] = None
+    lso: Optional[int] = None
+    bso: Optional[int] = None
+    ddso: Optional[int] = None
+    dsso: Optional[int] = None
+    dso: Optional[int] = None
+    dlso: Optional[int] = None
     extra_targets: Optional[dict] = {}
 
 class HouseTargetUpdate(BaseModel):
