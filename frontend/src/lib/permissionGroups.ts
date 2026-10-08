@@ -227,9 +227,27 @@ export function buildPermissionGroups(allPerms: PermissionItem[]): PagePermissio
   const nameToId = new Map<string, number>();
   for (const perm of allPerms) nameToId.set(perm.name, perm.id);
 
+  const leaves = collectLeafPages();
+
+  // Modules that are split across multiple pages with distinct gate keys (e.g. dms.sim_issue,
+  // dms.sim_return, dms.sim_status) must only expose their page-specific gate permission(s),
+  // otherwise the same permission appears in every related group and toggling one toggles all.
+  const moduleGateNames = new Map<string, Set<string>>();
+  for (const leaf of leaves) {
+    for (const g of leaf.gates) {
+      const m = moduleKeyOfPermission(g);
+      let set = moduleGateNames.get(m);
+      if (!set) {
+        set = new Set();
+        moduleGateNames.set(m, set);
+      }
+      set.add(g);
+    }
+  }
+
   const groups: PagePermissionGroup[] = [];
 
-  for (const leaf of collectLeafPages()) {
+  for (const leaf of leaves) {
     const gateMods = [...new Set(leaf.gates.map(moduleKeyOfPermission))];
     const available = gateMods.filter((m) => (moduleMap[m]?.length ?? 0) > 0);
     const specific = available.filter((m) => m !== "reports");
@@ -237,7 +255,16 @@ export function buildPermissionGroups(allPerms: PermissionItem[]): PagePermissio
 
     const perms: PermissionItem[] = [];
     for (const m of chosen) {
-      for (const p of moduleMap[m] || []) perms.push(p);
+      const leafGatesForModule = leaf.gates.filter((g) => moduleKeyOfPermission(g) === m);
+      const moduleSplit = (moduleGateNames.get(m)?.size ?? 0) > 1;
+      if (moduleSplit && leafGatesForModule.length > 0) {
+        for (const g of leafGatesForModule) {
+          const id = nameToId.get(g);
+          if (id != null) perms.push({ id, name: g });
+        }
+      } else {
+        for (const p of moduleMap[m] || []) perms.push(p);
+      }
     }
     for (const g of leaf.gates) {
       if (!perms.some((p) => p.name === g)) {
