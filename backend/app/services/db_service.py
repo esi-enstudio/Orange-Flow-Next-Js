@@ -1251,11 +1251,26 @@ async def _migrate_rule_included_employee_to_emp_id():
     """
     try:
         async with engine.begin() as conn:
+            table_exists = await conn.execute(text(
+                "SELECT to_regclass('public.rule_included_employee_ids') IS NOT NULL"
+            ))
+            if not table_exists.scalar():
+                return
+
             has_user_col = await conn.execute(text(
                 "SELECT 1 FROM information_schema.columns "
                 "WHERE table_name = 'rule_included_employee_ids' AND column_name = 'user_id'"
             ))
             if has_user_col.scalar():
+                # Drop the (rule_id, user_id) unique constraint first. The mapping
+                # below rewrites values in place and can transiently collide with a
+                # not-yet-updated row (e.g. user_id=11 -> employee 3 while the row
+                # user_id=3 still holds 3). A uniqueness violation there aborts the
+                # whole migration and leaves the column half-converted.
+                await conn.execute(text(
+                    "ALTER TABLE rule_included_employee_ids "
+                    "DROP CONSTRAINT IF EXISTS uq_rule_included_employee_id_rule_user"
+                ))
                 await conn.execute(text(
                     "DELETE FROM rule_included_employee_ids AS t "
                     "WHERE NOT EXISTS ("
@@ -1276,6 +1291,16 @@ async def _migrate_rule_included_employee_to_emp_id():
                     "ALTER TABLE rule_included_employee_ids RENAME COLUMN user_id TO employee_id"
                 ))
                 logger.info("Migration: rule_included_employee_ids.user_id → employee_id")
+
+            # Two different logins may resolve to the same employee id within one
+            # rule; keep the smallest row and drop the rest so the unique
+            # constraint can be (re)created safely.
+            await conn.execute(text(
+                "DELETE FROM rule_included_employee_ids AS a "
+                "USING rule_included_employee_ids AS b "
+                "WHERE a.id > b.id AND a.rule_id = b.rule_id "
+                "AND a.employee_id = b.employee_id"
+            ))
 
             old_idx = await conn.execute(text(
                 "SELECT 1 FROM pg_indexes "
@@ -1298,6 +1323,18 @@ async def _migrate_rule_included_employee_to_emp_id():
                     "TO uq_rule_included_employee_id_rule_emp"
                 ))
                 logger.info("Migration: renamed rule_included_employee_ids unique constraint")
+            else:
+                new_con = await conn.execute(text(
+                    "SELECT 1 FROM pg_constraint "
+                    "WHERE conname = 'uq_rule_included_employee_id_rule_emp'"
+                ))
+                if not new_con.scalar():
+                    await conn.execute(text(
+                        "ALTER TABLE rule_included_employee_ids "
+                        "ADD CONSTRAINT uq_rule_included_employee_id_rule_emp "
+                        "UNIQUE (rule_id, employee_id)"
+                    ))
+                    logger.info("Migration: created rule_included_employee_ids unique constraint")
     except Exception as e:
         logger.warning(f"Migration warning (rule_included_employee_ids employee_id): {e}")
 
