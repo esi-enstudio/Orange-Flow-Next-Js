@@ -141,6 +141,38 @@ echo ""
 echo "==> [3/4] Restarting services"
 cd "$PROJECT_DIR"
 
+# Requirement: every deploy must FULLY restart every running container EXCEPT
+# the WhatsApp gateway. Restarting WhatsApp drops the paired session and forces
+# a QR re-scan, so it is deliberately kept alive across deploys.
+#
+# The generic loop below restarts db, redis and any other running container.
+# frontend / backend are skipped here and handled explicitly underneath so the
+# rebuild-aware restart logic still applies to them.
+echo "--> Restarting all containers except WhatsApp (db, redis, ...)"
+for name in $(docker ps --format '{{.Names}}'); do
+  case "$name" in
+    *whatsapp*|*wa_gateway*|*wa-gateway*)
+      echo "    KEEP ALIVE (WhatsApp session): $name"
+      continue ;;
+    orange_flow_frontend|orange_flow_frontend_dev|orange_flow_backend)
+      continue ;;
+  esac
+  echo "--> Restarting $name"
+  if docker restart "$name" >/dev/null 2>&1; then
+    echo "==> $name restarted"
+  else
+    echo "WARNING: Failed to restart $name" >&2
+  fi
+done
+
+# A restarted Postgres needs a moment to accept connections before the backend
+# comes back up, otherwise the backend can boot into connection errors.
+for _ in $(seq 1 30); do
+  DB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' orange_flow_db 2>/dev/null || echo none)
+  [ "$DB_HEALTH" = "healthy" ] && break
+  sleep 1
+done
+
 # Frontend runs as the `orange_flow_frontend` docker container (the host
 # systemd unit `orangeflow-frontend` is disabled — it raced the container for
 # port 3000 and crash-looped with EADDRINUSE).

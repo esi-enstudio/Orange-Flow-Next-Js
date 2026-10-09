@@ -211,6 +211,48 @@ echo ""
 echo "[DEPLOY_STEP:restarting]"
 echo "==> [4/4] Restarting services"
 
+# Requirement: every deploy must FULLY restart every running container EXCEPT
+# the WhatsApp gateway. Restarting WhatsApp drops the paired session and forces
+# a QR re-scan, so it is deliberately kept alive across deploys.
+#
+# Excluded from the generic loop below:
+#   - WhatsApp gateway(s)   -> session must survive (never restart)
+#   - orange_flow_deploy    -> THIS container is running the deploy itself;
+#                              restarting it aborts the deploy and kills the
+#                              live log stream. Its image is rebuilt + recreated
+#                              separately below ONLY when its sources change.
+#   - frontend / backend    -> handled further down with build/rebuild-aware
+#                              logic, so skip them here to avoid double restarts.
+echo "--> Restarting all containers except WhatsApp (db, redis, ...)"
+
+for name in $(docker ps --format '{{.Names}}'); do
+  case "$name" in
+    *whatsapp*|*wa_gateway*|*wa-gateway*)
+      echo "    KEEP ALIVE (WhatsApp session): $name"
+      continue ;;
+    orange_flow_deploy)
+      echo "    SKIP (deploy orchestrator running this deploy): $name"
+      continue ;;
+    orange_flow_frontend|orange_flow_frontend_dev|orange_flow_backend)
+      continue ;;
+  esac
+  echo "--> Restarting $name"
+  if docker restart "$name" >/dev/null 2>&1; then
+    echo "==> $name restarted"
+  else
+    echo "WARNING: Failed to restart $name" >&2
+  fi
+done
+
+# A restarted Postgres needs a moment to accept connections; wait for its
+# healthcheck before the backend comes back up so it does not boot into
+# connection errors.
+for _ in $(seq 1 30); do
+  DB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' orange_flow_db 2>/dev/null || echo none)
+  [ "$DB_HEALTH" = "healthy" ] && break
+  sleep 1
+done
+
 echo "--> Restarting frontend (docker: orange_flow_frontend)"
 # IMPORTANT: The frontend MUST be restarted after a rebuild so `next start`
 # loads the freshly built .next. An old `next start` process kept running
