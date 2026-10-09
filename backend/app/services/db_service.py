@@ -1154,9 +1154,16 @@ async def _migrate_rule_apply_to():
 
     Section-scoped rules let one report page run different rules in different
     places (e.g. summary vs rso vs bp vs supervisor on the activation report).
-    Existing rules become ``apply_to = 'all'`` and the "one active rule per
-    (house, context, role)" partial unique index is widened to include
-    ``apply_to`` so each section slot can own one active rule independently.
+    Existing rules become ``apply_to = 'all'``.
+
+    The "one active rule per (house, context, role, apply_to, column_key)"
+    partial unique index is owned by ``_migrate_rule_column_key()`` (it runs
+    immediately after this migration). We deliberately do NOT drop/recreate the
+    index here: at this point ``column_key`` may not exist yet, and creating an
+    index without ``column_key`` collides whenever a section already owns more
+    than one active column-scoped rule (e.g. ach / market_ga / own_ga on the GA
+    Live RSO table), which aborts this whole transaction with a
+    UniqueViolationError and spams a warning on every startup.
     """
     try:
         async with engine.begin() as conn:
@@ -1167,14 +1174,6 @@ async def _migrate_rule_apply_to():
             await conn.execute(text(
                 "UPDATE report_rule_masters "
                 "SET apply_to = 'all' WHERE apply_to IS NULL OR apply_to = ''"
-            ))
-            await conn.execute(text(
-                "DROP INDEX IF EXISTS uq_rule_master_active_house_context_role"
-            ))
-            await conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_rule_master_active_house_context_role "
-                "ON report_rule_masters (house_id, context_key, target_role, apply_to) "
-                "WHERE is_deleted = false AND is_active = true"
             ))
     except Exception as e:
         logger.warning(f"Migration warning (rule apply_to): {e}")
