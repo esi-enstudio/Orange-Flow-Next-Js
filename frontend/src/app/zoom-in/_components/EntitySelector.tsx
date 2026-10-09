@@ -257,7 +257,7 @@ export default function EntitySelector({
                 <button
                   type="button"
                   onClick={selectAll}
-                  className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
+                   className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
                 >
                   <Check className="w-3 h-3" />
                   {selectAllLabel}
@@ -266,7 +266,7 @@ export default function EntitySelector({
                 <button
                   type="button"
                   onClick={clearAll}
-                  className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                   className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                 >
                   <X className="w-3 h-3" />
                   {clearLabel}
@@ -301,11 +301,11 @@ export default function EntitySelector({
                     role="option"
                     aria-selected={isSelected}
                     onClick={() => toggleItem(item.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
-                      isSelected
-                        ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
-                        : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
-                    }`}
+                     className={`w-full flex items-center gap-2.5 px-3 py-3 lg:py-2 rounded-lg text-sm transition-colors ${
+                       isSelected
+                         ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
+                         : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+                     }`}
                   >
                     <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
                       isSelected

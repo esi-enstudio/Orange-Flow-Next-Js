@@ -171,8 +171,8 @@ export default function RuleFormPanel({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           <span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold", ROLE_STYLE[role].chip)}>
             {ROLE_STYLE[role].icon} {t(`rule_config.roles.${role}`)}
           </span>
@@ -188,7 +188,7 @@ export default function RuleFormPanel({
             type="button"
             onClick={() => onToggleActive(rule!)}
             disabled={saving}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors disabled:opacity-50 cursor-pointer"
+            className="inline-flex items-center gap-1.5 min-h-11 px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors disabled:opacity-50 cursor-pointer"
           >
             <Power className="w-3.5 h-3.5" />
             {t("rule_config.messages.activate_success")}
@@ -223,7 +223,7 @@ export default function RuleFormPanel({
             onChange={(e) => { setDraft((d) => ({ ...d, rule_name: e.target.value })); setDirty(true); setRuleNameError(null); }}
             placeholder={t("rule_config.fields.rule_name_placeholder")}
             className={cn(
-              "w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+              "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
               ruleNameError ? "border-red-400" : "border-gray-200 dark:border-slate-700"
             )}
           />
@@ -232,7 +232,7 @@ export default function RuleFormPanel({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
+        <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 cursor-pointer">
           <div>
             <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
               {t("rule_config.fields.is_active")}
@@ -243,13 +243,18 @@ export default function RuleFormPanel({
                 : t("rule_config.messages.no_active")}
             </p>
           </div>
-          <button
-            type="button"
+          <input
+            type="checkbox"
             role="switch"
             aria-checked={draft.is_active}
-            onClick={() => { setDraft((d) => ({ ...d, is_active: !d.is_active })); setDirty(true); }}
+            checked={draft.is_active}
+            onChange={() => { setDraft((d) => ({ ...d, is_active: !d.is_active })); setDirty(true); }}
+            className="sr-only peer"
+          />
+          <span
+            aria-hidden="true"
             className={cn(
-              "relative w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40 cursor-pointer",
+              "relative shrink-0 w-11 h-6 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500/40",
               draft.is_active ? "bg-emerald-500" : "bg-gray-300 dark:bg-slate-700"
             )}
           >
@@ -257,8 +262,8 @@ export default function RuleFormPanel({
               "absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform",
               draft.is_active ? "left-[22px]" : "left-0.5"
             )} />
-          </button>
-        </div>
+          </span>
+        </label>
 
         {(contextKey === "activation_report" || contextKey === "ga_live") && (
           <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
@@ -411,13 +416,13 @@ export default function RuleFormPanel({
         )}
       </div>
 
-      <div className="shrink-0 pt-4 mt-4 border-t border-gray-100 dark:border-slate-700/50 flex items-center gap-3">
+      <div className="shrink-0 pt-4 mt-4 border-t border-gray-100 dark:border-slate-700/50 flex flex-wrap items-center gap-3">
         {editingId != null && canDelete && (
           <button
             type="button"
             onClick={() => onDelete(rule!)}
             disabled={deleting}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50 cursor-pointer"
+            className="inline-flex items-center gap-2 min-h-11 px-4 py-2.5 rounded-xl text-sm font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50 cursor-pointer"
           >
             <Trash2 className="w-4 h-4" />
             {t("common.delete")}
@@ -429,7 +434,7 @@ export default function RuleFormPanel({
           onClick={handleSave}
           disabled={saving || !canWrite || (!dirty && editingId != null)}
           className={cn(
-            "inline-flex items-center gap-2.5 px-7 py-2.5 rounded-xl text-sm font-bold text-white transition-all duration-200 shadow-lg cursor-pointer",
+            "inline-flex items-center gap-2.5 min-h-11 px-7 py-2.5 rounded-xl text-sm font-bold text-white transition-all duration-200 shadow-lg cursor-pointer",
             savedFlash
               ? "bg-green-500 shadow-green-500/25"
               : saving

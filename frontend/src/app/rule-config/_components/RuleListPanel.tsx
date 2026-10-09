@@ -62,8 +62,8 @@ export default function RuleListPanel({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
           {rules.length > 0 && canDelete && (
             <input
               type="checkbox"
@@ -74,7 +74,7 @@ export default function RuleListPanel({
                 }
               }}
               onChange={toggleSelectAll}
-              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+              className="w-5 h-5 shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
             />
           )}
           <span className="text-sm font-bold text-gray-700 dark:text-gray-300">
@@ -89,7 +89,7 @@ export default function RuleListPanel({
             <button
               type="button"
               onClick={onBulkDelete}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 min-h-11 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>{t("rule_config.messages.bulk_delete_title", { count: selectedIds.size })}</span>
@@ -99,7 +99,7 @@ export default function RuleListPanel({
             <button
               type="button"
               onClick={onCreate}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-500/10 hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-500/10 hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               {t("rule_config.page.new_rule")}
@@ -143,7 +143,7 @@ export default function RuleListPanel({
                     checked={isChecked}
                     onChange={(e) => toggleSelect(rule.id, e as unknown as React.MouseEvent)}
                     onClick={(e) => e.stopPropagation()}
-                    className="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                    className="mt-1 w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
                   />
                 )}
                 <div className="flex-1 min-w-0">

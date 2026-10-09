@@ -4043,6 +4043,7 @@ export const translations = {
       page: {
         contexts_title: "Contexts",
         rules: "Rules",
+        back_to_rules: "Back to Rules",
         new_rule: "New Rule",
         edit_rule: "Edit Rule",
         create_rule: "Create Rule",
@@ -8147,6 +8148,7 @@ employees: "Employees",
       page: {
         contexts_title: "কনটেক্সট",
         rules: "রুল",
+        back_to_rules: "রুল তালিকায় ফিরুন",
         new_rule: "নতুন রুল",
         edit_rule: "রুল সম্পাদনা",
         create_rule: "রুল তৈরি করুন",

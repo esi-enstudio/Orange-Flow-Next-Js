@@ -268,7 +268,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                   </div>
                   <button
                     onClick={() => setFormError(null)}
-                    className="ml-2 text-red-400 hover:text-red-600 dark:hover:text-red-300 cursor-pointer"
+                    className="shrink-0 w-11 h-11 -my-2.5 -mr-2 flex items-center justify-center rounded-lg text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors cursor-pointer"
                     aria-label={t("common.close")}
                   >
                     ×
@@ -282,7 +282,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                 </p>
                 <button
                   onClick={startCreate}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-500 text-white text-sm font-semibold hover:bg-primary-600 transition-colors shadow-sm cursor-pointer"
+                  className="flex items-center gap-1.5 min-h-11 px-3.5 py-2 rounded-xl bg-primary-500 text-white text-sm font-semibold hover:bg-primary-600 transition-colors shadow-sm cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   {tM("new_context")}
@@ -336,7 +336,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             onClick={() => handleEdit(c)}
-                            className="p-2 rounded-lg text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            className="w-11 h-11 rounded-lg flex items-center justify-center text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                             aria-label={t("common.edit")}
                             title={t("common.edit")}
                           >
@@ -345,7 +345,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                           {!c.is_system && (
                             <button
                               onClick={() => setDeleteTarget(c)}
-                              className="p-2 rounded-lg text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors cursor-pointer"
+                              className="w-11 h-11 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors cursor-pointer"
                               aria-label={t("common.delete")}
                               title={t("common.delete")}
                             >
@@ -376,7 +376,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                         onChange={(e) => setForm({ ...form, context_key: e.target.value })}
                         placeholder="e.g. sales_report"
                         className={cn(
-                          "w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50",
+                          "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50",
                           fieldErrors.context_key ? "border-red-400 dark:border-red-500" : ""
                         )}
                       />
@@ -392,7 +392,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                         type="number"
                         value={form.sort_order}
                         onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) || 0 })}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+                        className="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
                       />
                     </div>
                     <div>
@@ -422,7 +422,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                         value={form.name_bn}
                         onChange={(e) => setForm({ ...form, name_bn: e.target.value })}
                         placeholder={tM("placeholders.name_bn")}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+                        className="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
                       />
                     </div>
                     <div>
@@ -448,7 +448,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                           type="checkbox"
                           checked={form.is_active}
                           onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                          className="w-4 h-4 rounded border-2 border-gray-300 dark:border-slate-600 accent-primary-500 cursor-pointer"
+                          className="w-5 h-5 rounded border-2 border-gray-300 dark:border-slate-600 accent-primary-500 cursor-pointer"
                         />
                         <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                           {tM("fields.is_active")}
@@ -458,17 +458,17 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                   </div>
 
                   <div className="flex items-center justify-end gap-3 mt-5">
-                    <button
-                      onClick={() => { setEditing(null); setForm(EMPTY_FORM); setFieldErrors({}); }}
-                      className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                    >
-                      {t("common.cancel")}
-                    </button>
-                    <button
-                      onClick={handleSave}
-                      disabled={saving}
-                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary-500 text-white text-sm font-semibold hover:bg-primary-600 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
-                    >
+                  <button
+                    onClick={() => { setEditing(null); setForm(EMPTY_FORM); setFieldErrors({}); }}
+                    className="min-h-11 px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex items-center gap-1.5 min-h-11 px-4 py-2.5 rounded-xl bg-primary-500 text-white text-sm font-semibold hover:bg-primary-600 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                  >
                       {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                       {t("common.save_changes")}
                     </button>

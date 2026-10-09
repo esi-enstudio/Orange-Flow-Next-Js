@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertCircle, Building2, CheckCircle2, ChevronRight, Copy, Loader2, Settings2, Sliders,
+  AlertCircle, Building2, CheckCircle2, ChevronLeft, ChevronRight, Copy, Loader2, Settings2, Sliders,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -90,6 +90,23 @@ export default function RuleConfigPage() {
 
   const [authRedirect, setAuthRedirect] = useState(false);
   const [manageContextsOpen, setManageContextsOpen] = useState(false);
+
+  const listPanelRef = useRef<HTMLDivElement>(null);
+  const formPanelRef = useRef<HTMLDivElement>(null);
+
+  // Below lg the list and the form stack vertically, so a freshly selected
+  // rule would otherwise open far below the fold. Only jump on that layout —
+  // on desktop both panels are visible side by side.
+  const isStackedLayout = () =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches;
+
+  const scrollToForm = useCallback(() => {
+    if (isStackedLayout()) formPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const scrollToList = useCallback(() => {
+    if (isStackedLayout()) listPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   useEffect(() => {
     if (!canView && !authRedirect) {
@@ -202,6 +219,7 @@ export default function RuleConfigPage() {
   function handleSelectRule(rule: RuleType) {
     setSelectedId(rule.id);
     setCreatingNew(false);
+    scrollToForm();
   }
 
   function handleSelectContextRule(rule: RuleType) {
@@ -274,6 +292,7 @@ export default function RuleConfigPage() {
     setSelectedId(null);
     setCreatingNew(true);
     setError(null);
+    scrollToForm();
   }
 
   async function handleSave(payload: DraftPayload): Promise<boolean> {
@@ -403,15 +422,15 @@ export default function RuleConfigPage() {
 
   if (loading && !options) {
     return (
-      <div className="p-4 lg:p-6 space-y-4">
-        <div className="h-10 w-64 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
+      <div className="py-4 lg:p-6 space-y-4">
+        <div className="h-10 w-32 sm:w-64 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
         <div className="flex gap-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-10 w-32 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
+            <div key={i} className="h-11 flex-1 sm:flex-none sm:w-32 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
           ))}
         </div>
         <div className="flex gap-6 mt-4">
-          <div className="w-48 space-y-3">
+          <div className="hidden lg:block w-48 space-y-3">
             {Array.from({ length: 2 }).map((_, i) => (
               <div key={i} className="h-12 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
             ))}
@@ -424,7 +443,7 @@ export default function RuleConfigPage() {
             </div>
             <div className="space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-10 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
+                <div key={i} className="h-12 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
               ))}
             </div>
           </div>
@@ -434,13 +453,13 @@ export default function RuleConfigPage() {
   }
 
   return (
-    <div className="p-4 lg:p-6 flex flex-col min-h-[calc(100dvh-5rem)]">
-      <div className="flex items-center justify-between gap-3 mb-5">
-        <div className="flex items-start gap-4">
+    <div className="py-4 lg:p-6 flex flex-col min-h-[calc(100dvh-5rem)]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+        <div className="flex items-start gap-3 sm:gap-4 min-w-0">
           <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-500/15 dark:to-primary-600/10 flex items-center justify-center shrink-0 shadow-sm">
             <Sliders className="w-5 h-5 text-primary-600 dark:text-primary-400" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {t("rule_config.list.title")}
             </h1>
@@ -449,23 +468,23 @@ export default function RuleConfigPage() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
           {canCopyFromHouse && (
             <button
               onClick={() => setCopyOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+              className="order-1 sm:order-none min-h-11 flex items-center justify-center gap-2 px-3.5 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
             >
-              <Copy className="w-4 h-4" />
-              {t("rule_config.copy.button")}
+              <Copy className="w-4 h-4 shrink-0" />
+              <span className="truncate">{t("rule_config.copy.button")}</span>
             </button>
           )}
           {houses.length > 1 && (
-            <div className="relative">
+            <div className="relative order-3 sm:order-2 w-full sm:w-auto sm:min-w-[170px]">
               <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <select
                 value={selectedHouseId}
                 onChange={(e) => { setSelectedHouseId(e.target.value); setSelectedId(null); setCreatingNew(true); setError(null); }}
-                className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer min-w-[160px]"
+                className="w-full min-h-11 pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer sm:min-w-[170px]"
               >
                 <option value="">{t("common.select_house")}</option>
                 {houses.map((h) => (
@@ -474,17 +493,20 @@ export default function RuleConfigPage() {
               </select>
             </div>
           )}
-          <PageGuideModal pageKey="rule_config" />
+          <div className="order-2 sm:order-3 flex-1 sm:flex-none min-w-0">
+            <PageGuideModal pageKey="rule_config" />
+          </div>
         </div>
       </div>
 
       {error && (
         <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-sm text-red-600 dark:text-red-400 mb-4">
           <AlertCircle className="w-4 h-4 shrink-0" />
-          {error}
+          <span className="flex-1 min-w-0">{error}</span>
           <button
             onClick={() => setError(null)}
-            className="ml-auto text-red-400 hover:text-red-600 dark:hover:text-red-300"
+            aria-label={t("common.close")}
+            className="shrink-0 w-11 h-11 -my-3 -mr-2 flex items-center justify-center rounded-lg text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors cursor-pointer"
           >
             ×
           </button>
@@ -564,7 +586,7 @@ export default function RuleConfigPage() {
                 key={ctx.context_key}
                 onClick={() => { setActiveContext(ctx.context_key); setSelectedId(null); setCreatingNew(true); setError(null); }}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer",
+                  "flex items-center gap-2 min-h-11 px-3.5 py-2 rounded-xl border text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer",
                   isActive
                     ? `${meta.active} border-current shadow-sm`
                     : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300"
@@ -578,16 +600,12 @@ export default function RuleConfigPage() {
           {canManageContexts && (
             <button
               onClick={() => setManageContextsOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-300 dark:border-slate-600 text-sm font-semibold whitespace-nowrap shrink-0 text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 cursor-pointer"
+              className="flex items-center gap-2 min-h-11 px-3.5 py-2 rounded-xl border border-dashed border-gray-300 dark:border-slate-600 text-sm font-semibold whitespace-nowrap shrink-0 text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 cursor-pointer"
             >
               <Settings2 className="w-4 h-4" />
               {t("rule_config.manage.manage_button")}
             </button>
           )}
-        </div>
-
-        <div className="lg:hidden space-y-1 mt-1 rounded-xl bg-gray-50/50 dark:bg-slate-800/30 border border-gray-100 dark:border-slate-800 p-2 -mx-2">
-          {renderContextRules(activeContext)}
         </div>
 
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
@@ -601,7 +619,7 @@ export default function RuleConfigPage() {
                   key={r}
                   onClick={() => setActiveRole(r as Role)}
                   className={cn(
-                    "flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all whitespace-nowrap cursor-pointer",
+                    "flex items-center gap-1.5 min-h-11 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all whitespace-nowrap cursor-pointer",
                     isActive
                       ? "bg-primary-500 text-white border-primary-500 shadow-sm"
                       : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-600"
@@ -623,7 +641,7 @@ export default function RuleConfigPage() {
           </div>
 
           <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)] gap-5">
-            <div className="min-h-[280px] xl:min-h-0 flex flex-col">
+            <div ref={listPanelRef} className="min-h-[280px] xl:min-h-0 flex flex-col scroll-mt-4">
               <RuleListPanel
                 rules={roleRules}
                 selectedId={creatingNew ? null : selectedId}
@@ -636,7 +654,18 @@ export default function RuleConfigPage() {
                 onBulkDelete={() => setBulkDeleteOpen(true)}
               />
             </div>
-            <div className="min-h-[320px] xl:min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
+            <div
+              ref={formPanelRef}
+              className="min-h-[320px] xl:min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm scroll-mt-4"
+            >
+              <button
+                type="button"
+                onClick={scrollToList}
+                className="lg:hidden -ml-1 mb-3 self-start inline-flex items-center gap-1 min-h-11 px-2.5 rounded-lg text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                {t("rule_config.page.back_to_rules")}
+              </button>
               {(loading && allRules.length === 0) ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-12">
                   <Loader2 className="w-8 h-8 text-primary-500 animate-spin mb-3" />
