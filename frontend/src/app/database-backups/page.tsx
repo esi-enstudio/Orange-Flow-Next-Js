@@ -264,7 +264,7 @@ export default function DatabaseBackupsPage() {
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const res = await apiClient.post("v1/database-backups");
+      const res = await apiClient.post("v1/database-backups", null, { timeout: 600000 });
       toast.success(t("database_backups.backup_started"));
       const created = res.data?.backup;
       if (created?.id) {
@@ -300,6 +300,7 @@ export default function DatabaseBackupsPage() {
     try {
       const res = await apiClient.get(`v1/database-backups/${item.id}/download`, {
         responseType: "blob",
+        timeout: 600000,
       });
       const url = window.URL.createObjectURL(res.data);
       const a = document.createElement("a");

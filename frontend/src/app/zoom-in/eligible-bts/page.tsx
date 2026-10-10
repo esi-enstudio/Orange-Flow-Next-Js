@@ -180,7 +180,7 @@ export default function EligibleBTSPage() {
     formData.append("file", file);
     try {
       setImportProgress(40);
-      const response = await apiClient.post("zoom-in/eligible-bts/import", formData);
+      const response = await apiClient.post("zoom-in/eligible-bts/import", formData, { timeout: 300000 });
       setImportProgress(100);
       toast.success(response.data.message);
       fetchEligibleBTS();

@@ -2,6 +2,8 @@ import json
 import logging
 import re
 import asyncio
+import time
+import uuid
 from datetime import date, datetime
 from typing import List, Optional
 
@@ -32,6 +34,83 @@ router = APIRouter(prefix="/api/dms", tags=["DMS Automation"])
 
 _sim_issue_in_progress: set[str] = set()
 
+# ── DMS background job store ────────────────────────────────────────
+# DMS automations (Playwright login + search + submit) can take several
+# minutes, so their POST endpoints only start a background job and the client
+# polls GET /<module>/status/{job_id} for progress/results.
+# In-memory store — single-process uvicorn, same pattern as routers/sync.py.
+# job_id -> { kind, events, done, error, result, house_id, started_at }
+_dms_jobs: dict[str, dict] = {}
+_dms_job_tasks: set[asyncio.Task] = set()
+_DMS_JOB_TTL = 1800  # seconds before an unconsumed job is purged
+
+
+def _purge_stale_dms_jobs():
+    now = time.time()
+    for job_id, job in list(_dms_jobs.items()):
+        if now - float(job.get("started_at", now)) > _DMS_JOB_TTL:
+            _dms_jobs.pop(job_id, None)
+
+
+def _push_dms_event(job_id: str, msg: str):
+    job = _dms_jobs.get(job_id)
+    if job is not None:
+        job["events"].append({"msg": msg, "ts": time.time()})
+
+
+def _start_dms_job(kind: str, house_id: int) -> str:
+    """Register a fresh background job and return its id."""
+    _purge_stale_dms_jobs()
+    job_id = str(uuid.uuid4())
+    _dms_jobs[job_id] = {
+        "kind": kind,
+        "events": [],
+        "done": False,
+        "error": None,
+        "result": None,
+        "house_id": house_id,
+        "started_at": time.time(),
+    }
+    return job_id
+
+
+def _track_dms_task(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _dms_job_tasks.add(task)
+    task.add_done_callback(_dms_job_tasks.discard)
+    return task
+
+
+def _get_dms_job_for_user(job_id: str, kind: str, current_user) -> Optional[dict]:
+    """Return a job by id when it matches `kind` and the user may see it.
+
+    Returns None when the job is missing/expired or of a different kind (so the
+    caller responds "not_found" without leaking that the id exists). Raises 403
+    on cross-house access for non-admin users.
+    """
+    _purge_stale_dms_jobs()
+    job = _dms_jobs.get(job_id)
+    if job is None or job.get("kind") != kind:
+        return None
+    if not is_admin_user(current_user):
+        user_house_ids = [h.id for h in current_user.houses]
+        if job["house_id"] not in user_house_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this distribution house."
+            )
+    return job
+
+
+def _notify_progress(progress_callback, message: str):
+    """Fire a progress callback without letting UI bookkeeping break the run."""
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(message)
+    except Exception:
+        pass
+
 SMART_SEARCH_URL = "https://blkdms.banglalink.net/SmartSearchReport"
 
 class SIMStatusCheckRequest(BaseModel):
@@ -46,12 +125,22 @@ class SIMStatusItem(BaseModel):
     activation_date: Optional[str] = None
     msisdn: Optional[str] = None
 
-class SIMStatusCheckResponse(BaseModel):
-    house_id: int
+class SIMStatusResult(BaseModel):
+    results: List[SIMStatusItem]
     house_name: str
     house_code: str
     total_checked: int
-    results: List[SIMStatusItem]
+
+class SIMStatusJobStartResponse(BaseModel):
+    job_id: str
+    status: str = Field(..., description="Job status at creation time")
+    message: str
+
+class SIMStatusJobStatusResponse(BaseModel):
+    status: str = Field(..., description="running | complete | error | not_found")
+    events: List[dict] = Field(default_factory=list)
+    message: Optional[str] = None
+    result: Optional[SIMStatusResult] = None
 
 class SIMReturnRequest(BaseModel):
     house_id: int = Field(..., description="ID of the distribution house")
@@ -62,12 +151,22 @@ class SIMReturnItem(BaseModel):
     status: str
     remarks: Optional[str] = None
 
-class SIMReturnResponse(BaseModel):
-    house_id: int
+class SIMReturnResult(BaseModel):
+    results: List[SIMReturnItem]
     house_name: str
     house_code: str
     total_processed: int
-    results: List[SIMReturnItem]
+
+class SIMReturnJobStartResponse(BaseModel):
+    job_id: str
+    status: str = Field(..., description="Job status at creation time")
+    message: str
+
+class SIMReturnJobStatusResponse(BaseModel):
+    status: str = Field(..., description="running | complete | error | not_found")
+    events: List[dict] = Field(default_factory=list)
+    message: Optional[str] = None
+    result: Optional[SIMReturnResult] = None
 
 def parse_serial_input(input_val: str) -> List[str]:
     # Split by newlines, commas, or semicolons
@@ -192,13 +291,14 @@ def process_structured_results(all_data, credentials, input_serials):
             
     return results
 
-async def run_sim_status_check_structured(serials: list, credentials: dict):
+async def run_sim_status_check_structured(serials: list, credentials: dict, progress_callback=None):
     house_name = credentials.get('house_name', 'N/A')
     h_code = credentials.get('code', 'N/A')
     
     page = None
     context = None
     
+    _notify_progress(progress_callback, "Opening DMS session (logging in if needed)...")
     try:
         page, context = await session_manager.get_valid_page(credentials)
     except Exception as e:
@@ -207,6 +307,7 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
         
     try:
         logger.info(f"🔍 [Task] {house_name} ({h_code}): Starting check for {len(serials)} SIMs...")
+        _notify_progress(progress_callback, "DMS session ready. Loading Smart Search Report...")
         
         await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000) 
         await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
@@ -216,6 +317,7 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
         
         await page.click("button.btn-success")
         logger.info(f"📡 {house_name}: Search submitted, waiting for data collection...")
+        _notify_progress(progress_callback, f"Searching {len(serials)} serial number(s) in DMS...")
 
         scanned_data, error = await get_smart_search_results(page)
 
@@ -225,7 +327,8 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
             
         if not scanned_data:
             scanned_data = []
-            
+        
+        _notify_progress(progress_callback, "Parsing SIM status results...")
         return process_structured_results(scanned_data, credentials, serials)
 
     except Exception as e:
@@ -240,16 +343,30 @@ async def run_sim_status_check_structured(serials: list, credentials: dict):
         except:
             pass
 
-@router.post("/sim-status", response_model=SIMStatusCheckResponse)
+async def _run_sim_status_job(job_id: str, serials: list, credentials: dict):
+    await _run_dms_job(
+        job_id,
+        lambda: run_sim_status_check_structured(
+            serials, credentials,
+            progress_callback=lambda msg: _push_dms_event(job_id, msg),
+        ),
+        lambda results: SIMStatusResult(
+            results=results,
+            house_name=credentials.get("house_name", ""),
+            house_code=credentials.get("code", ""),
+            total_checked=len(serials),
+        ),
+        label="SIM Status Check",
+    )
+
+
+@router.post("/sim-status", response_model=SIMStatusJobStartResponse)
 async def check_sim_status(
     payload: SIMStatusCheckRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("dms.sim_status"))
 ):
     # 1. Access validation for distributor house
-    from app.routers.deps import get_current_user
-    # We resolve it inside or via dependency inject:
-    # current_user has user.houses loaded
     is_admin = is_admin_user(current_user)
     
     # Query the house
@@ -286,15 +403,6 @@ async def check_sim_status(
             detail=str(e)
         )
         
-    if not serials:
-        return SIMStatusCheckResponse(
-            house_id=house.id,
-            house_name=house.name,
-            house_code=house.code,
-            total_checked=0,
-            results=[]
-        )
-        
     # 4. Prepare credentials
     credentials = {
         "user": house.dms_user,
@@ -304,21 +412,56 @@ async def check_sim_status(
         "code": house.code
     }
     
-    # 5. Execute automation check
-    try:
-        results_list = await run_sim_status_check_structured(serials, credentials)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"DMS query automation failed: {str(e)}"
+    # 5. Start the automation as a background job. The Playwright run can take
+    # minutes, so it must never hold the HTTP request open — clients poll
+    # GET /sim-status/status/{job_id} instead.
+    job_id = _start_dms_job("sim_status", house.id)
+
+    if serials:
+        _track_dms_task(_run_sim_status_job(job_id, serials, credentials))
+        message = f"SIM status check started for {len(serials)} SIM(s)."
+    else:
+        # Nothing to process — complete immediately so the first poll returns it.
+        _dms_jobs[job_id]["done"] = True
+        _dms_jobs[job_id]["result"] = SIMStatusResult(
+            results=[],
+            house_name=house.name,
+            house_code=house.code,
+            total_checked=0,
         )
-        
-    return SIMStatusCheckResponse(
-        house_id=house.id,
-        house_name=house.name,
-        house_code=house.code,
-        total_checked=len(serials),
-        results=results_list
+        message = "No serial numbers to process."
+
+    return SIMStatusJobStartResponse(job_id=job_id, status="started", message=message)
+
+
+@router.get("/sim-status/status/{job_id}", response_model=SIMStatusJobStatusResponse)
+async def sim_status_job_status(
+    job_id: str,
+    current_user: User = Depends(has_permission("dms.sim_status")),
+):
+    """Poll this endpoint while the background SIM status check runs."""
+    job = _get_dms_job_for_user(job_id, "sim_status", current_user)
+    if job is None:
+        return SIMStatusJobStatusResponse(
+            status="not_found",
+            message="SIM status job not found or expired",
+        )
+
+    if not job["done"]:
+        return SIMStatusJobStatusResponse(status="running", events=job["events"])
+
+    if job.get("error"):
+        return SIMStatusJobStatusResponse(
+            status="error",
+            events=job["events"],
+            message=job["error"],
+        )
+
+    return SIMStatusJobStatusResponse(
+        status="complete",
+        events=job["events"],
+        message="SIM status check completed",
+        result=job["result"],
     )
 
 
@@ -384,7 +527,7 @@ def process_return_results(scanned_data: list, credentials: dict, input_serials:
     return results
 
 
-async def run_sim_return_submit(page, results: list, credentials: dict) -> list:
+async def run_sim_return_submit(page, results: list, credentials: dict, progress_callback=None) -> list:
     """Group Success SIMs by retailer and submit to RECEIVE_URL, updating results."""
     retailer_groups = {}
     for r in results:
@@ -399,11 +542,13 @@ async def run_sim_return_submit(page, results: list, credentials: dict) -> list:
 
     house_name = credentials.get('house_name', 'N/A')
     logger.info(f"🔄 [{house_name}] Submitting returns for {len(retailer_groups)} retailer(s)...")
+    _notify_progress(progress_callback, f"Submitting returns to {len(retailer_groups)} retailer(s)...")
 
     today = datetime.now().strftime('%Y-%m-%d')
 
-    for retailer_code, sims in retailer_groups.items():
+    for idx, (retailer_code, sims) in enumerate(retailer_groups.items(), start=1):
         logger.info(f"  ➡️  Submitting {len(sims)} SIM(s) to retailer {retailer_code}...")
+        _notify_progress(progress_callback, f"Returning {len(sims)} SIM(s) to retailer {retailer_code} ({idx}/{len(retailer_groups)})...")
         try:
             await page.goto(RECEIVE_URL, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_selector("#Retailer", state="attached", timeout=30000)
@@ -467,13 +612,14 @@ async def run_sim_return_submit(page, results: list, credentials: dict) -> list:
     return results
 
 
-async def run_sim_return_check(serials: list, credentials: dict):
+async def run_sim_return_check(serials: list, credentials: dict, progress_callback=None):
     house_name = credentials.get('house_name', 'N/A')
     h_code = credentials.get('code', 'N/A')
 
     page = None
     context = None
 
+    _notify_progress(progress_callback, "Opening DMS session (logging in if needed)...")
     try:
         page, context = await session_manager.get_valid_page(credentials)
     except Exception as e:
@@ -483,6 +629,7 @@ async def run_sim_return_check(serials: list, credentials: dict):
     results = []
     try:
         logger.info(f"🔙 [SIM Return] {house_name} ({h_code}): Starting SIM return check for {len(serials)} SIMs...")
+        _notify_progress(progress_callback, "DMS session ready. Loading the SIM return page...")
 
         await page.goto(SIM_RETURN_URL, wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
@@ -492,6 +639,7 @@ async def run_sim_return_check(serials: list, credentials: dict):
 
         await page.click("button.btn-success")
         logger.info(f"📡 {house_name}: Search submitted, waiting for data collection...")
+        _notify_progress(progress_callback, f"Searching {len(serials)} serial number(s) in DMS...")
 
         scanned_data, error = await get_smart_search_results(page)
 
@@ -502,11 +650,13 @@ async def run_sim_return_check(serials: list, credentials: dict):
         if not scanned_data:
             scanned_data = []
 
+        _notify_progress(progress_callback, "Classifying return eligibility for each SIM...")
         results = process_return_results(scanned_data, credentials, serials)
 
         # Now perform actual submission for Success SIMs
-        results = await run_sim_return_submit(page, results, credentials)
+        results = await run_sim_return_submit(page, results, credentials, progress_callback=progress_callback)
 
+        _notify_progress(progress_callback, "Finalizing SIM return results...")
         return results
 
     except Exception as e:
@@ -521,7 +671,46 @@ async def run_sim_return_check(serials: list, credentials: dict):
             pass
 
 
-@router.post("/sim-return", response_model=SIMReturnResponse)
+async def _run_dms_job(job_id: str, work, build_result, label: str):
+    """Execute `work()` in the background and record its outcome on the job.
+
+    `work` is a zero-arg callable returning an awaitable; `build_result(raw)`
+    maps the raw automation output to the job's typed result model.
+    """
+    job = _dms_jobs.get(job_id)
+    if job is None:
+        return
+    try:
+        raw = await work()
+        job["result"] = build_result(raw)
+    except asyncio.CancelledError:
+        job["error"] = f"{label} job was cancelled"
+    except Exception as e:
+        logger.error(f"❌ [{label} Job] failed: {str(e)}", exc_info=True)
+        job["error"] = str(e)
+    finally:
+        job["done"] = True
+
+
+async def _run_sim_return_job(job_id: str, serials: List[str], credentials: dict):
+    await _run_dms_job(
+        job_id,
+        lambda: run_sim_return_check(
+            serials,
+            credentials,
+            progress_callback=lambda msg: _push_dms_event(job_id, msg),
+        ),
+        lambda results: SIMReturnResult(
+            results=results,
+            house_name=credentials.get("house_name", ""),
+            house_code=credentials.get("code", ""),
+            total_processed=len(serials),
+        ),
+        label="SIM Return",
+    )
+
+
+@router.post("/sim-return", response_model=SIMReturnJobStartResponse)
 async def return_sim(
     payload: SIMReturnRequest,
     db: AsyncSession = Depends(get_db),
@@ -560,15 +749,6 @@ async def return_sim(
             detail=str(e)
         )
 
-    if not serials:
-        return SIMReturnResponse(
-            house_id=house.id,
-            house_name=house.name,
-            house_code=house.code,
-            total_processed=0,
-            results=[]
-        )
-
     credentials = {
         "user": house.dms_user,
         "pass": house.dms_pass,
@@ -577,20 +757,56 @@ async def return_sim(
         "code": house.code
     }
 
-    try:
-        results_list = await run_sim_return_check(serials, credentials)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"SIM return automation failed: {str(e)}"
+    # Start the automation as a background job. The Playwright run can take
+    # minutes (login + search + per-retailer submit), so it must never hold the
+    # HTTP request open — clients poll GET /sim-return/status/{job_id} instead.
+    job_id = _start_dms_job("sim_return", house.id)
+
+    if serials:
+        _track_dms_task(_run_sim_return_job(job_id, serials, credentials))
+        message = f"SIM return job started for {len(serials)} SIM(s)."
+    else:
+        # Nothing to process — complete immediately so the first poll returns it.
+        _dms_jobs[job_id]["done"] = True
+        _dms_jobs[job_id]["result"] = SIMReturnResult(
+            results=[],
+            house_name=house.name,
+            house_code=house.code,
+            total_processed=0,
+        )
+        message = "No serial numbers to process."
+
+    return SIMReturnJobStartResponse(job_id=job_id, status="started", message=message)
+
+
+@router.get("/sim-return/status/{job_id}", response_model=SIMReturnJobStatusResponse)
+async def sim_return_job_status(
+    job_id: str,
+    current_user: User = Depends(has_permission("dms.sim_return")),
+):
+    """Poll this endpoint while the background SIM return automation runs."""
+    job = _get_dms_job_for_user(job_id, "sim_return", current_user)
+    if job is None:
+        return SIMReturnJobStatusResponse(
+            status="not_found",
+            message="SIM return job not found or expired",
         )
 
-    return SIMReturnResponse(
-        house_id=house.id,
-        house_name=house.name,
-        house_code=house.code,
-        total_processed=len(serials),
-        results=results_list
+    if not job["done"]:
+        return SIMReturnJobStatusResponse(status="running", events=job["events"])
+
+    if job.get("error"):
+        return SIMReturnJobStatusResponse(
+            status="error",
+            events=job["events"],
+            message=job["error"],
+        )
+
+    return SIMReturnJobStatusResponse(
+        status="complete",
+        events=job["events"],
+        message="SIM return completed",
+        result=job["result"],
     )
 
 

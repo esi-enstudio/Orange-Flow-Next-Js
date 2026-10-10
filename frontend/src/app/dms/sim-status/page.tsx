@@ -86,6 +86,8 @@ export default function SIMStatusCheckPage() {
   const [loading, setLoading] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [tipIndex, setTipIndex] = useState(0);
+  const [progressMsg, setProgressMsg] = useState<string | null>(null);
+  const pollActiveRef = useRef(false);
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [rangeValid, setRangeValid] = useState(true);
@@ -191,6 +193,51 @@ export default function SIMStatusCheckPage() {
     return language === "bn" ? loadingTipsBn : loadingTipsEn;
   }, [language]);
 
+  // Stop background job polling when the page unmounts (navigation away)
+  useEffect(() => {
+    return () => {
+      pollActiveRef.current = false;
+    };
+  }, []);
+
+  const pollStatusJob = useCallback(async (jobId: string): Promise<any | null> => {
+    let consecutiveFailures = 0;
+    while (pollActiveRef.current) {
+      await new Promise((r) => setTimeout(r, 2000));
+      if (!pollActiveRef.current) break;
+
+      let data: any;
+      try {
+        const res = await apiClient.get(`dms/sim-status/status/${jobId}`);
+        data = res.data;
+        consecutiveFailures = 0;
+      } catch (err: any) {
+        if (err?.response) {
+          const detail = err.response.data?.detail;
+          throw new Error(typeof detail === "string" ? detail : t("sim_status_check.job_failed"));
+        }
+        // Transient network/timeout failure — retry a few times before giving up
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 5) {
+          throw new Error(t("sim_status_check.job_connection_lost"));
+        }
+        continue;
+      }
+
+      if (Array.isArray(data.events) && data.events.length > 0) {
+        setProgressMsg(data.events[data.events.length - 1].msg);
+      }
+
+      if (data.status === "running") continue;
+      if (data.status === "complete") return data;
+      if (data.status === "error") {
+        throw new Error(data.message || t("sim_status_check.job_failed"));
+      }
+      throw new Error(t("sim_status_check.job_not_found"));
+    }
+    return null;
+  }, [t]);
+
   // 4. Handle Submit Query
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,6 +263,8 @@ export default function SIMStatusCheckPage() {
     setResults([]);
     setCurrentPage(1);
     setStatusFilter("All");
+    setProgressMsg(null);
+    pollActiveRef.current = true;
 
     try {
       const res = await apiClient.post("dms/sim-status", {
@@ -223,18 +272,26 @@ export default function SIMStatusCheckPage() {
         input_value: inputValue
       });
 
-      setResults(res.data.results);
-      setHouseInfo({
-        name: res.data.house_name,
-        code: res.data.house_code
-      });
+      const jobId = res.data?.job_id;
+      if (!jobId) throw new Error(res.data?.message || t("sim_status_check.job_not_found"));
 
-      toast.success(`Successfully retrieved status for ${res.data.total_checked} SIMs!`);
+      const data = await pollStatusJob(jobId);
+      if (!data) return; // polling stopped (page unmounted)
+
+      const result = data.result;
+      setResults(result?.results || []);
+      setHouseInfo({
+        name: result?.house_name || "",
+        code: result?.house_code || ""
+      });
+      toast.success(t("sim_status_check.success_msg", { count: result?.total_checked ?? 0 }));
     } catch (err: any) {
-      const errMsg = err.response?.data?.detail || err.message || "Query failed";
+      const errMsg = err.response?.data?.detail || err.message || t("sim_status_check.job_failed");
       toast.error(errMsg);
     } finally {
+      pollActiveRef.current = false;
       setLoading(false);
+      setProgressMsg(null);
     }
   };
 
@@ -624,14 +681,14 @@ export default function SIMStatusCheckPage() {
               <div className="h-6 mt-2 overflow-hidden max-w-md">
                 <AnimatePresence mode="wait">
                   <motion.p
-                    key={tipIndex}
+                    key={progressMsg || tipIndex}
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: -20, opacity: 0 }}
                     transition={{ duration: 0.3 }}
                     className="text-sm font-medium text-gray-400 dark:text-gray-500"
                   >
-                    {activeTips[tipIndex]}
+                    {progressMsg || activeTips[tipIndex]}
                   </motion.p>
                 </AnimatePresence>
               </div>

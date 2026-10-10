@@ -292,7 +292,7 @@ export default function UsersPage() {
     
     try {
       setImportProgress(50);
-      const response = await apiClient.post(`users/import`, importData);
+      const response = await apiClient.post(`users/import`, importData, { timeout: 300000 });
       setImportProgress(100);
       setImportResults({
         success: response.data.success_count,

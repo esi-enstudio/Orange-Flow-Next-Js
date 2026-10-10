@@ -70,7 +70,7 @@ export default function SetupWizard() {
     setInitStatus("loading");
     setInitError(null);
     try {
-      await apiClient.post("admin/setup/initialize-system");
+      await apiClient.post("admin/setup/initialize-system", null, { timeout: 600000 });
       setInitStatus("success");
     } catch (err: any) {
       setInitStatus("error");

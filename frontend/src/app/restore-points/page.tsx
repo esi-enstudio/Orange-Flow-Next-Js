@@ -432,7 +432,7 @@ export default function RestorePointsPage() {
   const handleCreate = async () => {
     setCreating(true);
     try {
-      await apiClient.post("v1/restore-points", { label: createLabel.trim() });
+      await apiClient.post("v1/restore-points", { label: createLabel.trim() }, { timeout: 600000 });
       toast.success(t("restore_points.create_started"));
       setCreateOpen(false);
       setCreateLabel("");
