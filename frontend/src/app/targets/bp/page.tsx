@@ -24,7 +24,7 @@ interface BpTarget {
   total_recharge: number;
   target_date: string;
   house?: { id: number; display_name?: string; name?: string; code?: string };
-  employee?: { id: number; employee_id?: string; dms_code?: string; pool_number?: string; user?: { name?: string } };
+  employee?: { id: number; employee_id?: string; employee_name?: string; dms_code?: string; pool_number?: string; user?: { name?: string } };
 }
 
 interface Pagination {
@@ -431,7 +431,7 @@ export default function BPTargetsPage() {
                     const formattedDate = d
                       ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })
                       : "";
-                    const empName = bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
+                    const empName = bt.employee?.employee_name || bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
                     const dmsCode = bt.employee?.dms_code || "";
                     const poolNo = bt.employee?.pool_number || "";
                     const houseName = bt.house?.display_name || bt.house?.name || `House #${bt.house_id}`;
