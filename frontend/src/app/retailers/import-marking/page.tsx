@@ -52,6 +52,7 @@ export default function ImportPage() {
     try {
       const res = await apiClient.post("retailer-markings/import/preview", formData, {
         headers: { ...houseHeaders(selectedHouse), "Content-Type": "multipart/form-data" },
+        timeout: 300000,
       });
       setPreview(res.data);
       setShowErrors(true);
@@ -77,7 +78,7 @@ export default function ImportPage() {
       const res = await apiClient.post("retailer-markings/import/confirm", {
         batch_reference: preview.batch_reference,
         remarks: remarks.trim() || null,
-      });
+      }, { timeout: 300000 });
       setResult(res.data);
       setPreview(null);
       toast.success(t("retailer_marking.toast_imported", { count: res.data.assigned }));

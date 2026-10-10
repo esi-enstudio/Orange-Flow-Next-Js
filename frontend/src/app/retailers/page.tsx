@@ -183,7 +183,7 @@ export default function RetailersPage() {
 
     try {
       setImportProgress(40);
-      const response = await apiClient.post("retailers/import", importData);
+      const response = await apiClient.post("retailers/import", importData, { timeout: 300000 });
       setImportProgress(100);
       toast.success(response.data.message);
       fetchData();

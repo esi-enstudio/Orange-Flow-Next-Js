@@ -48,7 +48,9 @@ export async function uploadCommissionFile(
 ): Promise<ImportResponse> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await apiClient.post("/commission/import/upload", formData);
+  const response = await apiClient.post("/commission/import/upload", formData, {
+    timeout: 300000,
+  });
   return response.data;
 }
 
@@ -56,7 +58,9 @@ export async function processImport(
   batchReference: string
 ): Promise<{ message: string; processed: number }> {
   const response = await apiClient.post(
-    `/commission/import/${batchReference}/process`
+    `/commission/import/${batchReference}/process`,
+    null,
+    { timeout: 300000 }
   );
   return response.data;
 }
@@ -75,6 +79,7 @@ export async function exportCommissionExcel(
 ): Promise<void> {
   const response = await apiClient.post("/commission/export", payload, {
     responseType: "blob",
+    timeout: 300000,
   });
   const url = window.URL.createObjectURL(new Blob([response.data]));
   const link = document.createElement("a");

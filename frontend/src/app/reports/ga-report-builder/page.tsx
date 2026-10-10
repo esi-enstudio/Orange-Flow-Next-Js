@@ -1754,7 +1754,7 @@ export default function GaReportBuilderPage() {
     setBuilding(true);
     try {
       const body = { ...target, house_id: effectiveHouseId };
-      const res = await apiClient.post("/ga-report-builder/report", body);
+      const res = await apiClient.post("/ga-report-builder/report", body, { timeout: 300000 });
       setReport(res.data?.data ?? null);
       setConfigOpen(false);
       if (target.event_id && canEdit && persistableKey(target) !== appliedPersistableRef.current) {
@@ -2001,7 +2001,7 @@ export default function GaReportBuilderPage() {
   const exportExcel = async () => {
     if (!effectiveHouseId || !report) return;
     try {
-      const res = await apiClient.post("/ga-report-builder/report/export", { ...payload, house_id: effectiveHouseId }, { responseType: "blob" });
+      const res = await apiClient.post("/ga-report-builder/report/export", { ...payload, house_id: effectiveHouseId }, { responseType: "blob", timeout: 300000 });
       const url = URL.createObjectURL(res.data as Blob);
       const link = document.createElement("a");
       link.href = url;
