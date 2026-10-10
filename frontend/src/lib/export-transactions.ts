@@ -11,7 +11,7 @@ export interface TransactionsExportParams {
 
 export interface RetailerThresholdExportParams {
   report_types: string[];
-  min_amount: number;
+  amounts: number[];
   start_date: string;
   end_date: string;
   house_id?: number | null;
@@ -21,7 +21,7 @@ export interface RetailerThresholdExportParams {
 export async function exportRetailerThresholdReport(params: RetailerThresholdExportParams): Promise<void> {
   const query: Record<string, string> = {
     report_types: params.report_types.join(","),
-    min_amount: String(params.min_amount),
+    amounts: params.amounts.join(","),
     start_date: params.start_date,
     end_date: params.end_date,
   };

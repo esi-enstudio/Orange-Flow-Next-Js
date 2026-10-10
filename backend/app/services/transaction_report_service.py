@@ -262,13 +262,14 @@ class TransactionReportService:
     async def get_threshold_retailers(
         self,
         report_types: list[str],
-        min_amount: float,
+        amounts: dict[str, float],
         search: Optional[str] = None,
         page: int = 1,
         per_page: int = 20,
         rso_id: Optional[int] = None,
     ) -> tuple[list[dict], int]:
-        """Retailers whose total transaction value for EVERY selected type is <= min_amount.
+        """Retailers whose total transaction value for EVERY selected type is at or below
+        that type's own threshold (AND semantics).
 
         Only enabled (enabled ILIKE 'y%') retailers in the house are considered. Retailers
         with no rows at all for a selected type are treated as 0, so zero-transaction
@@ -277,7 +278,7 @@ class TransactionReportService:
         types = [rt for rt in report_types if rt in VALID_REPORT_TYPES]
         if not types:
             return [], 0
-        min_amount = max(min_amount, 0)
+        type_thresholds = {rt: max(float(amounts.get(rt, 0) or 0), 0) for rt in types}
 
         p = f"%{search}%" if search else None
 
@@ -333,7 +334,7 @@ class TransactionReportService:
                 Employee.dms_code,
                 Employee.itop_number,
             )
-            .having(and_(*[_type_sum(rt) <= min_amount for rt in types]))
+            .having(and_(*[_type_sum(rt) <= type_thresholds[rt] for rt in types]))
         )
         if p:
             query = query.where(
@@ -352,6 +353,36 @@ class TransactionReportService:
         res = await self.db.execute(query)
         rows = res.all()
 
+        # Retailer's latest available Balance value (most recent report_date), used as the
+        # common "Balance" column at the end of the report. Independent of the date range.
+        balance_map: dict[int, float] = {}
+        page_ids = [row[0] for row in rows if row[0] is not None]
+        if page_ids:
+            latest_balance = (
+                select(
+                    ITopUpDetail.retailer_id.label("retailer_id"),
+                    func.max(ITopUpDetail.report_date).label("max_date"),
+                )
+                .where(
+                    ITopUpDetail.retailer_id.in_(page_ids),
+                    ITopUpDetail.report_type == "Balance",
+                )
+                .group_by(ITopUpDetail.retailer_id)
+                .subquery()
+            )
+            balance_q = select(ITopUpDetail.retailer_id, ITopUpDetail.daily_value).join(
+                latest_balance,
+                and_(
+                    ITopUpDetail.retailer_id == latest_balance.c.retailer_id,
+                    ITopUpDetail.report_date == latest_balance.c.max_date,
+                    ITopUpDetail.report_type == "Balance",
+                ),
+            )
+            if self.house_id:
+                balance_q = balance_q.where(ITopUpDetail.house_id == self.house_id)
+            balance_res = await self.db.execute(balance_q)
+            balance_map = {r_id: float(val or 0) for r_id, val in balance_res.all()}
+
         results = []
         for row in rows:
             n = 7 + len(types)
@@ -368,6 +399,7 @@ class TransactionReportService:
                     "record_count": int(row[n] or 0),
                     "active_days": int(row[n + 1] or 0),
                     "total_value": float(row[n + 2] or 0),
+                    "balance": balance_map.get(row[0], 0.0),
                 }
             )
         return results, total

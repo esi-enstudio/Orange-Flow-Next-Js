@@ -21,6 +21,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["transactions"])
 
 
+def _parse_type_amounts(report_types: list[str], amounts: Optional[str]) -> dict[str, float]:
+    """Map each selected report type to its own threshold amount.
+
+    `amounts` is a comma-separated list aligned with `report_types` order
+    (e.g. report_types=C2C,C2S&amounts=0,500). Missing/invalid values default to 0.
+    """
+    raw = [a.strip() for a in amounts.split(",")] if amounts else []
+    result: dict[str, float] = {}
+    for i, rt in enumerate(report_types):
+        val = 0.0
+        if i < len(raw) and raw[i] != "":
+            try:
+                val = max(float(raw[i]), 0)
+            except ValueError:
+                val = 0.0
+        result[rt] = val
+    return result
+
+
+
 async def _resolve_house(
     db: AsyncSession,
     current_user: User,
@@ -128,7 +148,7 @@ async def get_transaction_entities(
 @router.get("/reports/transactions/retailer-threshold")
 async def get_retailers_below_threshold(
     report_types: Optional[str] = Query(None, description="Comma-separated, e.g. C2C,C2S,Balance"),
-    min_amount: float = Query(0, ge=0, description="Show retailers whose total value is <= this amount"),
+    amounts: Optional[str] = Query(None, description="Comma-separated per-type thresholds aligned with report_types, e.g. 0,500,0"),
     start_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     search: Optional[str] = Query(None, description="Search by retailer code/name/itop"),
@@ -147,6 +167,7 @@ async def get_retailers_below_threshold(
         types = list(VALID_REPORT_TYPES)
     if not types:
         raise HTTPException(status_code=400, detail="At least one valid report type is required (C2C, C2S, Balance)")
+    amount_map = _parse_type_amounts(types, amounts)
 
     try:
         sd = parse_date(start_date, "start_date")
@@ -163,14 +184,14 @@ async def get_retailers_below_threshold(
         start_date=sd,
         end_date=ed,
     )
-    rows, total = await service.get_threshold_retailers(types, min_amount, search, page, per_page, rso_id=rso_id)
+    rows, total = await service.get_threshold_retailers(types, amount_map, search, page, per_page, rso_id=rso_id)
 
     total_pages = max(1, (total + per_page - 1) // per_page)
     return {
         "success": True,
         "house_id": target_house_id,
         "report_types": types,
-        "min_amount": min_amount,
+        "amounts": amount_map,
         "data": rows,
         "pagination": {
             "page": page,
@@ -186,7 +207,7 @@ async def get_retailers_below_threshold(
 @router.get("/reports/transactions/retailer-threshold/export")
 async def export_retailers_below_threshold(
     report_types: Optional[str] = Query(None, description="Comma-separated, e.g. C2C,C2S,Balance"),
-    min_amount: float = Query(0, ge=0),
+    amounts: Optional[str] = Query(None, description="Comma-separated per-type thresholds aligned with report_types, e.g. 0,500,0"),
     start_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     rso_id: Optional[int] = Query(None, description="RSO employee ID"),
@@ -202,6 +223,7 @@ async def export_retailers_below_threshold(
         types = list(VALID_REPORT_TYPES)
     if not types:
         raise HTTPException(status_code=400, detail="At least one valid report type is required (C2C, C2S, Balance)")
+    amount_map = _parse_type_amounts(types, amounts)
 
     try:
         sd = parse_date(start_date, "start_date")
@@ -218,7 +240,7 @@ async def export_retailers_below_threshold(
         start_date=sd,
         end_date=ed,
     )
-    rows, _total = await service.get_threshold_retailers(types, min_amount, None, 1, 100000, rso_id=rso_id)
+    rows, _total = await service.get_threshold_retailers(types, amount_map, None, 1, 100000, rso_id=rso_id)
 
     house_code = ""
     if target_house_id:
@@ -242,10 +264,11 @@ async def export_retailers_below_threshold(
     cols = ["House Code", "Retailer Code", "Retailer Name", "Retailer Itop Number", "RSO DMS Code", "RSO Itop Number", "RSO Name"]
     for rt in types:
         cols.append(f"{rt} Value (BDT)")
-    cols += ["Total Value (BDT)", "Transactions", "Active Days"]
+    cols += ["Total Value (BDT)", "Transactions", "Active Days", "Balance (BDT)"]
 
+    threshold_label = " | ".join(f"{rt} ≤ {amount_map.get(rt, 0)}" for rt in types)
     ws.cell(row=1, column=1, value=f"Retailer Threshold Report - {date_label}").font = Font(bold=True, size=14)
-    ws.cell(row=2, column=1, value=f"House: {house_code} | Max Amount: {min_amount} BDT | Types: {', '.join(types)}").font = Font(bold=False, size=10)
+    ws.cell(row=2, column=1, value=f"House: {house_code} | Thresholds: {threshold_label} BDT | Types: {', '.join(types)}").font = Font(bold=False, size=10)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(cols))
 
     for col, h in enumerate(cols, 1):
@@ -270,6 +293,7 @@ async def export_retailers_below_threshold(
         ws.cell(row=row_idx, column=col_idx, value=r["total_value"]).border = thin_border
         ws.cell(row=row_idx, column=col_idx + 1, value=r["record_count"]).border = thin_border
         ws.cell(row=row_idx, column=col_idx + 2, value=r["active_days"]).border = thin_border
+        ws.cell(row=row_idx, column=col_idx + 3, value=r.get("balance", 0)).border = thin_border
 
     for col_idx in range(1, ws.max_column + 1):
         col = ws[get_column_letter(col_idx)]

@@ -93,12 +93,13 @@ interface ThresholdRetailer {
   record_count: number;
   active_days: number;
   total_value: number;
+  balance: number;
 }
 
 interface ThresholdData {
   success: boolean;
   report_types: string[];
-  min_amount: number;
+  amounts: Record<string, number>;
   data: ThresholdRetailer[];
   pagination: Pagination;
 }
@@ -107,6 +108,12 @@ const REPORT_TYPES = ["C2C", "C2S", "Balance"] as const;
 type ReportType = (typeof REPORT_TYPES)[number];
 type EntityType = "rso" | "retailer";
 type TimeMode = "day" | "month" | "range";
+
+const THR_TYPE_STYLES: Record<ReportType, { dot: string; badge: string }> = {
+  C2C: { dot: "bg-primary-500", badge: "bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-300" },
+  C2S: { dot: "bg-emerald-500", badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" },
+  Balance: { dot: "bg-indigo-500", badge: "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300" },
+};
 
 // ------------------------------------------------------------------ helpers
 
@@ -196,8 +203,8 @@ export default function TransactionsReportPage() {
 
   const [thrFrom, setThrFrom] = useState(toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)));
   const [thrTo, setThrTo] = useState(toDateStr(today));
-  const [thrTypes, setThrTypes] = useState<ReportType[]>(["C2C", "C2S", "Balance"]);
-  const [thrAmount, setThrAmount] = useState<string>("0");
+  const [thrTypes, setThrTypes] = useState<ReportType[]>([]);
+  const [thrAmounts, setThrAmounts] = useState<Record<ReportType, string>>({ C2C: "0", C2S: "0", Balance: "0" });
   const [thrRsoId, setThrRsoId] = useState<string>("");
   const [thrRsoOptions, setThrRsoOptions] = useState<EntityOption[]>([]);
   const [thrRsoOpen, setThrRsoOpen] = useState(false);
@@ -264,7 +271,7 @@ export default function TransactionsReportPage() {
     // survives its own scroll.
     const onScrollOrResize = (e: Event) => {
       const target = e.target as Node | null;
-      if (target && target !== document) {
+      if (target instanceof Node && target !== document) {
         if (entityDropdownRef.current?.contains(target)) return;
         if (thrRsoDropdownRef.current?.contains(target)) return;
       }
@@ -363,7 +370,7 @@ export default function TransactionsReportPage() {
     try {
       const params: Record<string, string | number> = {
         report_types: thrTypes.join(","),
-        min_amount: Number(thrAmount) || 0,
+        amounts: thrTypes.map((rt) => Number(thrAmounts[rt]) || 0).join(","),
         start_date: thrFrom,
         end_date: thrTo,
         house_id: Number(selectedHouseId),
@@ -378,7 +385,7 @@ export default function TransactionsReportPage() {
     } finally {
       setThrLoading(false);
     }
-  }, [selectedHouseId, thrTypes, thrAmount, thrFrom, thrTo, thrRsoId, t]);
+  }, [selectedHouseId, thrTypes, thrAmounts, thrFrom, thrTo, thrRsoId, t]);
 
   const changeThresholdPage = (p: number) => {
     setThrExpanded(null);
@@ -386,7 +393,7 @@ export default function TransactionsReportPage() {
   };
 
   const toggleThrType = (rt: ReportType) => {
-    setThrTypes((prev) => (prev.includes(rt) ? prev.filter((x) => x !== rt) : [...prev, rt]));
+    setThrTypes((prev) => (prev.includes(rt) ? prev.filter((x) => x !== rt) : REPORT_TYPES.filter((t) => prev.includes(t) || t === rt)));
     setThrExpanded(null);
   };
 
@@ -470,7 +477,7 @@ export default function TransactionsReportPage() {
     try {
       await exportRetailerThresholdReport({
         report_types: thrTypes,
-        min_amount: Number(thrAmount) || 0,
+        amounts: thrTypes.map((rt) => Number(thrAmounts[rt]) || 0),
         start_date: thrFrom,
         end_date: thrTo,
         house_id: selectedHouseId ? Number(selectedHouseId) : null,
@@ -518,9 +525,9 @@ export default function TransactionsReportPage() {
   const s = data?.summary;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="-mx-4 space-y-3 md:mx-0 md:space-y-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="px-4 md:px-0 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {t("transactions_report.title")}
@@ -565,7 +572,7 @@ export default function TransactionsReportPage() {
       </div>
 
       {/* Report type toggle */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="px-4 md:px-0 flex flex-wrap items-center gap-3">
         <div className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-xl p-1 shadow-sm">
           {REPORT_TYPES.map((rt) => (
             <button
@@ -1018,7 +1025,7 @@ export default function TransactionsReportPage() {
           </div>
 
           {/* Controls */}
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.from")}</label>
               <input
@@ -1036,42 +1043,6 @@ export default function TransactionsReportPage() {
                 onChange={(e) => setThrTo(e.target.value)}
                 className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
               />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.amount_label")}</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  min={0}
-                  value={thrAmount}
-                  onChange={(e) => setThrAmount(e.target.value)}
-                  placeholder={t("transactions_report.threshold.amount_placeholder")}
-                  className="w-full px-3 py-2 pl-8 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
-                />
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">BDT</span>
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.type_label")}</label>
-              <div className="flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-lg p-1">
-                {REPORT_TYPES.map((rt) => {
-                  const active = thrTypes.includes(rt);
-                  return (
-                    <button
-                      key={rt}
-                      onClick={() => toggleThrType(rt)}
-                      className={cn(
-                        "flex-1 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all cursor-pointer",
-                        active
-                          ? "bg-primary-500 text-white shadow-sm"
-                          : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/70 dark:hover:bg-slate-700/60"
-                      )}
-                    >
-                      {rt}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
           <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.rso_label")}</label>
@@ -1143,7 +1114,65 @@ export default function TransactionsReportPage() {
                 )}
               </div>
             </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t("transactions_report.threshold.type_label")}</label>
+              <div className="flex items-center gap-1 bg-gray-100 dark:bg-slate-800 rounded-lg p-1">
+                {REPORT_TYPES.map((rt) => {
+                  const active = thrTypes.includes(rt);
+                  return (
+                    <button
+                      key={rt}
+                      onClick={() => toggleThrType(rt)}
+                      className={cn(
+                        "flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all cursor-pointer",
+                        active
+                          ? "bg-primary-500 text-white shadow-sm"
+                          : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/70 dark:hover:bg-slate-700/60"
+                      )}
+                    >
+                      <span className={cn("w-1.5 h-1.5 rounded-full", active ? "bg-white" : THR_TYPE_STYLES[rt].dot)} />
+                      {rt}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
+
+          {thrTypes.length > 0 && (
+            <div className="mt-4">
+              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-2">
+                {t("transactions_report.threshold.amounts_title")}
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {thrTypes.map((rt) => {
+                  const st = THR_TYPE_STYLES[rt];
+                  return (
+                    <div
+                      key={rt}
+                      className="flex items-center gap-3 rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 shadow-sm"
+                    >
+                      <span className={cn("inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-bold shrink-0", st.badge)}>
+                        <span className={cn("w-1.5 h-1.5 rounded-full", st.dot)} />
+                        {rt}
+                      </span>
+                      <div className="relative flex-1">
+                        <input
+                          type="number"
+                          min={0}
+                          value={thrAmounts[rt]}
+                          onChange={(e) => setThrAmounts((prev) => ({ ...prev, [rt]: e.target.value }))}
+                          placeholder={t("transactions_report.threshold.amount_placeholder")}
+                          className="w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
+                        />
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">BDT</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="mt-3 flex items-center gap-2">
             <button
@@ -1170,9 +1199,12 @@ export default function TransactionsReportPage() {
         {thrData && !thrLoading && thrData.data.length > 0 && (
           <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-bold text-gray-700 dark:text-gray-200">
-              {thrData.min_amount === 0
+              {thrData.report_types.every((rt) => (thrData.amounts?.[rt] ?? 0) === 0)
                 ? t("transactions_report.threshold.summary_all_zero", { count: thrData.pagination.total })
-                : t("transactions_report.threshold.summary", { count: thrData.pagination.total, amount: formatNumber(thrData.min_amount) })}
+                : t("transactions_report.threshold.summary", { count: thrData.pagination.total })}
+            </span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">
+              {thrData.report_types.map((rt) => `${rt} ≤ ${formatNumber(thrData.amounts?.[rt] ?? 0)}`).join("  •  ")}
             </span>
             {thrData.pagination.total_pages > 1 && (
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -1239,6 +1271,10 @@ export default function TransactionsReportPage() {
                             <span className="font-semibold text-gray-900 dark:text-gray-100">{r.rso_name}</span>
                           </div>
                         )}
+                        <div className="flex items-center justify-between py-1.5 border-t border-gray-50 dark:border-slate-800 text-sm">
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("transactions_report.threshold.columns.balance")}</span>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{formatNumber(r.balance ?? 0)}</span>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1258,6 +1294,7 @@ export default function TransactionsReportPage() {
                     ))}
                     <th className="px-4 py-3 text-right">{t("transactions_report.threshold.columns.total")}</th>
                     <th className="px-4 py-3 text-center">{t("transactions_report.threshold.columns.records")}</th>
+                    <th className="px-4 py-3 text-right">{t("transactions_report.threshold.columns.balance")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -1286,6 +1323,10 @@ export default function TransactionsReportPage() {
                         <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-md bg-gray-100 dark:bg-slate-800 text-xs font-semibold text-gray-600 dark:text-gray-300">
                           {formatNumber(r.record_count)}
                         </span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <p className="font-bold text-gray-900 dark:text-gray-100">{formatNumber(r.balance ?? 0)}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">BDT</p>
                       </td>
                     </tr>
                   ))}
