@@ -14,6 +14,7 @@ interface RSOOption {
   id: number;
   user_id: number | null;
   name: string | null;
+  employee_name?: string | null;
   employee_id: string;
   dms_code: string;
   itop_number: string;
@@ -28,6 +29,7 @@ interface SupervisorOption {
   id: number | null;
   user_id: number | null;
   name: string | null;
+  employee_name?: string | null;
   employee_id: string;
   itop_number: string;
   pool_number: string;
