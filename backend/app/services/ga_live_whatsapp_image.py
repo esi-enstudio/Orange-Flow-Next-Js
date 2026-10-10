@@ -859,15 +859,15 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
     # BP block (hidden entirely when the supervisor has no BPs)
     if team_bp:
         bp_labels = ["#", "BP Name", "Pool No", "Own Code",
-                     "TGT", "Ach", "%", "Remain", "DRR", "Own", "Market"]
-        bp_live_cols = [9, 10]
+                     "TGT", "Ach", "%", "Remain", "DRR", "Live GA"]
+        bp_live_cols = [9]
         draw.line([(x + pad, yy), (x + w - pad, yy)], fill=SEP_INK)
         yy += 6
         draw.text((x + pad + 2, yy), f"BP ({len(team_bp)})", font=_font(14, True),
                   fill=BP_TITLE_INK, anchor="lm")
         yy += 18
         bp_rows = []
-        su2 = {"trg": 0, "ach": 0, "rem": 0, "own": 0, "mkt": 0}
+        su2 = {"trg": 0, "ach": 0, "rem": 0, "own": 0}
         for i, b in enumerate(team_bp):
             monthly_target = b.get("target", 0) or 0
             remaining = b.get("remaining", 0) or 0
@@ -876,24 +876,22 @@ def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remainin
             remain = max(0, remaining)
             drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
             own = b.get("own_activation", 0) or 0
-            mkt = b.get("market_activation", 0) or 0
             su2["trg"] += monthly_target
             su2["ach"] += ach
             su2["rem"] += remain
             su2["own"] += own
-            su2["mkt"] += mkt
             bp_rows.append([
                 _n(i + 1), b.get("name", ""), b.get("pool_number", "") or "-",
                 b.get("assisted_code", "") or "-",
                 _fmt(monthly_target), _fmt(ach), pct_val, _fmt(remain), _fmt(drr),
-                _n(own), _n(mkt),
+                _n(own),
             ])
         su2_pct = _pct(su2["ach"], su2["trg"]) if su2["trg"] else "0.00%"
         su2_drr = math.ceil(su2["rem"] / max(days_remaining, 1)) if su2["rem"] > 0 else 0
         bp_total = [
             f"Total ({len(team_bp)} BP)", "", "", "",
             _fmt(su2["trg"]), _fmt(su2["ach"]), su2_pct, _fmt(su2["rem"]), _fmt(su2_drr),
-            _n(su2["own"]), _n(su2["mkt"]),
+            _n(su2["own"]),
         ]
         bp_weights = _content_weights(
             bp_labels, bp_rows, f_head, f_cell, bp_live_cols,
