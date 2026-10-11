@@ -808,13 +808,18 @@ export default function GaLiveReportPage() {
             Real-time activation performance overview of your selected house.
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap">
-          {hasPermission("live_activations.sync_btn") && (
+        <div className="flex flex-col items-center sm:flex-row sm:items-center sm:justify-end gap-2 flex-wrap">
+          <div className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 flex items-center justify-center gap-2 sm:w-auto">
+            <CalendarDays className="w-4 h-4 text-gray-400" />
+            {todayDisplay}
+          </div>
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            {hasPermission("live_activations.sync_btn") && (
             <button
               onClick={toggleLiveSync}
               disabled={liveSyncLoading}
               className={cn(
-                "px-3 py-2 rounded-xl border text-sm font-medium flex items-center justify-center gap-2 transition-all w-full sm:w-auto",
+                "px-3 py-2 rounded-xl border text-sm font-medium flex items-center justify-center gap-2 transition-all sm:w-auto",
                 liveSyncEnabled
                   ? "border-green-300 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/20"
                   : "border-red-300 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20"
@@ -825,11 +830,7 @@ export default function GaLiveReportPage() {
               <span className="hidden sm:inline">Live Sync</span>
             </button>
           )}
-          <div className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 flex items-center justify-center gap-2 w-full sm:w-auto">
-            <CalendarDays className="w-4 h-4 text-gray-400" />
-            {todayDisplay}
-          </div>
-          <div className="flex items-center justify-center gap-2 sm:ml-auto">
+          <div className="flex items-center justify-center gap-2">
             <button
               onClick={fetchData}
               className="p-2.5 rounded-xl bg-primary-500 text-white hover:bg-primary-600 transition-colors disabled:opacity-50"
@@ -859,6 +860,7 @@ export default function GaLiveReportPage() {
                 <Share2 className="w-4 h-4" />
               </button>
             )}
+          </div>
           </div>
         </div>
       </div>

@@ -107,9 +107,12 @@ async def get_retailers(
         if r.employee:
             item["employee"] = {
                 "id": r.employee.id,
-                "name": r.employee.user.name if r.employee.user else r.employee.dms_code,
+                "name": r.employee.employee_name
+                    or (r.employee.user.name if r.employee.user else None)
+                    or r.employee.dms_code,
                 "itop_number": r.employee.itop_number,
-                "dms_code": r.employee.dms_code
+                "dms_code": r.employee.dms_code,
+                "employee_name": r.employee.employee_name
             }
         data.append(item)
 
