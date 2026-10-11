@@ -1154,7 +1154,7 @@ export default function WhatsAppReportDeliveryModal({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
+              <p className="text-sm text-gray-400 py-1">
                 {groupSearch ? "No groups match your search" : !whatsappReady ? "No groups available — link WhatsApp first" : "No groups available"}.
               </p>
             )}
@@ -1201,7 +1201,7 @@ export default function WhatsAppReportDeliveryModal({
             </div>
 
             {contactFormOpen && (
-              <div className="mb-3 rounded-xl border border-primary-500/30 bg-primary-50/40 dark:bg-primary-500/5 p-3 space-y-3">
+              <div className="mb-4 space-y-3">
                 <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
                   {editingContactId ? "Edit contact" : "New contact"}
                 </p>
@@ -1399,7 +1399,7 @@ export default function WhatsAppReportDeliveryModal({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-3">
+              <p className="text-sm text-gray-400 py-1">
                 {contactSearch
                   ? "No saved contacts match your search"
                   : "No contacts saved yet — add the people who should receive this report."}
@@ -1499,12 +1499,7 @@ export default function WhatsAppReportDeliveryModal({
   );
 
   const renderSummary = () => (
-    <div className={cn(
-      "rounded-2xl border p-4 space-y-2",
-      canSave
-        ? "border-blue-200 dark:border-blue-500/30 bg-blue-50/60 dark:bg-blue-500/5"
-        : "border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/40"
-    )}>
+    <div className="space-y-2">
       <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
         <BellRing className="w-4 h-4" />
         Schedule summary
@@ -1585,16 +1580,16 @@ export default function WhatsAppReportDeliveryModal({
         )}
       </p>
       {schedules.length === 0 ? (
-        <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-4 text-center">
+        <p className="text-sm text-gray-400 text-center py-2">
           No schedules yet — <br className="sm:hidden" /> create one above.
         </p>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-gray-100 dark:divide-slate-800">
           {schedules.map((s) => {
             const isTelegram = s.channel === "telegram";
             const recipientsLabel = scheduleRecipientsLabel(s);
             return (
-              <div key={s.id} className="rounded-xl border border-gray-200 dark:border-slate-700/60 px-4 py-3">
+              <div key={s.id} className="py-3">
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1721,13 +1716,13 @@ export default function WhatsAppReportDeliveryModal({
         </span>
       </button>
       {!historyOpen ? null : deliveryLogs.length === 0 ? (
-        <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-4 text-center">
+        <p className="text-sm text-gray-400 text-center py-2">
           No delivery activity yet. Deliveries will appear here.
         </p>
       ) : (
-        <div className="rounded-xl border border-gray-200 dark:border-slate-700/60 divide-y divide-gray-100 dark:divide-slate-800">
+        <div className="divide-y divide-gray-100 dark:divide-slate-800">
           {deliveryLogs.slice(0, 12).map((log) => (
-            <div key={log.id} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <div key={log.id} className="py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <span
                 className={cn(
                   "w-2 h-2 rounded-full shrink-0",
@@ -1825,9 +1820,9 @@ export default function WhatsAppReportDeliveryModal({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 space-y-6">
               {/* Channel selector */}
-              <div className="rounded-2xl border border-gray-200 dark:border-slate-700/60 p-4">
+              <div>
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
                   Delivery channel
                 </label>
@@ -1862,7 +1857,7 @@ export default function WhatsAppReportDeliveryModal({
               </div>
 
               {status?.qr && (
-                <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/40 p-4">
+                <div className="flex flex-col items-center gap-2 py-1">
                   <Smartphone className="w-5 h-5 text-gray-400" />
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={status.qr} alt="WhatsApp QR" className="w-48 h-48 rounded-xl" />
@@ -1873,7 +1868,7 @@ export default function WhatsAppReportDeliveryModal({
               )}
 
               {/* Create / edit form */}
-              <div className="rounded-2xl border border-gray-200 dark:border-slate-700/60 p-4 space-y-4">
+              <div className="space-y-5">
                 <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
                   {editingId ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                   {editingId ? "Edit schedule" : "New schedule"}

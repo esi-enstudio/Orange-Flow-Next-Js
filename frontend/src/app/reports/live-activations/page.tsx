@@ -172,7 +172,7 @@ function Skeleton({ className }: { className?: string }) {
 
 function LoadingSkeleton() {
   return (
-    <div className="p-4 md:p-6 space-y-8 max-w-7xl mx-auto">
+    <div className="p-0 md:p-6 space-y-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -751,7 +751,7 @@ export default function GaLiveReportPage() {
 
   if (!effectiveHouseId) {
     return (
-      <div className="p-4 md:p-6 max-w-7xl mx-auto">
+      <div className="p-0 md:p-6 max-w-7xl mx-auto">
         <HouseSelector houses={houses} selected={selectedHouseId} onSelect={setSelectedHouseId} loading={housesLoading} />
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <Building2 className="w-16 h-16 text-gray-200 dark:text-gray-700 mb-4" />
@@ -793,7 +793,7 @@ export default function GaLiveReportPage() {
   const supBarData = [...supervisors].sort((a, b) => b.total_activation - a.total_activation).slice(0, 10);
 
   return (
-    <div className="p-4 md:p-6 space-y-8 max-w-7xl mx-auto pb-32">
+    <div className="p-0 md:p-6 space-y-8 max-w-7xl mx-auto pb-32">
       {/* House Selector */}
       <HouseSelector houses={houses} selected={selectedHouseId} onSelect={setSelectedHouseId} loading={housesLoading} />
 
