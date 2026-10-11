@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Html5Qrcode } from "html5-qrcode";
+// The image decoder ships inside html5-qrcode (ZXing). It is imported directly
+// because html5-qrcode's own file scanner disables ZXing's TRY_HARDER mode,
+// which makes it miss barcodes that are small inside a large photo.
+import * as ZXingUmd from "html5-qrcode/third_party/zxing-js.umd.js";
 import { useLanguage } from "@/i18n/useLanguage";
 import {
   X,
@@ -27,7 +31,307 @@ interface BarcodeScannerModalProps {
 }
 
 const SCAN_COOLDOWN_MS = 1500;
-const READER_ID = "barcode-scanner-reader";
+/** Visible container that hosts the live camera scanner. */
+const CAMERA_ELEMENT_ID = "barcode-scanner-camera";
+/** How long we wait for the container element to be mounted. */
+const ELEMENT_WAIT_MS = 2500;
+/** Full-frame decode is capped to this side (memory + speed). */
+const MAX_SOURCE_SIDE = 2600;
+/** Tiles keep full resolution up to this side. */
+const MAX_TILE_SIDE = 1600;
+/** Images smaller than this are not worth tiling. */
+const TILE_MIN_SOURCE_SIDE = 1200;
+const TILE_GRID = 3;
+const TILE_OVERLAP_RATIO = 0.2;
+
+type ScannerErrorCode =
+  | "camera_permission_denied"
+  | "camera_not_found"
+  | "camera_busy"
+  | "camera_requires_https"
+  | "camera_unsupported"
+  | "camera_start_failed"
+  | "file_unreadable"
+  | "file_scan_failed"
+  | "limit_reached";
+
+interface ScannerError {
+  code: ScannerErrorCode;
+  message: string;
+}
+
+/**
+ * Camera config. `aspectRatio` is intentionally omitted: html5-qrcode applies
+ * it with `MediaStreamTrack.applyConstraints()`, and on devices that reject
+ * that constraint the library leaks the opened stream (camera stays locked and
+ * keeps failing on every retry).
+ */
+const CAMERA_CONFIG = {
+  fps: 10,
+  qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+    const size = Math.max(160, Math.min(viewfinderWidth, viewfinderHeight, 280));
+    return { width: size, height: size };
+  }
+};
+
+/** html5-qrcode rejects with plain strings, so never rely on `err.name`. */
+function classifyCameraError(raw: unknown): ScannerErrorCode {
+  const text = (
+    typeof raw === "string"
+      ? raw
+      : raw instanceof Error
+        ? `${raw.name} ${raw.message}`
+        : String(raw ?? "")
+  ).toLowerCase();
+
+  if (text.includes("notallowed") || text.includes("permission") || text.includes("denied")) {
+    return "camera_permission_denied";
+  }
+  if (
+    text.includes("notreadable") ||
+    text.includes("could not start video source") ||
+    text.includes("trackstarterror") ||
+    text.includes("in use")
+  ) {
+    return "camera_busy";
+  }
+  if (text.includes("notfound") || text.includes("requested device not found") || text.includes("no camera")) {
+    return "camera_not_found";
+  }
+  if (text.includes("mediadevices") || text.includes("secure context")) {
+    return "camera_requires_https";
+  }
+  if (text.includes("not supported")) {
+    return "camera_unsupported";
+  }
+  return "camera_start_failed";
+}
+
+/** Waits (via rAF) for a container to exist, so we never construct the scanner too early. */
+function waitForElement(elementId: string, timeoutMs = ELEMENT_WAIT_MS): Promise<HTMLElement | null> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const tick = () => {
+      const element = document.getElementById(elementId);
+      if (element) {
+        resolve(element);
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        resolve(null);
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+
+function canUseCamera(): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  if (!window.isSecureContext) return false;
+  return typeof navigator.mediaDevices?.getUserMedia === "function";
+}
+
+/** Preferred cameras first (rear/environment), then generic fallbacks. */
+async function collectCameraCandidates(): Promise<MediaTrackConstraints[]> {
+  const candidates: MediaTrackConstraints[] = [];
+  let cameras: Array<{ id: string; label: string }> = [];
+  try {
+    cameras = await Html5Qrcode.getCameras();
+  } catch {
+    cameras = [];
+  }
+
+  const rear = cameras.find((camera) => /back|rear|environment/i.test(camera.label));
+  if (rear) candidates.push({ deviceId: { exact: rear.id } });
+  candidates.push({ facingMode: "environment" });
+  if (cameras[0]) candidates.push({ deviceId: { exact: cameras[0].id } });
+  const last = cameras[cameras.length - 1];
+  if (cameras.length > 1 && last) candidates.push({ deviceId: { exact: last.id } });
+  candidates.push({ facingMode: "user" });
+  return candidates;
+}
+
+//#region image decoding (ZXing)
+
+interface ZXingReader {
+  decode(bitmap: unknown): { text?: string } | null;
+}
+interface ZXingApi {
+  MultiFormatReader: new (verbose: boolean, hints: Map<number, unknown>) => ZXingReader;
+  HTMLCanvasElementLuminanceSource: new (canvas: HTMLCanvasElement) => unknown;
+  HybridBinarizer: new (source: unknown) => unknown;
+  BinaryBitmap: new (binarizer: unknown) => unknown;
+  DecodeHintType: { POSSIBLE_FORMATS: number; TRY_HARDER: number };
+  BarcodeFormat: Record<string, number>;
+}
+
+const ZXing = ZXingUmd as unknown as ZXingApi;
+
+function buildHints(tryHarder: boolean): Map<number, unknown> {
+  const hints = new Map<number, unknown>();
+  const formats = Object.values(ZXing.BarcodeFormat ?? {}).filter(
+    (value): value is number => typeof value === "number"
+  );
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+  // TRY_HARDER makes ZXing sample many more rows, which is what finds small
+  // barcodes inside a large photo.
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, tryHarder);
+  return hints;
+}
+
+function decodeCanvas(canvas: HTMLCanvasElement, tryHarder: boolean): string | null {
+  try {
+    const reader = new ZXing.MultiFormatReader(false, buildHints(tryHarder));
+    const source = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+    const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(source));
+    const result = reader.decode(bitmap);
+    const text = result?.text?.trim();
+    return text ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+interface ImageRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Draws a region of the image (optionally rotated) scaled to fit `maxSide`. */
+function renderRegion(
+  image: HTMLImageElement,
+  region: ImageRegion,
+  rotation: 0 | 90 | 180 | 270,
+  maxSide: number
+): HTMLCanvasElement | null {
+  const longestSide = Math.max(region.width, region.height);
+  if (longestSide <= 0) return null;
+  const scale = Math.min(1, maxSide / longestSide);
+  const width = Math.max(1, Math.round(region.width * scale));
+  const height = Math.max(1, Math.round(region.height * scale));
+  const swapSides = rotation === 90 || rotation === 270;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = swapSides ? height : width;
+  canvas.height = swapSides ? width : height;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.translate(canvas.width / 2, canvas.height / 2);
+  context.rotate((rotation * Math.PI) / 180);
+  context.drawImage(
+    image,
+    region.x,
+    region.y,
+    region.width,
+    region.height,
+    -width / 2,
+    -height / 2,
+    width,
+    height
+  );
+  return canvas;
+}
+
+/**
+ * Tiles the image with overlap so every barcode ends up large relative to the
+ * tile it is decoded from (ZXing only samples a limited number of rows per
+ * image, so a small barcode in a full frame would never be scanned).
+ */
+function buildTileRegions(region: ImageRegion): ImageRegion[] {
+  const divisor = TILE_GRID - (TILE_GRID - 1) * TILE_OVERLAP_RATIO;
+  const tileWidth = Math.round(region.width / divisor);
+  const tileHeight = Math.round(region.height / divisor);
+  const stepX = (region.width - tileWidth) / (TILE_GRID - 1);
+  const stepY = (region.height - tileHeight) / (TILE_GRID - 1);
+
+  const tiles: ImageRegion[] = [];
+  for (let row = 0; row < TILE_GRID; row++) {
+    for (let column = 0; column < TILE_GRID; column++) {
+      const x = Math.round(region.x + column * stepX);
+      const y = Math.round(region.y + row * stepY);
+      tiles.push({
+        x,
+        y,
+        width: Math.min(tileWidth, region.x + region.width - x),
+        height: Math.min(tileHeight, region.y + region.height - y)
+      });
+    }
+  }
+  return tiles;
+}
+
+type DecodeCandidate = { label: string; region: ImageRegion; rotation: 0 | 90 | 180 | 270; maxSide: number; tryHarder: boolean };
+
+/** Fast to slow: full frame, overlapping tiles, rotations, and a last thorough pass. */
+function buildDecodePlan(sourceWidth: number, sourceHeight: number): DecodeCandidate[] {
+  const full: ImageRegion = { x: 0, y: 0, width: sourceWidth, height: sourceHeight };
+  const plan: DecodeCandidate[] = [
+    { label: "full", region: full, rotation: 0, maxSide: MAX_SOURCE_SIDE, tryHarder: false }
+  ];
+
+  if (Math.max(sourceWidth, sourceHeight) >= TILE_MIN_SOURCE_SIDE) {
+    for (const region of buildTileRegions(full)) {
+      plan.push({ label: "tile", region, rotation: 0, maxSide: MAX_TILE_SIDE, tryHarder: false });
+    }
+  }
+
+  for (const rotation of [90, 180, 270] as const) {
+    plan.push({ label: `rotate-${rotation}`, region: full, rotation, maxSide: MAX_SOURCE_SIDE, tryHarder: false });
+  }
+
+  if (Math.max(sourceWidth, sourceHeight) >= TILE_MIN_SOURCE_SIDE) {
+    for (const region of buildTileRegions(full)) {
+      plan.push({ label: "tile-flipped", region, rotation: 180, maxSide: MAX_TILE_SIDE, tryHarder: false });
+    }
+  }
+
+  plan.push({ label: "full-try-harder", region: full, rotation: 0, maxSide: MAX_SOURCE_SIDE, tryHarder: true });
+  return plan;
+}
+
+function loadImageElement(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("IMAGE_LOAD_FAILED"));
+    };
+    image.src = objectUrl;
+  });
+}
+
+/** Decodes every barcode candidate of the selected image. Throws if unreadable. */
+async function decodeBarcodeFromImage(file: File): Promise<string | null> {
+  const image = await loadImageElement(file);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) return null;
+
+  for (const candidate of buildDecodePlan(sourceWidth, sourceHeight)) {
+    const canvas = renderRegion(image, candidate.region, candidate.rotation, candidate.maxSide);
+    if (!canvas) continue;
+    const text = decodeCanvas(canvas, candidate.tryHarder);
+    // Release the backing store right away; these canvases are large.
+    canvas.width = 0;
+    canvas.height = 0;
+    if (text) return text;
+  }
+  return null;
+}
+
+//#endregion
 
 export function BarcodeScannerModal({
   open,
@@ -42,15 +346,42 @@ export function BarcodeScannerModal({
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const startedRef = useRef(false);
   const startInFlightRef = useRef(false);
+  const cancelledRef = useRef(false);
   const lastScanRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const scannedRef = useRef<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [scanned, setScanned] = useState<string[]>([]);
   const [started, setStarted] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ScannerError | null>(null);
   const [isFileScanning, setIsFileScanning] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const makeError = useCallback(
+    (code: ScannerErrorCode): ScannerError => {
+      switch (code) {
+        case "camera_permission_denied":
+          return { code, message: t("scanner.camera_permission_denied") };
+        case "camera_not_found":
+          return { code, message: t("scanner.camera_not_found") };
+        case "camera_busy":
+          return { code, message: t("scanner.camera_busy") };
+        case "camera_requires_https":
+          return { code, message: t("scanner.camera_requires_https") };
+        case "camera_unsupported":
+          return { code, message: t("scanner.camera_unsupported") };
+        case "file_unreadable":
+          return { code, message: t("scanner.file_unreadable") };
+        case "limit_reached":
+          return { code, message: t("scanner.limit_reached", { count: String(maxSigned) }) };
+        case "file_scan_failed":
+          return { code, message: t("scanner.file_scan_failed") };
+        default:
+          return { code: "camera_start_failed", message: t("scanner.camera_start_failed") };
+      }
+    },
+    [maxSigned, t]
+  );
 
   const handleDecode = useCallback(
     (decodedText: string) => {
@@ -64,7 +395,7 @@ export function BarcodeScannerModal({
 
       if (scannedRef.current.includes(code)) return;
       if (scannedRef.current.length >= maxSigned) {
-        setError(t("scanner.limit_reached", { count: String(maxSigned) }));
+        setError(makeError("limit_reached"));
         return;
       }
 
@@ -73,55 +404,19 @@ export function BarcodeScannerModal({
       setScanned(next);
       onScanned([code]);
     },
-    [maxSigned, onScanned, t]
+    [makeError, maxSigned, onScanned]
   );
 
-  const startCamera = useCallback(async () => {
-    if (startedRef.current || startInFlightRef.current) return;
-    if (!scannerRef.current) {
-      scannerRef.current = new Html5Qrcode(READER_ID);
-    }
-    startInFlightRef.current = true;
-    setStarting(true);
-    setError(null);
-
-    try {
-      const scanner = scannerRef.current;
-      await scanner.start(
-        { facingMode: "environment" },
-        {
-          fps: 10,
-          qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const size = Math.max(160, Math.min(viewfinderWidth, viewfinderHeight, 280));
-            return { width: size, height: size };
-          },
-          aspectRatio: 1.0
-        },
-        (decodedText) => handleDecode(decodedText),
-        () => {
-          /* ignore per-frame decode errors */
-        }
-      );
-      startedRef.current = true;
-      setStarted(true);
-    } catch (err: unknown) {
-      startedRef.current = false;
-      setStarted(false);
-      const errName = err instanceof Error ? err.name : "";
-      const message =
-        errName === "NotAllowedError"
-          ? t("scanner.camera_permission_denied")
-          : errName === "NotFoundError"
-            ? t("scanner.camera_not_found")
-            : t("scanner.camera_start_failed");
-      setError(message);
-    } finally {
-      startInFlightRef.current = false;
-      setStarting(false);
-    }
-  }, [handleDecode, t]);
+  // Keeps the camera callback pointing at the latest render, so the camera
+  // effect can depend on `open` only (restarting on every parent re-render
+  // would break the live stream).
+  const handleDecodeRef = useRef(handleDecode);
+  useEffect(() => {
+    handleDecodeRef.current = handleDecode;
+  }, [handleDecode]);
 
   const stopCamera = useCallback(async () => {
+    cancelledRef.current = true;
     startInFlightRef.current = false;
     startedRef.current = false;
     const scanner = scannerRef.current;
@@ -139,45 +434,140 @@ export function BarcodeScannerModal({
       }
     }
     setStarted(false);
+    setStarting(false);
   }, []);
 
+  const startCamera = useCallback(async () => {
+    if (startedRef.current || startInFlightRef.current) return;
+    startInFlightRef.current = true;
+    cancelledRef.current = false;
+    setStarting(true);
+    setError(null);
+
+    const element = await waitForElement(CAMERA_ELEMENT_ID);
+    if (!element) {
+      startInFlightRef.current = false;
+      setStarting(false);
+      setError(makeError("camera_start_failed"));
+      return;
+    }
+
+    if (!canUseCamera()) {
+      startInFlightRef.current = false;
+      setStarting(false);
+      setError(makeError("camera_requires_https"));
+      return;
+    }
+
+    try {
+      const candidates = await collectCameraCandidates();
+      let lastFailure: unknown = null;
+
+      for (const constraints of candidates) {
+        if (cancelledRef.current) break;
+
+        const scanner = new Html5Qrcode(CAMERA_ELEMENT_ID);
+        try {
+          await scanner.start(
+            constraints,
+            CAMERA_CONFIG,
+            (decodedText) => handleDecodeRef.current(decodedText),
+            () => {
+              /* ignore per-frame decode errors */
+            }
+          );
+        } catch (err: unknown) {
+          lastFailure = err;
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("[BarcodeScanner] camera start failed", constraints, err);
+          }
+          try {
+            await scanner.stop();
+          } catch {
+            /* start never completed */
+          }
+          try {
+            scanner.clear();
+          } catch {
+            /* nothing to clear */
+          }
+          continue;
+        }
+
+        // Modal was closed while the camera was starting: stop it right away so
+        // the device is not left locked for the next attempt.
+        if (cancelledRef.current) {
+          try {
+            await scanner.stop();
+          } catch {
+            /* not running */
+          }
+          try {
+            scanner.clear();
+          } catch {
+            /* nothing to clear */
+          }
+          break;
+        }
+
+        scannerRef.current = scanner;
+        startedRef.current = true;
+        setStarted(true);
+        return;
+      }
+
+      if (!cancelledRef.current) {
+        startedRef.current = false;
+        setStarted(false);
+        setError(makeError(classifyCameraError(lastFailure)));
+      }
+    } finally {
+      startInFlightRef.current = false;
+      setStarting(false);
+    }
+  }, [makeError]);
+
   useEffect(() => {
-    if (open) {
-      const timer = setTimeout(() => {
-        scannedRef.current = [];
-        setScanned([]);
-        lastScanRef.current = { text: "", at: 0 };
-        setError(null);
-        startCamera();
-      }, 350);
-      return () => clearTimeout(timer);
-    } else {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!open) {
       stopCamera();
       return undefined;
     }
+
+    scannedRef.current = [];
+    setScanned([]);
+    lastScanRef.current = { text: "", at: 0 };
+    setError(null);
+    void startCamera();
+
+    return () => {
+      void stopCamera();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
     return () => {
-      stopCamera();
+      void stopCamera();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleFileScan = async (file: File | undefined) => {
     if (!file || isFileScanning) return;
-    if (!scannerRef.current) {
-      scannerRef.current = new Html5Qrcode(READER_ID);
-    }
     setIsFileScanning(true);
     setError(null);
     try {
-      const decodedText = await scannerRef.current.scanFile(file, true);
-      handleDecode(decodedText);
-    } catch {
-      setError(t("scanner.file_scan_failed"));
+      const code = await decodeBarcodeFromImage(file);
+      if (code) {
+        handleDecode(code);
+      } else {
+        setError(makeError("file_scan_failed"));
+      }
+    } catch (err: unknown) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[BarcodeScanner] unable to read the selected image", err);
+      }
+      setError(makeError("file_unreadable"));
     } finally {
       setIsFileScanning(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -189,6 +579,8 @@ export function BarcodeScannerModal({
     setScanned([]);
     lastScanRef.current = { text: "", at: 0 };
   }, []);
+
+  const showRetry = error ? error.code !== "limit_reached" && !error.code.startsWith("file_") : false;
 
   return (
     <AnimatePresence>
@@ -228,7 +620,7 @@ export function BarcodeScannerModal({
                 type="button"
                 onClick={onClose}
                 aria-label={t("scanner.close")}
-                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-all shrink-0"
+                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-all shrink-0 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -237,7 +629,7 @@ export function BarcodeScannerModal({
             <div className="p-5 space-y-4">
               {/* Camera viewfinder */}
               <div className="relative rounded-2xl overflow-hidden bg-gray-900 aspect-[4/3] flex items-center justify-center">
-                <div id={READER_ID} className="absolute inset-0" />
+                <div id={CAMERA_ELEMENT_ID} className="absolute inset-0" />
                 {starting && (
                   <div className="relative z-10 flex flex-col items-center gap-2 text-gray-300">
                     <Loader2 className="w-8 h-8 animate-spin text-orange-400" />
@@ -280,12 +672,12 @@ export function BarcodeScannerModal({
                 >
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <p>{error}</p>
-                    {error !== t("scanner.limit_reached", { count: String(maxSigned) }) && (
+                    <p>{error.message}</p>
+                    {showRetry && (
                       <button
                         type="button"
                         onClick={startCamera}
-                        className="text-orange-600 dark:text-orange-400 font-black hover:underline"
+                        className="text-orange-600 dark:text-orange-400 font-black hover:underline cursor-pointer"
                       >
                         {t("scanner.try_again")}
                       </button>
@@ -300,7 +692,7 @@ export function BarcodeScannerModal({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isFileScanning}
-                  className="flex-1 px-4 py-3 min-h-[44px] bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-black transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  className="flex-1 px-4 py-3 min-h-[44px] bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-black transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {isFileScanning ? (
                     <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
@@ -345,7 +737,7 @@ export function BarcodeScannerModal({
                 type="button"
                 onClick={onClose}
                 className={cn(
-                  "w-full px-4 py-3 min-h-[48px] rounded-xl text-sm font-black transition-all flex items-center justify-center gap-2",
+                  "w-full px-4 py-3 min-h-[48px] rounded-xl text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer",
                   scanned.length > 0
                     ? "bg-gradient-to-tr from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white shadow-lg shadow-orange-200 dark:shadow-none"
                     : "bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400"
