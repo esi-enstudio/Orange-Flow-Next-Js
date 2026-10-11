@@ -77,6 +77,13 @@
         "employees.assign"
       ]
     },
+    "location": {
+      "display_name": "Live Location",
+      "permissions": [
+        "location.view",
+        "location.export"
+      ]
+    },
     "bts": {
       "display_name": "BTS",
       "permissions": [

@@ -35,6 +35,7 @@ import {
   Crown,
   LayoutGrid,
   RadioTower,
+  MapPin,
 } from "lucide-react";
 
 export interface NavItem {
@@ -101,6 +102,15 @@ export const navItems: NavItem[] = [
     icon: Activity,
     color: "text-rose-500",
     permissions: ["otp.view", "system_logs.view"],
+  },
+  {
+    title: "Live Location",
+    translationKey: "nav.live_location",
+    moduleKey: "live_location",
+    href: "/live-location",
+    icon: MapPin,
+    color: "text-emerald-500",
+    permission: "location.view",
   },
   {
     title: "Data Import",

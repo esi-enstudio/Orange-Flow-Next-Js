@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Timezone
     TIME_ZONE: str = "Asia/Dhaka"
 
+    # Live Location device ingest (optional shared secret). Leave empty to let
+    # the mobile macro POST without a key (internal deployments only).
+    LOCATION_INGEST_API_KEY: Optional[str] = None
+
     # Maintenance mode: minutes of warning/grace period (countdown notification)
     # before enforcement kicks in after a super admin enables maintenance.
     MAINTENANCE_GRACE_MINUTES: int = 10

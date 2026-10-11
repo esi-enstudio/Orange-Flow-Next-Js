@@ -43,6 +43,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/filter-tags", None),
     ("/api/retailer-filters", None),
     ("/api/shifts", None),  # helper used across modules; not a restricted module
+    ("/api/v1/location/update", None),  # device/macro ingest endpoint (no plan context)
 
     # ---- module-bound prefixes (longest first) -------------------------------------
     ("/api/v1/database-backups", "administration"),
@@ -66,6 +67,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/v1/scratch-card-serials", "data_import"),
 
     ("/api/employees", "employee_hub"),
+    ("/api/v1/locations", "live_location"),
 
     ("/api/retailer-markings", "retailers"),
     ("/api/retailers", "retailers"),
@@ -155,6 +157,7 @@ MODULE_LEAF_ROUTES: dict = {
     # top-level sidebar item directly below "Data Import".
     "bts": ("/bts",),
     "employee_hub": ("/employees", "/employees/supervisors"),
+    "live_location": ("/live-location",),
     "retailers": (
         "/retailers",
         "/retailers/retailer-marking",
@@ -239,6 +242,9 @@ LEAF_TO_API_PREFIXES: dict = {
     # the employees router serves both the list and the supervisors page.
     "/employees": ("/api/employees",),
     "/employees/supervisors": ("/api/employees",),
+
+    # ---- live_location ----
+    "/live-location": ("/api/v1/locations",),
 
     # ---- retailers ----
     "/retailers": ("/api/retailers",),

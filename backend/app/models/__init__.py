@@ -72,3 +72,4 @@ from app.models.webhook_event import WebhookEvent
 from app.models.subscription_change_log import SubscriptionChangeLog
 from app.models.database_backup import DatabaseBackup
 from app.models.restore_point import RestorePoint
+from app.models.employee_location import EmployeeLiveLocation, EmployeeLocation

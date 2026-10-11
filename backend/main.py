@@ -94,6 +94,7 @@ from app.routers.gateway_webhooks import router as gateway_webhooks_router
 from app.routers.deploy import router as deploy_router
 from app.routers.database_backups import router as database_backups_router
 from app.routers.restore_points import router as restore_points_router
+from app.routers.location import router as location_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -163,6 +164,7 @@ app.include_router(gateway_webhooks_router)
 app.include_router(deploy_router)
 app.include_router(database_backups_router)
 app.include_router(restore_points_router)
+app.include_router(location_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -270,6 +272,12 @@ async def master_automation_scheduler():
                 logger.info("🌙 [Scheduler] 12:00 AM — Daily reset in progress...")
                 await reset_daily_activations()
                 await cleanup_old_dms_reports()
+                try:
+                    from app.services.location_service import cleanup_old_locations_task
+
+                    await cleanup_old_locations_task()
+                except Exception as loc_err:
+                    logger.warning(f"[Scheduler] Location retention cleanup failed: {loc_err}")
                 last_auto_sync_date = None
                 await asyncio.sleep(300)
                 continue
