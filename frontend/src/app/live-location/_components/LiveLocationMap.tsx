@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import L from "leaflet";
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -22,9 +22,6 @@ export interface LiveMapLabels {
   online: string;
   offline: string;
   low_battery: string;
-  layer_streets: string;
-  layer_satellite: string;
-  layer_dark: string;
 }
 
 interface Props {
@@ -38,43 +35,6 @@ interface Props {
 }
 
 const DHAAKU_CENTER: [number, number] = [23.8103, 90.4125];
-
-// Key-free basemaps that are verified to serve real tiles (no watermark).
-// Esri's legacy `server.arcgisonline.com` services work without an API key;
-// Leaflet keeps our pins/trail/select behaviour on top.
-type BasemapKey = "streets" | "satellite" | "dark";
-
-interface BasemapDef {
-  url: string;
-  attribution: string;
-  /** Optional label/line overlay drawn above the base (used by the dark map). */
-  overlayUrl?: string;
-  /** Cap for upscaling when the provider has no native tiles past this zoom. */
-  maxNativeZoom?: number;
-}
-
-const BASEMAPS: Record<BasemapKey, BasemapDef> = {
-  streets: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-    attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>',
-    // Esri has no street tiles past ~z17 in rural Bangladesh; capping the native
-    // zoom makes Leaflet upscale instead of showing "Map data not yet available".
-    maxNativeZoom: 17,
-  },
-  satellite: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution:
-      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-    maxNativeZoom: 18,
-  },
-  dark: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-    overlayUrl:
-      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
-    attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>',
-    maxNativeZoom: 16,
-  },
-};
 
 function pinColor(item: LiveMapItem): string {
   if (item.battery_status === "low") return "#f59e0b";
@@ -148,8 +108,6 @@ export default function LiveLocationMap({
   fitSignal,
   emptyLabel,
 }: Props) {
-  const [basemap, setBasemap] = useState<BasemapKey>("streets");
-  const base = BASEMAPS[basemap];
   const hasPoints = items.some(
     (i) => Number.isFinite(i.latitude) && Number.isFinite(i.longitude)
   );
@@ -166,20 +124,10 @@ export default function LiveLocationMap({
         style={{ minHeight: "420px", background: "#e5e7eb" }}
       >
         <TileLayer
-          key={`base-${basemap}`}
-          url={base.url}
-          attribution={base.attribution}
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           maxZoom={19}
-          maxNativeZoom={base.maxNativeZoom ?? 19}
         />
-        {base.overlayUrl && (
-          <TileLayer
-            key={`overlay-${basemap}`}
-            url={base.overlayUrl}
-            maxZoom={19}
-            maxNativeZoom={base.maxNativeZoom ?? 19}
-          />
-        )}
 
         {trail.length > 1 && (
           <Polyline
@@ -223,36 +171,6 @@ export default function LiveLocationMap({
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{emptyLabel}</p>
         </div>
       )}
-
-      {/* Basemap switcher */}
-      <div className="absolute right-3 top-3 z-[399] flex overflow-hidden rounded-xl border border-gray-200/80 bg-white/95 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
-        {(
-          [
-            ["streets", labels.layer_streets],
-            ["satellite", labels.layer_satellite],
-            ["dark", labels.layer_dark],
-          ] as [BasemapKey, string][]
-        ).map(([key, label], idx) => {
-          const active = basemap === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setBasemap(key)}
-              aria-pressed={active}
-              className={`cursor-pointer px-4 py-2.5 text-xs font-semibold transition-colors ${
-                idx > 0 ? "border-l border-gray-200/80 dark:border-slate-700" : ""
-              } ${
-                active
-                  ? "bg-primary-600 text-white"
-                  : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-800"
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
 
       {/* Legend */}
       <div className="pointer-events-none absolute bottom-4 left-4 z-[399] rounded-xl border border-gray-200/80 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
