@@ -254,6 +254,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 async def root():
     return {"message": "OrangeFlow API is running"}
 
+
+@app.get("/health")
+async def health():
+    """Liveness probe for the host monitor / CLI.
+
+    The host probes ``/health`` directly against the container; without this
+    route every check logged a ``404``. Deliberately dependency-free (no DB
+    access) so it stays fast and cannot flap on a transient database hiccup.
+    """
+    return {"status": "ok"}
+
 @app.post("/receive-otp")
 @app.post("/receive-sms")
 async def receive_otp(request: Request):
