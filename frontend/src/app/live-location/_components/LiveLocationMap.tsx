@@ -216,7 +216,7 @@ export default function LiveLocationMap({
               type="button"
               onClick={() => setBasemap(key)}
               aria-pressed={active}
-              className={`cursor-pointer px-3 py-1.5 text-xs font-semibold transition-colors ${
+              className={`cursor-pointer px-4 py-2.5 text-xs font-semibold transition-colors ${
                 idx > 0 ? "border-l border-gray-200/80 dark:border-slate-700" : ""
               } ${
                 active
