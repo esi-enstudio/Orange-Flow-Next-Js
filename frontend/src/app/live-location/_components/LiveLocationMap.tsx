@@ -57,11 +57,15 @@ const BASEMAPS: Record<BasemapKey, BasemapDef> = {
   streets: {
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
     attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>',
+    // Esri has no street tiles past ~z17 in rural Bangladesh; capping the native
+    // zoom makes Leaflet upscale instead of showing "Map data not yet available".
+    maxNativeZoom: 17,
   },
   satellite: {
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     attribution:
       "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    maxNativeZoom: 18,
   },
   dark: {
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
