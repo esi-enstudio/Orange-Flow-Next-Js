@@ -64,11 +64,13 @@ interface LiveItem extends LiveMapItem {
   house_code: string | null;
   accuracy: number | null;
   speed: number | null;
+  altitude: number | null;
   provider: string | null;
   device_name: string | null;
   ping_count: number;
   last_seen_at: string | null;
   minutes_since: number | null;
+  telemetry: Record<string, unknown> | null;
 }
 
 interface Summary {
@@ -100,6 +102,93 @@ function formatClock(value: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// Grouped view of the device telemetry the macro sends (stored server-side in a
+// JSONB column). Each field maps to a `live_location.telemetry.fields.*` key.
+const TELEMETRY_GROUPS: { key: string; fields: string[] }[] = [
+  {
+    key: "battery",
+    fields: ["power_on_off", "charging_wattage", "battery_current_now", "battery_current_average"],
+  },
+  {
+    key: "network",
+    fields: [
+      "cell_connection_type",
+      "wifi_ssid",
+      "wifi_mac",
+      "wifi_signal_strength",
+      "cell_tower_signal_strength",
+      "sim_one_operator_name",
+      "sim_two_operator_name",
+      "mobile_county_code",
+      "mobile_network_code",
+      "location_area_code",
+      "cell_id",
+      "current_ip",
+      "current_ip_v6",
+    ],
+  },
+  {
+    key: "device",
+    fields: [
+      "device_manufacturer",
+      "device_model",
+      "android_version",
+      "android_version_sdk_level",
+      "macrodroid_version",
+      "macrodroid_is_pro",
+      "device_uptime",
+      "screen_resulation",
+      "ram_total",
+      "ram_available",
+    ],
+  },
+  {
+    key: "storage",
+    fields: [
+      "internal_storage_external_total",
+      "internal_storage_external_free",
+      "external_storage_external_total",
+      "external_storage_external_free",
+    ],
+  },
+  {
+    key: "volume",
+    fields: ["vol_ring", "vol_notif", "vol_alarm", "vol_music", "vol_system", "vol_call", "vol_bt_voice"],
+  },
+  {
+    key: "location",
+    fields: ["last_location_latlong", "last_location_time", "last_loc_link"],
+  },
+  {
+    key: "automation",
+    fields: ["macro_name", "macro_id", "macro_category", "system_time", "speed_kmh", "create_guid"],
+  },
+];
+
+const TELEMETRY_UNITS: Record<string, string> = {
+  wifi_signal_strength: " dBm",
+  cell_tower_signal_strength: " dBm",
+  battery_current_now: " mA",
+  battery_current_average: " mA",
+  charging_wattage: " W",
+  speed_kmh: " km/h",
+};
+
+function formatTelemetryValue(key: string, value: unknown): string {
+  if (value === undefined || value === null || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return `${value}${TELEMETRY_UNITS[key] ?? ""}`;
+}
+
+// Falls back to a prettified key for telemetry fields the device adds later and
+// that have no translation yet (t() returns the path when a key is missing).
+function telemetryFieldLabel(t: (k: string) => string, key: string): string {
+  const path = `live_location.telemetry.fields.${key}`;
+  const translated = t(path);
+  if (translated !== path) return translated;
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export default function LiveLocationPage() {
@@ -146,6 +235,7 @@ export default function LiveLocationPage() {
   const [travelDate, setTravelDate] = useState<string>("");
   const [travelLoading, setTravelLoading] = useState(false);
   const [travelData, setTravelData] = useState<any>(null);
+  const [showTelemetry, setShowTelemetry] = useState(true);
 
   const filtersKey = `${houseId}|${debouncedSearch}|${employeeType}|${statusFilter}|${batteryBelow}`;
 
@@ -327,6 +417,13 @@ export default function LiveLocationPage() {
     () => items.find((i) => i.employee_id === selectedId) || null,
     [items, selectedId]
   );
+
+  // Telemetry keys the device sends that are not part of a named group yet —
+  // shown under "Other" so no received field is ever hidden from the operator.
+  const otherTelemetryKeys = useMemo(() => {
+    const known = new Set(TELEMETRY_GROUPS.flatMap((g) => g.fields));
+    return Object.keys(selected?.telemetry || {}).filter((k) => !known.has(k));
+  }, [selected]);
 
   const mapItems: LiveMapItem[] = useMemo(
     () =>
@@ -705,6 +802,75 @@ export default function LiveLocationPage() {
                     : t("live_location.detail.view_history")}
                 </button>
               </div>
+
+              {Object.keys(selected.telemetry || {}).length > 0 && (
+                <div className="rounded-xl border border-gray-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowTelemetry((v) => !v)}
+                    className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left"
+                  >
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200">
+                      <Signal className="h-3.5 w-3.5 text-primary-500" />
+                      {t("live_location.telemetry.title")}
+                    </span>
+                    {showTelemetry ? (
+                      <ChevronUp className="h-4 w-4 text-gray-400" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-gray-400" />
+                    )}
+                  </button>
+                  {showTelemetry && (
+                    <div className="max-h-72 space-y-3 overflow-y-auto border-t border-gray-100 px-3 py-2.5 dark:border-slate-800">
+                      {TELEMETRY_GROUPS.map((group) => {
+                        const rows = group.fields.filter((f) => {
+                          const v = selected.telemetry?.[f];
+                          return v !== undefined && v !== null && `${v}` !== "";
+                        });
+                        if (rows.length === 0) return null;
+                        return (
+                          <div key={group.key}>
+                            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                              {t(`live_location.telemetry.groups.${group.key}`)}
+                            </p>
+                            <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                              {rows.map((f) => (
+                                <div key={f} className="flex items-start justify-between gap-3 py-1">
+                                  <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                    {telemetryFieldLabel(t, f)}
+                                  </span>
+                                  <span className="break-all text-right text-xs font-medium text-gray-800 dark:text-gray-100">
+                                    {formatTelemetryValue(f, selected.telemetry?.[f])}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {otherTelemetryKeys.length > 0 && (
+                        <div>
+                          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                            {t("live_location.telemetry.groups.other")}
+                          </p>
+                          <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                            {otherTelemetryKeys.map((f) => (
+                              <div key={f} className="flex items-start justify-between gap-3 py-1">
+                                <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                  {telemetryFieldLabel(t, f)}
+                                </span>
+                                <span className="break-all text-right text-xs font-medium text-gray-800 dark:text-gray-100">
+                                  {formatTelemetryValue(f, selected.telemetry?.[f])}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
