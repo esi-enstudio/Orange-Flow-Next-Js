@@ -443,7 +443,7 @@ export default function LiveLocationPage() {
 
       {/* Travel History Modal */}
       {travelOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-slate-800">
               <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
@@ -580,7 +580,7 @@ export default function LiveLocationPage() {
 
       {/* Map + detail */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
+        <div className="relative isolate overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5 dark:border-slate-800">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <Navigation className="h-4 w-4 text-emerald-500" />

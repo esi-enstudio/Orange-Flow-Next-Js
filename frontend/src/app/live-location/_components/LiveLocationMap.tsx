@@ -113,7 +113,7 @@ export default function LiveLocationMap({
   );
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-2xl">
+    <div className="relative h-full w-full overflow-hidden rounded-2xl isolate">
       <style>{`@keyframes oflpulse{0%{transform:translateX(-50%) scale(.6);opacity:.35}100%{transform:translateX(-50%) scale(1.6);opacity:0}}`}</style>
 
       <MapContainer
@@ -173,7 +173,7 @@ export default function LiveLocationMap({
       )}
 
       {/* Legend */}
-      <div className="pointer-events-none absolute bottom-4 left-4 z-[400] rounded-xl border border-gray-200/80 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <div className="pointer-events-none absolute bottom-4 left-4 z-[399] rounded-xl border border-gray-200/80 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
         <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
           {labels.legend}
         </p>
