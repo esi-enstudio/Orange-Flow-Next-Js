@@ -498,6 +498,21 @@ async def list_live_locations(
         reverse=reverse,
     )
 
+    return {
+        "success": True,
+        "data": filtered,
+        "summary": {
+            "tracked": total,
+            "online": online,
+            "offline": total - online,
+            "low_battery": low_battery,
+            "charging": charging,
+            "active_total": active_total,
+            "online_minutes": online_minutes,
+        },
+    }
+
+
 @router.get("/api/v1/locations/list")
 async def list_tracked_employees(
     db: AsyncSession = Depends(get_db),

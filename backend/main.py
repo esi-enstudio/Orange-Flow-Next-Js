@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 import asyncio
 import os
@@ -7,6 +8,12 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 from app.utils.timezone import BST
+
+# Masks sensitive keys in logged device-ingest bodies (value may be an unquoted
+# bare token, a quoted string, or empty until the next ``,``/newline/``}``).
+_SENSITIVE_INGEST_RE = re.compile(
+    r'("(?:clipboard_text|clipboard|webhook_base_url|webhook_url)"\s*:\s*)[^,\n}]*'
+)
 
 class BangladeshFormatter(logging.Formatter):
     def formatTime(self, record, datefmt=None):
@@ -29,6 +36,8 @@ logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler]
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -188,6 +197,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Log device-ingest validation failures, then return the default 422 body.
+
+    Device macro payloads are opaque and change often, so a bare 422 with no trace
+    is impossible to debug. For the location ingest path we log the field errors and
+    a one-line, sensitive-key-redacted view of the raw body (``clipboard_text`` and
+    ``webhook_base_url`` are masked, matching what the ingest endpoint strips before
+    storing). The response body keeps FastAPI's default ``{"detail": [...]}`` shape.
+    """
+    if request.url.path.startswith("/api/v1/location"):
+        body = exc.body if isinstance(exc.body, dict) else {}
+        logger.warning(
+            "Location ingest validation failed on %s (keys=%s): %s",
+            request.url.path,
+            sorted(body.keys()),
+            jsonable_encoder(exc.errors()),
+        )
+        try:
+            raw = exc.body if isinstance(exc.body, (bytes, str)) else None
+            if raw is None:
+                raw = await request.body()
+            raw = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+            raw = _SENSITIVE_INGEST_RE.sub(r"\1<redacted>", raw)
+            logger.warning("Location ingest raw body: %r", raw[:4000])
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("Location ingest raw body unavailable: %s", _e)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": jsonable_encoder(exc.errors())},
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": jsonable_encoder(exc.errors())},
+    )
+
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):

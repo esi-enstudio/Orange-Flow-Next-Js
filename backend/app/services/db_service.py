@@ -1338,6 +1338,37 @@ async def _migrate_rule_included_employee_to_emp_id():
         logger.warning(f"Migration warning (rule_included_employee_ids employee_id): {e}")
 
 
+async def _migrate_location_telemetry_columns():
+    """Add the rich-macro fields (altitude + telemetry JSONB) to the location tables.
+
+    ``Base.metadata.create_all`` never alters an existing table, so devices that
+    already produced rows need an explicit ``ADD COLUMN`` pass for the new columns
+    added to ``EmployeeLiveLocation`` / ``EmployeeLocation``.
+    """
+    targets = [
+        ("employee_live_locations", "altitude", "DOUBLE PRECISION"),
+        ("employee_live_locations", "telemetry", "JSONB"),
+        ("employee_locations", "altitude", "DOUBLE PRECISION"),
+        ("employee_locations", "telemetry", "JSONB"),
+    ]
+    try:
+        async with engine.begin() as conn:
+            for table, column, ddl_type in targets:
+                exists = await conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = :t AND column_name = :c"
+                ), {"t": table, "c": column})
+                if exists.scalar():
+                    continue
+                logger.info(f"Migrating {table}: adding {column} column...")
+                await conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"
+                ))
+            logger.info("Migration complete: location telemetry/altitude columns")
+    except Exception as e:
+        logger.warning(f"Migration warning (location telemetry columns): {e}")
+
+
 async def init_db():
     try:
         await _drop_legacy_ga_section_config_table()
@@ -1368,6 +1399,7 @@ async def init_db():
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_stock_added()
         await _migrate_indexes()
+        await _migrate_location_telemetry_columns()
         await _migrate_whatsapp_schedule_columns()
         await _migrate_whatsapp_schedule_report_type()
         await _migrate_whatsapp_schedule_delivery_columns()
