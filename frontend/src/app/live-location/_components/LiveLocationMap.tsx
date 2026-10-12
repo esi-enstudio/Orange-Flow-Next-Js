@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -22,6 +22,9 @@ export interface LiveMapLabels {
   online: string;
   offline: string;
   low_battery: string;
+  layer_streets: string;
+  layer_satellite: string;
+  layer_dark: string;
 }
 
 interface Props {
@@ -35,6 +38,28 @@ interface Props {
 }
 
 const DHAAKU_CENTER: [number, number] = [23.8103, 90.4125];
+
+// Key-free, Google-like basemaps (Leaflet keeps our pins/trail/select behaviour).
+// `{r}` is Leaflet's retina placeholder; Carto serves a/b/c/d subdomains.
+type BasemapKey = "streets" | "satellite" | "dark";
+
+const BASEMAPS: Record<BasemapKey, { url: string; attribution: string }> = {
+  streets: {
+    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  satellite: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+  },
+  dark: {
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+};
 
 function pinColor(item: LiveMapItem): string {
   if (item.battery_status === "low") return "#f59e0b";
@@ -108,6 +133,7 @@ export default function LiveLocationMap({
   fitSignal,
   emptyLabel,
 }: Props) {
+  const [basemap, setBasemap] = useState<BasemapKey>("streets");
   const hasPoints = items.some(
     (i) => Number.isFinite(i.latitude) && Number.isFinite(i.longitude)
   );
@@ -124,8 +150,10 @@ export default function LiveLocationMap({
         style={{ minHeight: "420px", background: "#e5e7eb" }}
       >
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          key={basemap}
+          url={BASEMAPS[basemap].url}
+          attribution={BASEMAPS[basemap].attribution}
+          subdomains="abcd"
           maxZoom={19}
         />
 
@@ -171,6 +199,36 @@ export default function LiveLocationMap({
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{emptyLabel}</p>
         </div>
       )}
+
+      {/* Basemap switcher */}
+      <div className="absolute right-3 top-3 z-[399] flex overflow-hidden rounded-xl border border-gray-200/80 bg-white/95 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+        {(
+          [
+            ["streets", labels.layer_streets],
+            ["satellite", labels.layer_satellite],
+            ["dark", labels.layer_dark],
+          ] as [BasemapKey, string][]
+        ).map(([key, label], idx) => {
+          const active = basemap === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setBasemap(key)}
+              aria-pressed={active}
+              className={`cursor-pointer px-3 py-1.5 text-xs font-semibold transition-colors ${
+                idx > 0 ? "border-l border-gray-200/80 dark:border-slate-700" : ""
+              } ${
+                active
+                  ? "bg-primary-600 text-white"
+                  : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Legend */}
       <div className="pointer-events-none absolute bottom-4 left-4 z-[399] rounded-xl border border-gray-200/80 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
