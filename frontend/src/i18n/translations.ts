@@ -231,6 +231,7 @@ export const translations = {
       exporting: "Exporting...",
       export_success: "Export started",
       export_error: "Export failed",
+      travel_history: "Travel History",
       house: "House",
       all_houses: "All houses",
       stats: {
@@ -299,6 +300,7 @@ export const translations = {
         loading: "Loading trail...",
         empty: "No history recorded yet.",
         points: "{count} points",
+        distance_km: "Distance (km)",
         close: "Close",
       },
       map: {
@@ -4449,6 +4451,7 @@ employees: "Employees",
       exporting: "এক্সপোর্ট হচ্ছে...",
       export_success: "এক্সপোর্ট শুরু হয়েছে",
       export_error: "এক্সপোর্ট ব্যর্থ হয়েছে",
+      travel_history: "ভ্রমণ ইতিহাস",
       house: "হাউস",
       all_houses: "সব হাউস",
       stats: {
@@ -4517,6 +4520,7 @@ employees: "Employees",
         loading: "ট্রেইল লোড হচ্ছে...",
         empty: "এখনো কোনো ইতিহাস সংরক্ষিত হয়নি।",
         points: "{count} টি পয়েন্ট",
+        distance_km: "দূরত্ব (কিমি)",
         close: "বন্ধ করুন",
       },
       map: {
