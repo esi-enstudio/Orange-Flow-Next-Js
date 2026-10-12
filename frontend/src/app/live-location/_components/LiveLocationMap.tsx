@@ -99,6 +99,27 @@ function MapController({
   return null;
 }
 
+function MapResizeHandler() {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    // Leaflet only measures its container once. When the surrounding layout
+    // changes (selecting an employee grows the detail panel, which stretches
+    // this card), the map keeps the old pane size and leaves a blank strip.
+    // Recalculate on every container resize, plus once after first paint.
+    const observer = new ResizeObserver(() => map.invalidateSize());
+    observer.observe(container);
+    const timer = window.setTimeout(() => map.invalidateSize(), 0);
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [map]);
+
+  return null;
+}
+
 export default function LiveLocationMap({
   items,
   selectedId,
@@ -164,6 +185,7 @@ export default function LiveLocationMap({
         )}
 
         <MapController items={items} selectedId={selectedId} fitSignal={fitSignal} />
+        <MapResizeHandler />
       </MapContainer>
 
       {!hasPoints && (

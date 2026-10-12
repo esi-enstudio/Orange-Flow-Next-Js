@@ -677,7 +677,7 @@ export default function LiveLocationPage() {
 
       {/* Map + detail */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="relative isolate overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
+        <div className="relative isolate flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5 dark:border-slate-800">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <Navigation className="h-4 w-4 text-emerald-500" />
@@ -696,7 +696,7 @@ export default function LiveLocationPage() {
               {t("live_location.map.fit_all")}
             </button>
           </div>
-          <div className="h-[460px] w-full">
+          <div className="min-h-0 w-full flex-1">
             <LiveLocationMap
               items={mapItems}
               selectedId={selectedId}
