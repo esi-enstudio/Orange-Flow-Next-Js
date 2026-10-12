@@ -26,6 +26,12 @@ LOCATION_ONLINE_MINUTES = 15
 # Append-only history older than this is pruned by the scheduler.
 LOCATION_HISTORY_RETENTION_DAYS = 30
 
+# Movement-trail thinning to keep 30-day history manageable (macro may ping
+# every few seconds). A point is persisted only if the employee moved at least
+# this many metres, or this many minutes passed since the last saved point.
+LOCATION_MIN_MOVE_METERS = 15.0
+LOCATION_HEARTBEAT_MINUTES = 5.0
+
 
 async def resolve_employee(db: AsyncSession, identifier: str) -> Optional[Employee]:
     """Resolve a device-supplied identifier to an employee.

@@ -24,6 +24,7 @@ from sqlalchemy import (
     Integer,
     String,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 
 from app.models.base import Base
@@ -51,10 +52,17 @@ class EmployeeLiveLocation(Base):
     is_charging = Column(Boolean, nullable=True)
     accuracy = Column(Float, nullable=True)
     speed = Column(Float, nullable=True)
+    altitude = Column(Float, nullable=True)
     provider = Column(String(50), nullable=True)
     device_name = Column(String(150), nullable=True)
     source = Column(String(30), nullable=False, default="macro")
     last_ip = Column(String(64), nullable=True)
+
+    # Raw device/network telemetry reported by the automation macro (battery
+    # current, charging wattage, power state, Wi-Fi, cell/network info, storage,
+    # device + Android details, ...). Stored verbatim (minus sensitive keys) so
+    # the UI can surface rich device health without a schema change per field.
+    telemetry = Column(JSONB, nullable=True)
 
     ping_count = Column(Integer, nullable=False, default=1)
     first_seen_at = Column(DateTime, nullable=True)
@@ -84,10 +92,12 @@ class EmployeeLocation(Base):
     is_charging = Column(Boolean, nullable=True)
     accuracy = Column(Float, nullable=True)
     speed = Column(Float, nullable=True)
+    altitude = Column(Float, nullable=True)
     provider = Column(String(50), nullable=True)
     device_name = Column(String(150), nullable=True)
     source = Column(String(30), nullable=False, default="macro")
     ip_address = Column(String(64), nullable=True)
+    telemetry = Column(JSONB, nullable=True)
 
     recorded_at = Column(DateTime, nullable=False, index=True)
     created_at = Column(DateTime, server_default=func.now(), index=True)

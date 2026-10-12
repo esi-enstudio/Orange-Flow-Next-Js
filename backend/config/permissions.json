@@ -81,7 +81,8 @@
       "display_name": "Live Location",
       "permissions": [
         "location.view",
-        "location.export"
+        "location.export",
+        "location.history"
       ]
     },
     "bts": {
@@ -534,11 +535,21 @@
   "default_roles": [
     {
       "name": "Super Admin",
-      "is_admin": true
+      "is_admin": true,
+      "permissions": [
+        "location.view",
+        "location.export",
+        "location.history"
+      ]
     },
     {
       "name": "Admin",
-      "is_admin": true
+      "is_admin": true,
+      "permissions": [
+        "location.view",
+        "location.export",
+        "location.history"
+      ]
     },
     {
       "name": "Distributor",
