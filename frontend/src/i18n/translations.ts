@@ -374,6 +374,8 @@ export const translations = {
         fit_all: "Fit all",
         no_locations: "No location data to display.",
         loading: "Loading map...",
+        fullscreen: "Full screen",
+        exit_fullscreen: "Exit full screen",
       },
       time: {
         just_now: "Just now",
@@ -4657,6 +4659,8 @@ employees: "Employees",
         fit_all: "সব দেখান",
         no_locations: "দেখানোর মতো কোনো লোকেশন ডেটা নেই।",
         loading: "ম্যাপ লোড হচ্ছে...",
+        fullscreen: "ফুল স্ক্রিন",
+        exit_fullscreen: "ফুল স্ক্রিন থেকে বের হন",
       },
       time: {
         just_now: "এখনই",

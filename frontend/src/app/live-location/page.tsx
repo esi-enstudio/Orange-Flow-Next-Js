@@ -448,6 +448,8 @@ export default function LiveLocationPage() {
     online: t("live_location.map.legend_online"),
     offline: t("live_location.map.legend_offline"),
     low_battery: t("live_location.map.legend_low_battery"),
+    fullscreen: t("live_location.map.fullscreen"),
+    exit_fullscreen: t("live_location.map.exit_fullscreen"),
   };
 
   const totalPages = Math.max(1, Math.ceil(items.length / LIST_PER_PAGE));
