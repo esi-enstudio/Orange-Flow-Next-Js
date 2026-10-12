@@ -39,15 +39,24 @@ interface Props {
 
 const DHAAKU_CENTER: [number, number] = [23.8103, 90.4125];
 
-// Key-free, Google-like basemaps (Leaflet keeps our pins/trail/select behaviour).
-// `{r}` is Leaflet's retina placeholder; Carto serves a/b/c/d subdomains.
+// Key-free basemaps that are verified to serve real tiles (no watermark).
+// Esri's legacy `server.arcgisonline.com` services work without an API key;
+// Leaflet keeps our pins/trail/select behaviour on top.
 type BasemapKey = "streets" | "satellite" | "dark";
 
-const BASEMAPS: Record<BasemapKey, { url: string; attribution: string }> = {
+interface BasemapDef {
+  url: string;
+  attribution: string;
+  /** Optional label/line overlay drawn above the base (used by the dark map). */
+  overlayUrl?: string;
+  /** Cap for upscaling when the provider has no native tiles past this zoom. */
+  maxNativeZoom?: number;
+}
+
+const BASEMAPS: Record<BasemapKey, BasemapDef> = {
   streets: {
-    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>',
   },
   satellite: {
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -55,9 +64,11 @@ const BASEMAPS: Record<BasemapKey, { url: string; attribution: string }> = {
       "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
   },
   dark: {
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    overlayUrl:
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+    attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>',
+    maxNativeZoom: 16,
   },
 };
 
@@ -134,6 +145,7 @@ export default function LiveLocationMap({
   emptyLabel,
 }: Props) {
   const [basemap, setBasemap] = useState<BasemapKey>("streets");
+  const base = BASEMAPS[basemap];
   const hasPoints = items.some(
     (i) => Number.isFinite(i.latitude) && Number.isFinite(i.longitude)
   );
@@ -150,12 +162,20 @@ export default function LiveLocationMap({
         style={{ minHeight: "420px", background: "#e5e7eb" }}
       >
         <TileLayer
-          key={basemap}
-          url={BASEMAPS[basemap].url}
-          attribution={BASEMAPS[basemap].attribution}
-          subdomains="abcd"
+          key={`base-${basemap}`}
+          url={base.url}
+          attribution={base.attribution}
           maxZoom={19}
+          maxNativeZoom={base.maxNativeZoom ?? 19}
         />
+        {base.overlayUrl && (
+          <TileLayer
+            key={`overlay-${basemap}`}
+            url={base.overlayUrl}
+            maxZoom={19}
+            maxNativeZoom={base.maxNativeZoom ?? 19}
+          />
+        )}
 
         {trail.length > 1 && (
           <Polyline
