@@ -30,6 +30,7 @@ import {
   Search,
   Signal,
   SignalZero,
+  UserRound,
   Users,
   Wifi,
   WifiOff,
@@ -48,6 +49,10 @@ const LiveLocationMap = dynamic(() => import("./_components/LiveLocationMap"), {
 
 const LIST_PER_PAGE = 20;
 
+// Battery filter presets — low-battery triage thresholds an operator actually
+// acts on, instead of a single hardcoded value.
+const BATTERY_THRESHOLD_OPTIONS = [10, 20, 30, 50];
+
 interface House {
   id: number;
   name: string;
@@ -59,6 +64,7 @@ interface LiveItem extends LiveMapItem {
   employee_code: string | null;
   dms_code: string | null;
   itop_number: string | null;
+  pool_number: string | null;
   house_id: number | null;
   house_name: string | null;
   house_code: string | null;
@@ -175,6 +181,22 @@ const TELEMETRY_UNITS: Record<string, string> = {
   charging_wattage: " W",
   speed_kmh: " km/h",
 };
+
+// RSOs are identified by their iTopUp number; every other role (BP, supervisor,
+// manager, BSP, RBSP) is identified by their pool number. Falls back to the
+// other identifier so a card never shows an empty slot when data exists.
+type RoleIdentifierItem = {
+  employee_type?: string | null;
+  itop_number?: string | null;
+  pool_number?: string | null;
+};
+
+function roleIdentifier(item: RoleIdentifierItem): string | null {
+  const isRso = (item.employee_type || "").toLowerCase() === "rso";
+  const preferred = isRso ? item.itop_number : item.pool_number;
+  const fallback = isRso ? item.pool_number : item.itop_number;
+  return preferred || fallback || null;
+}
 
 function formatTelemetryValue(key: string, value: unknown): string {
   if (value === undefined || value === null || value === "") return "—";
@@ -773,13 +795,16 @@ export default function LiveLocationPage() {
           ) : (
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-base font-bold text-gray-900 dark:text-gray-100">
-                    {selected.employee_name || selected.dms_code || `#${selected.employee_id}`}
+                <div className="min-w-0">
+                  <p className="truncate text-base font-bold text-gray-900 dark:text-gray-100">
+                    {selected.employee_name || selected.dms_code || "—"}
                   </p>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                    {[selected.employee_code, selected.dms_code, selected.itop_number].filter(Boolean).join(" · ")}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <EmployeeTypeBadge type={selected.employee_type} label={typeLabel(selected.employee_type)} />
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                      {[selected.dms_code, roleIdentifier(selected)].filter(Boolean).join(" · ") || "—"}
+                    </span>
+                  </div>
                 </div>
                 <StatusBadge online={selected.is_online} t={t} />
               </div>
@@ -791,14 +816,12 @@ export default function LiveLocationPage() {
                 <MiniInfo label={t("live_location.detail.last_seen")}>
                   {relativeTime(selected.minutes_since, t)}
                 </MiniInfo>
-                <MiniInfo label={t("live_location.table.type")}>{typeLabel(selected.employee_type)}</MiniInfo>
+                <MiniInfo label={t("live_location.detail.provider")}>{selected.provider || "—"}</MiniInfo>
                 <MiniInfo label={t("live_location.detail.pings")}>{selected.ping_count}</MiniInfo>
                 <MiniInfo label={t("live_location.detail.accuracy")}>
                   {selected.accuracy != null ? `${Math.round(selected.accuracy)} m` : "—"}
                 </MiniInfo>
-                <MiniInfo label={t("live_location.detail.device")}>
-                  {selected.device_name || selected.provider || "—"}
-                </MiniInfo>
+                <MiniInfo label={t("live_location.detail.device")}>{selected.device_name || "—"}</MiniInfo>
               </div>
 
               <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800/60">
@@ -934,9 +957,13 @@ export default function LiveLocationPage() {
               <option value="offline">{t("live_location.filters.offline")}</option>
             </FilterSelect>
 
-            <FilterSelect value={batteryBelow} onChange={setBatteryBelow} label={t("live_location.filters.battery_below")}>
-              <option value="">{t("live_location.filters.battery_below")}</option>
-              <option value="20">{t("live_location.filters.battery_below")}</option>
+            <FilterSelect value={batteryBelow} onChange={setBatteryBelow} label={t("live_location.filters.battery_level")}>
+              <option value="">{t("live_location.filters.all_batteries")}</option>
+              {BATTERY_THRESHOLD_OPTIONS.map((value) => (
+                <option key={value} value={value}>
+                  {t("live_location.filters.battery_below_value", { value })}
+                </option>
+              ))}
             </FilterSelect>
 
             <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 dark:border-slate-800 dark:text-gray-300">
@@ -987,7 +1014,7 @@ export default function LiveLocationPage() {
                           {item.employee_name || item.dms_code || `#${item.employee_id}`}
                         </p>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {[item.dms_code, item.itop_number].filter(Boolean).join(" · ") || "—"}
+                          {[item.dms_code, roleIdentifier(item)].filter(Boolean).join(" · ") || "—"}
                         </p>
                       </td>
                       <td className="px-2 py-1 text-gray-600 dark:text-gray-300">{typeLabel(item.employee_type)}</td>
@@ -1001,8 +1028,21 @@ export default function LiveLocationPage() {
                         <p className="text-gray-700 dark:text-gray-200">{relativeTime(item.minutes_since, t)}</p>
                         <p className="text-[11px] text-gray-400">{formatClock(item.last_seen_at)}</p>
                       </td>
-                      <td className="px-2 py-1 font-mono text-[11px] text-gray-500 dark:text-gray-400">
-                        {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
+                      <td className="px-2 py-1">
+                        <p className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                          {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
+                        </p>
+                        <a
+                          href={`https://www.google.com/maps?q=${item.latitude},${item.longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title={t("live_location.table.open_map")}
+                          className="mt-0.5 inline-flex cursor-pointer items-center gap-1 font-sans text-[11px] font-medium text-primary-600 hover:underline dark:text-primary-400"
+                        >
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                          {t("live_location.table.open_map")}
+                        </a>
                       </td>
                       <td className="px-2 py-1">
                         <button
@@ -1037,7 +1077,7 @@ export default function LiveLocationPage() {
                           {item.employee_name || item.dms_code || `#${item.employee_id}`}
                         </p>
                         <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">
-                          {[item.employee_code, item.dms_code, item.itop_number].filter(Boolean).join(" · ")}
+                          {[item.employee_code, item.dms_code, roleIdentifier(item)].filter(Boolean).join(" · ")}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
@@ -1153,6 +1193,32 @@ function StatCard({
   );
 }
 
+// Employee type (RSO/BP/Manager/Supervisor...) as a colour-coded badge so the
+// role is readable at a glance instead of being tucked into a detail box.
+const TYPE_BADGE_STYLES: Record<string, string> = {
+  rso: "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
+  bp: "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
+  supervisor: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300",
+  manager: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
+  bsp: "bg-cyan-50 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300",
+  rbsp: "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300",
+  unknown: "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-300",
+};
+
+function EmployeeTypeBadge({ type, label }: { type?: string | null; label: string }) {
+  const key = (type || "unknown").toLowerCase();
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+        TYPE_BADGE_STYLES[key] || TYPE_BADGE_STYLES.unknown
+      }`}
+    >
+      <UserRound className="h-3 w-3" />
+      {label}
+    </span>
+  );
+}
+
 function StatusBadge({ online, t }: { online: boolean; t: (k: string) => string }) {
   return online ? (
     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
@@ -1214,11 +1280,48 @@ function SignalQuality({ dbm, kind, t }: { dbm: number; kind: "wifi" | "cell"; t
   );
 }
 
-// Signal readings get the quality chip; every other telemetry field stays plain.
+// Fields whose value is a link. Telemetry is untrusted device input, so a value
+// is only turned into a link when it resolves to a plain http(s) URL — never
+// javascript:/data: payloads — and it falls back to plain text otherwise.
+const LINK_FIELDS = new Set(["last_loc_link"]);
+
+function safeHttpUrl(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw || /\s/.test(raw)) return null;
+  const candidate = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.hostname.includes(".") ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+// Signal readings get the quality chip, link fields get an anchor, everything
+// else stays plain text.
 function TelemetryValue({ field, value, t }: { field: string; value: unknown; t: (k: string) => string }) {
   const kind = SIGNAL_FIELDS[field];
   const dbm = kind ? parseDbm(value) : null;
   if (kind && dbm !== null) return <SignalQuality dbm={dbm} kind={kind} t={t} />;
+
+  const href = LINK_FIELDS.has(field) ? safeHttpUrl(value) : null;
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={href}
+        className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-primary-200 bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-300 dark:hover:bg-primary-500/20"
+      >
+        <ExternalLink className="h-3 w-3 shrink-0" />
+        {t("live_location.telemetry.open_link")}
+      </a>
+    );
+  }
+
   return (
     <span className="break-all text-right text-xs font-medium text-gray-800 dark:text-gray-100">
       {formatTelemetryValue(field, value)}

@@ -248,7 +248,9 @@ export const translations = {
         all_status: "All status",
         online: "Online only",
         offline: "Offline only",
-        battery_below: "Battery ≤ 20%",
+        battery_level: "Battery level",
+        all_batteries: "All battery levels",
+        battery_below_value: "Battery ≤ {value}%",
         clear: "Clear filters",
       },
       types: {
@@ -275,6 +277,7 @@ export const translations = {
         battery: "Battery",
         last_seen: "Last seen",
         location: "Location",
+        open_map: "Open map",
         actions: "Actions",
       },
       detail: {
@@ -305,6 +308,7 @@ export const translations = {
           low: "Low",
           poor: "Poor",
         },
+        open_link: "Open link",
         groups: {
           battery: "Battery & power",
           network: "Network",
@@ -413,7 +417,7 @@ export const translations = {
         steps: {
           s1: { title: "Pick a house", desc: "Select the house you want to monitor (multi-house users only)." },
           s2: { title: "Read the map", desc: "Scan the pins for current positions; click one to open the employee's details." },
-          s3: { title: "Check details", desc: "The side panel shows battery, last seen time, accuracy and coordinates." },
+          s3: { title: "Check details", desc: "The side panel shows battery, last seen time, accuracy and coordinates. The employee's role (RSO, BP, Manager, Supervisor) is shown as a colour badge under their name." },
           s4: { title: "Follow the trail", desc: "Use 'View trail' to plot the recent movement points on the map." },
         },
         notes: {
@@ -4542,7 +4546,9 @@ employees: "Employees",
         all_status: "সব স্ট্যাটাস",
         online: "শুধু অনলাইন",
         offline: "শুধু অফলাইন",
-        battery_below: "ব্যাটারি ≤ ২০%",
+        battery_level: "ব্যাটারি লেবেল",
+        all_batteries: "সব ব্যাটারি লেবেল",
+        battery_below_value: "ব্যাটারি ≤ {value}%",
         clear: "ফিল্টার মুছুন",
       },
       types: {
@@ -4569,6 +4575,7 @@ employees: "Employees",
         battery: "ব্যাটারি",
         last_seen: "সর্বশেষ দেখা",
         location: "অবস্থান",
+        open_map: "ম্যাপ খুলুন",
         actions: "অ্যাকশন",
       },
       detail: {
@@ -4599,6 +4606,7 @@ employees: "Employees",
           low: "কম",
           poor: "খুব দুর্বল",
         },
+        open_link: "লিংক খুলুন",
         groups: {
           battery: "ব্যাটারি ও পাওয়ার",
           network: "নেটওয়ার্ক",
@@ -4707,7 +4715,7 @@ employees: "Employees",
         steps: {
           s1: { title: "হাউস নির্বাচন", desc: "যে হাউস মনিটর করতে চান সেটি বেছে নিন (একাধিক হাউস থাকলে)।" },
           s2: { title: "ম্যাপ দেখুন", desc: "বর্তমান অবস্থানের পিনগুলো দেখুন; কারো বিস্তারিত জানতে পিনে ক্লিক করুন।" },
-          s3: { title: "বিস্তারিত দেখুন", desc: "সাইড প্যানেলে ব্যাটারি, সর্বশেষ দেখা, নির্ভুলতা ও কোঅর্ডিনেট দেখা যাবে।" },
+          s3: { title: "বিস্তারিত দেখুন", desc: "সাইড প্যানেলে ব্যাটারি, সর্বশেষ দেখা, নির্ভুলতা ও কোঅর্ডিনেট দেখা যাবে। কর্মীর পদ (RSO, BP, ম্যানেজার, সুপারভাইজার) নামের নিচে রঙিন ব্যাজ হিসেবে দেখানো হয়।" },
           s4: { title: "ট্রেইল অনুসরণ", desc: "সাম্প্রতিক চলাচলের পয়েন্ট ম্যাপে দেখতে 'ট্রেইল দেখুন' ব্যবহার করুন।" },
         },
         notes: {

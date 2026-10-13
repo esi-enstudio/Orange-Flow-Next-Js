@@ -398,6 +398,9 @@ def _serialize_live(
         "employee_code": emp.employee_id,
         "dms_code": emp.dms_code,
         "itop_number": emp.itop_number,
+        # RSOs are identified by their iTopUp number; other roles use the pool
+        # number, so the read API must expose both for the UI to choose.
+        "pool_number": emp.pool_number,
         "house_id": emp.house_id,
         "house_name": house.name if house else None,
         "house_code": house.code if house else None,
