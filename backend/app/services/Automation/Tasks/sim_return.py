@@ -40,7 +40,9 @@ async def run_sim_return_task(serials: list, credentials: dict, bot, chat_id):
         await page.fill("#SearchValue", "\n".join(serials))
         
         # 4. Click search button and wait for results
-        await page.click("button.btn-success")
+        await page.wait_for_selector("button.btn-success", state="visible", timeout=30000)
+        await page.wait_for_selector("button.btn-success:enabled", timeout=30000)
+        await page.click("button.btn-success", timeout=30000)
         logger.info(f"📡 Search submitted, scraping data...")
 
         # 5. Call Central Scraper (dms_scraper.py)

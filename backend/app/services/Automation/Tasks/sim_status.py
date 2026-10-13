@@ -40,7 +40,9 @@ async def run_sim_status_check(serials: list, credentials: dict):
         await page.fill("#SearchValue", "\n".join(serials))
         
         # 4. Click search button and Wait for Results
-        await page.click("button.btn-success")
+        await page.wait_for_selector("button.btn-success", state="visible", timeout=30000)
+        await page.wait_for_selector("button.btn-success:enabled", timeout=30000)
+        await page.click("button.btn-success", timeout=30000)
         logger.info(f"📡 {house_name}: Search submitted, waiting for data...")
 
         # 5. Use Central Scraper for data collection ✅

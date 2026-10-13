@@ -258,11 +258,7 @@ export default function LiveLocationPage() {
       .then((res) => {
         const list: House[] = res.data || [];
         setHouses(list);
-        if (list.length === 1) {
-          setHouseId(String(list[0].id));
-        } else if (selectedHouse) {
-          setHouseId(String(selectedHouse.id));
-        }
+        // Do not auto-select any house by default
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -807,57 +803,29 @@ export default function LiveLocationPage() {
 
               {Object.keys(selected.telemetry || {}).length > 0 && (
                 <div className="rounded-xl border border-gray-200 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setShowTelemetry((v) => !v)}
-                    className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left"
-                  >
+                  <div className="flex w-full items-center justify-between gap-2 px-3 py-2">
                     <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200">
                       <Signal className="h-3.5 w-3.5 text-primary-500" />
                       {t("live_location.telemetry.title")}
                     </span>
-                    {showTelemetry ? (
-                      <ChevronUp className="h-4 w-4 text-gray-400" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-gray-400" />
-                    )}
-                  </button>
-                  {showTelemetry && (
-                    <div className="max-h-72 space-y-3 overflow-y-auto border-t border-gray-100 px-3 py-2.5 dark:border-slate-800">
-                      {TELEMETRY_GROUPS.map((group) => {
-                        const rows = group.fields.filter((f) => {
-                          const v = selected.telemetry?.[f];
-                          return v !== undefined && v !== null && `${v}` !== "";
-                        });
-                        if (rows.length === 0) return null;
-                        return (
-                          <div key={group.key}>
-                            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                  </div>
+                  <div className="max-h-80 space-y-2 overflow-y-auto border-t border-gray-100 px-3 py-2.5 dark:border-slate-800">
+                    {TELEMETRY_GROUPS.map((group) => {
+                      const rows = group.fields.filter((f) => {
+                        const v = selected.telemetry?.[f];
+                        return v !== undefined && v !== null && `${v}` !== "";
+                      });
+                      if (rows.length === 0) return null;
+                      return (
+                        <div key={group.key} className="rounded-lg border border-gray-200 dark:border-slate-700">
+                          <div className="border-b border-gray-100 px-2 py-1.5 dark:border-slate-700/60">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
                               {t(`live_location.telemetry.groups.${group.key}`)}
                             </p>
-                            <div className="divide-y divide-gray-50 dark:divide-slate-800">
-                              {rows.map((f) => (
-                                <div key={f} className="flex items-start justify-between gap-3 py-1">
-                                  <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                    {telemetryFieldLabel(t, f)}
-                                  </span>
-                                  <span className="break-all text-right text-xs font-medium text-gray-800 dark:text-gray-100">
-                                    {formatTelemetryValue(f, selected.telemetry?.[f])}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
                           </div>
-                        );
-                      })}
-                      {otherTelemetryKeys.length > 0 && (
-                        <div>
-                          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">
-                            {t("live_location.telemetry.groups.other")}
-                          </p>
-                          <div className="divide-y divide-gray-50 dark:divide-slate-800">
-                            {otherTelemetryKeys.map((f) => (
-                              <div key={f} className="flex items-start justify-between gap-3 py-1">
+                          <div className="divide-y divide-gray-100 dark:divide-slate-800">
+                            {rows.map((f) => (
+                              <div key={f} className="flex items-start justify-between gap-3 px-2 py-1">
                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
                                   {telemetryFieldLabel(t, f)}
                                 </span>
@@ -868,9 +836,30 @@ export default function LiveLocationPage() {
                             ))}
                           </div>
                         </div>
-                      )}
-                    </div>
-                  )}
+                      );
+                    })}
+                    {otherTelemetryKeys.length > 0 && (
+                      <div className="rounded-lg border border-gray-200 dark:border-slate-700">
+                        <div className="border-b border-gray-100 px-2 py-1.5 dark:border-slate-700/60">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                            {t("live_location.telemetry.groups.other")}
+                          </p>
+                        </div>
+                        <div className="divide-y divide-gray-100 dark:divide-slate-800">
+                          {otherTelemetryKeys.map((f) => (
+                            <div key={f} className="flex items-start justify-between gap-3 px-2 py-1">
+                              <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                {telemetryFieldLabel(t, f)}
+                              </span>
+                              <span className="break-all text-right text-xs font-medium text-gray-800 dark:text-gray-100">
+                                {formatTelemetryValue(f, selected.telemetry?.[f])}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

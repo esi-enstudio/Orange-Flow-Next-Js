@@ -315,7 +315,9 @@ async def run_sim_status_check_structured(serials: list, credentials: dict, prog
         await page.select_option("#SearchType", "1") # SIM Serial
         await page.fill("#SearchValue", "\n".join(serials))
         
-        await page.click("button.btn-success")
+        await page.wait_for_selector("button.btn-success", state="visible", timeout=30000)
+        await page.wait_for_selector("button.btn-success:enabled", timeout=30000)
+        await page.click("button.btn-success", timeout=30000)
         logger.info(f"📡 {house_name}: Search submitted, waiting for data collection...")
         _notify_progress(progress_callback, f"Searching {len(serials)} serial number(s) in DMS...")
 
@@ -637,7 +639,9 @@ async def run_sim_return_check(serials: list, credentials: dict, progress_callba
         await page.select_option("#SearchType", "1")
         await page.fill("#SearchValue", "\n".join(serials))
 
-        await page.click("button.btn-success")
+        await page.wait_for_selector("button.btn-success", state="visible", timeout=30000)
+        await page.wait_for_selector("button.btn-success:enabled", timeout=30000)
+        await page.click("button.btn-success", timeout=30000)
         logger.info(f"📡 {house_name}: Search submitted, waiting for data collection...")
         _notify_progress(progress_callback, f"Searching {len(serials)} serial number(s) in DMS...")
 

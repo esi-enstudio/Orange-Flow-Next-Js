@@ -33,7 +33,9 @@ async def run_sim_issue_status(serials: list, credentials: dict):
         # 3. Fill and submit search form
         await page.select_option("#SearchType", "1") # Select SIM Serial
         await page.fill("#SearchValue", "\n".join(serials))
-        await page.click("button.btn-success")
+        await page.wait_for_selector("button.btn-success", state="visible", timeout=30000)
+        await page.wait_for_selector("button.btn-success:enabled", timeout=30000)
+        await page.click("button.btn-success", timeout=30000)
         logger.info(f"📡 Search request sent, scraping results...")
 
         # 4. Call Central Scraper (handles Error, Card, Table)
