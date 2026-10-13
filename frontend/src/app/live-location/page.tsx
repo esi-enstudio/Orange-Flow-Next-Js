@@ -182,6 +182,48 @@ function formatTelemetryValue(key: string, value: unknown): string {
   return `${value}${TELEMETRY_UNITS[key] ?? ""}`;
 }
 
+// A raw dBm reading means nothing to an operator, so signal fields are shown as
+// a plain-language quality label (Great → Poor) with bars and the raw value.
+type SignalLevel = "great" | "good" | "fair" | "low" | "poor";
+
+const SIGNAL_FIELDS: Record<string, "wifi" | "cell"> = {
+  wifi_signal_strength: "wifi",
+  cell_tower_signal_strength: "cell",
+};
+
+// Minimum dBm required for each level (great, good, fair, low); weaker is "poor".
+const SIGNAL_THRESHOLDS: Record<"wifi" | "cell", [number, number, number, number]> = {
+  wifi: [-50, -60, -70, -80],
+  cell: [-70, -80, -90, -100],
+};
+
+const SIGNAL_LEVEL_ORDER: SignalLevel[] = ["great", "good", "fair", "low", "poor"];
+
+const SIGNAL_STYLES: Record<SignalLevel, { chip: string; text: string; bar: string }> = {
+  great: { chip: "bg-emerald-50 dark:bg-emerald-500/10", text: "text-emerald-700 dark:text-emerald-400", bar: "bg-emerald-500" },
+  good: { chip: "bg-green-50 dark:bg-green-500/10", text: "text-green-700 dark:text-green-400", bar: "bg-green-500" },
+  fair: { chip: "bg-amber-50 dark:bg-amber-500/10", text: "text-amber-700 dark:text-amber-400", bar: "bg-amber-500" },
+  low: { chip: "bg-orange-50 dark:bg-orange-500/10", text: "text-orange-700 dark:text-orange-400", bar: "bg-orange-500" },
+  poor: { chip: "bg-red-50 dark:bg-red-500/10", text: "text-red-700 dark:text-red-400", bar: "bg-red-500" },
+};
+
+// Some devices report the magnitude without the sign — dBm is always negative.
+function parseDbm(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(String(value).replace(/[^0-9.+-]/g, ""));
+  if (!Number.isFinite(parsed) || parsed === 0) return null;
+  return parsed > 0 ? -parsed : parsed;
+}
+
+function signalLevel(dbm: number, kind: "wifi" | "cell"): SignalLevel {
+  const [great, good, fair, low] = SIGNAL_THRESHOLDS[kind];
+  if (dbm >= great) return "great";
+  if (dbm >= good) return "good";
+  if (dbm >= fair) return "fair";
+  if (dbm >= low) return "low";
+  return "poor";
+}
+
 // Falls back to a prettified key for telemetry fields the device adds later and
 // that have no translation yet (t() returns the path when a key is missing).
 function telemetryFieldLabel(t: (k: string) => string, key: string): string {
@@ -829,9 +871,7 @@ export default function LiveLocationPage() {
                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
                                   {telemetryFieldLabel(t, f)}
                                 </span>
-                                <span className="break-all text-right text-xs font-medium text-gray-800 dark:text-gray-100">
-                                  {formatTelemetryValue(f, selected.telemetry?.[f])}
-                                </span>
+                                <TelemetryValue field={f} value={selected.telemetry?.[f]} t={t} />
                               </div>
                             ))}
                           </div>
@@ -851,9 +891,7 @@ export default function LiveLocationPage() {
                               <span className="text-[11px] text-gray-500 dark:text-gray-400">
                                 {telemetryFieldLabel(t, f)}
                               </span>
-                              <span className="break-all text-right text-xs font-medium text-gray-800 dark:text-gray-100">
-                                {formatTelemetryValue(f, selected.telemetry?.[f])}
-                              </span>
+                              <TelemetryValue field={f} value={selected.telemetry?.[f]} t={t} />
                             </div>
                           ))}
                         </div>
@@ -1146,6 +1184,44 @@ function BatteryChip({ item, t }: { item: { battery_percent?: number | null; bat
     <span className={`inline-flex items-center gap-1 text-xs font-medium ${cls}`}>
       {icon}
       {pct != null ? `${pct}%` : t("live_location.status.unknown")}
+    </span>
+  );
+}
+
+function SignalQuality({ dbm, kind, t }: { dbm: number; kind: "wifi" | "cell"; t: (k: string) => string }) {
+  const level = signalLevel(dbm, kind);
+  const style = SIGNAL_STYLES[level];
+  const bars = Math.max(1, 4 - SIGNAL_LEVEL_ORDER.indexOf(level));
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 ${style.chip}`}
+      title={`${Math.round(dbm)} dBm`}
+    >
+      <span className="flex items-end gap-[2px]" aria-hidden>
+        {[1, 2, 3, 4].map((bar) => (
+          <span
+            key={bar}
+            className={`w-[3px] rounded-sm ${bar <= bars ? style.bar : "bg-gray-300 dark:bg-slate-600"}`}
+            style={{ height: `${3 + bar * 2}px` }}
+          />
+        ))}
+      </span>
+      <span className={`text-[11px] font-semibold ${style.text}`}>
+        {t(`live_location.telemetry.signal.${level}`)}
+      </span>
+      <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{Math.round(dbm)} dBm</span>
+    </span>
+  );
+}
+
+// Signal readings get the quality chip; every other telemetry field stays plain.
+function TelemetryValue({ field, value, t }: { field: string; value: unknown; t: (k: string) => string }) {
+  const kind = SIGNAL_FIELDS[field];
+  const dbm = kind ? parseDbm(value) : null;
+  if (kind && dbm !== null) return <SignalQuality dbm={dbm} kind={kind} t={t} />;
+  return (
+    <span className="break-all text-right text-xs font-medium text-gray-800 dark:text-gray-100">
+      {formatTelemetryValue(field, value)}
     </span>
   );
 }
