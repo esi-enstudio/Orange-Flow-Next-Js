@@ -689,6 +689,9 @@ async def location_movement(
             "employee_type": emp.employee_type,
             "dms_code": emp.dms_code,
             "itop_number": emp.itop_number,
+            # RSOs are identified by their iTopUp number; every other role uses
+            # the pool number, so both are returned for the UI to choose.
+            "pool_number": emp.pool_number,
             "house_id": emp.house_id,
             "date": day.isoformat(),
             "points": points,

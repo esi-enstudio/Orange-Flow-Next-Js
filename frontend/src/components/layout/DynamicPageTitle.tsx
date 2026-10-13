@@ -37,6 +37,7 @@ const ROUTE_TITLE_MAP: Record<string, { en: string; bn: string }> = {
   "/database-backups": { en: "Database Backups", bn: "ডাটাবেস ব্যাকআপ" },
   "/restore-points": { en: "Restore Points", bn: "রিস্টোর পয়েন্ট" },
   "/bp-retailer-codes": { en: "BP Retailer Codes", bn: "বিপি রিটেইলার কোড" },
+  "/live-location/travel-history": { en: "Travel History", bn: "ভ্রমণ ইতিহাস" },
 };
 
 const PATTERN_TITLES: { match: (p: string) => boolean; en: string; bn: string }[] = [

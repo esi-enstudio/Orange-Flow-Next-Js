@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import apiClient from "@/lib/api";
+import { employeeIdentifierValue } from "@/lib/employeeIdentifier";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -182,22 +184,6 @@ const TELEMETRY_UNITS: Record<string, string> = {
   speed_kmh: " km/h",
 };
 
-// RSOs are identified by their iTopUp number; every other role (BP, supervisor,
-// manager, BSP, RBSP) is identified by their pool number. Falls back to the
-// other identifier so a card never shows an empty slot when data exists.
-type RoleIdentifierItem = {
-  employee_type?: string | null;
-  itop_number?: string | null;
-  pool_number?: string | null;
-};
-
-function roleIdentifier(item: RoleIdentifierItem): string | null {
-  const isRso = (item.employee_type || "").toLowerCase() === "rso";
-  const preferred = isRso ? item.itop_number : item.pool_number;
-  const fallback = isRso ? item.pool_number : item.itop_number;
-  return preferred || fallback || null;
-}
-
 function formatTelemetryValue(key: string, value: unknown): string {
   if (value === undefined || value === null || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
@@ -291,14 +277,6 @@ export default function LiveLocationPage() {
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  // Travel history (admin-only)
-  const [travelOpen, setTravelOpen] = useState(false);
-  const [travelList, setTravelList] = useState<any[]>([]);
-  const [travelListLoading, setTravelListLoading] = useState(false);
-  const [travelEmpId, setTravelEmpId] = useState<string>("");
-  const [travelDate, setTravelDate] = useState<string>("");
-  const [travelLoading, setTravelLoading] = useState(false);
-  const [travelData, setTravelData] = useState<any>(null);
   const [showTelemetry, setShowTelemetry] = useState(true);
 
   const filtersKey = `${houseId}|${debouncedSearch}|${employeeType}|${statusFilter}|${batteryBelow}`;
@@ -437,42 +415,6 @@ export default function LiveLocationPage() {
     }
   }, [canExport, houseId, debouncedSearch, employeeType, t]);
 
-  // Travel history hooks
-  useEffect(() => {
-    if (!travelOpen || !canViewHistory) return;
-    setTravelListLoading(true);
-    const headers: Record<string, string> = {};
-    if (houseId) headers["X-House-ID"] = houseId;
-    apiClient
-      .get("v1/locations/list", { headers })
-      .then((res) => {
-        setTravelList(res.data?.data || []);
-      })
-      .catch(() => toast.error(t("live_location.messages.load_error")))
-      .finally(() => setTravelListLoading(false));
-  }, [travelOpen, canViewHistory, houseId, t]);
-
-  const fetchTravelHistory = useCallback(async () => {
-    if (!travelEmpId || !canViewHistory) return;
-    setTravelLoading(true);
-    setTravelData(null);
-    try {
-      const headers: Record<string, string> = {};
-      if (houseId) headers["X-House-ID"] = houseId;
-      const params: Record<string, string> = {};
-      if (travelDate) params.date = travelDate;
-      const res = await apiClient.get(`v1/locations/movement/${travelEmpId}`, {
-        params,
-        headers,
-      });
-      setTravelData(res.data?.data || null);
-    } catch {
-      toast.error(t("live_location.messages.load_error"));
-    } finally {
-      setTravelLoading(false);
-    }
-  }, [travelEmpId, travelDate, canViewHistory, houseId]);
-
   const selected = useMemo(
     () => items.find((i) => i.employee_id === selectedId) || null,
     [items, selectedId]
@@ -589,121 +531,16 @@ export default function LiveLocationPage() {
             </button>
           )}
           {canViewHistory && (
-            <button
-              onClick={() => setTravelOpen(true)}
+            <Link
+              href="/live-location/travel-history"
               className="flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 dark:border-slate-800 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
             >
               <Route className="h-4 w-4" />
               <span className="hidden sm:inline">{t("live_location.travel_history")}</span>
-            </button>
+            </Link>
           )}
         </div>
       </div>
-
-      {/* Travel History Modal */}
-      {travelOpen && (
-        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-slate-800">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                {t("live_location.travel_history")}
-              </h2>
-              <button
-                onClick={() => setTravelOpen(false)}
-                className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex flex-col gap-3 border-b border-gray-100 p-4 dark:border-slate-800 md:flex-row md:items-end md:justify-between">
-              <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-                <div className="flex-1">
-                  <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-                    {t("live_location.table.employee")}
-                  </label>
-                  <select
-                    value={travelEmpId}
-                    onChange={(e) => setTravelEmpId(e.target.value)}
-                    className="w-full cursor-pointer rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-800 dark:bg-slate-900 dark:text-gray-100"
-                  >
-                    <option value="">{t("live_location.filters.search_placeholder")}</option>
-                    {travelList.map((e) => (
-                      <option key={e.employee_id} value={e.employee_id}>
-                        {e.employee_name || e.dms_code || `#${e.employee_id}`}
-                        {e.dms_code ? ` (${e.dms_code})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-                    {t("live_location.detail.coordinates")}
-                  </label>
-                  <input
-                    type="date"
-                    value={travelDate}
-                    onChange={(e) => setTravelDate(e.target.value)}
-                    className="cursor-pointer rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-800 dark:bg-slate-900 dark:text-gray-100"
-                  />
-                </div>
-              </div>
-              <button
-                onClick={fetchTravelHistory}
-                disabled={!travelEmpId || travelLoading}
-                className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700 disabled:opacity-60"
-              >
-                {travelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Route className="h-4 w-4" />}
-                {t("live_location.detail.view_history")}
-              </button>
-            </div>
-
-            <div className="max-h-[calc(90vh-180px)] overflow-y-auto p-4">
-              {!travelData ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center text-sm text-gray-400">
-                  {t("live_location.history.empty")}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                    <MiniInfo label={t("live_location.table.employee")}>
-                      {travelData.employee_name || travelData.dms_code || `#${travelData.employee_id}`}
-                    </MiniInfo>
-                    <MiniInfo label={t("live_location.table.type")}>{typeLabel(travelData.employee_type)}</MiniInfo>
-                    <MiniInfo label={t("live_location.history.points")}>{travelData.summary?.point_count || 0}</MiniInfo>
-                    <MiniInfo label={t("live_location.history.distance_km") || "Distance (km)"}>
-                      {travelData.summary?.distance_km || 0}
-                    </MiniInfo>
-                  </div>
-                  <div className="max-h-[400px] overflow-auto rounded-xl border border-gray-100 dark:border-slate-800">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-gray-50 dark:bg-slate-800/60">
-                        <tr className="text-left text-[10px] uppercase tracking-wide text-gray-400">
-                          <th className="px-3 py-2 font-semibold">Time</th>
-                          <th className="px-3 py-2 font-semibold">Lat</th>
-                          <th className="px-3 py-2 font-semibold">Lng</th>
-                          <th className="px-3 py-2 font-semibold">Speed</th>
-                          <th className="px-3 py-2 font-semibold">Battery</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(travelData.points || []).map((p: any, i: number) => (
-                          <tr key={i} className="border-b border-gray-50 dark:border-slate-800/60">
-                            <td className="px-3 py-1 font-mono">{p.time ? new Date(p.time).toLocaleString() : "-"}</td>
-                            <td className="px-3 py-1 font-mono">{p.lat?.toFixed(5)}</td>
-                            <td className="px-3 py-1 font-mono">{p.lng?.toFixed(5)}</td>
-                            <td className="px-3 py-1">{p.speed_kmh ? `${Math.round(p.speed_kmh)} km/h` : (p.speed ? `${Math.round(p.speed*3.6)} km/h` : "-")}</td>
-                            <td className="px-3 py-1">{p.battery_percent != null ? `${p.battery_percent}%` : "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -802,7 +639,7 @@ export default function LiveLocationPage() {
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <EmployeeTypeBadge type={selected.employee_type} label={typeLabel(selected.employee_type)} />
                     <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                      {[selected.dms_code, roleIdentifier(selected)].filter(Boolean).join(" · ") || "—"}
+                      {[selected.dms_code, employeeIdentifierValue(selected)].filter(Boolean).join(" · ") || "—"}
                     </span>
                   </div>
                 </div>
@@ -1014,7 +851,7 @@ export default function LiveLocationPage() {
                           {item.employee_name || item.dms_code || `#${item.employee_id}`}
                         </p>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {[item.dms_code, roleIdentifier(item)].filter(Boolean).join(" · ") || "—"}
+                          {[item.dms_code, employeeIdentifierValue(item)].filter(Boolean).join(" · ") || "—"}
                         </p>
                       </td>
                       <td className="px-2 py-1 text-gray-600 dark:text-gray-300">{typeLabel(item.employee_type)}</td>
@@ -1077,7 +914,7 @@ export default function LiveLocationPage() {
                           {item.employee_name || item.dms_code || `#${item.employee_id}`}
                         </p>
                         <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">
-                          {[item.employee_code, item.dms_code, roleIdentifier(item)].filter(Boolean).join(" · ")}
+                          {[item.employee_code, item.dms_code, employeeIdentifierValue(item)].filter(Boolean).join(" · ")}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
