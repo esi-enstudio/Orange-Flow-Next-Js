@@ -205,6 +205,12 @@ class RechargeReportService:
         return {r[0] for r in res.all()}
 
     async def _get_employee_name(self, emp: Employee) -> str:
+        # employees.employee_name is the HR name imported from Excel and is the
+        # canonical display name. A linked users row is only a fallback: employee
+        # user accounts are frequently missing (user_id may be stale/null), which
+        # previously made the report fall back to a DMS code instead of the name.
+        if emp.employee_name:
+            return emp.employee_name
         if emp.user_id:
             user_res = await self.db.execute(select(User.name).where(User.id == emp.user_id))
             name = user_res.scalar_one_or_none()
@@ -227,6 +233,7 @@ class RechargeReportService:
         emp_ids = [e.id for e in employees]
         name_map = {e.id: await self._get_employee_name(e) for e in employees}
         itop_map = {e.id: e.itop_number for e in employees}
+        dms_map = {e.id: e.dms_code for e in employees}
 
         target_rows = await self.db.execute(
             select(RSOTarget).where(
@@ -286,6 +293,7 @@ class RechargeReportService:
                 "projection": projection,
                 "status": status,
                 "employee_type": "rso",
+                "dms_code": dms_map.get(emp_id),
                 "itop_number": itop_map.get(emp_id),
                 "yesterday_achievement": yesterday_val,
                 "yesterday_c2c": yesterday_val,
@@ -311,6 +319,7 @@ class RechargeReportService:
         emp_ids = [e.id for e in employees]
         name_map = {e.id: await self._get_employee_name(e) for e in employees}
         pool_map = {e.id: e.pool_number for e in employees}
+        dms_map = {e.id: e.dms_code for e in employees}
         sup_user_map = {e.user_id: e.id for e in employees if e.user_id}
 
         target_rows = await self.db.execute(
@@ -397,6 +406,7 @@ class RechargeReportService:
             results.append({
                 "id": emp_id,
                 "name": name_map.get(emp_id, f"#{emp_id}"),
+                "dms_code": dms_map.get(emp_id),
                 "pool_number": pool_map.get(emp_id),
                 "target": target_val,
                 "ev_target": ev_target_val,

@@ -45,7 +45,7 @@ async def get_report_image(
     ``scale`` only affects report types that support lighter renders (GA Live).
     """
     day = _today_bst().date()
-    cache_scale = scale if report_type in ("ga_live", "activation") else None
+    cache_scale = scale if report_type in ("ga_live", "activation", "recharge") else None
     cached = report_image_cache.get(report_type, house_id, day, cache_scale)
     if cached is not None:
         return cached
@@ -60,6 +60,9 @@ async def get_report_image(
     elif report_type == "activation" and scale is not None:
         from app.services.activation_whatsapp_image import build_activation_report_image
         image_bytes = await build_activation_report_image(db, house_id, scale=scale)
+    elif report_type == "recharge" and scale is not None:
+        from app.services.recharge_whatsapp_image import build_recharge_report_image
+        image_bytes = await build_recharge_report_image(db, house_id, scale=scale)
     else:
         builder = get_report_builder(report_type)
         image_bytes = await builder(db, house_id)

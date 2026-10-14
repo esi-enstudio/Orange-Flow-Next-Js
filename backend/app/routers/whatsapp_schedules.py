@@ -37,7 +37,7 @@ router = APIRouter(prefix="/api", tags=["WhatsApp Report Schedules"])
 
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
-ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation")
+ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation", "recharge")
 
 
 def _validate_report_type_value(v: str) -> None:
@@ -755,17 +755,21 @@ async def whatsapp_report_preview(
     house_context: int = Depends(require_house_context),
 ):
     """Render the current report image for the active house without sending it."""
-    _validate_report_type_value(report_type)
+    try:
+        _validate_report_type_value(report_type)
+    except ValueError as e:
+        # A bad report_type is client input, not a server fault.
+        raise HTTPException(status_code=400, detail=str(e))
     await _verify_house_access(current_user, house_context)
 
     try:
-        # GA Live / Activation previews render at a reduced scale (~1s, far
-        # smaller PNG) since they are only displayed on screen. Scheduled/direct
-        # sends keep the full-resolution image. Both are cached for 60s so
-        # repeat previews and preview→send are instant.
+        # GA Live / Activation / Recharge previews render at a reduced scale
+        # (~1s, far smaller PNG) since they are only displayed on screen.
+        # Scheduled/direct sends keep the full-resolution image. Both are cached
+        # for 60s so repeat previews and preview→send are instant.
         image_bytes = await get_report_image(
             db, report_type, house_context,
-            scale=4 if report_type in ("ga_live", "activation") else None,
+            scale=4 if report_type in ("ga_live", "activation", "recharge") else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

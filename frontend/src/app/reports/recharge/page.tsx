@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { exportRechargeReport } from "@/lib/export-recharge";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 import {
   Card,
   CardContent,
@@ -67,6 +68,7 @@ interface EmployeePerformance {
   projection: number;
   status: string;
   employee_type?: string;
+  dms_code?: string;
   itop_number?: string;
   pool_number?: string;
   yesterday_achievement?: number;
@@ -212,6 +214,15 @@ function projectionStatus(achPct: number, projPct: number): string {
   return "behind";
 }
 
+// Identity line under the employee name: DMS code followed by the iTopUp SR
+// number (RSO) or pool number (supervisor), separated by a middle dot.
+function IdentityLine({ emp, className }: { emp: EmployeePerformance; className?: string }) {
+  const identity = emp.employee_type === "supervisor" ? emp.pool_number : emp.itop_number;
+  const line = [emp.dms_code, identity].filter(Boolean).join(" · ");
+  if (!line) return null;
+  return <p className={className}>{line}</p>;
+}
+
 function PerformanceTable({ data, t, type, reportType, daysElapsed, daysRemaining }: { data: EmployeePerformance[]; t: (key: string) => string; type: string; reportType: "recharge" | "ev_secondary"; daysElapsed: number; daysRemaining: number }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -248,12 +259,7 @@ function PerformanceTable({ data, t, type, reportType, daysElapsed, daysRemainin
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{emp.name}</p>
-                {emp.employee_type === "rso" && emp.itop_number && (
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500">{emp.itop_number}</p>
-                )}
-                {emp.employee_type === "supervisor" && emp.pool_number && (
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500">{emp.pool_number}</p>
-                )}
+                <IdentityLine emp={emp} className="text-[10px] text-gray-400 dark:text-gray-500 truncate" />
               </div>
               <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200", expandedId === emp.id && "rotate-180")} />
             </button>
@@ -363,12 +369,7 @@ function PerformanceTable({ data, t, type, reportType, daysElapsed, daysRemainin
                 </td>
                 <td className="px-2 py-1 whitespace-nowrap">
                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{emp.name}</p>
-                  {emp.employee_type === "rso" && emp.itop_number && (
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{emp.itop_number}</p>
-                  )}
-                  {emp.employee_type === "supervisor" && emp.pool_number && (
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{emp.pool_number}</p>
-                  )}
+                  <IdentityLine emp={emp} className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5" />
                 </td>
                 <td className="px-2 py-1 text-center">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{formatNumber(emp.target)}</span>
@@ -599,6 +600,7 @@ export default function RechargeDashboardPage() {
   const [activeTab, setActiveTab] = useState<"rso" | "supervisor">("rso");
   const [reportType, setReportType] = useState<"recharge" | "ev_secondary">(getStoredReportType);
   const [isDark, setIsDark] = useState(false);
+  const [showReportDelivery, setShowReportDelivery] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -650,6 +652,15 @@ export default function RechargeDashboardPage() {
       }).catch(() => {});
     }
   }, [authLoading, canViewRechargeReport]);
+
+  // A user with a single accessible house never sees the house picker, so the
+  // only house is selected for them — otherwise the dashboard (and the report
+  // share modal) would have no house context and stay empty.
+  useEffect(() => {
+    if (houses.length === 1 && !selectedHouseId) {
+      setSelectedHouseId(String(houses[0].id));
+    }
+  }, [houses, selectedHouseId]);
 
   useEffect(() => {
     if (!authLoading && canViewRechargeReport) {
@@ -782,11 +793,21 @@ export default function RechargeDashboardPage() {
           </select>
           <button
             onClick={handleExport}
-            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
             title={t("recharge_report.export_dashboard")}
           >
             <Download className="w-4 h-4" />
           </button>
+          {hasPermission("reports.whatsapp_share") && (
+            <button
+              onClick={() => setShowReportDelivery(true)}
+              disabled={!selectedHouseId && houses.length > 1}
+              className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={t("recharge_report.share")}
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={fetchDashboard}
             disabled={loading}
@@ -1157,6 +1178,19 @@ export default function RechargeDashboardPage() {
           </p>
         </div>
       ) : null}
+
+      {/* WhatsApp Report Delivery Modal */}
+      {hasPermission("reports.whatsapp_share") && (
+        <WhatsAppReportDeliveryModal
+          open={showReportDelivery}
+          houseId={selectedHouseId ? Number(selectedHouseId) : null}
+          reportType="recharge"
+          title={t("recharge_report.whatsapp.title")}
+          subtitle={t("recharge_report.dashboard_title")}
+          onClose={() => setShowReportDelivery(false)}
+        />
+      )}
+
     </div>
   );
 }

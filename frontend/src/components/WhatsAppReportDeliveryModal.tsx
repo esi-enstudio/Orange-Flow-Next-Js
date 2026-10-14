@@ -143,6 +143,7 @@ const REPORT_TITLES: Record<string, string> = {
   active_lso: "Active LSO Report",
   active_sso: "Active SSO Report",
   activation: "Activation Report",
+  recharge: "Recharge Report",
 };
 
 const REPORT_DEFAULT_CAPTIONS: Record<string, string> = {
@@ -150,6 +151,7 @@ const REPORT_DEFAULT_CAPTIONS: Record<string, string> = {
   active_lso: "Daily Active LSO Report",
   active_sso: "Daily Active SSO Report",
   activation: "Daily Activation Report",
+  recharge: "Daily Recharge Report",
 };
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;

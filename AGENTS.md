@@ -2020,6 +2020,7 @@ A reusable module for scheduling and sending report images (PNG) to WhatsApp gro
 | `active_lso` | `build_active_lso_report_image()` | Active LSO retailer performance |
 | `active_sso` | `build_active_sso_report_image()` | Active SSO SIM activation performance |
 | `activation` | `build_activation_report_image()` | Activation dashboard: house / supervisor / RSO / BP tables |
+| `recharge` | `build_recharge_report_image()` | Recharge dashboard: house / supervisor / RSO tables |
 
 **Schedule Model** (`backend/app/models/whatsapp_schedule.py`):
 - `report_type` column (VARCHAR(50), default `"ga_live"`)
@@ -2100,9 +2101,10 @@ import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModa
 | `backend/app/models/whatsapp_schedule.py` | Schedule DB model |
 | `backend/app/services/report_builders.py` | Registry + builder dispatch |
 | `backend/app/services/whatsapp_schedule_service.py` | Schedule execution engine |
-| `backend/app/services/report_image_kit.py` | Shared basic-design primitives (palette, fonts, scaled draw, bordered tables) used by the GA Live and Activation builders |
+| `backend/app/services/report_image_kit.py` | Shared basic-design primitives (palette, fonts, scaled draw, bordered tables) used by the GA Live, Activation and Recharge builders |
 | `backend/app/services/ga_live_whatsapp_image.py` | GA Live PNG builder |
 | `backend/app/services/activation_whatsapp_image.py` | Activation PNG builder |
+| `backend/app/services/recharge_whatsapp_image.py` | Recharge PNG builder |
 | `backend/app/services/active_lso_whatsapp_image.py` | Active LSO PNG builder |
 | `backend/app/services/active_sso_whatsapp_image.py` | Active SSO PNG builder |
 | `backend/app/routers/whatsapp_schedules.py` | API endpoints |
