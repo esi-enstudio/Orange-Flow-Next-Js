@@ -344,7 +344,10 @@ def _draw_table(
         if is_total:
             draw.rectangle([x, yy, x + width, yy + row_h], fill=TOTAL_ROW_BG)
         font = f_head if is_total else f_cell
-        color = LIVE_INK if is_total else cell_ink
+        # Same colour rule for the total row as for every normal row: only the
+        # live columns (Live GA / Own / Market) are green, all other columns use
+        # the normal cell ink.
+        color = cell_ink
         for ci in range(n):
             if is_total and span > 1:
                 if ci == 0:

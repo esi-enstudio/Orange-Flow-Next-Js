@@ -501,7 +501,7 @@ function ChartTooltip({ active, payload, label }: any) {
 
 /* ─────────── Main Page ─────────── */
 export default function GaLiveReportPage() {
-  const { user, selectedHouse, hasPermission, loading: authLoading } = useAuth();
+  const { user, hasPermission, loading: authLoading } = useAuth();
 
   const [data, setData] = useState<GaLiveData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -509,11 +509,10 @@ export default function GaLiveReportPage() {
   const [expandedSup, setExpandedSup] = useState<number | null>(null);
   const [rsoView, setRsoView] = useState<"grid" | "table">("grid");
   const [bpView, setBpView] = useState<"grid" | "table">("grid");
-  // Seed from the app-wide active house (AuthContext) so this page agrees with
-  // every other page (rule-config, activations, ga-query) about which house is
-  // active. Without this the report starts on a different house than the one a
-  // rule was configured against, and the rule silently appears to be ignored.
-  const [selectedHouseId, setSelectedHouseId] = useState<number | null>(selectedHouse?.id ?? null);
+  // This page intentionally starts with no house selected: the report must be
+  // viewed for an explicitly chosen house, so the app-wide active house
+  // (AuthContext) is deliberately NOT used as a default here.
+  const [selectedHouseId, setSelectedHouseId] = useState<number | null>(null);
   const [allHouses, setAllHouses] = useState<Array<{ id: number; name: string; code: string }> | null>(null);
   const [targetData, setTargetData] = useState<{
     total_target: number;
@@ -560,18 +559,9 @@ export default function GaLiveReportPage() {
     }
   }, [assignedHouses, allHouses]);
 
-  // Keep the page on the app-wide active house whenever it changes (login
-  // resolves it asynchronously, and other pages may switch it).
-  useEffect(() => {
-    if (selectedHouse?.id) {
-      setSelectedHouseId((prev) => (prev === selectedHouse.id ? prev : selectedHouse.id));
-    }
-  }, [selectedHouse?.id]);
-
-  const effectiveHouseId = useMemo(
-    () => selectedHouseId ?? (houses.length === 1 ? houses[0].id : null),
-    [selectedHouseId, houses]
-  );
+  // No implicit fallback to a single house: the report stays on the
+  // "select a house" empty state until the user explicitly picks one.
+  const effectiveHouseId = selectedHouseId;
 
   const fetchData = useCallback(async () => {
     if (!effectiveHouseId) {
