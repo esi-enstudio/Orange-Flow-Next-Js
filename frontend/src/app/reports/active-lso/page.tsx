@@ -1180,7 +1180,7 @@ export default function ActiveLsoReportPage() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">{t("active_lso_report.messages.no_data")}</p>
               </div>
             ) : (
-              <div className="overflow-auto max-h-[70vh] border-t border-gray-100 dark:border-slate-800">
+              <div className="overflow-x-auto border-t border-gray-100 dark:border-slate-800">
                 <table className="w-full text-xs text-gray-700 dark:text-gray-300 border-separate border-spacing-0 whitespace-nowrap">
                   <thead>
                     <tr>
