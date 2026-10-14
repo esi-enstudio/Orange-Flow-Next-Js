@@ -1,15 +1,15 @@
 """Server-side GA Live Report image builder for WhatsApp chat delivery.
 
-Renders the GA Live Report as a PNG image that mirrors the design in
-``GA_Live_Report_September_2026.html``:
+Renders the GA Live Report as a PNG image:
 
 - Gradient blue header with house meta + big "Total Activations" box
-- DD SUMMARY + TEAM SUMMARY cards
-- SUPERVISOR PERFORMANCE table
-- Per-supervisor panels with RSO & BP mini-tables
+- DD SUMMARY: a plain title over a single-row metric table
+- SUPERVISOR PERFORMANCE: one basic table for all supervisors
+- RSO PERFORMANCE: one basic table for every RSO
+- BP PERFORMANCE: one basic table for every BP
 
-The supervisor grid is dynamic: a house with a single supervisor renders the
-supervisor-wise section in one column, multiple supervisors render two columns.
+The layout is a single full-width column (portrait strip) with small margins, so
+the image reads as one tall page on a phone and fills an A4 page when printed.
 """
 import io
 import math
@@ -29,64 +29,35 @@ from app.utils.timezone import now_naive
 FONT_REG = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
-# ── Design palette (mirrors GA_Live_Report_September_2026.html) ──
-PAGE_BG = "#EEF3F8"
+# ── Design palette (basic, print-friendly) ──
 REPORT_BG = "#FFFFFF"
 INK = "#12345B"
-MUTED = "#6B7F96"
 
-HEADER_G1 = "#073B73"
-HEADER_G2 = "#075F9F"
 TOTAL_BG = "#EFFFF5"
 TOTAL_INK = "#08773D"
-
-DD_BORDER = "#1688DF"
-DD_G1 = "#0870C9"
-DD_G2 = "#12A5DC"
-TEAM_BORDER = "#008FA3"          # matches TeamSummary.html .summary-card border
-TEAM_G1 = "#00838F"              # header gradient start (#00838f)
-TEAM_G2 = "#00ACC1"              # header gradient end (#00acc1)
-SECTION_BORDER = "#176CC0"
-SECTION_G1 = "#095DA4"
-SECTION_G2 = "#248BD0"
 
 TH_BG = "#EDF6FD"
 TH_INK = "#123B68"
 TD_BORDER = "#CBD9E6"
 TOTAL_ROW_BG = "#E7F4FC"
 LIVE_INK = "#0AA65A"
-BLUE_INK = "#0956A0"
-GREEN_INK = "#07833F"
-RED_INK = "#DF1E27"
-PURPLE_INK = "#5C2BBD"
-SEP_INK = "#D6E2ED"
-BP_TITLE_INK = "#176C9F"
-BADGE_INK = "#164B78"
-FADE_WHITE = "#DFEFFF"
-
-SUP_HEAD_COLORS = ["#0879C9", "#139B69", "#F18B14", "#E73A4C"]
-SUP_BORDER_COLORS = ["#0D79CB", "#16A76D", "#F08A16", "#E73B50"]
-
-# TEAM SUMMARY card palette (mirrors TeamSummary.html)
-TEAM_TH_BG = "#F0FAFF"           # thead background
-TEAM_TH_INK = "#0D47A1"          # header cell text + first-col alignment
-TEAM_TD_BORDER = "#B3E5FC"       # column/row borders
-TEAM_TD_INK = "#0F3D73"          # body cell text
-TEAM_LIVE_DOT = "#4CAF50"        # Live GA status dot
 
 # ── Layout ──
-IMG_W = 1152
-PAGE_PAD = 12            # page background margin around the white report card
-CARD_PAD = 14            # inner padding of the report card
-CARD_R = 14              # report card corner radius
+# Narrow portrait canvas: the whole report is one full-width column so it reads
+# as a tall strip on a phone and fills an A4 page width when printed.
+IMG_W = 800
+PAGE_PAD = 0             # no page margin — the report is full-bleed
+CARD_PAD = 10            # inner padding of the report content
 INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
-GAP = 12
+GAP = 8                  # minimum gap between sections
 HDR_H = 118
-TBAR_H = 34
-PANEL_HEAD_H = 40
-TITLE_ICON_X = 13
-TITLE_ICON_W = 18
-TITLE_ICON_GAP = 7
+SECTION_TITLE_H = 20     # plain section title (no underline rule)
+TBL_F_HEAD = 11          # table header font size
+TBL_F_CELL = 11          # table body font size
+
+# Minimum canvas height keeps the image portrait (taller than wide) even for a
+# house with no employees.
+PORTRAIT_MIN_RATIO = 1.0
 
 _FONTS: dict = {}
 
@@ -102,10 +73,11 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
 # All layout math stays in the IMG_W-wide design space; ScaledDraw renders every
 # coordinate and font natively at RENDER_SCALE so text stays crisp when zoomed,
 # instead of LANCZOS-upsampling a low-res canvas.
-# RENDER_SCALE = 12 produced a 13824px-wide send image: a ~7s build, a 2.5MB PNG
-# and a multi-minute PDF conversion. 4 (4608px) matches the historical 4320px
-# "already high-resolution" watermark — well above any phone/WhatsApp display —
-# while cutting build to ~1.5s and making document/PDF sends near-instant.
+# RENDER_SCALE = 12 produced a very large send image (IMG_W * 12): a ~7s build, a
+# 2.5MB PNG and a multi-minute PDF conversion. 4 keeps the canvas comfortably
+# above any phone/WhatsApp display while cutting build to ~1.5s and making
+# document/PDF sends near-instant. Now that the canvas is portrait-friendly
+# (IMG_W = 800) a scale-4 send is 3200px wide.
 RENDER_SCALE = 4
 
 # The active render scale. Defaults to RENDER_SCALE; ``_temp_scale`` swaps it
@@ -187,12 +159,6 @@ class ScaledDraw:
                        width=int(width * self.s), **kw)
 
 
-# ── Colour / gradient helpers ──
-def _hex(c: str):
-    c = c.lstrip("#")
-    return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
-
-
 PCT_MAX_TEXT = "100.00%"  # widest value _pct() can emit
 
 
@@ -212,37 +178,6 @@ def _pct(part, whole) -> str:
         return "0.00%"
 
 
-def _blend(c1: str, c2: str, f: float) -> str:
-    a = _hex(c1)
-    b = _hex(c2)
-    return "#{:02X}{:02X}{:02X}".format(
-        *(round(x + (y - x) * f) for x, y in zip(a, b))
-    )
-
-
-def _grad(img: Image.Image, box, c1: str, c2: str, r: int = 0, top_only: bool = False):
-    """Paint a horizontal gradient c1→c2 into ``box`` with optional rounded
-    corners; when ``top_only`` the radius only applies to the two top corners.
-    Rendered natively at RENDER_SCALE (gradients are smooth, so only the size
-    of the strip and the paste coordinates are scaled)."""
-    x0, y0, x1, y1 = box
-    s = _active_scale()
-    w = int((x1 - x0) * s)
-    h = int((y1 - y0) * s)
-    grad = Image.new("RGB", (w, h))
-    d = ImageDraw.Draw(grad)
-    for xx in range(w):
-        f = xx / (w - 1) if w > 1 else 0
-        d.line([(xx, 0), (xx, h)], fill=_blend(c1, c2, f))
-    mask = Image.new("L", (w, h), 0)
-    dm = ImageDraw.Draw(mask)
-    r_s = int(r * s)
-    dm.rounded_rectangle([0, 0, w, h], radius=r_s, fill=255)
-    if top_only and r_s:
-        dm.rectangle([0, r_s, w, h], fill=255)
-    img.paste(grad, (int(x0 * s), int(y0 * s)), mask)
-
-
 def _ellipsize(draw, text, font, max_w: float) -> str:
     s = str(text)
     if draw.textlength(s, font=font) <= max_w:
@@ -250,29 +185,6 @@ def _ellipsize(draw, text, font, max_w: float) -> str:
     while s and draw.textlength(s + "…", font=font) > max_w:
         s = s[:-1]
     return s + "…" if s else s
-
-
-# ── Small drawn icons (stand in for the HTML emoji) ──
-def _icon(draw, x, cy, kind: str, color: str):
-    if kind == "target":
-        r = 8
-        cx = x + r
-        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=color, width=2)
-        draw.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], outline=color, width=2)
-        draw.ellipse([cx - 1.5, cy - 1.5, cx + 1.5, cy + 1.5], fill=color)
-    elif kind == "team":
-        for dpx in (0, 7):
-            hx = x + dpx + 3
-            draw.ellipse([hx - 3.2, cy - 6, hx + 3.2, cy], fill=color)
-            draw.arc([hx - 6, cy - 1, hx + 6, cy + 7], start=180, end=360, fill=color, width=2)
-    elif kind == "person":
-        draw.ellipse([x + 2 - 4, cy - 8, x + 2 + 4, cy], fill=color)
-        draw.arc([x + 2 - 7, cy - 1, x + 2 + 7, cy + 8], start=180, end=360, fill=color, width=2)
-    elif kind == "chart":
-        draw.line([(x, cy + 3), (x + 14, cy + 3)], fill=color, width=2)
-        draw.rectangle([x + 1, cy - 3, x + 3, cy + 3], fill=color)
-        draw.rectangle([x + 5, cy - 8, x + 7, cy + 3], fill=color)
-        draw.rectangle([x + 9, cy - 5, x + 11, cy + 3], fill=color)
 
 
 # ── Column / table helpers ──
@@ -301,8 +213,8 @@ def _fit_widths(weights: list[int], avail: int) -> list[int]:
 
 
 def _table_heights(f_head, f_cell):
-    head_h = f_head.size + 12
-    row_h = f_cell.size + 9
+    head_h = f_head.size + 10
+    row_h = f_cell.size + 7
     return head_h, row_h
 
 
@@ -530,476 +442,238 @@ def _team_by_supervisor(sup: dict, data: dict) -> tuple[list, list]:
     return team_rso, team_bp
 
 
-def _team_summary_rows(data: dict, summary: dict) -> list[list]:
-    s = data.get("summary", {})
-    monthly_target = summary.get("monthly_target", 0)
-    days_remaining = summary.get("days_remaining", 0)
-    supervisor_target = summary.get("supervisor_target", monthly_target)
-    rso_target = summary.get("rso_target", monthly_target)
-    sup_target_map = summary.get("supervisor_target_map", {}) or {}
-
-    # Supervisor team: achievement = sum of each supervisor's team achievement
-    # (RSO + BP member actual achievements).
-    sup_ach = 0
-    for sup in data.get("supervisors", []):
-        team_rso, team_bp = _team_by_supervisor(sup, data)
-        _, a, _, _, _ = _sup_metrics(
-            sup, team_rso, team_bp, days_remaining,
-            target_override=sup_target_map.get(sup.get("employee_id")),
-        )
-        sup_ach += a
-    sup_remain = max(0, supervisor_target - sup_ach)
-    sup_drr = math.ceil(sup_remain / max(days_remaining, 1)) if sup_remain > 0 else 0
-
-    # RSO team: achievement = sum of per-RSO actual achievement.
-    rso_ach = sum(_ach(r) for r in data.get("rsos", []))
-    rso_remain = max(0, rso_target - rso_ach)
-    rso_drr = math.ceil(rso_remain / max(days_remaining, 1)) if rso_remain > 0 else 0
-
-    bp_ach = sum(_ach(b) for b in data.get("bps", []))
-    bp_target = summary.get("bp_target", 0)
-    bp_remain = max(0, bp_target - bp_ach)
-    sup_live = sum(sup.get("total_activation", 0) or 0 for sup in data.get("supervisors", []))
-    rso_live = sum(r.get("total_activation", 0) or 0 for r in data.get("rsos", []))
-    bp_live = sum(b.get("own_activation", 0) or 0 for b in data.get("bps", []))
-    return [
-        [
-            "Supervisor", _n(s.get("total_supervisors", 0)), _fmt(supervisor_target),
-            _fmt(sup_ach), _pct(sup_ach, supervisor_target), _fmt(sup_remain),
-            _fmt(sup_drr), _n(sup_live),
-        ],
-        [
-            "RSO", _n(s.get("total_rso", 0)), _fmt(rso_target),
-            _fmt(rso_ach), _pct(rso_ach, rso_target), _fmt(rso_remain),
-            _fmt(rso_drr), _n(rso_live),
-        ],
-        [
-            "BP", _n(s.get("total_bp", 0)),
-            _fmt(bp_target) if bp_target else "-",
-            _fmt(bp_ach), _pct(bp_ach, bp_target) if bp_target else "-",
-            _fmt(bp_remain) if bp_remain else "-",
-            "-",
-            _n(bp_live),
-        ],
-    ]
-
-
 # ── Sections ──
-def _render_header(img, draw, x, y, house, data, today: date) -> int:
+SUPERVISOR_LABELS = ["#", "Name", "Pool", "RSO", "BP", "Target", "Ach", "%", "Remain", "DRR", "Live GA"]
+RSO_LABELS = ["#", "RSO Name", "ITop No", "Assisted", "TGT", "Ach", "%", "Remain", "DRR", "Live GA", "Own", "Market"]
+BP_LABELS = ["#", "BP Name", "Pool No", "Assisted", "TGT", "Ach", "%", "Remain", "DRR", "Live GA"]
+
+
+def _render_header(draw, x, y, house, data, today: date) -> int:
     x1 = x + INNER
-    _grad(img, [x, y, x1, y + HDR_H], HEADER_G1, HEADER_G2, r=10)
-    pad_x = 20
-    month_year = today.strftime("%B %Y")
+    pad_x = 16
     date_str = today.strftime("%d %B %Y")
     time_str = now_naive().strftime("%I:%M %p").lstrip("0").replace(" 0", " ")
     total_activations = data.get("summary", {}).get("total_activations", 0)
 
-    # brand (left) — text column, vertically centred (mirrors HTML .brand)
-    tx = x + pad_x
-
-    f_title = _font(34, True)
-    f_span = _font(23, True)
-    f_meta = _font(17, True)
-    title = "GA Live Report"
-    base = y + 50  # baseline shared by title + "(month year)" span (h1 in HTML)
-    draw.text((tx, base), title, font=f_title, fill="#FFFFFF", anchor="ls")
-    draw.text(
-        (tx + draw.textlength(title, font=f_title) + 9, base),
-        f"({month_year})", font=f_span, fill="#FFFFFF", anchor="ls",
-    )
-    draw.text((tx, y + 73), f"House: {house.name or ''} ({house.code or ''})",
-              font=f_meta, fill="#FFFFFF", anchor="lm")
-    draw.text((tx, y + 93), f"Generated: {date_str}, {time_str}",
-              font=f_meta, fill="#FFFFFF", anchor="lm")
-
-    # total box (right)
+    # total box (right) — measured first so the brand text can be kept clear of it
     lbl = "Total Activations"
     val = _fmt(total_activations)
-    fl = _font(16, True)
-    fv = _font(48, True)
-    box_w = max(draw.textlength(lbl, font=fl), draw.textlength(val, font=fv)) + 56
-    box_w = max(box_w, 260)
-    box_h = 88
+    fl = _font(15, True)
+    fv = _font(40, True)
+    box_w = max(draw.textlength(lbl, font=fl), draw.textlength(val, font=fv)) + 40
+    box_w = max(box_w, 200)
+    box_h = 80
     bx = x1 - pad_x - box_w
     by = y + (HDR_H - box_h) // 2
-    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=9, fill=TOTAL_BG)
-    draw.text((bx + box_w / 2, by + 18), lbl, font=fl, fill=TOTAL_INK, anchor="mm")
-    draw.text((bx + box_w / 2, by + 62), val, font=fv, fill=TOTAL_INK, anchor="mm")
+
+    # brand (left) — text column, vertically centred (mirrors HTML .brand)
+    tx = x + pad_x
+    brand_max = bx - tx - 10  # keep clear of the total box
+
+    f_title = _font(28, True)
+    f_meta = _font(14, True)
+    title = "GA Live Report"
+    base = y + 50  # baseline of the report title (h1 in HTML)
+    draw.text((tx, base), title, font=f_title, fill=INK, anchor="ls")
+    draw.text((tx, y + 74), _ellipsize(
+        draw, f"House: {house.name or ''} ({house.code or ''})", f_meta, brand_max),
+        font=f_meta, fill=INK, anchor="lm")
+    draw.text((tx, y + 94), f"Generated: {date_str}, {time_str}",
+              font=f_meta, fill=INK, anchor="lm")
+
+    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=9,
+                           fill=TOTAL_BG, outline=TOTAL_INK, width=2)
+    draw.text((bx + box_w / 2, by + 17), lbl, font=fl, fill=TOTAL_INK, anchor="mm")
+    draw.text((bx + box_w / 2, by + 52), val, font=fv, fill=TOTAL_INK, anchor="mm")
     return y + HDR_H
 
 
-def _card_frame(draw, x, y, w, h, border):
-    draw.rounded_rectangle([x, y, x + w - 1, y + h], radius=9, outline=border,
-                           width=2, fill=REPORT_BG)
+def _table_h(rows: int) -> int:
+    """Height of a table with ``rows`` body rows, including its header."""
+    hh, rh = _table_heights(_font(TBL_F_HEAD, True), _font(TBL_F_CELL, True))
+    return hh + rh * rows
 
 
-def _render_top_grid(img, draw, x, y, data, summary) -> int:
-    w = INNER
-    dd_w = int(w * 1 / 2.18)
-    team_w = w - dd_w - GAP
-    monthly_target = summary.get("monthly_target", 0)
+def _draw_section_title(draw, x, y, text) -> int:
+    """Draw a plain section title, returning the y of the table below it."""
+    draw.text((x, y + 10), text, font=_font(13, True), fill=INK, anchor="lm")
+    return y + SECTION_TITLE_H
+
+
+def _render_section(draw, x, y, w, title, labels, rows, live_cols, total_row,
+                    total_span=0) -> int:
+    """Basic section: a plain title above a full-width bordered table."""
+    y = _draw_section_title(draw, x, y, title)
+    f_head = _font(TBL_F_HEAD, True)
+    f_cell = _font(TBL_F_CELL, True)
+    weights = _content_weights(labels, rows, f_head, f_cell, live_cols,
+                               max_total=w, total_row=total_row, total_span=total_span)
+    _draw_table(draw, x, y, w, labels, rows, weights=weights, left_cols=[1],
+                live_cols=live_cols, total_row=total_row, total_span=total_span,
+                f_head=f_head, f_cell=f_cell)
+    return y + _table_h(len(rows) + (1 if total_row is not None else 0))
+
+
+def _render_dd_summary(draw, x, y, w, summary) -> int:
+    """Very basic DD summary: plain title + a single-row metric table."""
+    labels = ["Target", "Ach", "Remain", "%", "DRR (w/ Fri)"]
+    target = summary.get("monthly_target", 0)
     achievement = summary.get("achievement", 0)
-    remaining = summary.get("remaining", 0)
-    daily_required = summary.get("daily_required_with_friday", 0)
-
-    # ── DD SUMMARY card (height matches TEAM SUMMARY; grid rows stretch) ──
-    labels = ["Team", "Total", "Target", "Ach", "%", "Remain", "DRR", "Live GA"]
-    weights = [14, 8, 11, 10, 9, 11, 9, 12]
-    rows = _team_summary_rows(data, summary)
-    f_head = _font(11, True)
-    f_cell = _font(11, True)
-    head_h, row_h = _table_heights(f_head, f_cell)
-    table_h = head_h + row_h * len(rows)
-    top_h = TBAR_H + 7 + table_h + 7
-
-    title_cy = y + TBAR_H / 2 + 1
-
-    dd_values = [
-        ("Target", _fmt(monthly_target), BLUE_INK),
-        ("Ach", _fmt(achievement), GREEN_INK),
-        ("Remain", _fmt(remaining), RED_INK),
-        ("%", _pct(achievement, monthly_target), INK),
-        ("DRR (w/ Fri)", _fmt(daily_required), PURPLE_INK),
+    values = [
+        _fmt(target),
+        _fmt(achievement),
+        _fmt(summary.get("remaining", 0)),
+        _pct(achievement, target),
+        _fmt(summary.get("daily_required_with_friday", 0)),
     ]
-    label_h = 18
-    val_h = 32
-    content_h = label_h + 8 + val_h
-    inner = y + TBAR_H + (top_h - TBAR_H - content_h) // 2
-    label_cy = inner + 9
-    val_cy = inner + 9 + 8 + 16
-    sep_top = inner - 6
-    sep_bot = inner + content_h + 6
-    _card_frame(draw, x, y, dd_w, top_h, DD_BORDER)
-    _grad(img, [x + 1, y + 1, x + dd_w - 1, y + TBAR_H + 1], DD_G1, DD_G2, r=8, top_only=True)
-    _icon(draw, x + TITLE_ICON_X, title_cy, "target", "#FFFFFF")
-    draw.text((x + TITLE_ICON_X + TITLE_ICON_W + TITLE_ICON_GAP, title_cy),
-              "DD SUMMARY", font=_font(16, True), fill="#FFFFFF", anchor="lm")
-    vcw = dd_w / len(dd_values)
-    for c_idx, (lab, val, color) in enumerate(dd_values):
-        vx = x + vcw * c_idx
-        if c_idx > 0:
-            draw.line([(vx, sep_top), (vx, sep_bot)], fill=SEP_INK)
-        draw.text((vx + vcw / 2, label_cy), lab, font=_font(14, True), fill=MUTED, anchor="mm")
-        draw.text((vx + vcw / 2, val_cy), val, font=_font(26, True), fill=color, anchor="mm")
-
-    # ── TEAM SUMMARY card ──
-    cx = x + dd_w + GAP
-    _card_frame(draw, cx, y, team_w, top_h, TEAM_BORDER)
-    _grad(img, [cx + 1, y + 1, cx + team_w - 1, y + TBAR_H + 1], TEAM_G1, TEAM_G2, r=8, top_only=True)
-    _icon(draw, cx + TITLE_ICON_X, title_cy, "team", "#FFFFFF")
-    draw.text((cx + TITLE_ICON_X + TITLE_ICON_W + TITLE_ICON_GAP, title_cy),
-              "TEAM SUMMARY", font=_font(16, True), fill="#FFFFFF", anchor="lm")
-    _draw_table(
-        draw, cx + 8, y + TBAR_H + 7, team_w - 16, labels, rows,
-        weights=weights, left_cols=[0], live_cols=[7], f_head=f_head, f_cell=f_cell,
-        borderless=False, border_color=TEAM_TD_BORDER,
-        th_bg=TEAM_TH_BG, th_ink=TEAM_TH_INK, cell_ink=TEAM_TD_INK,
-        live_dot=TEAM_LIVE_DOT,
-    )
-
-    return y + top_h
+    y = _draw_section_title(draw, x, y, "DD SUMMARY")
+    _draw_table(draw, x, y, w, labels, [values], weights=[1] * len(labels),
+                f_head=_font(TBL_F_HEAD, True), f_cell=_font(TBL_F_CELL, True))
+    return y + _table_h(1)
 
 
-def _render_supervisor_section(img, draw, x, y, data, summary) -> int:
-    w = INNER
-    supervisors = data.get("supervisors", [])
+def _supervisor_rows(data, summary):
+    """Rows + total for the SUPERVISOR PERFORMANCE table (all supervisors)."""
     days_remaining = summary.get("days_remaining", 0)
     sup_target_map = summary.get("supervisor_target_map", {}) or {}
-
     rows = []
     sums = {"rso": 0, "bp": 0, "target": 0, "ach": 0, "remain": 0, "drr": 0, "live": 0}
-    for idx, sup in enumerate(supervisors):
+    for idx, sup in enumerate(data.get("supervisors", [])):
         team_rso, team_bp = _team_by_supervisor(sup, data)
-        target, ach, pct, remain, drr = _sup_metrics(
+        target, ach, _p, remain, drr = _sup_metrics(
             sup, team_rso, team_bp, days_remaining,
             target_override=sup_target_map.get(sup.get("employee_id")),
         )
         live = sup.get("total_activation", 0) or 0
-        rso_c = len(team_rso)
-        bp_c = len(team_bp)
-        sums["rso"] += rso_c
-        sums["bp"] += bp_c
+        rows.append([
+            _n(idx + 1), sup.get("name", ""), sup.get("pool_number", "") or "-",
+            _n(len(team_rso)), _n(len(team_bp)),
+            _fmt(target), _fmt(ach), _pct(ach, target), _fmt(remain), _fmt(drr),
+            _n(live),
+        ])
+        sums["rso"] += len(team_rso)
+        sums["bp"] += len(team_bp)
         sums["target"] += target
         sums["ach"] += ach
         sums["remain"] += remain
         sums["drr"] += drr
         sums["live"] += live
-        rows.append([
-            _n(idx + 1), sup.get("name", ""), sup.get("pool_number", "") or "-",
-            _n(rso_c), _n(bp_c),
-            _fmt(target), _fmt(ach), _pct(ach, target), _fmt(remain), _fmt(drr),
-            _n(live),
-        ])
     total_row = [
-        "", "Total", "-",
-        _n(sums["rso"]), _n(sums["bp"]),
+        "", "Total", "-", _n(sums["rso"]), _n(sums["bp"]),
         _fmt(sums["target"]), _fmt(sums["ach"]),
         _pct(sums["ach"], sums["target"]) if sums["target"] else "0.00%",
-        _fmt(sums["remain"]), _fmt(sums["drr"]),
-        _n(sums["live"]),
+        _fmt(sums["remain"]), _fmt(sums["drr"]), _n(sums["live"]),
     ]
-
-    labels = ["#", "Name", "Pool", "RSO", "BP", "Target", "Ach", "%", "Remain", "DRR", "Live GA"]
-    weights = [4, 22, 18, 6, 6, 13, 13, 10, 13, 11, 12]
-    f_head = _font(11, True)
-    f_cell = _font(11, True)
-    head_h, row_h = _table_heights(f_head, f_cell)
-    table_h = head_h + row_h * (len(rows) + 1)
-    body_h = TBAR_H + 6 + table_h + 6
-    _card_frame(draw, x, y, w, body_h, SECTION_BORDER)
-    _grad(img, [x + 1, y + 1, x + w - 1, y + TBAR_H + 1], SECTION_G1, SECTION_G2, r=8, top_only=True)
-    _icon(draw, x + TITLE_ICON_X, y + TBAR_H / 2 + 1, "person", "#FFFFFF")
-    draw.text((x + TITLE_ICON_X + TITLE_ICON_W + TITLE_ICON_GAP, y + TBAR_H / 2 + 1),
-              "SUPERVISOR PERFORMANCE", font=_font(16, True), fill="#FFFFFF", anchor="lm")
-    _draw_table(
-        draw, x + 8, y + TBAR_H + 6, w - 16, labels, rows,
-        weights=weights, left_cols=[1], live_cols=[10], total_row=total_row,
-        f_head=f_head, f_cell=f_cell,
-    )
-    return y + body_h
+    return rows, total_row
 
 
-def _panel_height(team_rso: list, team_bp: list) -> int:
-    f_head = _font(9, True)
-    f_cell = _font(9, True)
-    hh, rh = _table_heights(f_head, f_cell)
-    rso_table_h = hh + rh * (len(team_rso) + 1) if team_rso else 16
-    bp_table_h = hh + rh * (len(team_bp) + 1) if team_bp else 0
-    bp_block = 9 + (18 if team_bp else 0) + bp_table_h if team_bp else 0
-    return 6 + PANEL_HEAD_H + 7 + rso_table_h + bp_block + 6
-
-
-def _render_panel(img, draw, x, y, w, sup, team_rso, team_bp, idx, days_remaining,
-                  target_override: int = None) -> int:
-    h = _panel_height(team_rso, team_bp)
-    border = SUP_BORDER_COLORS[idx % 4]
-    head_color = SUP_HEAD_COLORS[idx % 4]
-    _card_frame(draw, x, y, w, h, border)
-
-    # head bar
-    _grad(img, [x + 1, y + 1, x + w - 1, y + PANEL_HEAD_H + 1], head_color, head_color,
-          r=8, top_only=True)
-    _icon(draw, x + TITLE_ICON_X + TITLE_ICON_W / 2 - 2, y + PANEL_HEAD_H / 2,
-          "person", "#FFFFFF")
-
-    sup_t, sup_a, sup_p, _, _ = _sup_metrics(sup, team_rso, team_bp, days_remaining,
-                                             target_override=target_override)
-    badge_text = f"Target {_fmt(sup_t)} | Ach {_fmt(sup_a)} | {_pct(sup_a, sup_t)}"
-    badge_font = _font(10, True)
-    badge_w = draw.textlength(badge_text, font=badge_font) + 18
-    badge_h = 20
-    badge_x = x + w - 10 - badge_w
-    name_x = x + TITLE_ICON_X + TITLE_ICON_W + TITLE_ICON_GAP
-    name_avail = badge_x - name_x - 6
-    name = _ellipsize(draw, f"Supervisor {idx + 1}: {sup.get('name', '')}",
-                      _font(13, True), name_avail)
-    draw.text((name_x, y + PANEL_HEAD_H / 2), name, font=_font(13, True),
-              fill="#FFFFFF", anchor="lm")
-    draw.rounded_rectangle([badge_x, y + (PANEL_HEAD_H - badge_h) / 2,
-                            badge_x + badge_w, y + (PANEL_HEAD_H + badge_h) / 2],
-                           radius=12, fill="#FFFFFF")
-    draw.text((badge_x + badge_w / 2, y + PANEL_HEAD_H / 2), badge_text,
-              font=badge_font, fill=BADGE_INK, anchor="mm")
-
-    pad = 7
-    yy = y + PANEL_HEAD_H + pad
-    inner_w = w - pad * 2
-    f_head = _font(9, True)
-    f_cell = _font(9, True)
-    hh, rh = _table_heights(f_head, f_cell)
-
-    # RSO mini-table
-    rso_labels = ["#", "RSO Name", "ITop No", "Own Code",
-                  "TGT", "Ach", "%", "Remain", "DRR", "Own", "Market"]
-    rso_live_cols = [9, 10]
-    rso_rows = []
-    su = {"trg": 0, "ach": 0, "rem": 0, "own": 0, "mkt": 0}
-    for i, r in enumerate(team_rso):
-        monthly_target = r.get("target", 0) or 0
-        remaining = r.get("remaining", 0) or 0
+def _rso_rows(rsos, days_remaining):
+    """Rows + total for the RSO table (every RSO in a single table)."""
+    rows = []
+    tot = {"trg": 0, "ach": 0, "rem": 0, "own": 0, "mkt": 0}
+    ordered = sorted(rsos, key=lambda r: r.get("total_activation", 0) or 0, reverse=True)
+    for i, r in enumerate(ordered):
+        target = r.get("target", 0) or 0
         ach = _ach(r)
-        pct_val = _pct(ach, monthly_target) if monthly_target else "0.00%"
-        remain = remaining
+        remain = r.get("remaining", 0) or 0
         drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
         own = r.get("own_activation", 0) or 0
         mkt = r.get("market_activation", 0) or 0
-        su["trg"] += monthly_target
-        su["ach"] += ach
-        su["rem"] += remain
-        su["own"] += own
-        su["mkt"] += mkt
-        rso_rows.append([
+        rows.append([
             _n(i + 1), r.get("name", ""), r.get("itop_number", "") or "-",
             r.get("assisted_code", "") or "-",
-            _fmt(monthly_target), _fmt(ach), pct_val, _fmt(remain), _fmt(drr),
-            _n(own), _n(mkt),
+            _fmt(target), _fmt(ach), _pct(ach, target), _fmt(remain), _fmt(drr),
+            _n(own + mkt), _n(own), _n(mkt),
         ])
-    if team_rso:
-        su_pct = _pct(su["ach"], su["trg"]) if su["trg"] else "0.00%"
-        su_drr = math.ceil(su["rem"] / max(days_remaining, 1)) if su["rem"] > 0 else 0
-        rso_total = [
-            f"Total ({len(team_rso)} RSO)", "", "", "",
-            _fmt(su["trg"]), _fmt(su["ach"]), su_pct, _fmt(su["rem"]), _fmt(su_drr),
-            _n(su["own"]), _n(su["mkt"]),
-        ]
-        rso_weights = _content_weights(
-            rso_labels, rso_rows, f_head, f_cell, rso_live_cols,
-            max_total=inner_w, total_row=rso_total, total_span=4,
-        )
-        yy += _draw_table(draw, x + pad, yy, inner_w, rso_labels, rso_rows,
-                          weights=rso_weights, left_cols=[1], live_cols=rso_live_cols,
-                          total_row=rso_total, total_span=4,
-                          f_head=f_head, f_cell=f_cell)
-    else:
-        draw.text((x + pad + 4, yy), "No RSO assigned", font=_font(11), fill=MUTED, anchor="lm")
-        yy += 16
-
-    yy += 9
-
-    # BP block (hidden entirely when the supervisor has no BPs)
-    if team_bp:
-        bp_labels = ["#", "BP Name", "Pool No", "Own Code",
-                     "TGT", "Ach", "%", "Remain", "DRR", "Live GA"]
-        bp_live_cols = [9]
-        draw.line([(x + pad, yy), (x + w - pad, yy)], fill=SEP_INK)
-        yy += 6
-        draw.text((x + pad + 2, yy), f"BP ({len(team_bp)})", font=_font(14, True),
-                  fill=BP_TITLE_INK, anchor="lm")
-        yy += 18
-        bp_rows = []
-        su2 = {"trg": 0, "ach": 0, "rem": 0, "own": 0}
-        for i, b in enumerate(team_bp):
-            monthly_target = b.get("target", 0) or 0
-            remaining = b.get("remaining", 0) or 0
-            ach = _ach(b)
-            pct_val = _pct(ach, monthly_target) if monthly_target else "0.00%"
-            remain = max(0, remaining)
-            drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
-            own = b.get("own_activation", 0) or 0
-            su2["trg"] += monthly_target
-            su2["ach"] += ach
-            su2["rem"] += remain
-            su2["own"] += own
-            bp_rows.append([
-                _n(i + 1), b.get("name", ""), b.get("pool_number", "") or "-",
-                b.get("assisted_code", "") or "-",
-                _fmt(monthly_target), _fmt(ach), pct_val, _fmt(remain), _fmt(drr),
-                _n(own),
-            ])
-        su2_pct = _pct(su2["ach"], su2["trg"]) if su2["trg"] else "0.00%"
-        su2_drr = math.ceil(su2["rem"] / max(days_remaining, 1)) if su2["rem"] > 0 else 0
-        bp_total = [
-            f"Total ({len(team_bp)} BP)", "", "", "",
-            _fmt(su2["trg"]), _fmt(su2["ach"]), su2_pct, _fmt(su2["rem"]), _fmt(su2_drr),
-            _n(su2["own"]),
-        ]
-        bp_weights = _content_weights(
-            bp_labels, bp_rows, f_head, f_cell, bp_live_cols,
-            max_total=inner_w, total_row=bp_total, total_span=4,
-        )
-        yy += _draw_table(draw, x + pad, yy, inner_w, bp_labels, bp_rows,
-                          weights=bp_weights, left_cols=[1], live_cols=bp_live_cols,
-                          total_row=bp_total, total_span=4,
-                          f_head=f_head, f_cell=f_cell)
-    return yy
+        tot["trg"] += target
+        tot["ach"] += ach
+        tot["rem"] += remain
+        tot["own"] += own
+        tot["mkt"] += mkt
+    total_row = [
+        f"Total ({len(rows)} RSO)", "", "", "",
+        _fmt(tot["trg"]), _fmt(tot["ach"]), _pct(tot["ach"], tot["trg"]),
+        _fmt(tot["rem"]),
+        _fmt(math.ceil(tot["rem"] / max(days_remaining, 1)) if tot["rem"] > 0 else 0),
+        _n(tot["own"] + tot["mkt"]), _n(tot["own"]), _n(tot["mkt"]),
+    ]
+    return rows, total_row
 
 
-def _render_footer(img, draw, x, y, today: date) -> int:
-    w = INNER
-    h = 44
-    date_str = today.strftime("%d %B %Y")
-    time_str = now_naive().strftime("%I:%M %p").lstrip("0").replace(" 0", " ")
-    _grad(img, [x, y, x + w, y + h], HEADER_G1, HEADER_G2, r=10)
-    f = _font(12, True)
-    _icon(draw, x + 16, y + h / 2, "chart", "#FFFFFF")
-    draw.text((x + 34, y + h / 2), "Together We Grow  |  Success Tomorrow",
-              font=f, fill="#FFFFFF", anchor="lm")
-    right = f"Generated by OrangeFlow  |  {date_str}, {time_str}"
-    draw.text((x + w - 16, y + h / 2), right, font=f, fill="#FFFFFF", anchor="rm")
-    return y + h
+def _bp_rows(bps, days_remaining):
+    """Rows + total for the BP table (every BP in a single table)."""
+    rows = []
+    tot = {"trg": 0, "ach": 0, "rem": 0, "live": 0}
+    ordered = sorted(bps, key=lambda b: b.get("own_activation", 0) or 0, reverse=True)
+    for i, b in enumerate(ordered):
+        target = b.get("target", 0) or 0
+        ach = _ach(b)
+        remain = max(0, b.get("remaining", 0) or 0)
+        drr = math.ceil(remain / max(days_remaining, 1)) if remain > 0 else 0
+        live = b.get("own_activation", 0) or 0
+        rows.append([
+            _n(i + 1), b.get("name", ""), b.get("pool_number", "") or "-",
+            b.get("assisted_code", "") or "-",
+            _fmt(target), _fmt(ach), _pct(ach, target), _fmt(remain), _fmt(drr),
+            _n(live),
+        ])
+        tot["trg"] += target
+        tot["ach"] += ach
+        tot["rem"] += remain
+        tot["live"] += live
+    total_row = [
+        f"Total ({len(rows)} BP)", "", "", "",
+        _fmt(tot["trg"]), _fmt(tot["ach"]), _pct(tot["ach"], tot["trg"]),
+        _fmt(tot["rem"]),
+        _fmt(math.ceil(tot["rem"] / max(days_remaining, 1)) if tot["rem"] > 0 else 0),
+        _n(tot["live"]),
+    ]
+    return rows, total_row
 
 
 def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
-    supervisors = data.get("supervisors", [])
     days_remaining = summary.get("days_remaining", 0)
-    # Portrait layout when more than two supervisor panels exist: a single column
-    # keeps every RSO/BP section readable and the image tall (portrait) instead
-    # of a wide landscape strip. Two or fewer supervisors keep the 2-col grid.
-    portrait = len(supervisors) > 2
-    grid_cols = 1 if portrait or len(supervisors) == 1 else 2
-    panels = [(sup, _team_by_supervisor(sup, data)) for sup in supervisors]
-    grid_rows = [panels[i:i + grid_cols] for i in range(0, len(panels), grid_cols)]
-    grid_h = 0
-    if grid_rows:
-        for row in grid_rows:
-            grid_h += max(_panel_height(tr, tb) for _, (tr, tb) in row) + GAP
-        grid_h -= GAP
+    sup_rows, sup_total = _supervisor_rows(data, summary)
+    rso_rows, rso_total = _rso_rows(data.get("rsos", []), days_remaining)
+    bp_rows, bp_total = _bp_rows(data.get("bps", []), days_remaining)
 
-    f_head = _font(11, True)
-    head_h, row_h = _table_heights(f_head, _font(11))
-    sup_tbl_h = head_h + row_h * (len(supervisors) + 1)
-
-    team_rows = _team_summary_rows(data, summary)
-    hh_t, rh_t = _table_heights(_font(11, True), _font(11))
-    top_grid_h = TBAR_H + 7 + hh_t + rh_t * len(team_rows) + 7
+    # Height accounting mirrors the render pass below exactly.
+    body_h = SECTION_TITLE_H + _table_h(1)                       # DD SUMMARY
+    if sup_rows:
+        body_h += GAP + SECTION_TITLE_H + _table_h(len(sup_rows) + 1)
+    if rso_rows:
+        body_h += GAP + SECTION_TITLE_H + _table_h(len(rso_rows) + 1)
+    if bp_rows:
+        body_h += GAP + SECTION_TITLE_H + _table_h(len(bp_rows) + 1)
 
     cx = PAGE_PAD + CARD_PAD
-    total_h = (
-        PAGE_PAD + CARD_PAD
-        + HDR_H + GAP
-        + top_grid_h + GAP
-        + ((TBAR_H + 6 + sup_tbl_h + 6) if supervisors else 0)
-        + (GAP if supervisors else 0)
-        + grid_h
-        + (GAP if grid_h else 0)
-        + 44
-        + PAGE_PAD + CARD_PAD
-    )
+    total_h = PAGE_PAD + CARD_PAD + HDR_H + GAP + body_h + PAGE_PAD + CARD_PAD
+    # Guard against a wide strip for tiny datasets — the report must stay portrait.
+    canvas_h = max(total_h, int(IMG_W * PORTRAIT_MIN_RATIO))
     s = _active_scale()
-    img = Image.new("RGB", (IMG_W * s, max(total_h, 60) * s), PAGE_BG)
+    img = Image.new("RGB", (IMG_W * s, max(canvas_h, 60) * s), REPORT_BG)
     draw = ScaledDraw(ImageDraw.Draw(img))
 
-    # white report card
-    draw.rounded_rectangle(
-        [PAGE_PAD, PAGE_PAD, IMG_W - PAGE_PAD, total_h - PAGE_PAD],
-        radius=CARD_R, fill=REPORT_BG,
-    )
-
     y = PAGE_PAD + CARD_PAD
-    y = _render_header(img, draw, cx, y, house, data, today)
+    y = _render_header(draw, cx, y, house, data, today)
     y += GAP
-    y = _render_top_grid(img, draw, cx, y, data, summary)
-    y += GAP
-    if supervisors:
-        y = _render_supervisor_section(img, draw, cx, y, data, summary)
+    y = _render_dd_summary(draw, cx, y, INNER, summary)
+    if sup_rows:
         y += GAP
-        y = _render_supervisor_grid(img, cx, y, data, summary, grid_rows, grid_cols)
+        y = _render_section(draw, cx, y, INNER, "SUPERVISOR PERFORMANCE",
+                            SUPERVISOR_LABELS, sup_rows, [10], sup_total)
+    if rso_rows:
         y += GAP
-    y = _render_footer(img, draw, cx, y, today)
+        y = _render_section(draw, cx, y, INNER, "RSO PERFORMANCE",
+                            RSO_LABELS, rso_rows, [9, 10, 11], rso_total, total_span=4)
+    if bp_rows:
+        y += GAP
+        y = _render_section(draw, cx, y, INNER, "BP PERFORMANCE",
+                            BP_LABELS, bp_rows, [9], bp_total, total_span=4)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
-
-
-def _render_supervisor_grid(img, x, y, data, summary, grid_rows, cols) -> int:
-    draw = ScaledDraw(ImageDraw.Draw(img))
-    days_remaining = summary.get("days_remaining", 0)
-    sup_target_map = summary.get("supervisor_target_map", {}) or {}
-    supervisors = data.get("supervisors", [])
-    w = INNER
-    panel_w = (w - GAP * (cols - 1)) // cols if cols > 1 else w
-
-    yy = y
-    for row in grid_rows:
-        row_h = max(_panel_height(tr, tb) for _, (tr, tb) in row)
-        for ci, (sup, (team_rso, team_bp)) in enumerate(row):
-            idx = supervisors.index(sup)
-            px = x + ci * (panel_w + GAP) if cols > 1 else x
-            _render_panel(img, draw, px, yy, panel_w, sup, team_rso, team_bp, idx,
-                          days_remaining, target_override=sup_target_map.get(sup.get("employee_id")))
-        yy += row_h + GAP
-    return yy - GAP
 
 
 PREVIEW_SCALE = 4

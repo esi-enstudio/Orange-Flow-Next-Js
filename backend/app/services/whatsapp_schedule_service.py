@@ -68,28 +68,81 @@ async def get_report_image(
     return image_bytes
 
 
-def _png_to_pdf(image_bytes: bytes) -> bytes:
-    """Convert a single PNG image into PDF bytes.
+# A4 page with a small uniform margin, so a printed report fills the page width
+# (no big left/right gaps) with a narrow border on every side.
+PDF_MARGIN_MM = 8
 
-    Uses reportlab to embed the PNG pixels losslessly (no JPEG2000
-    recompression), keeping the image crisp when zoomed in.
+
+def _png_to_pdf(image_bytes: bytes) -> bytes:
+    """Render a report PNG onto A4 PDF pages.
+
+    The A4 orientation is matched to the report (portrait for the usual tall
+    reports, landscape for the rare wide one). The image is scaled to fill the
+    A4 content width (aspect ratio preserved) inside a small uniform margin, so
+    the printed report spans the full page instead of leaving wide left/right
+    gaps. Reports taller than one page flow down onto additional pages. Uses
+    reportlab to embed the PNG pixels losslessly (no JPEG2000 recompression),
+    keeping the image crisp when zoomed.
     """
     import io as _io
+    import math
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
     from reportlab.lib.utils import ImageReader
     from reportlab.pdfgen import canvas
 
     img = ImageReader(_io.BytesIO(image_bytes))
     iw, ih = img.getSize()
+
+    margin = PDF_MARGIN_MM * mm
+
+    def _plan(page_w, page_h):
+        """(pages, filled_area, draw_w, draw_h, avail_w, avail_h) for a page."""
+        aw = page_w - 2 * margin
+        ah = page_h - 2 * margin
+        dw = aw
+        dh = ih * (aw / iw)
+        pages = max(1, int(math.ceil(dh / ah)))
+        return pages, min(dh, ah) * dw, dw, dh, aw, ah
+
+    # Pick the A4 orientation needing the fewest pages; break ties by the one
+    # that fills more of the page. This keeps both tall and wide reports large.
+    a4w, a4h = A4
+    plan_p = _plan(a4w, a4h)          # portrait
+    plan_l = _plan(a4h, a4w)          # landscape
+    if (plan_l[0], -plan_l[1]) < (plan_p[0], -plan_p[1]):
+        page_w, page_h = a4h, a4w
+        n_pages, _, draw_w, draw_h, avail_w, avail_h = plan_l
+    else:
+        page_w, page_h = a4w, a4h
+        n_pages, _, draw_w, draw_h, avail_w, avail_h = plan_p
+
     buf = _io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=(iw, ih))
-    c.drawImage(img, 0, 0, width=iw, height=ih)
-    c.showPage()
+    c = canvas.Canvas(buf, pagesize=(page_w, page_h))
+    top = page_h - margin  # page-y of the image's top edge on the first page
+    if n_pages <= 1:
+        # Fits on a single page: fill the width, centre vertically.
+        c.drawImage(img, margin, margin + (avail_h - draw_h) / 2,
+                    width=draw_w, height=draw_h)
+        c.showPage()
+    else:
+        # Taller than one page: fill the width and flow down across pages.
+        # Each page shows a band of the image, clipped to the page.
+        for k in range(n_pages):
+            c.saveState()
+            path = c.beginPath()
+            path.rect(0, 0, page_w, page_h)
+            c.clipPath(path, stroke=0, fill=0)
+            c.drawImage(img, margin, top + k * avail_h - draw_h,
+                        width=draw_w, height=draw_h)
+            c.restoreState()
+            c.showPage()
     c.save()
     return buf.getvalue()
 
 
 # Only the native-res report renders (e.g. active_lso at ~550px) need
-# upscaling to look decent. Already-high-resolution renders (ga_live 4608px,
+# upscaling to look decent. Already-high-resolution renders (ga_live 3200px,
 # activation 6480px) must pass through untouched — chasing a byte threshold is
 # what ballooned small reports into multi-MB files with seconds of LANCZOS CPU.
 UPSCALE_TARGET_WIDTH = 2200
@@ -101,7 +154,7 @@ def _ensure_min_size_png(image_bytes: bytes) -> bytes:
     Small/native-res report renders (e.g. active_lso at ~550px) are upscaled a
     single time to ``UPSCALE_TARGET_WIDTH`` (2200px) with LANCZOS — two stops
     above any phone/WhatsApp display. Renders already wider than that (ga_live
-    4608px / activation 6480px) pass through untouched. Resolution, not byte
+    3200px / activation 6480px) pass through untouched. Resolution, not byte
     size, is what makes a document look sharp; the old byte-chasing loop output
     ~3.4MB files and added ~2.3s of CPU per small-report send.
     """
