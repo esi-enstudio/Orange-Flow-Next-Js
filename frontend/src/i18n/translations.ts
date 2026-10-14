@@ -1512,6 +1512,7 @@ export const translations = {
       report_type: "Report Type",
       whatsapp: {
         title: "Recharge Report Delivery",
+        ev_title: "EV Secondary Report Delivery",
       },
       type_recharge: "Recharge",
       type_ev_secondary: "EV Secondary",
@@ -5920,6 +5921,7 @@ employees: "Employees",
       report_type: "রিপোর্টের ধরন",
       whatsapp: {
         title: "রিচার্জ রিপোর্ট ডেলিভারি",
+        ev_title: "ইভি সেকেন্ডারি রিপোর্ট ডেলিভারি",
       },
       type_recharge: "রিচার্জ",
       type_ev_secondary: "ইভি সেকেন্ডারি",

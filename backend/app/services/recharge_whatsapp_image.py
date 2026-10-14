@@ -77,6 +77,23 @@ def _active_scale() -> int:
     return _scale.active()
 
 
+# ── Report variants ──
+# The dashboard's report-type toggle switches which target the report measures:
+# the plain Recharge report uses the house's total recharge target, while the EV
+# Secondary report uses the EV C2C target. RechargeReportService already applies
+# that variant to the summary and to every RSO/supervisor row, so the image only
+# needs to pass it through and label itself accordingly.
+REPORT_TYPES = {
+    "recharge": {
+        "title": "Recharge Report",
+        "service_report_type": "recharge",
+    },
+    "recharge_ev_secondary": {
+        "title": "EV Secondary Report",
+        "service_report_type": "ev_secondary",
+    },
+}
+
 # ── Section column sets ──
 HOUSE_LABELS = ["Target", "Ach", "%", "Remain", "Daily Req", "Daily Avg",
                 "Projection", "Proj %"]
@@ -132,7 +149,8 @@ def _remaining(item: dict) -> float:
 
 
 # ── Header ──
-def _render_header(draw, x, y, house_name, house_code, summary, today: date) -> int:
+def _render_header(draw, x, y, house_name, house_code, summary, today: date,
+                   report_title: str) -> int:
     x1 = x + INNER
     pad_x = 16
     date_str = today.strftime("%d %B %Y")
@@ -153,7 +171,7 @@ def _render_header(draw, x, y, house_name, house_code, summary, today: date) -> 
     tx = x + pad_x
     brand_max = bx - tx - 10  # keep clear of the metric box
 
-    draw.text((tx, y + 50), "Recharge Report", font=load_font(28, True),
+    draw.text((tx, y + 50), report_title, font=load_font(28, True),
               fill=INK, anchor="ls")
     f_meta = load_font(14, True)
     draw.text((tx, y + 74), ellipsize(
@@ -268,7 +286,8 @@ def _rso_rows(rsos: list[dict], days_remaining: int):
 
 
 # ── Render ──
-def _render_image(house_name: str, house_code: str, dashboard: dict, today: date) -> bytes:
+def _render_image(house_name: str, house_code: str, dashboard: dict, today: date,
+                  report_title: str) -> bytes:
     summary = dashboard.get("summary") or {}
     days_remaining = int(summary.get("days_remaining") or 0)
 
@@ -292,7 +311,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
     draw = ScaledDraw(ImageDraw.Draw(img), _scale)
 
     y = PAGE_PAD + CARD_PAD
-    y = _render_header(draw, cx, y, house_name, house_code, summary, today)
+    y = _render_header(draw, cx, y, house_name, house_code, summary, today, report_title)
     y += GAP
     y = _render_house_summary(draw, cx, y, INNER, summary)
     if sup_rows:
@@ -309,16 +328,13 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
     return buf.getvalue()
 
 
-async def build_recharge_report_image(
-    db: AsyncSession, house_id: int, scale: int | None = None
-) -> bytes:
-    """Build the current month's Recharge Report as a PNG image.
-
-    ``scale`` overrides the default RENDER_SCALE - used for fast, reduced-size
-    preview renders. ``None`` produces the full-resolution send-quality image.
-    """
+async def _build(db: AsyncSession, house_id: int, report_type: str,
+                 scale: int | None) -> bytes:
+    """Build the current month's report image for one report-type variant."""
+    variant = REPORT_TYPES[report_type]
     today = now_naive().date()
-    svc = RechargeReportService(db, house_id, today.month, today.year, "recharge")
+    svc = RechargeReportService(db, house_id, today.month, today.year,
+                                variant["service_report_type"])
     dashboard = {
         "summary": await svc.get_summary(),
         "rso_performance": await svc.get_rso_performance(),
@@ -331,6 +347,24 @@ async def build_recharge_report_image(
     house_code = (house.code or "") if house else ""
 
     if scale is None:
-        return _render_image(house_name, house_code, dashboard, today)
+        return _render_image(house_name, house_code, dashboard, today, variant["title"])
     with _scale.temp(scale):
-        return _render_image(house_name, house_code, dashboard, today)
+        return _render_image(house_name, house_code, dashboard, today, variant["title"])
+
+
+async def build_recharge_report_image(
+    db: AsyncSession, house_id: int, scale: int | None = None
+) -> bytes:
+    """Total-recharge variant of the Recharge Report (report_type `recharge`).
+
+    ``scale`` overrides the default RENDER_SCALE - used for fast, reduced-size
+    preview renders. ``None`` produces the full-resolution send-quality image.
+    """
+    return await _build(db, house_id, "recharge", scale)
+
+
+async def build_recharge_ev_report_image(
+    db: AsyncSession, house_id: int, scale: int | None = None
+) -> bytes:
+    """EV C2C variant of the Recharge Report (report_type `recharge_ev_secondary`)."""
+    return await _build(db, house_id, "recharge_ev_secondary", scale)

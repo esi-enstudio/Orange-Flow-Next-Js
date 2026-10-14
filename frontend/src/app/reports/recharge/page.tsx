@@ -1180,13 +1180,21 @@ export default function RechargeDashboardPage() {
       ) : null}
 
       {/* WhatsApp Report Delivery Modal */}
+      {/* The report-type toggle picks which target the image measures, so the
+          modal follows it (and remounts via `key` so no stale preview/schedule
+          list survives a switch). */}
       {hasPermission("reports.whatsapp_share") && (
         <WhatsAppReportDeliveryModal
+          key={reportType}
           open={showReportDelivery}
           houseId={selectedHouseId ? Number(selectedHouseId) : null}
-          reportType="recharge"
-          title={t("recharge_report.whatsapp.title")}
-          subtitle={t("recharge_report.dashboard_title")}
+          reportType={reportType === "ev_secondary" ? "recharge_ev_secondary" : "recharge"}
+          title={reportType === "ev_secondary"
+            ? t("recharge_report.whatsapp.ev_title")
+            : t("recharge_report.whatsapp.title")}
+          subtitle={reportType === "ev_secondary"
+            ? t("recharge_report.ev_dashboard_title")
+            : t("recharge_report.dashboard_title")}
           onClose={() => setShowReportDelivery(false)}
         />
       )}

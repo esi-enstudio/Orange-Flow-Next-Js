@@ -2020,7 +2020,8 @@ A reusable module for scheduling and sending report images (PNG) to WhatsApp gro
 | `active_lso` | `build_active_lso_report_image()` | Active LSO retailer performance |
 | `active_sso` | `build_active_sso_report_image()` | Active SSO SIM activation performance |
 | `activation` | `build_activation_report_image()` | Activation dashboard: house / supervisor / RSO / BP tables |
-| `recharge` | `build_recharge_report_image()` | Recharge dashboard: house / supervisor / RSO tables |
+| `recharge` | `build_recharge_report_image()` | Recharge dashboard: house / supervisor / RSO tables (total recharge target) |
+| `recharge_ev_secondary` | `build_recharge_ev_report_image()` | Same tables measured against the EV C2C target — the WhatsApp twin of the Recharge page's "EV Secondary" toggle |
 
 **Schedule Model** (`backend/app/models/whatsapp_schedule.py`):
 - `report_type` column (VARCHAR(50), default `"ga_live"`)
@@ -2079,6 +2080,8 @@ async def build_xxx_report_image(db: AsyncSession, house_id: int) -> bytes:
 ```python
 from app.services.xxx_whatsapp_image import build_xxx_report_image
 REPORT_BUILDERS["xxx"] = build_xxx_report_image
+# only when the builder accepts a `scale` keyword (lighter on-screen preview)
+SCALE_AWARE_BUILDERS["xxx"] = build_xxx_report_image
 ```
 
 3. **Allow in router** — add `"xxx"` to the allowed `report_type` values in `backend/app/routers/whatsapp_schedules.py`

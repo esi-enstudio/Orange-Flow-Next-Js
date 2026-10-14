@@ -26,6 +26,7 @@ from app.services.whatsapp_schedule_service import (
     get_schedule_target_names,
     get_report_image,
 )
+from app.services.report_builders import SCALE_AWARE_BUILDERS
 from app.services.whatsapp_token import resolve_house_wa_target
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
@@ -37,7 +38,11 @@ router = APIRouter(prefix="/api", tags=["WhatsApp Report Schedules"])
 
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
-ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation", "recharge")
+# Render scale used for on-screen report previews.
+PREVIEW_SCALE = 4
+
+ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation", "recharge",
+                        "recharge_ev_secondary")
 
 
 def _validate_report_type_value(v: str) -> None:
@@ -763,13 +768,13 @@ async def whatsapp_report_preview(
     await _verify_house_access(current_user, house_context)
 
     try:
-        # GA Live / Activation / Recharge previews render at a reduced scale
-        # (~1s, far smaller PNG) since they are only displayed on screen.
+        # Reports whose builder accepts a scale render their preview lighter
+        # (~1s, far smaller PNG) since it is only displayed on screen.
         # Scheduled/direct sends keep the full-resolution image. Both are cached
         # for 60s so repeat previews and preview→send are instant.
         image_bytes = await get_report_image(
             db, report_type, house_context,
-            scale=4 if report_type in ("ga_live", "activation", "recharge") else None,
+            scale=PREVIEW_SCALE if report_type in SCALE_AWARE_BUILDERS else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -16,7 +16,11 @@ from app.services.whatsapp_service_client import (
 )
 from app.services import telegram_service
 from app.services.telegram_service import TelegramError
-from app.services.report_builders import get_report_builder, get_report_title
+from app.services.report_builders import (
+    SCALE_AWARE_BUILDERS,
+    get_report_builder,
+    get_report_title,
+)
 from app.services import report_image_cache
 from app.services.whatsapp_token import resolve_house_wa_target, with_target_token
 from app.utils.activity_logger import log_activity
@@ -42,27 +46,17 @@ async def get_report_image(
     scale) so preview, Send Now, direct sends and scheduled deliveries share
     one build instead of paying the ~10s GA Live render every time.
 
-    ``scale`` only affects report types that support lighter renders (GA Live).
+    ``scale`` only affects report types registered in SCALE_AWARE_BUILDERS.
     """
     day = _today_bst().date()
-    cache_scale = scale if report_type in ("ga_live", "activation", "recharge") else None
+    cache_scale = scale if report_type in SCALE_AWARE_BUILDERS else None
     cached = report_image_cache.get(report_type, house_id, day, cache_scale)
     if cached is not None:
         return cached
 
-    if report_type == "ga_live":
-        if scale is not None:
-            from app.services.ga_live_whatsapp_image import build_ga_live_report_image
-            image_bytes = await build_ga_live_report_image(db, house_id, scale=scale)
-        else:
-            builder = get_report_builder(report_type)
-            image_bytes = await builder(db, house_id)
-    elif report_type == "activation" and scale is not None:
-        from app.services.activation_whatsapp_image import build_activation_report_image
-        image_bytes = await build_activation_report_image(db, house_id, scale=scale)
-    elif report_type == "recharge" and scale is not None:
-        from app.services.recharge_whatsapp_image import build_recharge_report_image
-        image_bytes = await build_recharge_report_image(db, house_id, scale=scale)
+    scaled_builder = SCALE_AWARE_BUILDERS.get(report_type) if scale is not None else None
+    if scaled_builder is not None:
+        image_bytes = await scaled_builder(db, house_id, scale=scale)
     else:
         builder = get_report_builder(report_type)
         image_bytes = await builder(db, house_id)

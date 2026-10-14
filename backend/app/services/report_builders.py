@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 # async (AsyncSession, int) -> bytes
 REPORT_BUILDERS: dict[str, callable] = {}
 
+# Builders that also accept a ``scale`` keyword, so a lightweight on-screen
+# preview can be rendered at a reduced resolution while scheduled/direct sends
+# keep the full-resolution image. Report types missing here always render at
+# their builder's default resolution.
+SCALE_AWARE_BUILDERS: dict[str, callable] = {}
+
 
 def register_builder(report_type: str):
     """Decorator to register a report builder function."""
@@ -42,6 +48,7 @@ def get_report_title(report_type: str) -> str:
         "active_sso": "Active SSO Report",
         "activation": "Activation Report",
         "recharge": "Recharge Report",
+        "recharge_ev_secondary": "EV Secondary Report",
     }
     return titles.get(report_type, report_type.replace("_", " ").title())
 
@@ -53,13 +60,22 @@ def _register_all():
     from app.services.active_lso_whatsapp_image import build_active_lso_report_image
     from app.services.active_sso_whatsapp_image import build_active_sso_report_image
     from app.services.activation_whatsapp_image import build_activation_report_image
-    from app.services.recharge_whatsapp_image import build_recharge_report_image
+    from app.services.recharge_whatsapp_image import (
+        build_recharge_ev_report_image,
+        build_recharge_report_image,
+    )
 
     REPORT_BUILDERS["ga_live"] = build_ga_live_report_image
     REPORT_BUILDERS["active_lso"] = build_active_lso_report_image
     REPORT_BUILDERS["active_sso"] = build_active_sso_report_image
     REPORT_BUILDERS["activation"] = build_activation_report_image
     REPORT_BUILDERS["recharge"] = build_recharge_report_image
+    REPORT_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
+
+    SCALE_AWARE_BUILDERS["ga_live"] = build_ga_live_report_image
+    SCALE_AWARE_BUILDERS["activation"] = build_activation_report_image
+    SCALE_AWARE_BUILDERS["recharge"] = build_recharge_report_image
+    SCALE_AWARE_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
 
     logger.info(f"Report builders registered: {list(REPORT_BUILDERS.keys())}")
 
