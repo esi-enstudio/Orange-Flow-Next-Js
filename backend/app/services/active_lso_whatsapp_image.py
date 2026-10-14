@@ -1,237 +1,336 @@
 """Active LSO Report image builder for WhatsApp/Telegram delivery.
 
-Renders a summary card with RSO-level performance as a PNG image.
+Renders the current month's Active LSO Report (/reports/active-lso) as a PNG
+image in the same simple, print-friendly style as the GA Live report image: a
+plain header with one highlighted metric box, a single-row summary table, and
+one plain bordered table each for supervisors and RSOs.
+
+The layout is a single full-width column (portrait strip) with small margins, so
+the image reads as one tall page on a phone and fills an A4 page when printed.
+
+Business rules mirror the dashboard page:
+    * Target   -> rso_targets.lso_target_modified (fallback: rso_targets.lso)
+    * Ach      -> retailers that qualify as Active LSO for the month
+    * %        -> Ach / Target, the value the page status is based on
+    * Remain   -> Target - Ach (signed: negative when over-achieved)
+    * DRR      -> ceil(remaining / days_remaining), signed the same way
+    * Active   -> configured threshold: N+ distinct C2S days AND M+ BDT
 """
 import io
 import math
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from contextlib import contextmanager
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# We deliberately generate large (multi-thousand pixel) report images at
+# RENDER_SCALE below - the size is intended, not a decompression bomb.
+Image.MAX_IMAGE_PIXELS = None
+
+from app.models.house import House
 from app.services.active_lso_report_service import ActiveLsoReportService
+from app.services.report_image_kit import (
+    INK,
+    REPORT_BG,
+    SECTION_TITLE_H,
+    TOTAL_BG,
+    TOTAL_INK,
+    RenderScale,
+    ScaledDraw,
+    ellipsize,
+    fmt_num,
+    load_font,
+    pct_2dp,
+    render_section,
+    table_height,
+)
 from app.utils.timezone import now_naive
 
-FONT_REG_PATH = "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"
-FONT_BOLD_PATH = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf"
+# ── Layout ──
+# Narrow portrait canvas: the whole report is one full-width column so it reads
+# as a tall strip on a phone and fills an A4 page width when printed. Same
+# geometry as the GA Live report image, so both reports look like siblings.
+IMG_W = 800
+PAGE_PAD = 0             # no page margin — the report is full-bleed
+CARD_PAD = 10            # inner padding of the report content
+INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
+GAP = 8                  # minimum gap between sections
+HDR_H = 118
+NOTE_H = 18              # caption line under the summary table
 
-TITLE_FONT_SIZE = 22
-SECTION_FONT_SIZE = 14
-HEADER_FONT_SIZE = 11
-CELL_FONT_SIZE = 10
-SMALL_FONT_SIZE = 9
+# Minimum canvas height keeps the image portrait (taller than wide) even for a
+# house with no employees.
+PORTRAIT_MIN_RATIO = 1.0
 
-MARGIN = 24
-BLOCK_GAP = 14
-ROW_PAD = 6
+# ── Native high-resolution rendering ──
+# All layout math stays in the IMG_W-wide design space; ScaledDraw renders every
+# coordinate and font natively at RENDER_SCALE so text stays crisp when zoomed.
+# A scale-4 send is 3200px wide, comfortably above any phone display while
+# keeping the build fast and the PNG small enough for WhatsApp.
+RENDER_SCALE = 4
 
-BG = "#FFFFFF"
-TITLE_COLOR = "#1a1a2e"
-SECTION_COLOR = "#2563eb"
-HEADER_BG = "#f1f5f9"
-HEADER_TEXT = "#334155"
-CELL_TEXT = "#1e293b"
-LINE_COLOR = "#cbd5e1"
-STATUS_COLORS = {
-    "achieved": "#16a34a",
-    "on_track": "#2563eb",
-    "needs_attention": "#d97706",
-    "behind": "#dc2626",
-}
+_scale = RenderScale(RENDER_SCALE)
+
+NOTE_INK = "#5B7290"
+
+MUTED = "-"
 
 
-def _load_fonts():
+def _active_scale() -> int:
+    return _scale.active()
+
+
+@contextmanager
+def _temp_scale(scale: int):
+    with _scale.temp(scale):
+        yield
+
+
+# ── Section column sets ──
+SUMMARY_LABELS = ["RSOs", "Retailers", "Target", "Ach", "Remain", "%", "DRR"]
+SUPERVISOR_LABELS = ["#", "Supervisor Name", "RSO", "Retailers", "Target", "Ach",
+                     "%", "Remain", "DRR"]
+RSO_LABELS = ["#", "RSO Name", "Supervisor", "Retailers", "Target", "Ach",
+              "%", "Remain", "DRR"]
+
+
+# ── Data prep ──
+def _num(value) -> float:
     try:
-        title = ImageFont.truetype(FONT_BOLD_PATH, TITLE_FONT_SIZE)
-        section = ImageFont.truetype(FONT_BOLD_PATH, SECTION_FONT_SIZE)
-        header = ImageFont.truetype(FONT_BOLD_PATH, HEADER_FONT_SIZE)
-        cell = ImageFont.truetype(FONT_REG_PATH, CELL_FONT_SIZE)
-        small = ImageFont.truetype(FONT_REG_PATH, SMALL_FONT_SIZE)
-    except OSError:
-        title = ImageFont.load_default()
-        section = title
-        header = title
-        cell = title
-        small = title
-    return {"title": title, "section": section, "header": header, "cell": cell, "small": small}
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
-def _fmt(n):
-    if n is None:
+def _drr_text(remaining, days_remaining) -> str:
+    """Daily required rate, signed like the page (negative when over-achieved)."""
+    if not days_remaining:
         return "0"
-    if isinstance(n, float):
-        return f"{n:,.1f}" if n != int(n) else f"{int(n):,}"
-    return f"{n:,}"
+    ratio = _num(remaining) / days_remaining
+    return fmt_num(math.ceil(ratio) if ratio >= 0 else math.floor(ratio))
 
 
-def _pct(part, whole):
-    if not whole:
-        return "0%"
-    return f"{part / whole * 100:.1f}%"
+def _period_text(period: dict) -> str:
+    start = period.get("start_date") or ""
+    end = period.get("end_date") or ""
+    try:
+        start = datetime.fromisoformat(str(start)).strftime("%d %b %Y")
+    except ValueError:
+        pass
+    try:
+        end = datetime.fromisoformat(str(end)).strftime("%d %b %Y")
+    except ValueError:
+        pass
+    if start and end:
+        return f"Period: {start} - {end}"
+    return ""
 
 
-def _col_widths(header, rows, fonts):
-    widths = []
-    for ci, h in enumerate(header):
-        w = fonts["header"].getlength(str(h))
-        for row in rows:
-            if ci < len(row):
-                w = max(w, fonts["cell"].getlength(str(row[ci])))
-        widths.append(w)
-    return widths
+def _threshold_text(period: dict) -> str:
+    days = period.get("active_threshold_days")
+    amount = period.get("active_threshold_amount")
+    if days is None or amount is None:
+        return ""
+    return (f"Active = {fmt_num(days)}+ distinct C2S days and "
+            f"{fmt_num(amount)}+ BDT in the period")
 
 
-def _draw_table(draw, x, y, header, rows, fonts, total_row=None):
-    all_rows = rows + ([total_row] if total_row else [])
-    widths = _col_widths(header, all_rows, fonts)
-    total_w = sum(widths) + ROW_PAD * 2 * len(header)
-    row_h = max(HEADER_FONT_SIZE, CELL_FONT_SIZE) + ROW_PAD * 2
-
-    # Header background
-    draw.rectangle([x, y, x + total_w, y + row_h], fill=HEADER_BG)
-    xx = x
-    for ci, h in enumerate(header):
-        draw.text((xx + ROW_PAD, y + ROW_PAD), str(h), font=fonts["header"], fill=HEADER_TEXT)
-        xx += widths[ci] + ROW_PAD * 2
-    draw.line([x, y + row_h, x + total_w, y + row_h], fill=LINE_COLOR)
-
-    # Data rows
-    for ri, row in enumerate(all_rows):
-        ry = y + row_h * (ri + 1)
-        xx = x
-        for ci in range(len(header)):
-            val = str(row[ci]) if ci < len(row) else ""
-            draw.text((xx + ROW_PAD, ry + ROW_PAD), val, font=fonts["cell"], fill=CELL_TEXT)
-            xx += widths[ci] + ROW_PAD * 2
-        draw.line([x, ry + row_h, x + total_w, ry + row_h], fill=LINE_COLOR)
-
-    # Vertical lines
-    xx = x
-    for ci in range(len(header) + 1):
-        draw.line([xx, y, xx, y + row_h * (len(all_rows) + 1)], fill=LINE_COLOR)
-        if ci < len(header):
-            xx += widths[ci] + ROW_PAD * 2
-
-    return total_w
-
-
-def _render_image(house_name: str, house_code: str, dashboard: dict) -> bytes:
-    fonts = _load_fonts()
-    today = now_naive().date()
-    period = dashboard.get("period", {})
-    summary = dashboard.get("summary", {})
-    rows = dashboard.get("rows", [])
-
-    month_year = today.strftime("%B %Y")
+# ── Header ──
+def _render_header(draw, x, y, house_name, house_code, summary, period, today: date) -> int:
+    x1 = x + INNER
+    pad_x = 16
     date_str = today.strftime("%d %B %Y")
     time_str = now_naive().strftime("%I:%M %p").lstrip("0").replace(" 0", " ")
 
-    # Build content
-    content_lines = []
-    content_lines.append(("title", f"Active LSO Report ({month_year})"))
-    content_lines.append(("sub", f"House: {house_name} ({house_code})"))
-    content_lines.append(("sub", f"Generated: {date_str}, {time_str}"))
-    content_lines.append(("spacer",))
+    # metric box (right) — measured first so the brand text can be kept clear of it
+    lbl = "Achievement"
+    val = pct_2dp(summary.get("achieved"), summary.get("target"))
+    fl = load_font(15, True)
+    fv = load_font(40, True)
+    box_w = max(draw.textlength(lbl, font=fl), draw.textlength(val, font=fv)) + 40
+    box_w = max(box_w, 200)
+    box_h = 80
+    bx = x1 - pad_x - box_w
+    by = y + (HDR_H - box_h) // 2
 
-    # Summary section
-    total_rso = summary.get("rso_count", 0)
-    total_retailers = summary.get("retailer_count", 0)
-    target = summary.get("target", 0)
-    achieved = summary.get("achieved", 0)
-    ach_pct = summary.get("ach_pct", 0)
-    remaining = summary.get("remaining", 0)
-    status = summary.get("status", "behind")
+    # brand (left) — text column, vertically centred
+    tx = x + pad_x
+    brand_max = bx - tx - 10  # keep clear of the metric box
 
-    content_lines.append(("section", "Summary"))
-    content_lines.append(("sub", f"RSOs: {total_rso} | Retailers: {total_retailers}"))
-    content_lines.append(("sub", f"Target: {_fmt(target)} | Achieved: {_fmt(achieved)} ({_pct(achieved, target)}) | Remaining: {_fmt(remaining)}"))
-    content_lines.append(("sub", f"Status: {status.replace('_', ' ').title()}"))
-    content_lines.append(("spacer",))
+    draw.text((tx, y + 44), "Active LSO Report", font=load_font(28, True),
+              fill=INK, anchor="ls")
+    f_meta = load_font(14, True)
+    draw.text((tx, y + 66), ellipsize(
+        draw, f"House: {house_name or ''} ({house_code or ''})", f_meta, brand_max),
+        font=f_meta, fill=INK, anchor="lm")
+    draw.text((tx, y + 86), ellipsize(
+        draw, _period_text(period), f_meta, brand_max),
+        font=f_meta, fill=INK, anchor="lm")
+    draw.text((tx, y + 106), f"Generated: {date_str}, {time_str}",
+              font=f_meta, fill=INK, anchor="lm")
 
-    # RSO table
-    if rows:
-        header = ["#", "RSO Name", "Supervisor", "Target", "Achieved", "%", "Status"]
-        table_rows = []
-        for i, r in enumerate(rows):
-            table_rows.append([
-                str(i + 1),
-                str(r.get("name", ""))[:20],
-                str(r.get("supervisor_name", "") or "")[:15],
-                _fmt(r.get("target", 0)),
-                _fmt(r.get("achieved", 0)),
-                _pct(r.get("achieved", 0), r.get("target", 0)),
-                r.get("status", "").replace("_", " ").title(),
-            ])
-        total_row = [
-            "", "Total", "",
-            _fmt(target),
-            _fmt(achieved),
-            _pct(achieved, target),
-            status.replace("_", " ").title(),
-        ]
-        content_lines.append(("section", "RSO Performance"))
-        content_lines.append(("table", header, table_rows, total_row))
+    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=9,
+                           fill=TOTAL_BG, outline=TOTAL_INK, width=2)
+    draw.text((bx + box_w / 2, by + 17), lbl, font=fl, fill=TOTAL_INK, anchor="mm")
+    draw.text((bx + box_w / 2, by + 52), val, font=fv, fill=TOTAL_INK, anchor="mm")
+    return y + HDR_H
 
-    # Measure dimensions
-    total_h = MARGIN
-    max_w = 0
-    for kind, *rest in content_lines:
-        if kind == "spacer":
-            total_h += BLOCK_GAP
-        elif kind == "title":
-            w = fonts["title"].getlength(rest[0])
-            max_w = max(max_w, w)
-            total_h += TITLE_FONT_SIZE + BLOCK_GAP
-        elif kind == "section":
-            w = fonts["section"].getlength(rest[0])
-            max_w = max(max_w, w)
-            total_h += SECTION_FONT_SIZE + BLOCK_GAP
-        elif kind == "sub":
-            w = fonts["small"].getlength(rest[0])
-            max_w = max(max_w, w)
-            total_h += SMALL_FONT_SIZE + 4
-        elif kind == "table":
-            header_row, data_rows, tot_row = rest
-            all_r = data_rows + ([tot_row] if tot_row else [])
-            widths = _col_widths(header_row, all_r, fonts)
-            tw = sum(widths) + ROW_PAD * 2 * len(header_row)
-            max_w = max(max_w, tw)
-            rh = max(HEADER_FONT_SIZE, CELL_FONT_SIZE) + ROW_PAD * 2
-            total_h += rh * (len(all_r) + 1) + BLOCK_GAP
-    total_h += MARGIN
 
-    width = max(max_w, 500) + MARGIN * 2
-    img = Image.new("RGB", (int(width), int(total_h)), BG)
-    draw = ImageDraw.Draw(img)
-    x = MARGIN
-    y = MARGIN
+# ── Sections ──
+def _render_summary(draw, x, y, w, summary, days_remaining: int) -> int:
+    """House summary: plain title + a single-row metric table."""
+    values = [
+        fmt_num(summary.get("rso_count")),
+        fmt_num(summary.get("retailer_count")),
+        fmt_num(summary.get("target")),
+        fmt_num(summary.get("achieved")),
+        fmt_num(summary.get("remaining")),
+        pct_2dp(summary.get("achieved"), summary.get("target")),
+        _drr_text(summary.get("remaining"), days_remaining),
+    ]
+    # Evenly split metric cells (no left-aligned name column), mirroring the
+    # summary grid in the HTML dashboard.
+    return render_section(draw, x, y, w, "SUMMARY", SUMMARY_LABELS, [values],
+                          weights=[1] * len(SUMMARY_LABELS), left_cols=())
 
-    for kind, *rest in content_lines:
-        if kind == "spacer":
-            y += BLOCK_GAP
-        elif kind == "title":
-            draw.text((x, y), rest[0], font=fonts["title"], fill=TITLE_COLOR)
-            y += TITLE_FONT_SIZE + BLOCK_GAP
-        elif kind == "section":
-            draw.text((x, y), rest[0], font=fonts["section"], fill=SECTION_COLOR)
-            y += SECTION_FONT_SIZE + BLOCK_GAP
-        elif kind == "sub":
-            draw.text((x, y), rest[0], font=fonts["small"], fill=CELL_TEXT)
-            y += SMALL_FONT_SIZE + 4
-        elif kind == "table":
-            header_row, data_rows, tot_row = rest
-            _draw_table(draw, x, y, header_row, data_rows, fonts, tot_row)
-            all_r = data_rows + ([tot_row] if tot_row else [])
-            rh = max(HEADER_FONT_SIZE, CELL_FONT_SIZE) + ROW_PAD * 2
-            y += rh * (len(all_r) + 1) + BLOCK_GAP
+
+def _render_threshold_note(draw, x, y, period) -> int:
+    """Small caption explaining what counts as an Active LSO this month."""
+    text = _threshold_text(period)
+    if not text:
+        return y
+    draw.text((x, y + 10), text, font=load_font(11, True), fill=NOTE_INK, anchor="lm")
+    return y + NOTE_H
+
+
+def _supervisor_rows(dashboard: dict, days_remaining: int):
+    """Rows + total for the SUPERVISOR PERFORMANCE table (all supervisors)."""
+    supervisors = dashboard.get("supervisor_summary") or []
+    rows = []
+    sums = {"rso": 0, "ret": 0, "target": 0.0, "ach": 0.0, "remain": 0.0}
+    for idx, sup in enumerate(supervisors):
+        target = _num(sup.get("target"))
+        ach = _num(sup.get("achieved"))
+        remain = _num(sup.get("remaining"))
+        rso_count = int(_num(sup.get("rso_count")))
+        retailers = int(_num(sup.get("retailer_count")))
+        rows.append([
+            str(idx + 1), str(sup.get("supervisor_name") or MUTED),
+            str(rso_count), str(retailers),
+            fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
+            fmt_num(remain), _drr_text(remain, days_remaining),
+        ])
+        sums["rso"] += rso_count
+        sums["ret"] += retailers
+        sums["target"] += target
+        sums["ach"] += ach
+        sums["remain"] += remain
+
+    if not rows:
+        return [], None
+
+    total_row = [
+        f"Total ({len(rows)} Supervisor)", "",
+        str(sums["rso"]), str(sums["ret"]),
+        fmt_num(sums["target"]), fmt_num(sums["ach"]),
+        pct_2dp(sums["ach"], sums["target"]), fmt_num(sums["remain"]),
+        _drr_text(sums["remain"], days_remaining),
+    ]
+    return rows, total_row
+
+
+def _rso_rows(rows_in: list, days_remaining: int):
+    """Rows + total for the RSO PERFORMANCE table (every RSO in one table).
+
+    The page's order (grouped by supervisor, then name) is preserved so the
+    image can be read side by side with the dashboard table.
+    """
+    rows = []
+    tot = {"ret": 0, "target": 0.0, "ach": 0.0, "remain": 0.0}
+    for i, r in enumerate(rows_in):
+        target = _num(r.get("target"))
+        ach = _num(r.get("achieved"))
+        remain = _num(r.get("remaining"))
+        retailers = int(_num(r.get("retailer_count")))
+        rows.append([
+            str(i + 1), str(r.get("name") or MUTED),
+            str(r.get("supervisor_name") or MUTED), str(retailers),
+            fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
+            fmt_num(remain), _drr_text(remain, days_remaining),
+        ])
+        tot["ret"] += retailers
+        tot["target"] += target
+        tot["ach"] += ach
+        tot["remain"] += remain
+
+    if not rows:
+        return [], None
+
+    total_row = [
+        f"Total ({len(rows)} RSO)", "", "",
+        str(tot["ret"]), fmt_num(tot["target"]), fmt_num(tot["ach"]),
+        pct_2dp(tot["ach"], tot["target"]), fmt_num(tot["remain"]),
+        _drr_text(tot["remain"], days_remaining),
+    ]
+    return rows, total_row
+
+
+# ── Render ──
+def _render_image(house_name: str, house_code: str, dashboard: dict, today: date) -> bytes:
+    summary = dashboard.get("summary") or {}
+    period = dashboard.get("period") or {}
+    days_remaining = int(_num(period.get("days_remaining")))
+
+    sup_rows, sup_total = _supervisor_rows(dashboard, days_remaining)
+    rso_rows, rso_total = _rso_rows(dashboard.get("rows") or [], days_remaining)
+    note_h = NOTE_H if _threshold_text(period) else 0
+
+    # Height accounting mirrors the render pass below exactly.
+    body_h = SECTION_TITLE_H + table_height(1) + note_h      # SUMMARY + note
+    if sup_rows:
+        body_h += GAP + SECTION_TITLE_H + table_height(len(sup_rows) + 1)
+    if rso_rows:
+        body_h += GAP + SECTION_TITLE_H + table_height(len(rso_rows) + 1)
+
+    cx = PAGE_PAD + CARD_PAD
+    total_h = PAGE_PAD + CARD_PAD + HDR_H + GAP + body_h + PAGE_PAD + CARD_PAD
+    # Guard against a wide strip for tiny datasets — the report must stay portrait.
+    canvas_h = max(total_h, int(IMG_W * PORTRAIT_MIN_RATIO))
+    s = _active_scale()
+    img = Image.new("RGB", (IMG_W * s, max(canvas_h, 60) * s), REPORT_BG)
+    draw = ScaledDraw(ImageDraw.Draw(img), _scale)
+
+    y = PAGE_PAD + CARD_PAD
+    y = _render_header(draw, cx, y, house_name, house_code, summary, period, today)
+    y += GAP
+    y = _render_summary(draw, cx, y, INNER, summary, days_remaining)
+    y = _render_threshold_note(draw, cx, y, period)
+    if sup_rows:
+        y += GAP
+        y = render_section(draw, cx, y, INNER, "SUPERVISOR PERFORMANCE",
+                           SUPERVISOR_LABELS, sup_rows,
+                           total_row=sup_total, total_span=2)
+    if rso_rows:
+        y += GAP
+        y = render_section(draw, cx, y, INNER, "RSO PERFORMANCE",
+                           RSO_LABELS, rso_rows,
+                           total_row=rso_total, total_span=2)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
 
 
-async def build_active_lso_report_image(db: AsyncSession, house_id: int) -> bytes:
-    """Build the Active LSO report as a PNG image."""
+async def build_active_lso_report_image(
+    db: AsyncSession, house_id: int, scale: int | None = None
+) -> bytes:
+    """Build the current month's Active LSO Report as a PNG image.
+
+    ``scale`` overrides the default RENDER_SCALE - used for fast, reduced-size
+    preview renders. ``None`` produces the full-resolution send-quality image.
+    """
     today = now_naive().date()
     start_date = today.replace(day=1)
     if today.month == 12:
@@ -242,12 +341,12 @@ async def build_active_lso_report_image(db: AsyncSession, house_id: int) -> byte
     svc = ActiveLsoReportService(db, house_id, start_date, end_date)
     dashboard = await svc.build_dashboard()
 
-    # Get house name
-    from sqlalchemy import select
-    from app.models.house import House
     result = await db.execute(select(House).where(House.id == house_id))
     house = result.scalar_one_or_none()
-    house_name = house.name if house else "Unknown"
-    house_code = house.code if house else ""
+    house_name = (house.name or "") if house else "Unknown"
+    house_code = (house.code or "") if house else ""
 
-    return _render_image(house_name, house_code, dashboard)
+    if scale is None:
+        return _render_image(house_name, house_code, dashboard, today)
+    with _temp_scale(scale):
+        return _render_image(house_name, house_code, dashboard, today)

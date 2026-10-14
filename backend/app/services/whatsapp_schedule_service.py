@@ -138,7 +138,7 @@ def _png_to_pdf(image_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-# Only the native-res report renders (e.g. active_lso at ~550px) need
+# Only the native-res report renders (e.g. active_sso at ~550px) need
 # upscaling to look decent. Already-high-resolution renders (ga_live 3200px,
 # activation 6480px) must pass through untouched — chasing a byte threshold is
 # what ballooned small reports into multi-MB files with seconds of LANCZOS CPU.
@@ -148,7 +148,7 @@ UPSCALE_TARGET_WIDTH = 2200
 def _ensure_min_size_png(image_bytes: bytes) -> bytes:
     """Return a high-resolution PNG payload for document/PDF sends.
 
-    Small/native-res report renders (e.g. active_lso at ~550px) are upscaled a
+    Small/native-res report renders (e.g. active_sso at ~550px) are upscaled a
     single time to ``UPSCALE_TARGET_WIDTH`` (2200px) with LANCZOS — two stops
     above any phone/WhatsApp display. Renders already wider than that (ga_live
     3200px / activation 6480px) pass through untouched. Resolution, not byte

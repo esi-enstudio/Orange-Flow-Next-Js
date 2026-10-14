@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, has_any_permission, has_permission, get_current_user, require_house_context, get_house_context
+from app.routers.deps import get_db, has_any_permission, get_current_user, require_house_context, get_house_context
 from app.models.whatsapp_schedule import WhatsAppSchedule
 from app.models.whatsapp_delivery_log import WhatsAppDeliveryLog
 from app.models.user import User
@@ -40,6 +40,11 @@ TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 # Render scale used for on-screen report previews.
 PREVIEW_SCALE = 4
+
+# The report-delivery module is usable by the Live Activations schedulers and by
+# report-sharing users: either permission unlocks the schedule endpoints (the
+# same pair /whatsapp/status and /whatsapp/groups already accept).
+SCHEDULE_PERMISSIONS = ["live_activations.schedule", "reports.whatsapp_share"]
 
 ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation", "recharge",
                         "recharge_ev_secondary")
@@ -343,7 +348,7 @@ async def list_schedules(
     house_id: Optional[int] = Query(None),
     report_type: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
 ):
     if house_id:
         await _verify_house_access(current_user, house_id)
@@ -379,7 +384,7 @@ async def create_schedule(
     data: ScheduleCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
     house_context: int = Depends(require_house_context),
 ):
     await _verify_house_access(current_user, house_context)
@@ -470,7 +475,7 @@ async def update_schedule(
     data: ScheduleUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
 ):
     schedule = await _get_owned_schedule(db, current_user, schedule_id)
     _validate_window(data.starts_on, data.ends_on)
@@ -585,7 +590,7 @@ async def delete_schedule(
     schedule_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
 ):
     schedule = await _get_owned_schedule(db, current_user, schedule_id)
 
@@ -618,7 +623,7 @@ async def duplicate_schedule(
     schedule_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
 ):
     """Clone a schedule. The copy starts fresh (never ran) and is active."""
     source = await _get_owned_schedule(db, current_user, schedule_id)
@@ -671,7 +676,7 @@ async def send_now(
     schedule_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
 ):
     schedule = await _get_owned_schedule(db, current_user, schedule_id)
 
@@ -697,7 +702,7 @@ async def send_direct(
     data: DirectSendPayload,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
     house_context: int = Depends(require_house_context),
 ):
     """Send a report image immediately to one or more chats without creating a schedule."""
@@ -756,7 +761,7 @@ async def send_direct(
 async def whatsapp_report_preview(
     report_type: str = Query("ga_live"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
     house_context: int = Depends(require_house_context),
 ):
     """Render the current report image for the active house without sending it."""
@@ -795,7 +800,7 @@ async def list_delivery_history(
     report_type: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
 ):
     if house_id:
         await _verify_house_access(current_user, house_id)
@@ -828,7 +833,7 @@ async def schedule_delivery_history(
     schedule_id: int,
     limit: int = Query(30, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("live_activations.schedule")),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
 ):
     schedule = await _get_owned_schedule(db, current_user, schedule_id)
     query = (
@@ -851,7 +856,7 @@ async def schedule_delivery_history(
 @router.get("/whatsapp/status")
 async def whatsapp_status(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(["live_activations.schedule", "reports.whatsapp_share"])),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     if not house_context:
@@ -909,7 +914,7 @@ async def whatsapp_status(
 @router.get("/whatsapp/groups")
 async def whatsapp_groups(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(["live_activations.schedule", "reports.whatsapp_share"])),
+    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     if not house_context:

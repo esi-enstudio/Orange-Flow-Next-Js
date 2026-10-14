@@ -1613,6 +1613,11 @@ export const translations = {
         export_csv: "Export CSV",
         print: "Print",
         view_inactive_retailers: "View Inactive Retailers",
+        share: "Share on WhatsApp",
+      },
+      whatsapp: {
+        title: "Active LSO Report Delivery",
+        subtitle: "Auto-send the Active LSO Report daily at a fixed time",
       },
       modal: {
         inactive_retailers: "Inactive Retailers",
@@ -6022,6 +6027,11 @@ employees: "Employees",
         export_csv: "সিএসভি এক্সপোর্ট",
         print: "প্রিন্ট",
         view_inactive_retailers: "নিষ্ক্রিয় রিটেইলার দেখুন",
+        share: "হোয়াটসঅ্যাপে শেয়ার",
+      },
+      whatsapp: {
+        title: "অ্যাকটিভ এলএসও রিপোর্ট ডেলিভারি",
+        subtitle: "প্রতিদিন নির্দিষ্ট সময়ে অ্যাকটিভ এলএসও রিপোর্ট স্বয়ংক্রিয়ভাবে পাঠান",
       },
       modal: {
         inactive_retailers: "নিষ্ক্রিয় রিটেইলার",

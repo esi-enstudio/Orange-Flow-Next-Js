@@ -394,6 +394,10 @@ export default function ActiveLsoReportPage() {
   const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const permissionOk = !authLoading && hasPermission("active_lso.view");
+  // Report delivery is shared with the Live Activations schedulers; either
+  // permission unlocks the WhatsApp/Telegram schedule module (mirrors the API).
+  const canShare =
+    hasPermission("reports.whatsapp_share") || hasPermission("live_activations.schedule");
 
   // Redirect if no permission
   useEffect(() => {
@@ -750,7 +754,7 @@ export default function ActiveLsoReportPage() {
               <button
                 onClick={() => handleExport("xlsx")}
                 disabled={exporting !== null || !data}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4" />
                 {exporting === "xlsx" ? "..." : t("active_lso_report.actions.export_excel")}
@@ -758,7 +762,7 @@ export default function ActiveLsoReportPage() {
               <button
                 onClick={() => handleExport("csv")}
                 disabled={exporting !== null || !data}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
               >
                 <FileText className="w-4 h-4" />
                 {exporting === "csv" ? "..." : t("active_lso_report.actions.export_csv")}
@@ -769,7 +773,7 @@ export default function ActiveLsoReportPage() {
             <button
               onClick={handlePrint}
               disabled={!data}
-              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
               title={t("active_lso_report.actions.print")}
             >
               <Printer className="w-4 h-4" />
@@ -778,16 +782,26 @@ export default function ActiveLsoReportPage() {
           {hasPermission("active_lso.config") && (
             <button
               onClick={openConfig}
-              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
+              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors cursor-pointer"
               title={t("active_lso_report.config.title")}
             >
               <Settings className="w-4 h-4" />
             </button>
           )}
+          {canShare && (
+            <button
+              onClick={() => setWsModalOpen(true)}
+              disabled={!filters.houseId}
+              className="inline-flex items-center gap-2 p-2.5 rounded-lg border border-green-300 dark:border-green-500/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={t("active_lso_report.actions.share")}
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={() => fetchData(filters)}
             disabled={loading}
-            className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
             title={t("active_lso_report.actions.refresh")}
           >
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
@@ -930,14 +944,14 @@ export default function ActiveLsoReportPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => fetchData(filters)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors cursor-pointer"
             >
               <Filter className="w-4 h-4" />
               {t("active_lso_report.filters.apply")}
             </button>
             <button
               onClick={handleReset}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold shadow-sm transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold shadow-sm transition-colors cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
               {t("active_lso_report.filters.reset")}
@@ -1165,7 +1179,7 @@ export default function ActiveLsoReportPage() {
                 {rows.length > 0 && (
                   <button
                     onClick={handleExportInactiveRetailers}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     {t("active_lso_report.modal.export")}
@@ -1184,7 +1198,7 @@ export default function ActiveLsoReportPage() {
                 <table className="w-full text-xs text-gray-700 dark:text-gray-300 border-separate border-spacing-0 whitespace-nowrap">
                   <thead>
                     <tr>
-                      <th rowSpan={2} className="sticky top-0 left-0 z-40 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-left font-bold text-gray-600 dark:text-gray-300 border-b border-r border-gray-200 dark:border-slate-700">
+                      <th rowSpan={2} className="sticky top-0 z-30 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-left font-bold text-gray-600 dark:text-gray-300 border-b border-r border-gray-200 dark:border-slate-700">
                         {t("active_lso_report.columns.rso")}
                       </th>
                       <th rowSpan={2} className="sticky top-0 z-30 h-9 px-3 bg-slate-100 dark:bg-slate-800 text-left font-bold text-gray-600 dark:text-gray-300 border-b border-r border-gray-200 dark:border-slate-700">
@@ -1213,7 +1227,7 @@ export default function ActiveLsoReportPage() {
                   <tbody>
                     {rows.map((row, idx) => (
                       <tr key={row.employee_id} className={idx % 2 === 1 ? "bg-gray-50/50 dark:bg-slate-800/30" : ""}>
-                        <td className="sticky left-0 z-10 px-3 py-1.5 font-medium text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+                        <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-gray-100 border-b border-r border-gray-100 dark:border-slate-800">
                           <div className="flex items-start justify-between gap-1">
                             <div>
                               <p className="font-medium text-xs">{row.name}</p>
@@ -1228,7 +1242,7 @@ export default function ActiveLsoReportPage() {
                             <button
                               onClick={() => handleShowInactiveRetailers(row)}
                               title={t("active_lso_report.actions.view_inactive_retailers")}
-                              className="shrink-0 mt-0.5 p-1 rounded-md hover:bg-amber-50 dark:hover:bg-amber-500/10 text-amber-500 dark:text-amber-400 transition-colors"
+                              className="shrink-0 mt-0.5 p-1 rounded-md hover:bg-amber-50 dark:hover:bg-amber-500/10 text-amber-500 dark:text-amber-400 transition-colors cursor-pointer"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" /></svg>
                             </button>
@@ -1252,7 +1266,7 @@ export default function ActiveLsoReportPage() {
                     ))}
                     {/* Grand total */}
                     <tr className="bg-slate-100 dark:bg-slate-800">
-                      <td className="sticky left-0 z-10 px-3 py-2 font-bold text-gray-900 dark:text-gray-100 bg-slate-100 dark:bg-slate-800 border-t-2 border-gray-300 dark:border-slate-600 border-r">
+                      <td className="px-3 py-2 font-bold text-gray-900 dark:text-gray-100 bg-slate-100 dark:bg-slate-800 border-t-2 border-gray-300 dark:border-slate-600 border-r">
                         {t("active_lso_report.summary.grand_total")}
                       </td>
                       <td className="px-3 py-2 font-bold text-gray-900 dark:text-gray-100 border-t-2 border-gray-300 dark:border-slate-600 border-r">
@@ -1347,7 +1361,7 @@ export default function ActiveLsoReportPage() {
               </div>
               <button
                 onClick={() => setShowConfig(false)}
-                className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+                className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
               >
                 <XIcon className="w-4 h-4 text-gray-400" />
               </button>
@@ -1397,14 +1411,14 @@ export default function ActiveLsoReportPage() {
                 <div className="px-5 py-4 border-t border-gray-100 dark:border-slate-800 flex items-center justify-end gap-2">
                   <button
                     onClick={() => setShowConfig(false)}
-                    className="px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                    className="px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
                     {t("common.cancel")}
                   </button>
                   <button
                     onClick={saveConfig}
                     disabled={savingConfig}
-                    className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                    className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors cursor-pointer"
                   >
                     {savingConfig ? t("active_lso_report.config.saving") : t("active_lso_report.config.save")}
                   </button>
@@ -1440,23 +1454,25 @@ export default function ActiveLsoReportPage() {
                   <>
                     <button
                       onClick={() => handleExportSingleRsoInactive(inactiveRetailerModal.employeeId, inactiveRetailerModal.rsoName)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       {t("active_lso_report.modal.export")}
                     </button>
-                    <button
-                      onClick={() => setWsModalOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                      {t("active_lso_report.modal.share")}
-                    </button>
+                    {canShare && (
+                      <button
+                        onClick={() => setWsModalOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors cursor-pointer"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        {t("active_lso_report.modal.share")}
+                      </button>
+                    )}
                   </>
                 )}
                 <button
                   onClick={() => setInactiveRetailerModal((prev) => ({ ...prev, open: false }))}
-                  className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+                  className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                 >
                   <XIcon className="w-4 h-4 text-gray-400" />
                 </button>
@@ -1549,8 +1565,8 @@ export default function ActiveLsoReportPage() {
         open={wsModalOpen}
         houseId={filters.houseId ? Number(filters.houseId) : null}
         reportType="active_lso"
-        title="Active LSO Report Delivery"
-        subtitle="Auto-send the Active LSO Report daily at a fixed time"
+        title={t("active_lso_report.whatsapp.title")}
+        subtitle={t("active_lso_report.whatsapp.subtitle")}
         onClose={() => setWsModalOpen(false)}
       />
     </div>

@@ -73,6 +73,7 @@ def _register_all():
     REPORT_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
 
     SCALE_AWARE_BUILDERS["ga_live"] = build_ga_live_report_image
+    SCALE_AWARE_BUILDERS["active_lso"] = build_active_lso_report_image
     SCALE_AWARE_BUILDERS["activation"] = build_activation_report_image
     SCALE_AWARE_BUILDERS["recharge"] = build_recharge_report_image
     SCALE_AWARE_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
