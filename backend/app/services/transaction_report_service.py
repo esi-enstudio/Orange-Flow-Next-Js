@@ -17,6 +17,17 @@ logger = logging.getLogger("app.services.TransactionReport")
 VALID_REPORT_TYPES = ("C2C", "C2S", "Balance")
 
 
+def non_zero_value_condition():
+    """SQL condition keeping only rows where a transaction actually happened.
+
+    A 0 (or NULL) amount means the retailer did not transact in that period, so
+    such rows must not show up in the records, the daily counts, the trend or the
+    export. The threshold report intentionally keeps them — it measures how many
+    retailers stay at or below a limit.
+    """
+    return func.coalesce(ITopUpDetail.daily_value, 0) != 0
+
+
 def parse_date(value: Optional[str], field: str) -> Optional[date]:
     if not value:
         return None
@@ -46,7 +57,7 @@ class TransactionReportService:
         self.retailer_id = retailer_id
 
     def _build_filters(self) -> list:
-        conditions = []
+        conditions = [non_zero_value_condition()]
         if self.house_id:
             conditions.append(ITopUpDetail.house_id == self.house_id)
         if self.report_type:
@@ -87,6 +98,28 @@ class TransactionReportService:
             "active_retailers": active_retailers,
             "daily_average": daily_average,
         }
+
+    async def get_enabled_retailer_count(self) -> Optional[int]:
+        """Total enabled retailers owned by the selected RSO in the active house.
+
+        The Daily Transactions table renders "active / total" in its Retailers
+        column, so the frontend needs the RSO's full enabled retailer base — which
+        is independent of the chosen date range and report type. Returns None when
+        the report is not narrowed down to a single RSO.
+        """
+        if not self.rso_id or self.retailer_id:
+            return None
+        query = (
+            select(func.count(Retailer.id))
+            .select_from(Retailer)
+            .where(
+                Retailer.employee_id == self.rso_id,
+                Retailer.enabled.ilike("y%"),
+            )
+        )
+        if self.house_id:
+            query = query.where(Retailer.house_id == self.house_id)
+        return int((await self.db.execute(query)).scalar() or 0)
 
     async def get_daily_groups(
         self, page: int = 1, per_page: int = 20
@@ -131,6 +164,7 @@ class TransactionReportService:
                 )
                 .join(Retailer, ITopUpDetail.retailer_id == Retailer.id)
                 .where(ITopUpDetail.report_date.in_(date_list))
+                .where(non_zero_value_condition())
                 .order_by(ITopUpDetail.report_date.desc(), Retailer.name.asc())
             )
             if self.house_id:
@@ -204,6 +238,15 @@ class TransactionReportService:
                 Retailer.house_id == self.house_id,
                 Retailer.enabled.ilike("y%"),
             )
+            # Offer only retailers that actually transacted in the selected period
+            # and report type — the picker must match what the report can show.
+            txn_conditions = self._build_filters()
+            if txn_conditions:
+                query = query.where(
+                    Retailer.id.in_(
+                        select(ITopUpDetail.retailer_id).where(and_(*txn_conditions))
+                    )
+                )
             if p:
                 query = query.where(
                     or_(

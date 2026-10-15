@@ -112,6 +112,7 @@ async def get_transactions_report(
     summary = await service.get_summary()
     trend = await service.get_daily_trend()
     groups, total = await service.get_daily_groups(pagination.page, pagination.per_page)
+    enabled_retailers = await service.get_enabled_retailer_count()
 
     total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
     return {
@@ -120,6 +121,7 @@ async def get_transactions_report(
         "summary": summary,
         "trend": trend,
         "data": groups,
+        "enabled_retailers": enabled_retailers,
         "pagination": {
             "page": pagination.page,
             "per_page": pagination.per_page,
@@ -135,13 +137,24 @@ async def get_transactions_report(
 async def get_transaction_entities(
     entity_type: str = Query("rso", pattern="^(rso|retailer)$"),
     search: Optional[str] = Query(None),
+    report_type: Optional[str] = Query(None, pattern="^(C2C|C2S|Balance)$", description="Report type"),
+    start_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     q_house_id: Optional[int] = Query(None, alias="house_id"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("transactions.view")),
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
+    try:
+        sd = parse_date(start_date, "start_date")
+        ed = parse_date(end_date, "end_date")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     target_house_id = await _resolve_house(db, current_user, q_house_id, header_house_id)
-    service = TransactionReportService(db, target_house_id)
+    # The period/report type narrow the retailer list down to retailers that
+    # actually have transactions there; the RSO list ignores them.
+    service = _build_service(db, target_house_id, report_type, sd, ed, None, None)
     return {"success": True, "data": await service.get_entities(entity_type, search)}
 
 

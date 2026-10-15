@@ -65,6 +65,8 @@ interface ReportData {
   trend: TrendPoint[];
   data: DailyGroup[];
   pagination: Pagination;
+  /** Enabled retailers of the selected RSO; null when no single RSO is selected. */
+  enabled_retailers: number | null;
 }
 
 interface HouseOption {
@@ -146,6 +148,96 @@ function formatDate(dateStr: string, lang: string): string {
   }
   return dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
+
+// ------------------------------------------------------- dropdown positioning
+
+// Height of the fixed mobile bottom bar; a dropdown must never open under it.
+const MOBILE_NAV_CLEARANCE = 76;
+// Search-input header height inside the entity dropdown panel.
+const ENTITY_MENU_HEADER = 46;
+
+interface EntityMenuPos {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+}
+
+interface ThrMenuPos {
+  top: number;
+  left: number;
+  width: number;
+}
+
+/**
+ * Visible viewport expressed in layout-viewport coordinates.
+ *
+ * On mobile the on-screen keyboard shrinks `visualViewport` (and, depending on
+ * the browser/`interactive-widget` setting, sometimes `innerHeight`) while a
+ * search input is focused. All panel math must use this instead of
+ * `window.innerHeight` alone, otherwise the panel either ends up behind the
+ * keyboard or is recomputed with the wrong flip direction.
+ */
+function viewportBounds(): { top: number; bottom: number; height: number } {
+  const vv = window.visualViewport;
+  return vv
+    ? { top: vv.offsetTop, bottom: vv.offsetTop + vv.height, height: vv.height }
+    : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
+}
+
+/**
+ * Position the entity list as a fixed panel that flips above the trigger when
+ * there is not enough room below. A plain `absolute` dropdown simply grew past
+ * the viewport on short mobile screens, which put the lower half of the list
+ * (and the whole list when the trigger sat low) out of reach.
+ *
+ * Returns null when the trigger is not mounted (panel stays closed).
+ */
+function computeEntityMenu(el: HTMLElement | null): EntityMenuPos | null {
+  if (!el) return null;
+  const rect = el.getBoundingClientRect();
+  const vp = viewportBounds();
+  const isMobile = window.innerWidth < 768;
+  const footerPad = isMobile ? MOBILE_NAV_CLEARANCE : 12;
+  const maxHeight = Math.max(180, Math.min(vp.height * 0.5, 360));
+
+  const width = Math.min(Math.max(rect.width, 260), window.innerWidth - 24);
+  const left = Math.max(Math.min(rect.left, window.innerWidth - width - 12), 12);
+
+  // Required height = search header + list.
+  const needed = ENTITY_MENU_HEADER + maxHeight;
+  const spaceBelow = vp.bottom - rect.bottom - footerPad;
+  const spaceAbove = rect.top - vp.top - footerPad;
+
+  const openBelow = spaceBelow >= Math.min(needed, 220) || spaceBelow >= spaceAbove;
+  const available = openBelow ? spaceBelow : spaceAbove;
+  const top = openBelow
+    ? vp.top + rect.bottom + 6
+    : Math.max(vp.top + rect.top - 6 - available, vp.top + footerPad);
+  const listHeight = Math.max(120, available - ENTITY_MENU_HEADER);
+
+  return { top, left, width, maxHeight: Math.min(maxHeight, listHeight) };
+}
+
+/** Same flip/clamp logic for the threshold report's RSO dropdown. */
+function computeThrRsoMenu(el: HTMLElement | null): ThrMenuPos | null {
+  if (!el) return null;
+  const rect = el.getBoundingClientRect();
+  const vp = viewportBounds();
+  const footerPad = window.innerWidth < 768 ? MOBILE_NAV_CLEARANCE : 12;
+  const menuW = Math.min(Math.max(rect.width, 280), window.innerWidth - 24);
+  const menuH = Math.min(vp.height * 0.5, 360);
+  const left = Math.max(Math.min(rect.left, window.innerWidth - menuW - 12), 12);
+  const below = rect.bottom + 6 + menuH <= vp.bottom - footerPad;
+  const top = below ? rect.bottom + 6 : Math.max(rect.top - menuH - 6, vp.top + footerPad);
+  return { top, left, width: menuW };
+}
+
+const sameEntityMenu = (a: EntityMenuPos | null, b: EntityMenuPos | null): boolean =>
+  !!a && !!b && a.top === b.top && a.left === b.left && a.width === b.width && a.maxHeight === b.maxHeight;
+
+const sameThrMenu = (a: ThrMenuPos | null, b: ThrMenuPos | null): boolean =>
+  !!a && !!b && a.top === b.top && a.left === b.left && a.width === b.width;
 
 // ------------------------------------------------------------------ skeleton
 
@@ -231,27 +323,57 @@ export default function TransactionsReportPage() {
     }
   }, [authLoading, hasPermission]);
 
-  const fetchEntities = useCallback(async (type: EntityType, search: string) => {
-    if (!selectedHouseId) {
-      setEntities([]);
-      return;
-    }
-    try {
-      const res = await apiClient.get("reports/transactions/entities", {
-        params: { entity_type: type, search: search || undefined, house_id: selectedHouseId },
-      });
-      setEntities(res.data?.data || []);
-    } catch {
-      setEntities([]);
-    }
-  }, [selectedHouseId]);
+  // Mirrors the current selection so `fetchEntities` can keep a picked option in
+  // the list without becoming a new callback on every pick (which would re-run
+  // every effect that depends on it).
+  const selectedEntityRef = useRef<string>("");
+  useEffect(() => {
+    selectedEntityRef.current = selectedEntity;
+  }, [selectedEntity]);
+
+  const fetchEntities = useCallback(
+    async (type: EntityType, search: string) => {
+      if (!selectedHouseId) {
+        setEntities([]);
+        return;
+      }
+      try {
+        const res = await apiClient.get("reports/transactions/entities", {
+          params: {
+            entity_type: type,
+            search: search || undefined,
+            house_id: selectedHouseId,
+            report_type: reportType,
+            start_date: dateRange.start,
+            end_date: dateRange.end,
+          },
+        });
+        const list: EntityOption[] = res.data?.data || [];
+        // The list is capped at 50 and now also filtered by period + report type,
+        // so a selected option can fall out of it on a refetch. Keep it around —
+        // otherwise the trigger would fall back to its placeholder label while
+        // the report is still filtered by that entity.
+        const selected = selectedEntityRef.current;
+        setEntities((prev) => {
+          if (!selected || list.some((o) => String(o.id) === selected)) return list;
+          const keep = prev.find((o) => String(o.id) === selected);
+          return keep ? [keep, ...list] : list;
+        });
+      } catch {
+        setEntities([]);
+      }
+    },
+    [selectedHouseId, reportType, dateRange.start, dateRange.end],
+  );
 
   useEffect(() => {
     setSelectedEntity("");
-    fetchEntities(entityType, "");
-  }, [entityType, selectedHouseId, fetchEntities]);
+  }, [entityType, selectedHouseId]);
 
   useEffect(() => {
+    // Single fetch path for every trigger (house, tab, period, report type and
+    // search) — running an extra immediate request next to this one would let the
+    // responses race each other.
     const timer = setTimeout(() => fetchEntities(entityType, entitySearch), 300);
     return () => clearTimeout(timer);
   }, [entitySearch, entityType, fetchEntities]);
@@ -265,28 +387,51 @@ export default function TransactionsReportPage() {
         setThrRsoOpen(false);
       }
     };
-    // Scroll fired by an element does NOT bubble, so listening in the bubble phase
-    // only ever reports page/ancestor scrolling. The containment check is a
-    // belt-and-braces guard so a dropdown that is scrolled internally always
-    // survives its own scroll.
-    const onScrollOrResize = (e: Event) => {
-      const target = e.target as Node | null;
-      if (target instanceof Node && target !== document) {
-        if (entityDropdownRef.current?.contains(target)) return;
-        if (thrRsoDropdownRef.current?.contains(target)) return;
+    // The on-screen keyboard (visual-viewport resize) and the browser scrolling
+    // a focused search input into view both fire while a panel is open. Closing
+    // on those events made the entity list vanish the moment its search box was
+    // tapped on mobile, so an open panel now re-follows its trigger instead and
+    // only closes once the trigger itself has scrolled out of the viewport.
+    // `capture: true` because scroll events never bubble — the capture phase is
+    // the only way to also see scrolling from inner scrollable containers.
+    const reposition = () => {
+      const outOfView = (el: HTMLButtonElement | null) => {
+        if (!el) return true;
+        const vp = viewportBounds();
+        const rect = el.getBoundingClientRect();
+        return rect.bottom <= vp.top || rect.top >= vp.bottom;
+      };
+      if (entityOpen) {
+        if (outOfView(entityTriggerRef.current)) {
+          setEntityOpen(false);
+        } else {
+          const next = computeEntityMenu(entityTriggerRef.current);
+          setEntityMenu((prev) => (sameEntityMenu(prev, next) ? prev : next));
+        }
       }
-      setEntityOpen(false);
-      setThrRsoOpen(false);
+      if (thrRsoOpen) {
+        if (outOfView(thrRsoTriggerRef.current)) {
+          setThrRsoOpen(false);
+        } else {
+          const next = computeThrRsoMenu(thrRsoTriggerRef.current);
+          setThrRsoMenu((prev) => (sameThrMenu(prev, next) ? prev : next));
+        }
+      }
     };
+
     document.addEventListener("mousedown", onClick);
-    window.addEventListener("scroll", onScrollOrResize);
-    window.addEventListener("resize", onScrollOrResize);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    window.visualViewport?.addEventListener("resize", reposition);
+    window.visualViewport?.addEventListener("scroll", reposition);
     return () => {
       document.removeEventListener("mousedown", onClick);
-      window.removeEventListener("scroll", onScrollOrResize);
-      window.removeEventListener("resize", onScrollOrResize);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+      window.visualViewport?.removeEventListener("resize", reposition);
+      window.visualViewport?.removeEventListener("scroll", reposition);
     };
-  }, []);
+  }, [entityOpen, thrRsoOpen]);
 
   const fetchThrRsoOptions = useCallback(async (search: string) => {
     if (!selectedHouseId) {
@@ -397,45 +542,27 @@ export default function TransactionsReportPage() {
     setThrExpanded(null);
   };
 
-  // Height of the fixed mobile bottom bar; the dropdown must never open under it.
-  const MOBILE_NAV_CLEARANCE = 76;
-  const ENTITY_MENU_HEADER = 46;
+  // Daily Transactions "Retailers" column shows "active / total enabled" for the
+  // selected RSO (backend sends enabled_retailers). With no single RSO selected
+  // (All RSOs) or a single retailer selected, only the per-day count is shown.
+  const totalEnabledRetailers =
+    entityType === "rso" && selectedEntity && data?.enabled_retailers != null
+      ? data.enabled_retailers
+      : null;
 
-  /**
-   * Position the entity list as a fixed panel that flips above the trigger when
-   * there is not enough room below. A plain `absolute` dropdown simply grew past
-   * the viewport on short mobile screens, which put the lower half of the list
-   * (and the whole list when the trigger sat low) out of reach.
-   */
+  const retailerCountLabel = (activeCount: number): string =>
+    totalEnabledRetailers != null
+      ? `${formatNumber(activeCount)} / ${formatNumber(totalEnabledRetailers)}`
+      : formatNumber(activeCount);
+
   const toggleEntityMenu = () => {
     if (entityOpen) {
       setEntityOpen(false);
       return;
     }
-    const el = entityTriggerRef.current;
-    if (!el) {
-      setEntityOpen(true);
-      return;
-    }
-    const rect = el.getBoundingClientRect();
-    const isMobile = window.innerWidth < 768;
-    const footerPad = isMobile ? MOBILE_NAV_CLEARANCE : 12;
-    const maxHeight = Math.max(180, Math.min(window.innerHeight * 0.5, 360));
-
-    const width = Math.min(Math.max(rect.width, 260), window.innerWidth - 24);
-    const left = Math.max(Math.min(rect.left, window.innerWidth - width - 12), 12);
-
-    // Required height = search header + list.
-    const needed = ENTITY_MENU_HEADER + maxHeight;
-    const spaceBelow = window.innerHeight - rect.bottom - footerPad;
-    const spaceAbove = rect.top - footerPad;
-
-    const openBelow = spaceBelow >= Math.min(needed, 220) || spaceBelow >= spaceAbove;
-    const available = openBelow ? spaceBelow : spaceAbove;
-    const top = openBelow ? rect.bottom + 6 : Math.max(rect.top - 6 - available, footerPad);
-    const listHeight = Math.max(120, available - ENTITY_MENU_HEADER);
-
-    setEntityMenu({ top, left, width, maxHeight: Math.min(maxHeight, listHeight) });
+    // Geometry is computed module-side (computeEntityMenu) so the open handler
+    // and the viewport reposition listener always share the exact same math.
+    setEntityMenu(computeEntityMenu(entityTriggerRef.current));
     setEntityOpen(true);
   };
 
@@ -444,19 +571,9 @@ export default function TransactionsReportPage() {
       setThrRsoOpen(false);
       return;
     }
-    const el = thrRsoTriggerRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    // Keep the panel clear of the fixed mobile bottom bar.
-    const footerPad = window.innerWidth < 768 ? 76 : 12;
-    const menuW = Math.min(Math.max(rect.width, 280), window.innerWidth - 24);
-    const menuH = Math.min(window.innerHeight * 0.5, 360);
-    const left = Math.max(Math.min(rect.left, window.innerWidth - menuW - 12), 12);
-    const below = rect.bottom + 6 + menuH <= window.innerHeight - footerPad;
-    const top = below
-      ? rect.bottom + 6
-      : Math.max(rect.top - menuH - 6, footerPad);
-    setThrRsoMenu({ top, left, width: menuW });
+    const menu = computeThrRsoMenu(thrRsoTriggerRef.current);
+    if (!menu) return;
+    setThrRsoMenu(menu);
     setThrRsoOpen(true);
   };
 
@@ -637,6 +754,7 @@ export default function TransactionsReportPage() {
                 <div className="p-2 border-b border-gray-50 dark:border-slate-800">
                   <input
                     type="text"
+                    autoFocus
                     value={entitySearch}
                     onChange={(e) => setEntitySearch(e.target.value)}
                     placeholder={t("transactions_report.filters.search_placeholder")}
@@ -882,7 +1000,9 @@ export default function TransactionsReportPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatDate(g.date, language)}</p>
-                        <p className="text-[11px] text-gray-400 dark:text-gray-500">{g.retailer_count} {t("transactions_report.table.retailers")} • {g.record_count} {t("transactions_report.table.records")}</p>
+                        <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                          {retailerCountLabel(g.retailer_count)} {t("transactions_report.table.retailers")} • {g.record_count} {t("transactions_report.table.records")}
+                        </p>
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(g.total_value)}</p>
@@ -917,9 +1037,14 @@ export default function TransactionsReportPage() {
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
                     <th className="px-4 py-3">{t("transactions_report.table.date")}</th>
-                    <th className="px-4 py-3 text-right">{t("transactions_report.table.value")}</th>
-                    <th className="px-4 py-3 text-center">{t("transactions_report.table.records")}</th>
-                    <th className="px-4 py-3 text-center">{t("transactions_report.table.retailers")}</th>
+                    <th className="px-4 py-3 text-right">{t("transactions_report.table.amount")}</th>
+                    <th className="px-4 py-3 text-center">{t("transactions_report.table.trans_count")}</th>
+                    <th
+                      className="px-4 py-3 text-center"
+                      title={totalEnabledRetailers != null ? t("transactions_report.table.retailers_hint") : undefined}
+                    >
+                      {t("transactions_report.table.retailers")}
+                    </th>
                     <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
@@ -942,8 +1067,11 @@ export default function TransactionsReportPage() {
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-center">
-                            <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                              {formatNumber(g.retailer_count)}
+                            <span
+                              className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+                              title={totalEnabledRetailers != null ? t("transactions_report.table.retailers_hint") : undefined}
+                            >
+                              {retailerCountLabel(g.retailer_count)}
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-right">
