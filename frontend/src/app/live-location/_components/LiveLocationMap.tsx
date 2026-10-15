@@ -5,12 +5,16 @@ import L from "leaflet";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { employeeIdentifierValue } from "@/lib/employeeIdentifier";
 
 export interface LiveMapItem {
   employee_id: number;
   employee_name?: string | null;
   employee_type?: string | null;
   dms_code?: string | null;
+  // Identity card content — the map prints these into the marker's label.
+  itop_number?: string | null;
+  pool_number?: string | null;
   latitude: number;
   longitude: number;
   battery_percent?: number | null;
@@ -62,6 +66,105 @@ function pinIcon(item: LiveMapItem, selected: boolean) {
     iconAnchor: [size / 2, size * 1.38],
     popupAnchor: [0, -size * 1.3],
   });
+}
+
+/**
+ * Below this zoom the identity cards would sit on top of each other (a card is
+ * ~176px wide, i.e. hundreds of metres at low zoom), so only pins are drawn.
+ * The selected marker keeps its card at any zoom.
+ */
+const LABEL_MIN_ZOOM = 14;
+const LABEL_WIDTH = 176;
+// Card is box-sized to exactly this height (avatar row 22 + gap 4 + code line 12
+// + padding 12 + border 2) so the pin tip always lands on the exact coordinate.
+const LABEL_HEIGHT = 52;
+
+/**
+ * divIcon HTML is assigned with innerHTML, and employee names/dms codes come
+ * from imported spreadsheets, so every interpolated value must be escaped.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** System has no employee photos, so the avatar is generated from initials. */
+function initialsOf(item: LiveMapItem): string {
+  const words = (item.employee_name || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toLocaleUpperCase();
+  if (words.length === 1) return words[0].slice(0, 2).toLocaleUpperCase();
+  const code = (item.dms_code || "").trim();
+  if (code) return code.slice(0, 2).toLocaleUpperCase();
+  return "#";
+}
+
+/**
+ * Pin with an always-visible identity card above it: avatar, name and the
+ * DMS / iTopUp (or pool) numbers, so the operator can read who is who without
+ * clicking every marker. The card sits above the pin tip, leaving the exact
+ * location point uncovered; the popup (online status, battery) sits above the
+ * card so it never covers it.
+ */
+function labelIcon(item: LiveMapItem, selected: boolean) {
+  const color = pinColor(item);
+  const size = selected ? 34 : 26;
+  const pinHeight = Math.round(size * 1.38);
+  const name =
+    (item.employee_name || "").trim() || item.dms_code || `#${item.employee_id}`;
+  const codes = [item.dms_code, employeeIdentifierValue(item)]
+    .filter(Boolean)
+    .join(" · ");
+  const accessibleName = codes ? `${name} (${codes})` : name;
+
+  const html = `
+    <div style="position:relative;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 3px rgba(15,23,42,.35));">
+      <div title="${escapeHtml(accessibleName)}" style="width:${LABEL_WIDTH}px;height:${LABEL_HEIGHT}px;box-sizing:border-box;background:#ffffff;border:1px solid rgba(203,213,225,.9);border-radius:12px;padding:6px 9px;text-align:left;overflow:hidden;display:flex;flex-direction:column;justify-content:center;">
+        <div style="display:flex;align-items:center;gap:6px;min-width:0;height:22px;">
+          <span style="flex:0 0 auto;width:22px;height:22px;border-radius:9999px;background:${color};color:#ffffff;font-size:10px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;">${escapeHtml(initialsOf(item))}</span>
+          <span style="min-width:0;font-size:12px;font-weight:600;line-height:22px;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(name)}</span>
+        </div>
+        <div style="margin-top:4px;font-size:10px;line-height:12px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(codes)}</div>
+      </div>
+      <div style="position:relative;display:flex;align-items:flex-end;justify-content:center;">
+        ${selected ? `<span style="position:absolute;bottom:-2px;left:50%;transform:translateX(-50%);width:${size + 12}px;height:${size + 12}px;border-radius:9999px;background:${color};opacity:.18;animation:oflpulse 1.6s ease-out infinite;"></span>` : ""}
+        <svg width="${size}" height="${pinHeight}" viewBox="0 0 26 36" xmlns="http://www.w3.org/2000/svg">
+          <path d="M13 0C5.8 0 0 5.8 0 13c0 9.7 13 23 13 23s13-13.3 13-23C26 5.8 20.2 0 13 0z" fill="${color}" stroke="#ffffff" stroke-width="2"/>
+          <circle cx="13" cy="13" r="4.6" fill="#ffffff"/>
+        </svg>
+      </div>
+    </div>`;
+
+  return L.divIcon({
+    html,
+    className: "",
+    iconSize: [LABEL_WIDTH, LABEL_HEIGHT + pinHeight],
+    iconAnchor: [LABEL_WIDTH / 2, LABEL_HEIGHT + pinHeight],
+    // Popups grow upward, so anchor it above the card or it would cover it.
+    popupAnchor: [0, -(LABEL_HEIGHT + pinHeight) - 4],
+  });
+}
+
+/**
+ * Publishes the current zoom level so the parent can swap pin <-> labelled icon.
+ * Leaflet only fires `zoomend`, so listen there and push the value on mount too.
+ */
+function ZoomWatcher({ onZoom }: { onZoom: (zoom: number) => void }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const push = () => onZoom(map.getZoom());
+    push();
+    map.on("zoomend", push);
+    return () => {
+      map.off("zoomend", push);
+    };
+  }, [map, onZoom]);
+
+  return null;
 }
 
 function MapController({
@@ -138,6 +241,9 @@ export default function LiveLocationMap({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(false);
+  // Zoom at which the marker's identity card becomes visible; published by
+  // ZoomWatcher so marker icons can be swapped without re-mounting the map.
+  const [zoom, setZoom] = useState<number>(7);
 
   useEffect(() => {
     setCanFullscreen(
@@ -164,6 +270,10 @@ export default function LiveLocationMap({
     }
   }, []);
 
+  // Identity cards are drawn at zoom >= LABEL_MIN_ZOOM so they never pile on
+  // top of each other, but the employee the operator picked always keeps it.
+  const showLabels = zoom >= LABEL_MIN_ZOOM;
+
   return (
     <div ref={rootRef} className="live-map-root relative h-full w-full overflow-hidden rounded-2xl isolate">
       <style>{`@keyframes oflpulse{0%{transform:translateX(-50%) scale(.6);opacity:.35}100%{transform:translateX(-50%) scale(1.6);opacity:0}}.live-map-root:fullscreen{border-radius:0;height:100%;width:100%}.live-map-root:-webkit-full-screen{border-radius:0;height:100%;width:100%}`}</style>
@@ -188,14 +298,19 @@ export default function LiveLocationMap({
           />
         )}
 
-        {items.map((item) =>
-          Number.isFinite(item.latitude) && Number.isFinite(item.longitude) ? (
+        {items.map((item) => {
+          if (!Number.isFinite(item.latitude) || !Number.isFinite(item.longitude)) {
+            return null;
+          }
+          const isSelected = item.employee_id === selectedId;
+          const showLabel = showLabels || isSelected;
+          return (
             <Marker
               key={item.employee_id}
               position={[item.latitude, item.longitude]}
-              icon={pinIcon(item, item.employee_id === selectedId)}
+              icon={showLabel ? labelIcon(item, isSelected) : pinIcon(item, isSelected)}
               eventHandlers={{ click: () => onSelect(item.employee_id) }}
-              zIndexOffset={item.employee_id === selectedId ? 1000 : 0}
+              zIndexOffset={isSelected ? 2000 : showLabel ? 1000 : 0}
             >
               <Popup>
                 <div className="min-w-[150px] space-y-0.5">
@@ -212,11 +327,12 @@ export default function LiveLocationMap({
                 </div>
               </Popup>
             </Marker>
-          ) : null
-        )}
+          );
+        })}
 
         <MapController items={items} selectedId={selectedId} fitSignal={fitSignal} />
         <MapResizeHandler />
+        <ZoomWatcher onZoom={setZoom} />
       </MapContainer>
 
       {canFullscreen && (
