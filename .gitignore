@@ -81,6 +81,9 @@ temp_downloads/
 
 # Uploads (profile pictures, etc.)
 backend/uploads/
+# Private employee documents (NID scans, certificates) - streamed only through
+# the permission-guarded API, never through the public /uploads mount.
+backend/private_uploads/
 # Deploy runtime state (shared between host & backend container)
 backend/.deploy/
 

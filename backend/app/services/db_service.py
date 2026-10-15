@@ -12,6 +12,7 @@ import app.models.retailer
 import app.models.retailer_marking
 import app.models.rule_config
 import app.models.employee
+import app.models.employee_document
 import app.models.supervisor_assignment
 import app.models.bts
 import app.models.ga_filter
@@ -342,6 +343,23 @@ async def _migrate_employee_name():
                 logger.info(f"Migration: backfilled employee_name for {backfilled.rowcount} employee(s) from linked users")
     except Exception as e:
         logger.warning(f"Migration warning (employees.employee_name): {e}")
+
+async def _migrate_employee_photo_url():
+    """Add employees.photo_url for the profile photo uploaded from the
+    Register/Edit Employee modal."""
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='employees' AND column_name='photo_url'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating employees: adding photo_url column...")
+            await conn.execute(text("ALTER TABLE employees ADD COLUMN photo_url VARCHAR(500)"))
+            logger.info("Migration complete: employees.photo_url")
+    except Exception as e:
+        logger.warning(f"Migration warning (employees.photo_url): {e}")
+
 
 async def _migrate_supervisor_member_rename():
     """Rename supervisor_rso_assignments.rso_employee_id -> member_employee_id.
@@ -1371,6 +1389,13 @@ async def _migrate_location_telemetry_columns():
 
 async def init_db():
     try:
+        # Files staged from an employee modal that was never saved are useless
+        # after a restart - purge them before serving traffic.
+        from app.services.employee_documents import cleanup_stale_staging_files, ensure_storage_dirs
+
+        ensure_storage_dirs()
+        cleanup_stale_staging_files()
+
         await _drop_legacy_ga_section_config_table()
         await _migrate_supervisor_member_rename()
         async with engine.begin() as conn:
@@ -1382,6 +1407,7 @@ async def init_db():
         await _migrate_rule_included_employee_to_emp_id()
         await _migrate_employee_sr_no()
         await _migrate_employee_name()
+        await _migrate_employee_photo_url()
         await _migrate_supervisor_rso_pivot()
         await _migrate_retailer_employee_link()
         await _migrate_activation_employee_id()

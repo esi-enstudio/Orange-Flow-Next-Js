@@ -531,14 +531,16 @@ export default function GAQueryPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">
-              {t("ga_query.title")}
-            </h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">
+                {t("ga_query.title")}
+              </h1>
+              <PageGuideModal pageKey="ga_query" />
+            </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {t("ga_query.subtitle")}
             </p>
           </div>
-          <PageGuideModal pageKey="ga_query" />
         </div>
 
         {/* Filters Panel */}

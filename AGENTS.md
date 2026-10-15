@@ -1839,15 +1839,21 @@ Frontend translation file:
 
 ## Objective
 
-Every page must have a bilingual (বাংলা/English) **Guide** button that opens a modal explaining the page to newcomers — what it does, each option, common workflows, and important notes.
+Every page must have a bilingual (বাংলা/English) **Guide** trigger that opens a modal explaining the page to newcomers — what it does, each option, common workflows, and important notes. The trigger is an **icon-only button placed at the end of the page title** — it must not sit as a separate labelled button inside the header action group.
 
 ## Implementation
 
 - **Reusable component:** `frontend/src/components/PageGuideModal.tsx`
   ```tsx
-  <PageGuideModal pageKey="scratch_card_serials" />
+  <div className="flex items-center gap-2.5">
+    <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("scratch_card_serials.title")}</h1>
+    <PageGuideModal pageKey="scratch_card_serials" />
+  </div>
   ```
-  `pageKey` is the page's translation namespace. The component renders both the trigger button and the modal (portal + body scroll lock + framer-motion).
+  `pageKey` is the page's translation namespace. The component renders both the icon-only trigger and the modal (portal + body scroll lock + framer-motion). It renders nothing when the page has no `guide.*` translations.
+  - The trigger is a small round `HelpCircle` icon (24x24 visual on desktop, 40x40 touch target on mobile) with `title` + `aria-label` for accessibility — no visible text label.
+  - Place it **immediately after the `<h1>`** inside the same flex row, so the icon reads as the tail of the page title.
+  - The icon stays outside the `<h1>` element itself (button as a sibling, not a child) so the heading's accessible name stays clean.
 
 - **Content** authored in `frontend/src/i18n/translations.ts` under each page's namespace:
   - `guide.title` — modal heading
@@ -1861,11 +1867,13 @@ Every page must have a bilingual (বাংলা/English) **Guide** button that
 
 ## Rules
 
-1. Every page must include `<PageGuideModal pageKey="<namespace>" />` in its header button group
-2. Every page must have complete `guide.*` content in `translations.ts` (en + bn)
-3. Minimum keys per page: `title`, `overview`, plus at least `features_title` and one `features.f1`
-4. If `guide.overview` is missing, the component safely renders nothing — no breakage
-5. Guide buttons are informational (no extra permission required beyond the page's view permission)
+1. Every page must include `<PageGuideModal pageKey="<namespace>" />` right after its `<h1>` page title (same flex row) — **never** as a standalone button in the header action group / toolbar
+2. For panel or embedded views (cards inside another page, drawer panels) apply the same idea: icon after the panel title, not in the panel's action row
+3. Every page must have complete `guide.*` content in `translations.ts` (en + bn)
+4. Minimum keys per page: `title`, `overview`, plus at least `features_title` and one `features.f1`
+5. If `guide.overview` is missing, the component safely renders nothing — no breakage
+6. Guide trigger is informational (no extra permission required beyond the page's view permission)
+7. Icon-only trigger must keep a mobile touch target of at least 40x40px and show `cursor-pointer` on hover
 
 ## Status Calculation Rules (Time-Based)
 

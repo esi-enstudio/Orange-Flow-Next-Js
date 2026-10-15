@@ -1,10 +1,41 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
+from typing import List, Literal, Optional
 from datetime import datetime
 from app.schemas.user import UserSchema
 from app.schemas.house import HouseSchema
 
 MARKET_TYPES = ("Urban", "Rural", "HVLP", "BL Core")
+MAX_ATTACHMENTS_PER_REQUEST = 20
+
+
+class EmployeeAttachmentInput(BaseModel):
+    """A staged file waiting to be linked to the employee (photo or document).
+
+    `staged_id` comes from POST /api/employees/documents/stage; the file is
+    moved out of staging when the employee is created/updated.
+    """
+    staged_id: str = Field(min_length=32, max_length=32)
+    kind: Literal["photo", "document"] = "document"
+    doc_type: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("staged_id")
+    @classmethod
+    def validate_staged_id(cls, v: str) -> str:
+        if len(v) != 32 or any(c not in "0123456789abcdef" for c in v.lower()):
+            raise ValueError("staged_id is not a valid upload id")
+        return v.lower()
+
+    @field_validator("doc_type")
+    @classmethod
+    def validate_doc_type(cls, v):
+        from app.models.employee_document import EMPLOYEE_DOCUMENT_TYPES
+
+        if v is None:
+            return "other"
+        if v not in EMPLOYEE_DOCUMENT_TYPES:
+            raise ValueError(f"doc_type must be one of: {', '.join(EMPLOYEE_DOCUMENT_TYPES)}")
+        return v
 
 class EmployeeSchema(BaseModel):
     id: int
@@ -50,6 +81,7 @@ class EmployeeSchema(BaseModel):
     resigned_date: Optional[str] = None
     market_type: Optional[str] = None
     salary: Optional[str] = None
+    photo_url: Optional[str] = None
     retailer_count: int = 0
     retailer_enabled_count: int = 0
     retailer_disabled_count: int = 0
@@ -95,6 +127,19 @@ class EmployeeCreate(BaseModel):
     resigned_date: Optional[str] = None
     market_type: Optional[str] = None
     salary: Optional[str] = None
+
+    # Attachments uploaded through the employee modal. Staged file ids are
+    # consumed on save (moved out of staging and linked to the employee).
+    attachments: Optional[List[EmployeeAttachmentInput]] = None
+    remove_document_ids: Optional[List[int]] = None
+    remove_photo: Optional[bool] = None
+
+    @field_validator('attachments')
+    @classmethod
+    def validate_attachments(cls, v):
+        if v is not None and len(v) > MAX_ATTACHMENTS_PER_REQUEST:
+            raise ValueError(f'At most {MAX_ATTACHMENTS_PER_REQUEST} attachments are allowed per request')
+        return v
 
     @field_validator('employee_type')
     @classmethod

@@ -460,9 +460,12 @@ export default function RuleConfigPage() {
             <Sliders className="w-5 h-5 text-primary-600 dark:text-primary-400" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">
-              {t("rule_config.list.title")}
-            </h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                {t("rule_config.list.title")}
+              </h1>
+              <PageGuideModal pageKey="rule_config" />
+            </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
               {t("rule_config.list.subtitle")}
             </p>
@@ -493,9 +496,6 @@ export default function RuleConfigPage() {
               </select>
             </div>
           )}
-          <div className="order-2 sm:order-3 flex-1 sm:flex-none min-w-0">
-            <PageGuideModal pageKey="rule_config" />
-          </div>
         </div>
       </div>
 

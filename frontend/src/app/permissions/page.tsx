@@ -283,14 +283,16 @@ function PermissionsManager() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {t("permissions.manager_title")}
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              {t("permissions.manager_title")}
+            </h1>
+            <PageGuideModal pageKey="permissions" />
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t("permissions.manager_description")}
           </p>
         </div>
-        <PageGuideModal pageKey="permissions" />
       </div>
 
       <div className="flex gap-1.5 items-center p-1 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-2xl w-full sm:w-fit">

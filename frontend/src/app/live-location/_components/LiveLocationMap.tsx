@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { Maximize2, Minimize2 } from "lucide-react";
-import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { employeeIdentifierValue } from "@/lib/employeeIdentifier";
 
@@ -64,20 +64,26 @@ function pinIcon(item: LiveMapItem, selected: boolean) {
     className: "",
     iconSize: [size, size * 1.38],
     iconAnchor: [size / 2, size * 1.38],
-    popupAnchor: [0, -size * 1.3],
   });
 }
 
 /**
  * Below this zoom the identity cards would sit on top of each other (a card is
- * ~176px wide, i.e. hundreds of metres at low zoom), so only pins are drawn.
- * The selected marker keeps its card at any zoom.
+ * up to ~176px wide, i.e. hundreds of metres at low zoom), so only pins are
+ * drawn. The selected marker keeps its card at any zoom.
  */
 const LABEL_MIN_ZOOM = 14;
+
+/**
+ * Cards hug their content — a short name with short codes draws a narrow card
+ * instead of a half-empty 176px one — but never grow past LABEL_WIDTH, or a
+ * long "Md. ..." name would span hundreds of metres at map zoom.
+ */
 const LABEL_WIDTH = 176;
 // Card is box-sized to exactly this height (avatar row 22 + gap 4 + code line 12
-// + padding 12 + border 2) so the pin tip always lands on the exact coordinate.
-const LABEL_HEIGHT = 52;
+// + gap 4 + status line 12 + padding 12 + border 2) so the pin tip always lands
+// on the exact coordinate.
+const LABEL_HEIGHT = 68;
 
 /**
  * divIcon HTML is assigned with innerHTML, and employee names/dms codes come
@@ -103,13 +109,54 @@ function initialsOf(item: LiveMapItem): string {
 }
 
 /**
- * Pin with an always-visible identity card above it: avatar, name and the
- * DMS / iTopUp (or pool) numbers, so the operator can read who is who without
- * clicking every marker. The card sits above the pin tip, leaving the exact
- * location point uncovered; the popup (online status, battery) sits above the
- * card so it never covers it.
+ * Battery colours follow the same palette as the page's battery chip:
+ * blue while charging, amber below the low threshold, green when healthy.
  */
-function labelIcon(item: LiveMapItem, selected: boolean) {
+function batteryColor(item: LiveMapItem): string {
+  if (item.battery_status === "charging") return "#3b82f6";
+  if (item.battery_status === "low") return "#f59e0b";
+  if (item.battery_percent != null) return "#059669";
+  return "#94a3b8";
+}
+
+/**
+ * Tiny SVG battery for the identity card — divIcon HTML cannot use React
+ * components, so the shell/fill are drawn inline. The fill width mirrors
+ * `battery_percent`; while charging a bolt replaces the fill, matching the
+ * BatteryCharging icon used elsewhere on the page.
+ */
+function batteryGlyph(item: LiveMapItem): string {
+  const color = batteryColor(item);
+  const pct =
+    item.battery_percent == null
+      ? null
+      : Math.max(0, Math.min(100, item.battery_percent));
+  const inner =
+    item.battery_status === "charging"
+      ? `<path d="M7.6 1.6 L4.1 5.5 H6.3 L5.1 8.4 L8.6 4.5 H6.4 Z" fill="${color}"/>`
+      : `<rect x="2" y="2" width="${pct == null ? 0 : ((pct / 100) * 9).toFixed(1)}" height="6" rx="1" fill="${color}"/>`;
+
+  return `
+    <span style="display:inline-flex;align-items:center;gap:3px;flex:0 0 auto;">
+      <svg width="15" height="10" viewBox="0 0 15 10" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="12" height="9" rx="2" fill="none" stroke="${color}" stroke-width="1"/>
+        <rect x="13.8" y="3.2" width="1.2" height="3.6" rx="0.6" fill="${color}"/>
+        ${inner}
+      </svg>
+      <span style="font-size:10px;font-weight:600;line-height:12px;color:${color};white-space:nowrap;">${
+        pct == null ? "—" : `${Math.round(pct)}%`
+      }</span>
+    </span>`;
+}
+
+/**
+ * Pin with an always-visible identity card above it: avatar, name, the
+ * DMS / iTopUp (or pool) numbers plus the live status (online/offline) and
+ * battery level, so the operator can read who is where and how each device is
+ * doing without clicking every marker. The card sits above the pin tip,
+ * leaving the exact location point uncovered.
+ */
+function labelIcon(item: LiveMapItem, selected: boolean, labels: LiveMapLabels) {
   const color = pinColor(item);
   const size = selected ? 34 : 26;
   const pinHeight = Math.round(size * 1.38);
@@ -118,16 +165,29 @@ function labelIcon(item: LiveMapItem, selected: boolean) {
   const codes = [item.dms_code, employeeIdentifierValue(item)]
     .filter(Boolean)
     .join(" · ");
-  const accessibleName = codes ? `${name} (${codes})` : name;
+  const statusLabel = item.is_online ? labels.online : labels.offline;
+  const statusColor = item.is_online ? "#059669" : "#64748b";
+  const batteryLabel =
+    item.battery_percent != null ? `${Math.round(item.battery_percent)}%` : "";
+  const accessibleName = [codes ? `${name} (${codes})` : name, statusLabel, batteryLabel]
+    .filter(Boolean)
+    .join(" · ");
 
   const html = `
     <div style="position:relative;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 3px rgba(15,23,42,.35));">
-      <div title="${escapeHtml(accessibleName)}" style="width:${LABEL_WIDTH}px;height:${LABEL_HEIGHT}px;box-sizing:border-box;background:#ffffff;border:1px solid rgba(203,213,225,.9);border-radius:12px;padding:6px 9px;text-align:left;overflow:hidden;display:flex;flex-direction:column;justify-content:center;">
+      <div title="${escapeHtml(accessibleName)}" style="width:max-content;max-width:${LABEL_WIDTH}px;height:${LABEL_HEIGHT}px;box-sizing:border-box;background:#ffffff;border:1px solid rgba(203,213,225,.9);border-radius:12px;padding:6px 9px;text-align:left;overflow:hidden;display:flex;flex-direction:column;justify-content:center;">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;height:22px;">
           <span style="flex:0 0 auto;width:22px;height:22px;border-radius:9999px;background:${color};color:#ffffff;font-size:10px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;">${escapeHtml(initialsOf(item))}</span>
           <span style="min-width:0;font-size:12px;font-weight:600;line-height:22px;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(name)}</span>
         </div>
         <div style="margin-top:4px;font-size:10px;line-height:12px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(codes)}</div>
+        <div style="margin-top:4px;display:flex;align-items:center;justify-content:space-between;gap:6px;">
+          <span style="display:inline-flex;align-items:center;gap:4px;min-width:0;">
+            <span style="flex:0 0 auto;width:6px;height:6px;border-radius:9999px;background:${item.is_online ? "#10b981" : "#64748b"};"></span>
+            <span style="font-size:10px;font-weight:600;line-height:12px;color:${statusColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(statusLabel)}</span>
+          </span>
+          ${batteryGlyph(item)}
+        </div>
       </div>
       <div style="position:relative;display:flex;align-items:flex-end;justify-content:center;">
         ${selected ? `<span style="position:absolute;bottom:-2px;left:50%;transform:translateX(-50%);width:${size + 12}px;height:${size + 12}px;border-radius:9999px;background:${color};opacity:.18;animation:oflpulse 1.6s ease-out infinite;"></span>` : ""}
@@ -143,8 +203,6 @@ function labelIcon(item: LiveMapItem, selected: boolean) {
     className: "",
     iconSize: [LABEL_WIDTH, LABEL_HEIGHT + pinHeight],
     iconAnchor: [LABEL_WIDTH / 2, LABEL_HEIGHT + pinHeight],
-    // Popups grow upward, so anchor it above the card or it would cover it.
-    popupAnchor: [0, -(LABEL_HEIGHT + pinHeight) - 4],
   });
 }
 
@@ -308,25 +366,14 @@ export default function LiveLocationMap({
             <Marker
               key={item.employee_id}
               position={[item.latitude, item.longitude]}
-              icon={showLabel ? labelIcon(item, isSelected) : pinIcon(item, isSelected)}
+              icon={
+                showLabel
+                  ? labelIcon(item, isSelected, labels)
+                  : pinIcon(item, isSelected)
+              }
               eventHandlers={{ click: () => onSelect(item.employee_id) }}
               zIndexOffset={isSelected ? 2000 : showLabel ? 1000 : 0}
-            >
-              <Popup>
-                <div className="min-w-[150px] space-y-0.5">
-                  <p className="text-sm font-semibold text-gray-900">
-                    {item.employee_name || item.dms_code || `#${item.employee_id}`}
-                  </p>
-                  {item.dms_code && (
-                    <p className="text-[11px] text-gray-500">{item.dms_code}</p>
-                  )}
-                  <p className="text-[11px]" style={{ color: pinColor(item) }}>
-                    {item.is_online ? labels.online : labels.offline}
-                    {item.battery_percent != null ? ` · ${item.battery_percent}%` : ""}
-                  </p>
-                </div>
-              </Popup>
-            </Marker>
+            />
           );
         })}
 

@@ -78,6 +78,13 @@ interface EmployeeOption {
   house_name: string | null;
 }
 
+interface House {
+  id: number;
+  name: string;
+  code: string;
+  display_name: string;
+}
+
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -103,10 +110,13 @@ function speedKmh(point: TravelPoint): number | null {
 }
 
 export default function TravelHistoryPage() {
-  const { loading: authLoading, hasPermission, selectedHouse } = useAuth();
+  const { loading: authLoading, hasPermission } = useAuth();
   const { t } = useLanguage();
 
   const canViewHistory = hasPermission("location.history");
+
+  const [houses, setHouses] = useState<House[]>([]);
+  const [houseId, setHouseId] = useState("");
 
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeesLoading, setEmployeesLoading] = useState(true);
@@ -122,11 +132,14 @@ export default function TravelHistoryPage() {
 
   const mapRef = useRef<HTMLDivElement | null>(null);
 
+  // Same house-scoping contract as the live-location page: send X-House-ID for
+  // the picked house, and let the backend fall back to the user's own houses
+  // when "All houses" is selected.
   const headers = useMemo(() => {
     const h: Record<string, string> = {};
-    if (selectedHouse?.id) h["X-House-ID"] = String(selectedHouse.id);
+    if (houseId) h["X-House-ID"] = houseId;
     return h;
-  }, [selectedHouse]);
+  }, [houseId]);
 
   const typeLabel = useCallback(
     (type?: string | null) => {
@@ -183,6 +196,34 @@ export default function TravelHistoryPage() {
     fetchTravel(empId, date);
   }, [authLoading, canViewHistory, empId, date, fetchTravel]);
 
+  // Fetch accessible houses once (same source as the live-location page).
+  useEffect(() => {
+    if (authLoading || !canViewHistory) return;
+    apiClient
+      .get("houses/accessible")
+      .then((res) => setHouses(res.data || []))
+      .catch(() => {});
+  }, [authLoading, canViewHistory]);
+
+  // The employee list is re-scoped by the picked house. An employee selected
+  // from another house would 403 on the movement API, so the day's data is
+  // dropped and the user is asked to pick again.
+  useEffect(() => {
+    setEmpId("");
+    setData(null);
+    setLoadError(false);
+    setSelectedIndex(null);
+  }, [houseId]);
+
+  const houseItems: SelectorItem[] = useMemo(
+    () =>
+      houses.map((h) => ({
+        id: String(h.id),
+        label: h.display_name || h.name,
+      })),
+    [houses]
+  );
+
   const employeeItems: SelectorItem[] = useMemo(
     () =>
       employees.map((e) => ({
@@ -236,23 +277,37 @@ export default function TravelHistoryPage() {
             <ArrowLeft className="h-3.5 w-3.5" />
             {t("live_location.travel.back_to_live")}
           </Link>
-          <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
-            <span className="rounded-xl bg-primary-50 p-2 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
-              <Route className="h-5 w-5" />
-            </span>
-            {t("live_location.travel.title")}
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+              <span className="rounded-xl bg-primary-50 p-2 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
+                <Route className="h-5 w-5" />
+              </span>
+              {t("live_location.travel.title")}
+            </h1>
+            <PageGuideModal pageKey="live_location.travel" />
+          </div>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{t("live_location.travel.subtitle")}</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <PageGuideModal pageKey="live_location.travel" />
         </div>
       </div>
 
       {/* Filters */}
       <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {/* House scopes the employee list, so it comes first in the cascade.
+              Hidden for single-house users, exactly like the live-location page. */}
+          {houses.length > 1 && (
+            <SearchableSelect
+              label={t("live_location.travel.filters.house")}
+              items={houseItems}
+              value={houseId}
+              onChange={setHouseId}
+              placeholder={t("live_location.all_houses")}
+              searchPlaceholder={t("live_location.travel.filters.house_search")}
+              emptyMessage={t("live_location.travel.filters.house_empty")}
+              noResultsMessage={t("live_location.travel.filters.house_no_results")}
+            />
+          )}
+
           {/* SearchableSelect renders its own FilterField label, so it must not be
               wrapped in a second one — that printed "Employee" twice. */}
           <SearchableSelect

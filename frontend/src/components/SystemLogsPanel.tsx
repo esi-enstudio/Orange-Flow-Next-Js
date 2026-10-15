@@ -132,12 +132,15 @@ export default function SystemLogsPanel({ maxHeight = "calc(100vh - 15rem)" }: S
               <Terminal className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-bold flex items-center gap-2 dark:text-gray-100">
-                {t("system_logs.panel_title")}
-                <span className="text-xs font-bold bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 px-2 py-0.5 rounded-full">
-                  {t("otp.live")}
-                </span>
-              </h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="font-bold flex items-center gap-2 dark:text-gray-100">
+                  {t("system_logs.panel_title")}
+                  <span className="text-xs font-bold bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 px-2 py-0.5 rounded-full">
+                    {t("otp.live")}
+                  </span>
+                </h2>
+                <PageGuideModal pageKey="system_logs" />
+              </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {t("system_logs.panel_subtitle")}
               </p>
@@ -170,7 +173,6 @@ export default function SystemLogsPanel({ maxHeight = "calc(100vh - 15rem)" }: S
             >
               <RefreshCw className="w-4 h-4" />
             </button>
-            <PageGuideModal pageKey="system_logs" />
           </div>
         </div>
 

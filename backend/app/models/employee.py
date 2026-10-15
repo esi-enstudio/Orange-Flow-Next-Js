@@ -60,6 +60,9 @@ class Employee(Base):
     sr_no = Column(String, nullable=True)  # Optional SR number
     employee_id = Column(String(50), unique=True, index=True)  # Business-facing ID like RSO-001, MGR-002
 
+    # Profile photo (public /uploads/employee_photos/... path)
+    photo_url = Column(String(500), nullable=True)
+
     # Hierarchy
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     
@@ -71,5 +74,8 @@ class Employee(Base):
 
     # Relation: One employee can have many retailers
     retailers = relationship("Retailer", back_populates="employee")
+
+    # Relation: One employee can have many scanned documents (private files)
+    documents = relationship("EmployeeDocument", back_populates="employee")
 
     user = relationship("User", back_populates="employee_profile") # Link with User

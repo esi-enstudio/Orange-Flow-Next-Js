@@ -524,7 +524,10 @@ export default function SCSerialsPage() {
             <Database className="w-5 h-5 text-primary-600" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.title')}</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.title')}</h1>
+              <PageGuideModal pageKey="scratch_card_serials" />
+            </div>
             <p className="text-sm text-gray-500">{t('scratch_card_serials.description')}</p>
           </div>
         </div>
@@ -556,7 +559,6 @@ export default function SCSerialsPage() {
                 <Database className="w-4 h-4" /> {t('scratch_card_serials.btn_allocate')}
               </button>
             )}
-            <PageGuideModal pageKey="scratch_card_serials" />
           </div>
         </div>
       </div>

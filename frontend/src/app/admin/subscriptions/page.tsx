@@ -191,11 +191,11 @@ export default function AdminSubscriptionsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("subscriptions.title")}</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("subscriptions.title")}</h1>
+            <PageGuideModal pageKey="subscriptions" />
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t("subscriptions.description")}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <PageGuideModal pageKey="subscriptions" />
         </div>
       </div>
 

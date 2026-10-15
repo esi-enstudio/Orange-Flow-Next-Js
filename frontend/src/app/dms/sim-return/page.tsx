@@ -533,9 +533,12 @@ export default function SIMReturnPage() {
               <Undo2 className="w-6 h-6" />
             </motion.div>
             <div>
-              <h1 className="text-2xl font-black tracking-tight text-gray-900 dark:text-gray-100">
-                {t("sim_return.title")}
-              </h1>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-2xl font-black tracking-tight text-gray-900 dark:text-gray-100">
+                  {t("sim_return.title")}
+                </h1>
+                <PageGuideModal pageKey="sim_return" />
+              </div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
                 {t("sim_return.subtitle")}
               </p>
@@ -577,7 +580,6 @@ export default function SIMReturnPage() {
                 </div>
               </div>
             </div>
-            <PageGuideModal pageKey="sim_return" />
           </motion.div>
         </motion.div>
 

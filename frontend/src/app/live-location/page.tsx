@@ -483,18 +483,19 @@ export default function LiveLocationPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
-            <span className="rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-              <MapPin className="h-5 w-5" />
-            </span>
-            {t("live_location.title")}
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+              <span className="rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+                <MapPin className="h-5 w-5" />
+              </span>
+              {t("live_location.title")}
+            </h1>
+            <PageGuideModal pageKey="live_location" />
+          </div>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{t("live_location.subtitle")}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <PageGuideModal pageKey="live_location" />
-
           {houses.length > 1 && (
             <div className="relative">
               <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />

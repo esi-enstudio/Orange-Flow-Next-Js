@@ -216,11 +216,13 @@ export default function BillingPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("billing.title")}</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("billing.title")}</h1>
+            <PageGuideModal pageKey="billing" />
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t("billing.description")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <PageGuideModal pageKey="billing" />
           <select
             value={houseId ?? ""}
             onChange={(e) => setHouseId(e.target.value ? Number(e.target.value) : null)}

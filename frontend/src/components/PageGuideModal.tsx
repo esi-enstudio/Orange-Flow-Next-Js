@@ -20,6 +20,19 @@ interface GuideSection {
 
 const MAX_ITEMS = 25;
 
+/**
+ * Renders the page-guide trigger **and** the guide modal.
+ *
+ * The trigger is an icon-only button (no label) meant to sit at the end of the
+ * page title — `<h1>Title</h1>` followed by this component inside a flex row —
+ * not as a separate button in the header action group. The clickable area keeps
+ * a 40x40px touch target on mobile via negative margins, so the title row does
+ * not grow.
+ *
+ * The modal itself is portaled to `document.body`, so the trigger position is
+ * irrelevant to its layout. Renders nothing when the page has no `guide.*`
+ * translations.
+ */
 export default function PageGuideModal({ pageKey }: { pageKey: string }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
@@ -84,13 +97,13 @@ export default function PageGuideModal({ pageKey }: { pageKey: string }) {
   return (
     <>
       <button
+        type="button"
         onClick={() => setOpen(true)}
         title={t("common.page_guide_tooltip")}
         aria-label={t("common.page_guide")}
-        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+        className="inline-flex shrink-0 items-center justify-center w-10 h-10 -my-1 md:w-6 md:h-6 md:my-0 rounded-full text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       >
-        <HelpCircle className="w-4 h-4" />
-        {t("common.page_guide")}
+        <HelpCircle className="w-4 h-4 md:w-3.5 md:h-3.5" />
       </button>
 
       {typeof document !== "undefined" &&

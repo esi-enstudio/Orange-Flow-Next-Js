@@ -74,7 +74,10 @@
         "employees.delete",
         "employees.import",
         "employees.export",
-        "employees.assign"
+        "employees.assign",
+        "employees.document_view",
+        "employees.document_upload",
+        "employees.document_delete"
       ]
     },
     "location": {

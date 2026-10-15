@@ -427,11 +427,13 @@ export default function DatabaseBackupsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("database_backups.title")}</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("database_backups.title")}</h1>
+            <PageGuideModal pageKey="database_backups" />
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("database_backups.description")}</p>
         </div>
         <div className="flex items-center gap-3">
-          <PageGuideModal pageKey="database_backups" />
           <button
             onClick={handleRefresh}
             disabled={refreshing}

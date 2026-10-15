@@ -103,12 +103,14 @@ export default function ImportPage() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
-            {t("retailer_marking.import_title")}
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+              {t("retailer_marking.import_title")}
+            </h1>
+            <PageGuideModal pageKey="retailer_marking" />
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("retailer_marking.import_description")}</p>
         </div>
-        <PageGuideModal pageKey="retailer_marking" />
       </div>
 
       <div className="flex items-start gap-3 px-4 py-3 rounded-2xl border border-blue-100 dark:border-blue-500/20 bg-blue-50/50 dark:bg-blue-500/5">

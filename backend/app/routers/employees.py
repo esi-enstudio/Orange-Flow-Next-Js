@@ -3,7 +3,8 @@ import shutil
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query, Request, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, File, UploadFile, Query, Request, Response
+from fastapi.responses import FileResponse
 from sqlalchemy import select, or_, and_, cast, Float, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -27,6 +28,16 @@ from app.utils.timezone import now_naive
 from app.utils.validation import safe_filename, validate_excel
 from app.utils.activity_logger import log_activity
 from app.services.Automation.employee_excel import process_employee_excel, export_employees_excel
+from app.services.employee_documents import (
+    claim_attachments,
+    clear_employee_photo,
+    document_file_path,
+    get_document,
+    list_documents,
+    soft_delete_documents,
+    stage_upload,
+    user_has_permission,
+)
 from app.models.role import Role
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
@@ -483,7 +494,7 @@ async def _count_retailers(db: AsyncSession, emp_id: int) -> int:
     return result.scalar() or 0
 
 @router.post("", response_model=EmployeeSchema)
-async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.create"))):
+async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.create"))):
     # Mandatory profile fields for a new employee. Re-validated here because the
     # frontend check cannot be trusted.
     required_fields = [
@@ -501,6 +512,13 @@ async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(g
     ]
     if missing:
         raise HTTPException(status_code=422, detail=missing)
+    # Staged attachments are consumed after the insert - gate them up front so a
+    # user without the attachment permission cannot smuggle files in.
+    if emp_data.attachments and not user_has_permission(current_user, "employees.document_upload"):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to upload employee documents (employees.document_upload).",
+        )
     house = await db.get(House, emp_data.house_id)
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
@@ -512,6 +530,10 @@ async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(g
         if not user:
             raise HTTPException(status_code=422, detail=[{"loc": ["body", "user_id"], "msg": "User not found", "type": "value_error"}])
     data = emp_data.model_dump()
+    data.pop("attachments", None)
+    data.pop("remove_document_ids", None)
+    data.pop("remove_photo", None)
+    attachments = emp_data.attachments or []
     employee_type = data.get("employee_type") or "unknown"
     employee_id = await generate_employee_id(db, employee_type)
     data["employee_id"] = employee_id
@@ -521,6 +543,22 @@ async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(g
     await db.commit()
     await db.refresh(new_emp)
     await sync_assisted_code_to_bp_retailer_codes(db, new_emp)
+    if attachments:
+        await claim_attachments(db, new_emp, attachments, current_user)
+        await db.commit()
+        await log_activity(
+            db, current_user.id, current_user.name, "employees", "create",
+            record_id=new_emp.id,
+            record_identifier=new_emp.employee_id or new_emp.dms_code,
+            new_values={
+                "entity": "employee_attachment",
+                "attachments": [
+                    {k: v for k, v in a.model_dump().items() if k != "staged_id"}
+                    for a in attachments
+                ],
+            },
+            request=request, status_code=201,
+        )
     result = await db.execute(
         select(Employee)
         .options(joinedload(Employee.house), joinedload(Employee.user).selectinload(User.roles))
@@ -529,7 +567,7 @@ async def create_employee(emp_data: EmployeeCreate, db: AsyncSession = Depends(g
     return result.unique().scalar_one()
 
 @router.put("/{emp_id}", response_model=EmployeeSchema)
-async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.edit"))):
+async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.edit"))):
     result = await db.execute(
         select(Employee)
         .options(joinedload(Employee.user).selectinload(User.roles))
@@ -537,6 +575,7 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
     )
     emp = result.unique().scalar_one_or_none()
     if not emp: raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
     house = await db.get(House, emp_data.house_id)
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
@@ -549,7 +588,25 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
         user = await db.get(User, emp_data.user_id)
         if not user:
             raise HTTPException(status_code=422, detail=[{"loc": ["body", "user_id"], "msg": "User not found", "type": "value_error"}])
+    # Attachment operations from the modal: new staged uploads, documents to
+    # remove and/or the profile photo to clear. Each has its own permission.
+    if emp_data.attachments and not user_has_permission(current_user, "employees.document_upload"):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to upload employee documents (employees.document_upload).",
+        )
+    if (emp_data.remove_document_ids or emp_data.remove_photo) and not user_has_permission(current_user, "employees.document_delete"):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to remove employee documents (employees.document_delete).",
+        )
     updates = emp_data.model_dump(exclude_unset=True)
+    updates.pop("attachments", None)
+    updates.pop("remove_document_ids", None)
+    updates.pop("remove_photo", None)
+    attachments = emp_data.attachments or []
+    remove_document_ids = emp_data.remove_document_ids or []
+    remove_photo = bool(emp_data.remove_photo)
     new_status = updates.get("status", emp.status)
     new_emp_type = updates.get("employee_type", emp.employee_type)
     if new_status in ("Resigned", "Inactive") and (new_emp_type or "").lower() == "rso":
@@ -566,12 +623,148 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, db: AsyncSessio
     await db.commit()
     await db.refresh(emp)
     await sync_assisted_code_to_bp_retailer_codes(db, emp)
+    if attachments or remove_document_ids or remove_photo:
+        previous_photo = emp.photo_url
+        claimed = await claim_attachments(db, emp, attachments, current_user) if attachments else {"claimed": []}
+        deleted_docs = await soft_delete_documents(db, emp, remove_document_ids, current_user) if remove_document_ids else []
+        if remove_photo:
+            await clear_employee_photo(emp)
+        await db.commit()
+        if claimed["claimed"] or deleted_docs or remove_photo:
+            await log_activity(
+                db, current_user.id, current_user.name, "employees",
+                "delete" if (deleted_docs or remove_photo) and not claimed["claimed"] else "edit",
+                record_id=emp.id,
+                record_identifier=emp.employee_id or emp.dms_code,
+                old_values={
+                    **({"documents": deleted_docs} if deleted_docs else {}),
+                    **({"photo_url": previous_photo} if remove_photo else {}),
+                } or None,
+                new_values={
+                    **({"attachments": claimed["claimed"]} if claimed["claimed"] else {}),
+                    **({"photo_url": emp.photo_url} if claimed["photo_replaced"] else {}),
+                } or None,
+                request=request, status_code=200,
+            )
     result = await db.execute(
         select(Employee)
         .options(joinedload(Employee.house), joinedload(Employee.user).selectinload(User.roles))
         .where(Employee.id == emp.id)
     )
     return result.unique().scalar_one()
+
+
+# --------------------------------------------------------------------------- #
+# Employee attachments (profile photo + documents)
+#
+# Upload flow: the modal stages every chosen file (POST /documents/stage), keeps
+# the returned staged ids in memory and sends them with the create/update
+# payload - so "Register New Employee" saves the profile and the files in one
+# request, and Cancel leaves nothing behind. Files are served back through the
+# permission-guarded stream endpoint; the raw storage path never reaches a
+# client.
+# --------------------------------------------------------------------------- #
+
+def _assert_house_access(emp: Employee, current_user: User) -> None:
+    """Non-admins may only touch attachments of employees in their houses."""
+    if is_admin_user(current_user):
+        return
+    user_house_ids = [h.id for h in current_user.houses]
+    if emp.house_id not in user_house_ids:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
+async def _load_employee_for_attachments(db: AsyncSession, emp_id: int, current_user: User) -> Employee:
+    emp = await db.get(Employee, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
+    return emp
+
+
+@router.post("/documents/stage")
+async def stage_employee_attachment(
+    file: UploadFile = File(...),
+    kind: str = Form("document"),
+    current_user: User = Depends(has_permission("employees.document_upload")),
+):
+    """Validate an attachment and park it until the employee form is saved."""
+    try:
+        return await stage_upload(file, kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/{emp_id}/documents")
+async def list_employee_documents(
+    emp_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.document_view")),
+):
+    emp = await _load_employee_for_attachments(db, emp_id, current_user)
+    return {
+        "employee_id": emp.id,
+        "photo_url": emp.photo_url,
+        "documents": await list_documents(db, emp.id),
+    }
+
+
+@router.get("/{emp_id}/documents/{doc_id}/file")
+async def stream_employee_document(
+    emp_id: int,
+    doc_id: int,
+    request: Request,
+    download: bool = Query(False, description="Force a download instead of inline preview"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.document_view")),
+):
+    emp = await _load_employee_for_attachments(db, emp_id, current_user)
+    doc = await get_document(db, emp.id, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    file_path = document_file_path(doc)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="The document file is missing from storage")
+
+    # Sensitive personal documents: never let a proxy or the browser cache them.
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "view",
+        record_id=emp.id,
+        record_identifier=emp.employee_id or emp.dms_code,
+        new_values={"document_id": doc.id, "doc_type": doc.doc_type, "download": bool(download)},
+        request=request, status_code=200,
+    )
+    return FileResponse(
+        file_path,
+        media_type=doc.mime_type or "application/octet-stream",
+        filename=doc.file_name if download else None,
+        content_disposition_type="attachment",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.delete("/{emp_id}/documents/{doc_id}")
+async def delete_employee_document(
+    emp_id: int,
+    doc_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.document_delete")),
+):
+    emp = await _load_employee_for_attachments(db, emp_id, current_user)
+    deleted = await soft_delete_documents(db, emp, [doc_id], current_user)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found")
+    await db.commit()
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "delete",
+        record_id=emp.id,
+        record_identifier=emp.employee_id or emp.dms_code,
+        old_values={"entity": "employee_document", "documents": deleted},
+        request=request, status_code=200,
+    )
+    return {"message": "Document deleted", "deleted": deleted}
+
 
 class ReassignRequest(BaseModel):
     new_employee_id: int

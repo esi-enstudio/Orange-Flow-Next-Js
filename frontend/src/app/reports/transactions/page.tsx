@@ -153,8 +153,10 @@ function formatDate(dateStr: string, lang: string): string {
 
 // Height of the fixed mobile bottom bar; a dropdown must never open under it.
 const MOBILE_NAV_CLEARANCE = 76;
-// Search-input header height inside the entity dropdown panel.
-const ENTITY_MENU_HEADER = 46;
+// Height of the search-input header both dropdown panels start with.
+const PANEL_HEADER = 46;
+// Breathing room kept between a panel and the edges of the visible viewport.
+const PANEL_EDGE_GAP = 8;
 
 interface EntityMenuPos {
   top: number;
@@ -167,6 +169,7 @@ interface ThrMenuPos {
   top: number;
   left: number;
   width: number;
+  maxHeight: number;
 }
 
 /**
@@ -183,6 +186,26 @@ function viewportBounds(): { top: number; bottom: number; height: number } {
   return vv
     ? { top: vv.offsetTop, bottom: vv.offsetTop + vv.height, height: vv.height }
     : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
+}
+
+/**
+ * Keep a fixed panel of `height` fully inside the visible viewport.
+ *
+ * While the on-screen keyboard is up the trigger can sit below the visible
+ * bottom (the browser does not scroll a fixed panel into view), and the flip
+ * math alone could then park the panel off screen — which reads as "the list
+ * vanished the moment I tapped". Clamping guarantees the panel stays reachable,
+ * still reserving the mobile bottom bar via `footerPad`.
+ */
+function clampPanelTop(
+  top: number,
+  height: number,
+  vp: { top: number; bottom: number },
+  footerPad: number,
+): number {
+  const min = vp.top + PANEL_EDGE_GAP;
+  const max = Math.max(min, vp.bottom - footerPad - height);
+  return Math.min(Math.max(top, min), max);
 }
 
 /**
@@ -205,18 +228,24 @@ function computeEntityMenu(el: HTMLElement | null): EntityMenuPos | null {
   const left = Math.max(Math.min(rect.left, window.innerWidth - width - 12), 12);
 
   // Required height = search header + list.
-  const needed = ENTITY_MENU_HEADER + maxHeight;
+  const needed = PANEL_HEADER + maxHeight;
   const spaceBelow = vp.bottom - rect.bottom - footerPad;
   const spaceAbove = rect.top - vp.top - footerPad;
 
   const openBelow = spaceBelow >= Math.min(needed, 220) || spaceBelow >= spaceAbove;
   const available = openBelow ? spaceBelow : spaceAbove;
-  const top = openBelow
+  const listHeight = Math.max(120, Math.min(maxHeight, available - PANEL_HEADER));
+  const panelHeight = PANEL_HEADER + listHeight;
+  const rawTop = openBelow
     ? vp.top + rect.bottom + 6
-    : Math.max(vp.top + rect.top - 6 - available, vp.top + footerPad);
-  const listHeight = Math.max(120, available - ENTITY_MENU_HEADER);
+    : vp.top + rect.top - 6 - panelHeight;
 
-  return { top, left, width, maxHeight: Math.min(maxHeight, listHeight) };
+  return {
+    top: clampPanelTop(rawTop, panelHeight, vp, footerPad),
+    left,
+    width,
+    maxHeight: listHeight,
+  };
 }
 
 /** Same flip/clamp logic for the threshold report's RSO dropdown. */
@@ -228,16 +257,27 @@ function computeThrRsoMenu(el: HTMLElement | null): ThrMenuPos | null {
   const menuW = Math.min(Math.max(rect.width, 280), window.innerWidth - 24);
   const menuH = Math.min(vp.height * 0.5, 360);
   const left = Math.max(Math.min(rect.left, window.innerWidth - menuW - 12), 12);
-  const below = rect.bottom + 6 + menuH <= vp.bottom - footerPad;
-  const top = below ? rect.bottom + 6 : Math.max(rect.top - menuH - 6, vp.top + footerPad);
-  return { top, left, width: menuW };
+  const below = rect.bottom + 6 + PANEL_HEADER + menuH <= vp.bottom - footerPad;
+  const available = below
+    ? vp.bottom - footerPad - rect.bottom - 6
+    : rect.top - 6 - vp.top - footerPad;
+  const listHeight = Math.max(120, Math.min(menuH, available - PANEL_HEADER));
+  const panelHeight = PANEL_HEADER + listHeight;
+  const rawTop = below ? rect.bottom + 6 : rect.top - 6 - panelHeight;
+
+  return {
+    top: clampPanelTop(rawTop, panelHeight, vp, footerPad),
+    left,
+    width: menuW,
+    maxHeight: listHeight,
+  };
 }
 
 const sameEntityMenu = (a: EntityMenuPos | null, b: EntityMenuPos | null): boolean =>
   !!a && !!b && a.top === b.top && a.left === b.left && a.width === b.width && a.maxHeight === b.maxHeight;
 
 const sameThrMenu = (a: ThrMenuPos | null, b: ThrMenuPos | null): boolean =>
-  !!a && !!b && a.top === b.top && a.left === b.left && a.width === b.width;
+  !!a && !!b && a.top === b.top && a.left === b.left && a.width === b.width && a.maxHeight === b.maxHeight;
 
 // ------------------------------------------------------------------ skeleton
 
@@ -279,7 +319,7 @@ export default function TransactionsReportPage() {
   const [selectedEntity, setSelectedEntity] = useState<string>("");
   const [entitySearch, setEntitySearch] = useState<string>("");
   const [entityOpen, setEntityOpen] = useState(false);
-  const [entityMenu, setEntityMenu] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+  const [entityMenu, setEntityMenu] = useState<EntityMenuPos | null>(null);
 
   const [timeMode, setTimeMode] = useState<TimeMode>("month");
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -300,7 +340,7 @@ export default function TransactionsReportPage() {
   const [thrRsoId, setThrRsoId] = useState<string>("");
   const [thrRsoOptions, setThrRsoOptions] = useState<EntityOption[]>([]);
   const [thrRsoOpen, setThrRsoOpen] = useState(false);
-  const [thrRsoMenu, setThrRsoMenu] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [thrRsoMenu, setThrRsoMenu] = useState<ThrMenuPos | null>(null);
   const [thrRsoSearch, setThrRsoSearch] = useState<string>("");
   const thrRsoTriggerRef = useRef<HTMLButtonElement>(null);
   const [thrData, setThrData] = useState<ThresholdData | null>(null);
@@ -310,6 +350,10 @@ export default function TransactionsReportPage() {
   const entityDropdownRef = useRef<HTMLDivElement>(null);
   const entityTriggerRef = useRef<HTMLButtonElement>(null);
   const thrRsoDropdownRef = useRef<HTMLDivElement>(null);
+  // Trigger rect from the last measurement pass. Dismissal-on-scroll compares
+  // against it so only a scroll that actually moved the trigger counts.
+  const entityTriggerRectRef = useRef<DOMRect | null>(null);
+  const thrRsoTriggerRectRef = useRef<DOMRect | null>(null);
 
   const dateRange = useMemo<{ start: string; end: string }>(() => {
     if (timeMode === "day") return { start: singleDate, end: singleDate };
@@ -387,49 +431,68 @@ export default function TransactionsReportPage() {
         setThrRsoOpen(false);
       }
     };
-    // The on-screen keyboard (visual-viewport resize) and the browser scrolling
-    // a focused search input into view both fire while a panel is open. Closing
-    // on those events made the entity list vanish the moment its search box was
-    // tapped on mobile, so an open panel now re-follows its trigger instead and
-    // only closes once the trigger itself has scrolled out of the viewport.
-    // `capture: true` because scroll events never bubble — the capture phase is
-    // the only way to also see scrolling from inner scrollable containers.
-    const reposition = () => {
-      const outOfView = (el: HTMLButtonElement | null) => {
-        if (!el) return true;
-        const vp = viewportBounds();
-        const rect = el.getBoundingClientRect();
-        return rect.bottom <= vp.top || rect.top >= vp.bottom;
-      };
+
+    // A dismissal on scroll is only correct when the scroll actually carried the
+    // trigger off the visible viewport. A keyboard-induced visual-viewport scroll
+    // or a scroll inside the panel's own list leaves the trigger where it was, so
+    // the rect comparison keeps those from closing the panel.
+    const movedOffScreen = (prev: DOMRect | null, next: DOMRect | null): boolean => {
+      if (!prev || !next) return false;
+      if (Math.abs(prev.top - next.top) < 1 && Math.abs(prev.left - next.left) < 1) return false;
+      const vp = viewportBounds();
+      return next.bottom <= vp.top || next.top >= vp.bottom;
+    };
+
+    /**
+     * Keep every open panel glued to its trigger.
+     *
+     * `fromScroll` is true only for real scrolls. The on-screen keyboard resizes
+     * `innerHeight`/`visualViewport` right after the panel's search input is
+     * focused, which can push the trigger below the newly visible bottom — that is
+     * a viewport change, not the user scrolling the list away, so the panel must
+     * stay open and only re-anchor itself (both compute helpers flip it above the
+     * keyboard).
+     */
+    const reposition = (fromScroll: boolean) => {
       if (entityOpen) {
-        if (outOfView(entityTriggerRef.current)) {
+        const el = entityTriggerRef.current;
+        const rect = el ? el.getBoundingClientRect() : null;
+        if (fromScroll && movedOffScreen(entityTriggerRectRef.current, rect)) {
           setEntityOpen(false);
         } else {
-          const next = computeEntityMenu(entityTriggerRef.current);
+          const next = computeEntityMenu(el);
           setEntityMenu((prev) => (sameEntityMenu(prev, next) ? prev : next));
         }
+        entityTriggerRectRef.current = rect;
       }
       if (thrRsoOpen) {
-        if (outOfView(thrRsoTriggerRef.current)) {
+        const el = thrRsoTriggerRef.current;
+        const rect = el ? el.getBoundingClientRect() : null;
+        if (fromScroll && movedOffScreen(thrRsoTriggerRectRef.current, rect)) {
           setThrRsoOpen(false);
         } else {
-          const next = computeThrRsoMenu(thrRsoTriggerRef.current);
+          const next = computeThrRsoMenu(el);
           setThrRsoMenu((prev) => (sameThrMenu(prev, next) ? prev : next));
         }
+        thrRsoTriggerRectRef.current = rect;
       }
     };
 
+    const onScroll = () => reposition(true);
+    const onViewportChange = () => reposition(false);
     document.addEventListener("mousedown", onClick);
-    window.addEventListener("scroll", reposition, true);
-    window.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("scroll", reposition);
+    // `capture: true` because scroll events never bubble — the capture phase is
+    // the only way to also see scrolling from inner scrollable containers.
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onViewportChange);
+    window.visualViewport?.addEventListener("resize", onViewportChange);
+    window.visualViewport?.addEventListener("scroll", onViewportChange);
     return () => {
       document.removeEventListener("mousedown", onClick);
-      window.removeEventListener("scroll", reposition, true);
-      window.removeEventListener("resize", reposition);
-      window.visualViewport?.removeEventListener("resize", reposition);
-      window.visualViewport?.removeEventListener("scroll", reposition);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onViewportChange);
+      window.visualViewport?.removeEventListener("resize", onViewportChange);
+      window.visualViewport?.removeEventListener("scroll", onViewportChange);
     };
   }, [entityOpen, thrRsoOpen]);
 
@@ -562,7 +625,10 @@ export default function TransactionsReportPage() {
     }
     // Geometry is computed module-side (computeEntityMenu) so the open handler
     // and the viewport reposition listener always share the exact same math.
-    setEntityMenu(computeEntityMenu(entityTriggerRef.current));
+    const el = entityTriggerRef.current;
+    // Anchor the dismissal check to where the trigger sat when it was opened.
+    entityTriggerRectRef.current = el ? el.getBoundingClientRect() : null;
+    setEntityMenu(computeEntityMenu(el));
     setEntityOpen(true);
   };
 
@@ -571,7 +637,10 @@ export default function TransactionsReportPage() {
       setThrRsoOpen(false);
       return;
     }
-    const menu = computeThrRsoMenu(thrRsoTriggerRef.current);
+    const el = thrRsoTriggerRef.current;
+    if (!el) return;
+    thrRsoTriggerRectRef.current = el.getBoundingClientRect();
+    const menu = computeThrRsoMenu(el);
     if (!menu) return;
     setThrRsoMenu(menu);
     setThrRsoOpen(true);
@@ -1204,7 +1273,10 @@ export default function TransactionsReportPage() {
                         className="w-full px-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-md text-xs dark:text-gray-200 outline-none focus:border-primary-500 transition-all"
                       />
                     </div>
-                    <div className="max-h-[min(50vh,360px)] overflow-y-auto overscroll-contain py-1">
+                    <div
+                      className="overflow-y-auto overscroll-contain py-1"
+                      style={{ maxHeight: thrRsoMenu?.maxHeight }}
+                    >
                       <button
                         type="button"
                         onClick={() => {
