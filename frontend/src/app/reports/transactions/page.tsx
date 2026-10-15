@@ -1000,8 +1000,11 @@ export default function TransactionsReportPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatDate(g.date, language)}</p>
-                        <p className="text-[11px] text-gray-400 dark:text-gray-500">
-                          {retailerCountLabel(g.retailer_count)} {t("transactions_report.table.retailers")} • {g.record_count} {t("transactions_report.table.records")}
+                        <p
+                          className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap"
+                          title={totalEnabledRetailers != null ? t("transactions_report.table.retailers_hint") : undefined}
+                        >
+                          {retailerCountLabel(g.retailer_count)} {t("transactions_report.table.retailers")}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
@@ -1068,7 +1071,7 @@ export default function TransactionsReportPage() {
                           </td>
                           <td className="px-4 py-2.5 text-center">
                             <span
-                              className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+                              className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-500/10 text-xs font-semibold text-blue-600 dark:text-blue-400"
                               title={totalEnabledRetailers != null ? t("transactions_report.table.retailers_hint") : undefined}
                             >
                               {retailerCountLabel(g.retailer_count)}
