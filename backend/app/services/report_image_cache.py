@@ -16,7 +16,7 @@ from threading import Lock
 TTL_SECONDS = 60.0
 MAX_ENTRIES = 64
 
-_cache: dict[tuple, tuple[float, bytes]] = {}
+_cache: dict[tuple, tuple[float, bytes | list[bytes]]] = {}
 _lock = Lock()
 
 
@@ -24,7 +24,7 @@ def _key(report_type: str, house_id: int, day, scale: int | None) -> tuple:
     return (str(report_type), int(house_id), str(day), scale)
 
 
-def get(report_type: str, house_id: int, day, scale: int | None = None) -> bytes | None:
+def get(report_type: str, house_id: int, day, scale: int | None = None) -> bytes | list[bytes] | None:
     k = _key(report_type, house_id, day, scale)
     with _lock:
         item = _cache.get(k)
@@ -37,7 +37,7 @@ def get(report_type: str, house_id: int, day, scale: int | None = None) -> bytes
         return data
 
 
-def set(report_type: str, house_id: int, day, scale: int | None, data: bytes) -> None:
+def set(report_type: str, house_id: int, day, scale: int | None, data: bytes | list[bytes]) -> None:
     k = _key(report_type, house_id, day, scale)
     with _lock:
         if len(_cache) >= MAX_ENTRIES:

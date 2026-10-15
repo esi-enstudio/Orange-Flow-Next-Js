@@ -247,7 +247,7 @@ def _live_display(ci, text, live_cols):
 
 
 def content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_total=None,
-                    total_row=None, total_span=0):
+                    total_row=None, total_span=0, pct_floor_text: str | None = PCT_MAX_TEXT):
     """Compute integer column weights sized to the widest label/cell text.
 
     Each column is sized to fit its widest content (plus ``margin``), so every
@@ -257,7 +257,9 @@ def content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_total
     it is measured against the combined width of those columns instead, so a
     label like "Total (9 RSO)" never inflates the serial-number column along
     side it. ``max_total`` caps the combined weight when content cannot
-    otherwise fit.
+    otherwise fit. ``pct_floor_text`` floors the ``%`` column to a fixed widest
+    value (pass ``None`` to size it from content only, e.g. when percentages are
+    rendered as whole numbers).
     """
     n = len(labels)
     if n == 0:
@@ -279,17 +281,18 @@ def content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_total
         need = f_head.getlength(str(total_row[0])) + margin
         if need > span_w:
             req[total_span - 1] += need - span_w
-    # Percentage columns are floored to the widest value pct_2dp() can ever
+    # Percentage columns are floored to the widest value the renderer can ever
     # emit, independently of this render's data. Sizing them purely from the
     # current content meant a render full of small percentages (e.g. "6.98%")
     # narrowed the column, and a later 100.00% was ellipsized to "100.0...".
     # Applied last because the max_total cap above only shrinks the total, which
     # makes every column proportionally wider in pixels - so a weight equal to
     # the required pixels is always enough.
-    pct_min = math.ceil(f_cell.getlength(PCT_MAX_TEXT) + margin)
-    for ci, lb in enumerate(labels):
-        if str(lb).strip() == "%":
-            req[ci] = max(req[ci], pct_min)
+    if pct_floor_text:
+        pct_min = math.ceil(f_cell.getlength(pct_floor_text) + margin)
+        for ci, lb in enumerate(labels):
+            if str(lb).strip() == "%":
+                req[ci] = max(req[ci], pct_min)
     return [max(1, r) for r in req]
 
 
@@ -314,6 +317,7 @@ def draw_table(
     th_ink: str | None = None,
     cell_ink: str | None = None,
     live_dot: str | None = None,
+    cell_color_map: dict[int, dict[str, str]] | None = None,
 ) -> int:
     """Draw a bordered table starting at (x, y). Returns the height used.
 
@@ -321,6 +325,10 @@ def draw_table(
     merged cell spanning columns ``0..total_span-1`` (interior vertical borders
     are omitted inside that span on the total row), so a label like
     "Total (9 RSO)" no longer widens the serial-number column.
+
+    ``cell_color_map`` maps a column index to a ``{cell text: colour}`` lookup so
+    a column can colour its values by value (e.g. a status column: green for
+    "Achieved", red for "Behind"); values with no entry keep the normal ink.
     """
     n = len(labels)
     if n == 0:
@@ -372,6 +380,10 @@ def draw_table(
             cw = widths[ci]
             tx = x + sum(widths[:ci])
             cell_color = live_dot if (ci in live_cols and txt.startswith("●")) else color
+            if not is_total and cell_color_map:
+                mapped = cell_color_map.get(ci)
+                if mapped and txt in mapped:
+                    cell_color = mapped[txt]
             disp = ellipsize(draw, txt, font, cw - 8)
             if ci in left_cols:
                 draw.text((tx + 5, yy + row_h / 2), disp, font=font, fill=cell_color, anchor="lm")
@@ -399,23 +411,31 @@ def draw_table(
     return head_h + row_h * len(all_rows)
 
 
-def draw_section_title(draw, x, y, text) -> int:
-    """Draw a plain section title, returning the y of the table below it."""
-    draw.text((x, y + 10), text, font=load_font(SECTION_TITLE_FONT, True), fill=INK, anchor="lm")
+def draw_section_title(draw, x, y, text, font_size: int = SECTION_TITLE_FONT) -> int:
+    """Draw a plain section title, returning the y of the table below it.
+
+    ``font_size`` lets a report with a roomier canvas use a larger heading while
+    every other report keeps the default.
+    """
+    draw.text((x, y + 10), text, font=load_font(font_size, True), fill=INK, anchor="lm")
     return y + SECTION_TITLE_H
 
 
 def render_section(draw, x, y, w, title, labels, rows, *, live_cols=(), total_row=None,
-                   total_span=0, left_cols=(1,), weights=None, borderless=False) -> int:
+                   total_span=0, left_cols=(1,), weights=None, borderless=False,
+                   f_head=None, f_cell=None,
+                   title_font_size: int = SECTION_TITLE_FONT) -> int:
     """Basic section: a plain title above a full-width bordered table.
 
     Returns the y directly below the table. ``weights`` overrides the default
     content-sized columns (used by the single-row metric summary, whose cells
-    are evenly split).
+    are evenly split). ``f_head`` / ``f_cell`` / ``title_font_size`` let a report
+    override the default fonts (e.g. a wider canvas with more readable text);
+    callers that pass no fonts keep the shared defaults.
     """
-    y = draw_section_title(draw, x, y, title)
-    f_head = load_font(TBL_F_HEAD, True)
-    f_cell = load_font(TBL_F_CELL, True)
+    y = draw_section_title(draw, x, y, title, font_size=title_font_size)
+    f_head = f_head or load_font(TBL_F_HEAD, True)
+    f_cell = f_cell or load_font(TBL_F_CELL, True)
     if weights is None:
         weights = content_weights(labels, rows, f_head, f_cell, live_cols,
                                   max_total=w, total_row=total_row, total_span=total_span)

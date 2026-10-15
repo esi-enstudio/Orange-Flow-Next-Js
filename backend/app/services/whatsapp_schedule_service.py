@@ -39,8 +39,11 @@ async def get_report_image(
     house_id: int,
     *,
     scale: int | None = None,
-) -> bytes:
+) -> bytes | list[bytes]:
     """Build (or reuse a cached copy of) the report image for the house.
+
+    Returns a single PNG (``bytes``) for most reports, or a list of A4 page PNGs
+    for paginated reports (e.g. recharge) that split onto several sheets.
 
     Images are cached for a short TTL keyed by (report_type, house_id, date,
     scale) so preview, Send Now, direct sends and scheduled deliveries share
@@ -173,25 +176,99 @@ def _ensure_min_size_png(image_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-async def _payload_for_send_as(send_as: str, report_type: str, image_bytes: bytes) -> tuple[bytes, str, str]:
+def _stack_pngs(pages: list[bytes]) -> bytes:
+    """Vertically stack page PNGs into one tall PNG (white fills any width gap)."""
+    import io as _io
+
+    from PIL import Image
+
+    images = [Image.open(_io.BytesIO(p)).convert("RGB") for p in pages]
+    width = max(im.width for im in images)
+    height = sum(im.height for im in images)
+    out = Image.new("RGB", (width, height), (255, 255, 255))
+    y = 0
+    for im in images:
+        out.paste(im, (0, y))
+        y += im.height
+    buf = _io.BytesIO()
+    out.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _pages_to_pdf(pages: list[bytes]) -> bytes:
+    """Place each page PNG on its own A4 sheet.
+
+    Orientation is taken from the pages themselves (report pages are A4
+    landscape), and each page is centred inside the same uniform margin used for
+    single-image reports, so a long report prints as a clean multi-page document.
+    """
+    import io as _io
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    margin = PDF_MARGIN_MM * mm
+    a4w, a4h = A4
+    iw, ih = ImageReader(_io.BytesIO(pages[0])).getSize()
+    landscape = iw >= ih
+    page_w, page_h = (a4h, a4w) if landscape else (a4w, a4h)
+    avail_w, avail_h = page_w - 2 * margin, page_h - 2 * margin
+
+    buf = _io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(page_w, page_h))
+    for page_bytes in pages:
+        img = ImageReader(_io.BytesIO(page_bytes))
+        iw, ih = img.getSize()
+        scale = min(avail_w / iw, avail_h / ih)
+        dw, dh = iw * scale, ih * scale
+        c.drawImage(img, margin + (avail_w - dw) / 2, margin + (avail_h - dh) / 2,
+                    width=dw, height=dh)
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def compose_report_png(payload) -> bytes:
+    """Return a single PNG for a report payload.
+
+    Multi-page reports (a list of page PNGs) are stacked top to bottom so the whole
+    report can be reviewed at a glance (used by the on-screen preview); a
+    single-image report passes through unchanged.
+    """
+    if isinstance(payload, (list, tuple)):
+        return _stack_pngs(list(payload))
+    return payload
+
+
+async def _payload_for_send_as(send_as: str, report_type: str, payload) -> tuple[bytes, str, str]:
     """Return (file_bytes, filename, mimetype) for the requested send_as format.
 
-    - image    -> PNG bytes, sent as a photo (WhatsApp compresses)
-    - document -> PNG bytes upscaled to UPSCALE_TARGET_WIDTH, documents endpoint
-    - pdf      -> PDF bytes from the high-res PNG (crisp zooming)
+    A report may be a single PNG (``bytes``) or several A4 pages (``list[bytes]``):
 
-    The CPU-heavy conversions (PIL resize, reportlab PDF) run in a worker
+    - image    -> the first page, sent as a photo (WhatsApp compresses tall images)
+    - document -> every page stacked into one tall PNG, so nothing is lost
+    - pdf      -> one A4 page per report page, so long reports stay readable
+
+    The CPU-heavy conversions (PIL resize/stack, reportlab PDF) run in a worker
     thread so the event loop stays responsive during sends.
     """
     mode = send_as or "image"
+    pages = list(payload) if isinstance(payload, (list, tuple)) else [payload]
+
     if mode == "pdf":
-        hi = await asyncio.to_thread(_ensure_min_size_png, image_bytes)
-        pdf = await asyncio.to_thread(_png_to_pdf, hi)
+        if len(pages) == 1:
+            hi = await asyncio.to_thread(_ensure_min_size_png, pages[0])
+            pdf = await asyncio.to_thread(_png_to_pdf, hi)
+        else:
+            pdf = await asyncio.to_thread(_pages_to_pdf, pages)
         return pdf, f"{report_type}_report.pdf", "application/pdf"
     if mode == "document":
-        hi = await asyncio.to_thread(_ensure_min_size_png, image_bytes)
+        png = pages[0] if len(pages) == 1 else await asyncio.to_thread(_stack_pngs, pages)
+        hi = await asyncio.to_thread(_ensure_min_size_png, png)
         return hi, f"{report_type}_report.png", "image/png"
-    return image_bytes, f"{report_type}_report.png", "image/png"
+    return pages[0], f"{report_type}_report.png", "image/png"
 
 
 def _parse_schedule_time(value: str | None) -> time | None:

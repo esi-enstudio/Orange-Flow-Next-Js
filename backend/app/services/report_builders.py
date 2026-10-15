@@ -1,7 +1,9 @@
 """Report Builder Registry
 
 Central registry mapping report_type strings to their image builder functions.
-Each builder takes (db: AsyncSession, house_id: int) and returns bytes (PNG image).
+Each builder takes (db: AsyncSession, house_id: int) and returns either a single
+PNG (``bytes``) or, for paginated reports (e.g. recharge), a list of A4 page
+PNGs (``list[bytes]``).
 
 To add a new report type:
 1. Create a builder function: async def build_xxx_report_image(db, house_id) -> bytes

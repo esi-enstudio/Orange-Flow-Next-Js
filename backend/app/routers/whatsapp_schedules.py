@@ -25,6 +25,7 @@ from app.services.whatsapp_schedule_service import (
     get_schedule_targets,
     get_schedule_target_names,
     get_report_image,
+    compose_report_png,
 )
 from app.services.report_builders import SCALE_AWARE_BUILDERS
 from app.services.whatsapp_token import resolve_house_wa_target
@@ -787,7 +788,10 @@ async def whatsapp_report_preview(
         logger.error(f"Report preview build failed ({report_type}): {e}")
         raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
 
-    return Response(content=image_bytes, media_type="image/png",
+    # Paginated reports return a list of A4 page PNGs; stack them so the preview
+    # shows the whole report (a single-PNG report passes through unchanged).
+    preview_bytes = compose_report_png(image_bytes)
+    return Response(content=preview_bytes, media_type="image/png",
                     headers={"Content-Disposition": f'inline; filename="{report_type}_preview.png"'})
 
 
