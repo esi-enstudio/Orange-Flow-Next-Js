@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from calendar import monthrange
 from typing import Optional
 
-from sqlalchemy import select, func, false, and_, or_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,6 +15,7 @@ from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
 from app.models.house import House
+from app.models.supervisor_assignment import SupervisorRSOAssignment
 
 logger = logging.getLogger("app.services.RechargeReport")
 
@@ -337,34 +338,60 @@ class RechargeReportService:
             ev_target_map[t.employee_id] = t.ev_secondary or 0
             sc_target_map[t.employee_id] = t.sc_secondary or 0
 
-        sup_user_ids = list(sup_user_map.keys())
-        rso_rows = await self.db.execute(
-            select(User).where(
-                User.parent_id.in_(sup_user_ids) if sup_user_ids else false(),
+        # Team membership lives in the supervisor_rso_assignments pivot (the
+        # source of truth); users.parent_id is only kept in sync as a
+        # convenience, can be stale/empty, and a supervisor may not even have a
+        # user account. Resolve the team from the pivot first (keyed by
+        # supervisor employee id, since user_id can be NULL), then union in any
+        # parent_id-linked users for backward compatibility.
+        sup_emp_to_member_ids: dict[int, set[int]] = {eid: set() for eid in emp_ids}
+        assignment_rows = await self.db.execute(
+            select(SupervisorRSOAssignment).where(
+                SupervisorRSOAssignment.supervisor_employee_id.in_(emp_ids),
             )
         )
-        rso_users = rso_rows.scalars().all()
+        for a in assignment_rows.scalars().all():
+            if a.supervisor_employee_id in sup_emp_to_member_ids:
+                sup_emp_to_member_ids[a.supervisor_employee_id].add(a.member_employee_id)
 
-        supervisor_user_to_rso_emps: dict[int, list[Employee]] = {uid: [] for uid in sup_user_map}
-        if rso_users:
-            rso_user_ids = [u.id for u in rso_users]
-            # Include resigned RSOs too: their iTopUp SR territory still belongs to the
-            # supervisor (the replacement RSO may be unassigned to any supervisor), so
-            # excluding them would under-report the supervisor's recharge achievement.
-            rso_emp_rows = await self.db.execute(
+        sup_user_ids = list(sup_user_map.keys())
+        if sup_user_ids:
+            parent_rows = await self.db.execute(
+                select(User).where(User.parent_id.in_(sup_user_ids))
+            )
+            parent_users = parent_rows.scalars().all()
+            parent_user_ids = [u.id for u in parent_users]
+            if parent_user_ids:
+                # Include every linked employee (RSO or BP), resigned members too:
+                # their iTopUp territory still belongs to the supervisor.
+                parent_emp_rows = await self.db.execute(
+                    select(Employee).where(
+                        Employee.user_id.in_(parent_user_ids),
+                        Employee.house_id == self.house_id,
+                    )
+                )
+                emp_by_user = {e.user_id: e for e in parent_emp_rows.scalars().all() if e.user_id}
+                for u in parent_users:
+                    sup_eid = sup_user_map.get(u.parent_id)
+                    linked = emp_by_user.get(u.id)
+                    if sup_eid in sup_emp_to_member_ids and linked:
+                        sup_emp_to_member_ids[sup_eid].add(linked.id)
+
+        # Resolve every team member row once.
+        all_member_ids = {mid for ids in sup_emp_to_member_ids.values() for mid in ids}
+        member_by_id: dict[int, Employee] = {}
+        if all_member_ids:
+            member_rows = await self.db.execute(
                 select(Employee).where(
-                    Employee.user_id.in_(rso_user_ids),
+                    Employee.id.in_(all_member_ids),
                     Employee.house_id == self.house_id,
                 )
             )
-            rso_emps = rso_emp_rows.scalars().all()
-            rso_emp_by_user = {e.user_id: e for e in rso_emps if e.user_id}
-            for u in rso_users:
-                rso_emp = rso_emp_by_user.get(u.id)
-                if rso_emp:
-                    sup_uid = u.parent_id
-                    if sup_uid in supervisor_user_to_rso_emps:
-                        supervisor_user_to_rso_emps[sup_uid].append(rso_emp)
+            member_by_id = {e.id: e for e in member_rows.scalars().all()}
+        supervisor_emp_to_team: dict[int, list[Employee]] = {
+            eid: [member_by_id[m] for m in ids if m in member_by_id]
+            for eid, ids in sup_emp_to_member_ids.items()
+        }
 
         yesterday_date = self.today - timedelta(days=1)
         results = []
@@ -377,11 +404,12 @@ class RechargeReportService:
                 target_val = ev_target_val
                 sc_target_val = 0
 
-            rso_emps_for_sup = supervisor_user_to_rso_emps.get(emp.user_id) or []
+            team_emps = supervisor_emp_to_team.get(emp_id) or []
             all_rso_retailer_ids: set[int] = set()
-            for rso_emp in rso_emps_for_sup:
-                rso_retailer_ids = await self._get_retailer_ids_for_employee(rso_emp.id)
-                all_rso_retailer_ids.update(rso_retailer_ids)
+            for member in team_emps:
+                all_rso_retailer_ids.update(
+                    await self._get_retailer_ids_for_employee(member.id)
+                )
 
             achievement = await self._get_recharge_sum(retailer_ids=all_rso_retailer_ids) if all_rso_retailer_ids else 0
 

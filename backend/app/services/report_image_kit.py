@@ -423,7 +423,7 @@ def draw_section_title(draw, x, y, text, font_size: int = SECTION_TITLE_FONT) ->
 
 def render_section(draw, x, y, w, title, labels, rows, *, live_cols=(), total_row=None,
                    total_span=0, left_cols=(1,), weights=None, borderless=False,
-                   f_head=None, f_cell=None,
+                   f_head=None, f_cell=None, cell_color_map=None,
                    title_font_size: int = SECTION_TITLE_FONT) -> int:
     """Basic section: a plain title above a full-width bordered table.
 
@@ -431,7 +431,8 @@ def render_section(draw, x, y, w, title, labels, rows, *, live_cols=(), total_ro
     content-sized columns (used by the single-row metric summary, whose cells
     are evenly split). ``f_head`` / ``f_cell`` / ``title_font_size`` let a report
     override the default fonts (e.g. a wider canvas with more readable text);
-    callers that pass no fonts keep the shared defaults.
+    callers that pass no fonts keep the shared defaults. ``cell_color_map``
+    is forwarded to :func:`draw_table` to colour values by text (e.g. status).
     """
     y = draw_section_title(draw, x, y, title, font_size=title_font_size)
     f_head = f_head or load_font(TBL_F_HEAD, True)
@@ -441,5 +442,6 @@ def render_section(draw, x, y, w, title, labels, rows, *, live_cols=(), total_ro
                                   max_total=w, total_row=total_row, total_span=total_span)
     draw_table(draw, x, y, w, labels, rows, weights=weights, left_cols=list(left_cols),
                live_cols=list(live_cols), total_row=total_row, total_span=total_span,
-               f_head=f_head, f_cell=f_cell, borderless=borderless)
+               f_head=f_head, f_cell=f_cell, borderless=borderless,
+               cell_color_map=cell_color_map)
     return y + table_height(len(rows) + (1 if total_row is not None else 0), f_head, f_cell)

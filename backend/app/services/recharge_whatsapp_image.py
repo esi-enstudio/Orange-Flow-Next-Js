@@ -116,7 +116,7 @@ REPORT_TYPES = {
 
 # ── Section column sets ──
 HOUSE_LABELS = ["Target", "Ach", "%", "Remain", "Daily Req", "Daily Avg",
-                "Projection", "Proj %"]
+                "Projection", "Proj %", "Status"]
 SUPERVISOR_LABELS = ["#", "Supervisor Name", "Pool No", "Target", "Ach", "%", "Remain",
                      "DRR", "Proj %", "Yest C2C", "Yest C2S", "Status"]
 RSO_LABELS = ["#", "RSO Name", "ITop No", "Target", "Ach", "%", "Remain",
@@ -238,6 +238,10 @@ def _render_house_summary(draw, x, y, w, summary) -> int:
     target = float(summary.get("monthly_target") or 0)
     achievement = float(summary.get("achievement") or 0)
     projection = float(summary.get("projection") or 0)
+    # House-level status uses the same projection rule as the dashboard card and
+    # the supervisor/RSO tables.
+    ach_pct = round(achievement / target * 100, 1) if target else 0
+    proj_pct = round(projection / target * 100) if target else 0
     values = [
         _fmt(target),
         _fmt(achievement),
@@ -247,12 +251,14 @@ def _render_house_summary(draw, x, y, w, summary) -> int:
         _fmt(summary.get("daily_average") or 0),
         _fmt(projection),
         pct_2dp(projection, target),
+        _status_label(ach_pct, proj_pct),
     ]
     # Evenly split metric cells (no left-aligned name column), mirroring the
     # summary grid in the HTML dashboard.
     return render_section(draw, x, y, w, "HOUSE SUMMARY", HOUSE_LABELS, [values],
                           weights=[1] * len(HOUSE_LABELS), left_cols=(),
                           f_head=f_head, f_cell=f_cell,
+                          cell_color_map={len(HOUSE_LABELS) - 1: STATUS_COLORS},
                           title_font_size=SECTION_TITLE_FONT_SIZE)
 
 
