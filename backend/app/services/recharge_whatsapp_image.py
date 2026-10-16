@@ -5,11 +5,13 @@ in the same simple, print-friendly style as the GA Live and Activation report
 images: a plain header with one highlighted metric box, a single-row house
 summary table, and one plain bordered table each for supervisors and RSOs.
 
-The report is laid out on full A4 landscape sheets: the first page carries the
-header, the single-row house summary and then the supervisor and RSO tables,
-flowing top to bottom. A house with many members spills onto extra A4 landscape
-pages, with each table repeating its header on the continuation page, so the
-result prints as one clean A4 landscape page per sheet.
+The report is laid out on one or more A4 landscape pages: the first page carries
+the header, the single-row house summary and then the supervisor and RSO tables,
+flowing top to bottom. A4 landscape is the *maximum* page size — a page whose
+content does not fill it shrinks to the content height, so a small house yields
+a short image instead of one with a large white void. A house with many members
+spills onto extra pages, with each table repeating its header on the
+continuation page.
 
 Business rules mirror the dashboard page:
     * Status    -> projectionStatus(achievement %, projection %) identity with
@@ -45,6 +47,7 @@ from app.services.report_image_kit import (
     draw_section_title,
     draw_table,
     ellipsize,
+    hugging_page_height,
     load_font,
     pct_2dp,
     render_section,
@@ -54,12 +57,11 @@ from app.services.report_image_kit import (
 from app.utils.timezone import now_naive
 
 # ── Layout ──
-# A4 landscape pages: the report is laid out on one or more full A4 landscape
-# sheets (width 1600 design units, height = 1600 * 210/297 so the width:height
-# ratio is exactly A4 landscape). Header + house summary lead the first page,
-# then the supervisor and RSO tables flow top to bottom, splitting onto extra
-# pages when a house has many members. Every page maps 1:1 onto an A4 landscape
-# sheet when printed / converted to PDF.
+# A4 landscape pages: A4 landscape is the maximum page size — width 1600 design
+# units, max height = 1600 * 210/297 so a full page has the exact A4 landscape
+# ratio. Header + house summary lead the first page, then the supervisor and RSO
+# tables flow top to bottom, splitting onto extra pages when a house has many
+# members; a page whose content does not fill A4 shrinks to the content height.
 IMG_W = 1600
 PAGE_PAD = 0             # no page margin — content is padded by CARD_PAD
 CARD_PAD = 10            # inner padding of the page content
@@ -348,20 +350,25 @@ def _rso_rows(rsos: list[dict], days_remaining: int):
 def _paginate(sup_rows, sup_total, rso_rows, rso_total):
     """Plan the report onto A4 landscape pages.
 
-    Returns ``(pages, f_head, f_cell, hh, rh)`` where ``pages`` is a list of pages,
-    each a top-to-bottom-ordered list of draw-ops.
+    Returns ``(pages, heights, f_head, f_cell, hh, rh)`` where ``pages`` is a
+    list of pages, each a top-to-bottom-ordered list of draw-ops, and
+    ``heights`` is the used content height of every page (A4 height is the
+    maximum — a page whose content does not fill it shrinks to this height
+    instead of leaving a void).
     """
     f_head = load_font(TABLE_FONT, True)
     f_cell = load_font(TABLE_FONT, True)
     hh, rh = table_heights(f_head, f_cell)
 
     pages: list[list] = []
+    heights: list[int] = []
     page: list = []
     used = 0
 
     def new_page():
         nonlocal page, used
         pages.append(page)
+        heights.append(used)
         page = []
         used = 0
 
@@ -422,13 +429,15 @@ def _paginate(sup_rows, sup_total, rso_rows, rso_total):
                 new_page()
 
     pages.append(page)
-    return pages, f_head, f_cell, hh, rh
+    heights.append(used)
+    return pages, heights, f_head, f_cell, hh, rh
 
 
 # ── Render ──
 def _render_image(house_name: str, house_code: str, dashboard: dict, today: date,
                   report_title: str) -> list[bytes]:
-    """Render the report as one PNG per A4 landscape page."""
+    """Render the report as one PNG per page (A4 landscape height cap; a page
+    that does not fill its A4 sheet shrinks to its content height)."""
     summary = dashboard.get("summary") or {}
     days_remaining = int(summary.get("days_remaining") or 0)
 
@@ -436,14 +445,22 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
                                            days_remaining)
     rso_rows, rso_total = _rso_rows(dashboard.get("rso_performance") or [], days_remaining)
 
-    pages, f_head, f_cell, hh, rh = _paginate(sup_rows, sup_total, rso_rows, rso_total)
+    pages, heights, f_head, f_cell, hh, rh = _paginate(
+        sup_rows, sup_total, rso_rows, rso_total)
 
     s = _active_scale()
     cx = PAGE_PAD + CARD_PAD
     total_pages = len(pages)
     out: list[bytes] = []
     for page_no, ops in enumerate(pages):
-        img = Image.new("RGB", (PAGE_W * s, PAGE_H * s), REPORT_BG)
+        # A4 landscape height is the cap; a page whose content does not fill it
+        # (usually the only/last page of a small house) shrinks to the content
+        # height instead of leaving a large white void below.
+        footer = FOOTER_H if total_pages > 1 else 0
+        canvas_h = hugging_page_height(
+            heights[page_no], page_h=PAGE_H, content_h=CONTENT_H, row_h=rh,
+            pad=CARD_PAD, footer_h=footer)
+        img = Image.new("RGB", (PAGE_W * s, canvas_h * s), REPORT_BG)
         draw = ScaledDraw(ImageDraw.Draw(img), _scale)
         y = PAGE_PAD + CARD_PAD
         for op in ops:
@@ -464,7 +481,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
                 y += hh + rh * (len(chunk) + (1 if tro else 0))
             y += GAP
         if total_pages > 1:
-            draw.text((cx + INNER, PAGE_H - CARD_PAD), f"Page {page_no + 1}/{total_pages}",
+            draw.text((cx + INNER, canvas_h - CARD_PAD), f"Page {page_no + 1}/{total_pages}",
                       font=load_font(11, True), fill=INK, anchor="rs")
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -501,9 +518,10 @@ async def build_recharge_report_image(
 ) -> list[bytes]:
     """Total-recharge variant of the Recharge Report (report_type `recharge`).
 
-    Returns one PNG per A4 landscape page (a single-member house yields one page).
-    ``scale`` overrides the default RENDER_SCALE - used for fast, reduced-size
-    preview renders. ``None`` produces the full-resolution send-quality images.
+    Returns one PNG per page (A4 landscape is the size cap; a page whose content
+    does not fill it hugs its content). ``scale`` overrides the default
+    RENDER_SCALE - used for fast, reduced-size preview renders. ``None`` produces
+    the full-resolution send-quality images.
     """
     return await _build(db, house_id, "recharge", scale)
 

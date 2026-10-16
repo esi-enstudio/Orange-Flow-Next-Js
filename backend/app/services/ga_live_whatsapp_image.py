@@ -42,6 +42,7 @@ from app.services.report_image_kit import (
     draw_section_title,
     draw_table,
     ellipsize,
+    hugging_page_height,
     load_font,
     pct_2dp,
     render_section,
@@ -429,16 +430,13 @@ def _render_image(house, data: dict, summary: dict, today: date) -> list[bytes]:
     total_pages = len(pages)
     out: list[bytes] = []
     for page_no, ops in enumerate(pages):
-        # A4 height is the cap. A page packed to within one row of full keeps
-        # the exact A4 sheet; a page whose content leaves a real gap (usually
+        # A4 height is the cap; a page whose content does not fill it (usually
         # the only/last page of a small house) shrinks to the content height
         # instead of leaving a large white void below.
         footer = FOOTER_H if total_pages > 1 else 0
-        content_h = PAGE_PAD + CARD_PAD + heights[page_no] + CARD_PAD + footer
-        if heights[page_no] >= CONTENT_H - rh:
-            canvas_h = PAGE_H
-        else:
-            canvas_h = min(PAGE_H, content_h)
+        canvas_h = hugging_page_height(
+            heights[page_no], page_h=PAGE_H, content_h=CONTENT_H, row_h=rh,
+            pad=CARD_PAD, footer_h=footer)
         img = Image.new("RGB", (PAGE_W * s, canvas_h * s), REPORT_BG)
         draw = ScaledDraw(ImageDraw.Draw(img), _scale)
         y = PAGE_PAD + CARD_PAD

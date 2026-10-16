@@ -236,6 +236,21 @@ def table_height(rows: int, f_head=None, f_cell=None) -> int:
     return hh + rh * rows
 
 
+def hugging_page_height(used: int, *, page_h: int, content_h: int, row_h: int,
+                        pad: int, footer_h: int = 0) -> int:
+    """Canvas height for one planned page: content-hugging, capped at the sheet.
+
+    ``page_h`` is the full sheet height (e.g. A4) and ``content_h`` the usable
+    content area inside its paddings. A page packed to within one row of full
+    keeps the exact sheet height; a page whose content leaves a real gap —
+    usually the only or last page of a report with few rows — shrinks to the
+    content height (paddings + reserved footer) instead of leaving a void.
+    """
+    if used >= content_h - row_h:
+        return page_h
+    return min(page_h, 2 * pad + used + footer_h)
+
+
 def _live_display(ci, text, live_cols):
     """Mirror the '● N' decoration applied to live columns."""
     if ci in live_cols:
