@@ -398,6 +398,9 @@ def _serialize_live(
         "employee_code": emp.employee_id,
         "dms_code": emp.dms_code,
         "itop_number": emp.itop_number,
+        # Profile photo (public /uploads path). The map marker card shows it when
+        # present and falls back to generated initials otherwise.
+        "photo_url": emp.photo_url,
         # RSOs are identified by their iTopUp number; other roles use the pool
         # number, so the read API must expose both for the UI to choose.
         "pool_number": emp.pool_number,

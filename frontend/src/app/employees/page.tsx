@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import apiClient from "@/lib/api";
+import apiClient, { resolveImageUrl } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
   Users2, Users, 
@@ -52,6 +52,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
 import EmployeeMasterFilter, { EmployeeFilters, defaultFilters } from "@/components/employees/EmployeeMasterFilter";
+import EmployeeAttachmentsPanel, {
+  AttachmentPayload,
+  EMPTY_ATTACHMENT_PAYLOAD,
+} from "@/components/employees/EmployeeAttachmentsPanel";
 
 interface Employee {
   id: number;
@@ -100,6 +104,7 @@ interface Employee {
   resigned_date?: string;
   employee_type?: string;
   sr_no?: string;
+  photo_url?: string;
 }
 
 interface House {
@@ -179,11 +184,6 @@ function FieldRow({ label, value }: { label: string; value?: string | null }) {
       <span className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate">{value || "—"}</span>
     </div>
   );
-}
-
-function profilePicUrl(pic?: string): string | null {
-  if (!pic) return null;
-  return `${process.env.NEXT_PUBLIC_API_URL?.replace("/api", "")}${pic}`;
 }
 
 function employeeDisplayName(m: Employee): string {
@@ -268,6 +268,13 @@ export default function EmployeesPage() {
   const [formLoading, setFormLoading] = useState(false);
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Employee | null>(null);
+  // Staged attachments + removals collected by EmployeeAttachmentsPanel. Held in
+  // a ref (not state) so the panel can emit on every change without re-rendering
+  // the whole form; the latest value is merged into the create/update payload.
+  const attachmentRef = useRef<AttachmentPayload>({ ...EMPTY_ATTACHMENT_PAYLOAD });
+  const handleAttachmentChange = useCallback((payload: AttachmentPayload) => {
+    attachmentRef.current = payload;
+  }, []);
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
@@ -455,6 +462,7 @@ export default function EmployeesPage() {
   const openAddModal = () => {
     setEditingMember(null);
     setFormErrors({});
+    attachmentRef.current = { ...EMPTY_ATTACHMENT_PAYLOAD };
     // Pre-select the house only when the user is assigned to exactly one house.
     // Users assigned to multiple houses start with no selection so they must choose.
     const assignedHouses = user?.houses ?? [];
@@ -505,6 +513,7 @@ export default function EmployeesPage() {
   const openEditModal = (m: Employee) => {
     setEditingMember(m);
     setFormErrors({});
+    attachmentRef.current = { ...EMPTY_ATTACHMENT_PAYLOAD };
     setFormData({
       // Tagged user is optional. Use the resolved linked user (not the raw
       // user_id) so a stale/dangling id does not get re-sent and rejected.
@@ -582,6 +591,7 @@ export default function EmployeesPage() {
     }
     setFormLoading(true);
     setFormErrors({});
+    const payload = { ...formData, ...attachmentRef.current };
     try {
       if (editingMember) {
         const newStatus = formData.status;
@@ -607,10 +617,10 @@ export default function EmployeesPage() {
             }
           }
         }
-        await apiClient.put(`employees/${editingMember.id}`, formData);
+        await apiClient.put(`employees/${editingMember.id}`, payload);
         toast.success(t('employees.toast_update_success'));
       } else {
-        await apiClient.post("employees", formData);
+        await apiClient.post("employees", payload);
         toast.success(t('employees.toast_create_success'));
       }
       setIsFormModalOpen(false);
@@ -1024,8 +1034,8 @@ export default function EmployeesPage() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs shadow-inner overflow-hidden shrink-0">
-                            {m.user?.profile_pic ? (
-                              <img src={profilePicUrl(m.user.profile_pic)!} alt="" className="w-full h-full object-cover" />
+                            {m.photo_url || m.user?.profile_pic ? (
+                              <img src={resolveImageUrl(m.photo_url || m.user?.profile_pic)!} alt="" className="w-full h-full object-cover" />
                             ) : (
                               employeeDisplayName(m).charAt(0)
                             )}
@@ -1127,8 +1137,8 @@ export default function EmployeesPage() {
                     className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors text-left"
                   >
                     <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs shadow-inner overflow-hidden shrink-0">
-                      {m.user?.profile_pic ? (
-                        <img src={profilePicUrl(m.user.profile_pic)!} alt="" className="w-full h-full object-cover" />
+                      {m.photo_url || m.user?.profile_pic ? (
+                        <img src={resolveImageUrl(m.photo_url || m.user?.profile_pic)!} alt="" className="w-full h-full object-cover" />
                       ) : (
                         employeeDisplayName(m).charAt(0)
                       )}
@@ -1254,8 +1264,8 @@ export default function EmployeesPage() {
               <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
               <div className="relative px-4 sm:px-6 py-3 sm:py-5 flex items-start gap-3 sm:gap-4">
                 <div className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 rounded-2xl bg-white/20 flex items-center justify-center text-white text-lg sm:text-2xl font-black shadow-lg backdrop-blur-sm border border-white/20 overflow-hidden">
-                  {viewingMember.user?.profile_pic ? (
-                    <img src={profilePicUrl(viewingMember.user.profile_pic)!} alt="" className="w-full h-full object-cover" />
+                  {viewingMember.photo_url || viewingMember.user?.profile_pic ? (
+                    <img src={resolveImageUrl(viewingMember.photo_url || viewingMember.user?.profile_pic)!} alt="" className="w-full h-full object-cover" />
                   ) : (
                     (viewingMember.user?.name || viewingMember.employee_name || viewingMember.dms_code).charAt(0)
                   )}
@@ -1380,6 +1390,17 @@ export default function EmployeesPage() {
                   <FieldRow label="Driving License" value={viewingMember.driving_license} />
                 </div>
               </div>
+
+              {/* Photo & Documents (read-only) */}
+              <EmployeeAttachmentsPanel
+                key={`view-${viewingMember.id}`}
+                mode="view"
+                employeeId={viewingMember.id}
+                initialPhotoUrl={viewingMember.photo_url ?? null}
+                canView={hasPermission("employees.document_view")}
+                canUpload={false}
+                canDelete={false}
+              />
 
               {/* Performance History — works for resigned employees too */}
               {(viewingMember.employee_type === "rso" || viewingMember.employee_type === "bp" || viewingMember.employee_type === "supervisor") && (
@@ -1855,6 +1876,17 @@ export default function EmployeesPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Section 7: Photo & Documents */}
+              <EmployeeAttachmentsPanel
+                key={editingMember ? `edit-${editingMember.id}` : "new"}
+                employeeId={editingMember?.id ?? null}
+                initialPhotoUrl={editingMember?.photo_url ?? null}
+                canView={hasPermission("employees.document_view")}
+                canUpload={hasPermission("employees.document_upload")}
+                canDelete={hasPermission("employees.document_delete")}
+                onChange={handleAttachmentChange}
+              />
 
               <div className="flex gap-4 pt-6 bg-white dark:bg-slate-900 border-t dark:border-slate-800 pb-24 sm:pb-4">
                 <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all active:scale-95">{t('employees.btn_cancel')}</button>

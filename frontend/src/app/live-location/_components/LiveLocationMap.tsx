@@ -6,12 +6,14 @@ import { Maximize2, Minimize2 } from "lucide-react";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { employeeIdentifierValue } from "@/lib/employeeIdentifier";
+import { resolveImageUrl } from "@/lib/api";
 
 export interface LiveMapItem {
   employee_id: number;
   employee_name?: string | null;
   employee_type?: string | null;
   dms_code?: string | null;
+  photo_url?: string | null;
   // Identity card content — the map prints these into the marker's label.
   itop_number?: string | null;
   pool_number?: string | null;
@@ -98,7 +100,7 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** System has no employee photos, so the avatar is generated from initials. */
+/** Falls back to generated initials when the employee has no profile photo. */
 function initialsOf(item: LiveMapItem): string {
   const words = (item.employee_name || "").trim().split(/\s+/).filter(Boolean);
   if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toLocaleUpperCase();
@@ -106,6 +108,23 @@ function initialsOf(item: LiveMapItem): string {
   const code = (item.dms_code || "").trim();
   if (code) return code.slice(0, 2).toLocaleUpperCase();
   return "#";
+}
+
+/**
+ * Identity-card avatar: the employee's profile photo when present, otherwise a
+ * colour-coded initials circle. The initials stay painted underneath the image
+ * so a missing/broken photo silently degrades to them — divIcon HTML is raw
+ * innerHTML and cannot fall back through React state.
+ */
+function avatarHtml(item: LiveMapItem, color: string): string {
+  const photo = resolveImageUrl(item.photo_url);
+  const initials = escapeHtml(initialsOf(item));
+  const base =
+    "flex:0 0 auto;position:relative;width:22px;height:22px;border-radius:9999px;overflow:hidden;" +
+    `background:${color};color:#ffffff;font-size:10px;font-weight:700;line-height:1;` +
+    "display:flex;align-items:center;justify-content:center;";
+  if (!photo) return `<span style="${base}">${initials}</span>`;
+  return `<span style="${base}">${initials}<img src="${escapeHtml(photo)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'" /></span>`;
 }
 
 /**
@@ -177,7 +196,7 @@ function labelIcon(item: LiveMapItem, selected: boolean, labels: LiveMapLabels) 
     <div style="position:relative;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 3px rgba(15,23,42,.35));">
       <div title="${escapeHtml(accessibleName)}" style="width:max-content;max-width:${LABEL_WIDTH}px;height:${LABEL_HEIGHT}px;box-sizing:border-box;background:#ffffff;border:1px solid rgba(203,213,225,.9);border-radius:12px;padding:6px 9px;text-align:left;overflow:hidden;display:flex;flex-direction:column;justify-content:center;">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;height:22px;">
-          <span style="flex:0 0 auto;width:22px;height:22px;border-radius:9999px;background:${color};color:#ffffff;font-size:10px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;">${escapeHtml(initialsOf(item))}</span>
+          ${avatarHtml(item, color)}
           <span style="min-width:0;font-size:12px;font-weight:600;line-height:22px;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(name)}</span>
         </div>
         <div style="margin-top:4px;font-size:10px;line-height:12px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(codes)}</div>

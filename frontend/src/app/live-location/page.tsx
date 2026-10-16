@@ -436,6 +436,7 @@ export default function LiveLocationPage() {
           employee_name: i.employee_name,
           employee_type: i.employee_type,
           dms_code: i.dms_code,
+          photo_url: i.photo_url,
           itop_number: i.itop_number,
           pool_number: i.pool_number,
           latitude: i.latitude,
