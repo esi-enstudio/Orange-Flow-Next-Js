@@ -431,6 +431,10 @@ class ActiveLsoReportService:
         all_retailer_ids = list(retailer_map.keys())
         cur_map = await self._get_c2s_map(all_retailer_ids, self.start_date, self.end_date)
         prev_map = await self._get_c2s_map(all_retailer_ids, self.prev_month_start, self.prev_month_end)
+        # Retailers of this report's RSOs that were active yesterday (any C2S
+        # activity) — shown as a headline metric on the report image.
+        yesterday = self.today - timedelta(days=1)
+        yday_map = await self._get_c2s_map(all_retailer_ids, yesterday, yesterday)
 
         rows = []
         for emp in emps:
@@ -448,6 +452,7 @@ class ActiveLsoReportService:
             "success": True,
             "period": self._period_info(),
             "count_keys": list(self.count_keys),
+            "yesterday_active": sum(1 for days, _amt in yday_map.values() if days > 0),
             "rows": rows,
             "summary": self._aggregate(rows),
             "supervisor_summary": self._supervisor_summary(rows),
@@ -849,6 +854,7 @@ class ActiveLsoReportService:
             "success": True,
             "period": self._period_info(),
             "count_keys": list(self.count_keys),
+            "yesterday_active": 0,
             "rows": [],
             "summary": self._blank_aggregate(),
             "supervisor_summary": [],
