@@ -11,6 +11,7 @@ export type DeployStep = {
 };
 
 const STEP_LABELS: Record<string, { en: string; bn: string }> = {
+  restore_point: { en: "Restore Point", bn: "রিস্টোর পয়েন্ট" },
   pulling: { en: "Pulling latest code", bn: "সর্বশেষ কোড পুল হচ্ছে" },
   installing: { en: "Installing dependencies", bn: "ডিপেন্ডেন্সি ইনস্টল হচ্ছে" },
   building: { en: "Building frontend", bn: "ফ্রন্টএন্ড বিল্ড হচ্ছে" },
