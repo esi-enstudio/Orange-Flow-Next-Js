@@ -242,12 +242,18 @@ def compose_report_png(payload) -> bytes:
     return payload
 
 
+def _report_pages(payload) -> list[bytes]:
+    """Every page PNG of a report payload (a single PNG yields a one-item list)."""
+    return list(payload) if isinstance(payload, (list, tuple)) else [payload]
+
+
 async def _payload_for_send_as(send_as: str, report_type: str, payload) -> tuple[bytes, str, str]:
     """Return (file_bytes, filename, mimetype) for the requested send_as format.
 
     A report may be a single PNG (``bytes``) or several A4 pages (``list[bytes]``):
 
-    - image    -> the first page, sent as a photo (WhatsApp compresses tall images)
+    - image    -> the first page; send sites iterate ``_report_pages`` directly
+                  so every A4 page is delivered as its own photo
     - document -> every page stacked into one tall PNG, so nothing is lost
     - pdf      -> one A4 page per report page, so long reports stay readable
 
@@ -255,7 +261,7 @@ async def _payload_for_send_as(send_as: str, report_type: str, payload) -> tuple
     thread so the event loop stays responsive during sends.
     """
     mode = send_as or "image"
-    pages = list(payload) if isinstance(payload, (list, tuple)) else [payload]
+    pages = _report_pages(payload)
 
     if mode == "pdf":
         if len(pages) == 1:
@@ -570,16 +576,18 @@ async def send_direct_report(
         bot = await telegram_service.resolve_house_tg_bot(db, house)
         if not bot:
             return False, "No Telegram bot assigned to this house"
-        file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
         try:
             if send_as == "image":
-                await telegram_service.send_photo(
-                    token=bot.bot_token,
-                    chat_id=house.telegram_chat_id,
-                    image_bytes=file_bytes,
-                    caption=final_caption,
-                )
+                # Paginated reports send one photo per A4 page, caption on the first.
+                for idx, page_png in enumerate(_report_pages(image_bytes)):
+                    await telegram_service.send_photo(
+                        token=bot.bot_token,
+                        chat_id=house.telegram_chat_id,
+                        image_bytes=page_png,
+                        caption=final_caption if idx == 0 else "",
+                    )
             else:
+                file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
                 await telegram_service.send_document(
                     token=bot.bot_token,
                     chat_id=house.telegram_chat_id,
@@ -616,22 +624,30 @@ async def send_direct_report(
                 error=error, chat_names=[n for _, n in targets], user_id=user_id,
             )
             return False, error
-        file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
+        pages = _report_pages(image_bytes)
+        doc_payload = None
+        if send_as != "image":
+            doc_payload = await _payload_for_send_as(send_as, report_type, image_bytes)
         for chat_id, chat_name in targets:
             try:
                 if send_as == "image":
-                    await with_target_token(
-                        db,
-                        target,
-                        lambda token, jid=chat_id: whatsapp_service_client.send_image(
-                            jwt_token=token,
-                            chat_jid=jid,
-                            filename=filename,
-                            image_bytes=file_bytes,
-                            caption=final_caption,
-                        ),
-                    )
+                    # One photo per A4 page, caption on the first.
+                    for idx, page_png in enumerate(pages):
+                        page_caption = final_caption if idx == 0 else ""
+                        await with_target_token(
+                            db,
+                            target,
+                            lambda token, jid=chat_id, png=page_png, cap=page_caption:
+                                whatsapp_service_client.send_image(
+                                    jwt_token=token,
+                                    chat_jid=jid,
+                                    filename=f"{report_type}_report.png",
+                                    image_bytes=png,
+                                    caption=cap,
+                                ),
+                        )
                 else:
+                    file_bytes, filename, mimetype = doc_payload
                     await with_target_token(
                         db,
                         target,
@@ -761,16 +777,19 @@ async def _send_telegram_report(
 
     chat_name = house.telegram_chat_name or house.telegram_chat_id
     send_as = getattr(schedule, "send_as", "image") or "image"
-    file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
+    pages = _report_pages(image_bytes)
     try:
         if send_as == "image":
-            await telegram_service.send_photo(
-                token=bot.bot_token,
-                chat_id=house.telegram_chat_id,
-                image_bytes=file_bytes,
-                caption=caption,
-            )
+            # Paginated reports send one photo per A4 page, caption on the first.
+            for idx, page_png in enumerate(pages):
+                await telegram_service.send_photo(
+                    token=bot.bot_token,
+                    chat_id=house.telegram_chat_id,
+                    image_bytes=page_png,
+                    caption=caption if idx == 0 else "",
+                )
         else:
+            file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
             await telegram_service.send_document(
                 token=bot.bot_token,
                 chat_id=house.telegram_chat_id,
@@ -811,7 +830,7 @@ async def _send_telegram_report(
             "chat": chat_name,
             "bot": bot.name,
             "schedule_time": schedule.schedule_time,
-            "messages": 1,
+            "messages": len(pages) if send_as == "image" else 1,
             "format": send_as,
         },
     )
@@ -893,22 +912,30 @@ async def _send_whatsapp_report(
     delivered = 0
     first_error: str | None = None
     send_as = getattr(schedule, "send_as", "image") or "image"
-    file_bytes, filename, mimetype = await _payload_for_send_as(send_as, report_type, image_bytes)
+    pages = _report_pages(image_bytes)
+    doc_payload = None
+    if send_as != "image":
+        doc_payload = await _payload_for_send_as(send_as, report_type, image_bytes)
     for chat_id, chat_name in targets:
         try:
             if send_as == "image":
-                await with_target_token(
-                    db,
-                    target,
-                    lambda token, jid=chat_id: whatsapp_service_client.send_image(
-                        jwt_token=token,
-                        chat_jid=jid,
-                        filename=filename,
-                        image_bytes=file_bytes,
-                        caption=caption,
-                    ),
-                )
+                # One photo per A4 page, caption on the first.
+                for idx, page_png in enumerate(pages):
+                    page_caption = caption if idx == 0 else ""
+                    await with_target_token(
+                        db,
+                        target,
+                        lambda token, jid=chat_id, png=page_png, cap=page_caption:
+                            whatsapp_service_client.send_image(
+                                jwt_token=token,
+                                chat_jid=jid,
+                                filename=f"{report_type}_report.png",
+                                image_bytes=png,
+                                caption=cap,
+                            ),
+                    )
             else:
+                file_bytes, filename, mimetype = doc_payload
                 await with_target_token(
                     db,
                     target,

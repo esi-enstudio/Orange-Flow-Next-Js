@@ -1,6 +1,6 @@
 """Server-side GA Live Report image builder for WhatsApp chat delivery.
 
-Renders the GA Live Report as a PNG image:
+Renders the GA Live Report as PNG images:
 
 - Gradient blue header with house meta + big "Total Activations" box
 - DD SUMMARY: a plain title over a single-row metric table
@@ -8,8 +8,12 @@ Renders the GA Live Report as a PNG image:
 - RSO PERFORMANCE: one basic table for every RSO
 - BP PERFORMANCE: one basic table for every BP
 
-The layout is a single full-width column (portrait strip) with small margins, so
-the image reads as one tall page on a phone and fills an A4 page when printed.
+The report is laid out on one or more A4 portrait pages: the first page carries
+the header, the DD summary and the start of the performance tables, flowing top
+to bottom. A4 portrait is the *maximum* page height — a page whose content does
+not fill it shrinks to the content, so a small house yields a short image
+instead of one with a large white void. A house with many members spills onto
+extra pages, with each table repeating its header on the continuation page.
 """
 import io
 import math
@@ -28,21 +32,27 @@ from app.services.report_image_kit import (
     INK,
     REPORT_BG,
     SECTION_TITLE_H,
+    TBL_F_CELL,
+    TBL_F_HEAD,
     TOTAL_BG,
     TOTAL_INK,
     RenderScale,
     ScaledDraw,
+    content_weights,
+    draw_section_title,
+    draw_table,
     ellipsize,
     load_font,
     pct_2dp,
     render_section,
     table_height,
+    table_heights,
 )
 from app.utils.timezone import now_naive
 
 # ── Layout ──
 # Narrow portrait canvas: the whole report is one full-width column so it reads
-# as a tall strip on a phone and fills an A4 page width when printed.
+# as a clean A4 portrait sheet on a phone and when printed.
 IMG_W = 800
 PAGE_PAD = 0             # no page margin — the report is full-bleed
 CARD_PAD = 10            # inner padding of the report content
@@ -50,9 +60,17 @@ INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
 GAP = 8                  # minimum gap between sections
 HDR_H = 118
 
-# Minimum canvas height keeps the image portrait (taller than wide) even for a
-# house with no employees.
-PORTRAIT_MIN_RATIO = 1.0
+# ── A4 pagination ──
+# A4 portrait is the maximum page size: width 800 design units, max height =
+# 800 * 297/210 so a full page has the exact A4 portrait ratio. The report
+# flows top to bottom and splits onto extra pages when a house has many
+# members; a page whose content does not fill A4 shrinks to the content height.
+A4_SHORT_MM = 210
+A4_LONG_MM = 297
+PAGE_W = IMG_W
+PAGE_H = round(IMG_W * A4_LONG_MM / A4_SHORT_MM)  # ≈1131 → exact A4 portrait
+FOOTER_H = 16            # reserved band for the "Page n/N" footer
+CONTENT_H = PAGE_H - 2 * CARD_PAD - FOOTER_H
 
 # ── Native high-resolution rendering ──
 # The active render scale. Defaults to RENDER_SCALE; ``_temp_scale`` swaps it
@@ -139,6 +157,10 @@ def _team_by_supervisor(sup: dict, data: dict) -> tuple[list, list]:
 SUPERVISOR_LABELS = ["#", "Name", "Pool", "RSO", "BP", "Target", "Ach", "%", "Remain", "DRR", "Live GA"]
 RSO_LABELS = ["#", "RSO Name", "ITop No", "Assisted", "TGT", "Ach", "%", "Remain", "DRR", "Live GA", "Own", "Market"]
 BP_LABELS = ["#", "BP Name", "Pool No", "Assisted", "TGT", "Ach", "%", "Remain", "DRR", "Live GA"]
+
+SUPERVISOR_LIVE_COLS = [10]
+RSO_LIVE_COLS = [9, 10, 11]
+BP_LIVE_COLS = [9]
 
 
 def _render_header(draw, x, y, house, data, today: date) -> int:
@@ -298,57 +320,157 @@ def _bp_rows(bps, days_remaining):
     return rows, total_row
 
 
-def _render_image(house, data: dict, summary: dict, today: date) -> bytes:
+# ── A4 pagination ──
+# A draw-op is a (kind, payload) tuple placed top to bottom on a page. Tables
+# are split into row chunks so a long RSO/BP list continues on the next A4
+# sheet with its table header repeated.
+def _paginate(sup_rows, sup_total, rso_rows, rso_total, bp_rows, bp_total):
+    """Plan the report onto A4 portrait pages.
+
+    Returns ``(pages, heights, f_head, f_cell, hh, rh)`` where ``pages`` is a
+    list of pages, each a top-to-bottom-ordered list of draw-ops, and
+    ``heights`` is the used content height of every page (A4 height is the
+    maximum — a page whose content does not fill it shrinks to this height
+    instead of leaving a void).
+    """
+    f_head = load_font(TBL_F_HEAD, True)
+    f_cell = load_font(TBL_F_CELL, True)
+    hh, rh = table_heights(f_head, f_cell)
+
+    pages: list[list] = []
+    heights: list[int] = []
+    page: list = []
+    used = 0
+
+    def new_page():
+        nonlocal page, used
+        pages.append(page)
+        heights.append(used)
+        page = []
+        used = 0
+
+    def space() -> int:
+        return CONTENT_H - used - (GAP if used else 0)
+
+    def put(h, op):
+        nonlocal used
+        if page:
+            used += GAP
+        page.append(op)
+        used += h
+
+    # Header + DD summary always lead the first page and never split.
+    put(HDR_H, ("header",))
+    put(SECTION_TITLE_H + table_height(1, f_head, f_cell), ("summary",))
+
+    tables = (
+        ("SUPERVISOR PERFORMANCE", SUPERVISOR_LABELS, sup_rows, sup_total,
+         SUPERVISOR_LIVE_COLS, 0),
+        ("RSO PERFORMANCE", RSO_LABELS, rso_rows, rso_total, RSO_LIVE_COLS, 4),
+        ("BP PERFORMANCE", BP_LABELS, bp_rows, bp_total, BP_LIVE_COLS, 4),
+    )
+    for title, labels, rows, total_row, live_cols, total_span in tables:
+        if not rows:
+            continue
+        # Column widths sized from the table's own content (labels, every value
+        # and the total row), computed once for the whole table so every
+        # continuation page keeps identical column widths. The "%" column is
+        # floored to "100.00%" so the two-decimal percentages never clip.
+        weights = content_weights(labels, rows, f_head, f_cell, live_cols,
+                                  max_total=INNER, total_row=total_row,
+                                  total_span=total_span)
+        base = SECTION_TITLE_H + hh
+        idx = 0
+        chunk_no = 0
+        while idx < len(rows):
+            avail = space()
+            if avail < base + rh:
+                new_page()
+                avail = space()
+            remaining = len(rows) - idx
+            take = max(1, min(int((avail - base) // rh), remaining))
+            # Keep the total row on the final chunk; drop a body row to make room.
+            if take == remaining and total_row is not None:
+                if base + rh * remaining + rh > avail:
+                    take = remaining - 1
+                    if take < 1:
+                        new_page()
+                        avail = space()
+                        take = max(1, min(int((avail - base) // rh), remaining))
+            is_last = (idx + take) >= len(rows)
+            chunk = rows[idx:idx + take]
+            tro = total_row if (is_last and total_row is not None) else None
+            label = title if chunk_no == 0 else f"{title} (contd.)"
+            put(base + rh * len(chunk) + (rh if tro else 0),
+                ("table", label, labels, chunk, tro, weights, live_cols, total_span))
+            idx += take
+            chunk_no += 1
+            if idx < len(rows):
+                new_page()
+
+    pages.append(page)
+    heights.append(used)
+    return pages, heights, f_head, f_cell, hh, rh
+
+
+def _render_image(house, data: dict, summary: dict, today: date) -> list[bytes]:
+    """Render the report as one PNG per page (A4 height cap; a page that does
+    not fill its A4 sheet shrinks to its content height)."""
     days_remaining = summary.get("days_remaining", 0)
     sup_rows, sup_total = _supervisor_rows(data, summary)
     rso_rows, rso_total = _rso_rows(data.get("rsos", []), days_remaining)
     bp_rows, bp_total = _bp_rows(data.get("bps", []), days_remaining)
 
-    # Height accounting mirrors the render pass below exactly.
-    body_h = SECTION_TITLE_H + table_height(1)                   # DD SUMMARY
-    if sup_rows:
-        body_h += GAP + SECTION_TITLE_H + table_height(len(sup_rows) + 1)
-    if rso_rows:
-        body_h += GAP + SECTION_TITLE_H + table_height(len(rso_rows) + 1)
-    if bp_rows:
-        body_h += GAP + SECTION_TITLE_H + table_height(len(bp_rows) + 1)
+    pages, heights, f_head, f_cell, hh, rh = _paginate(
+        sup_rows, sup_total, rso_rows, rso_total, bp_rows, bp_total)
 
-    cx = PAGE_PAD + CARD_PAD
-    total_h = PAGE_PAD + CARD_PAD + HDR_H + GAP + body_h + PAGE_PAD + CARD_PAD
-    # Guard against a wide strip for tiny datasets — the report must stay portrait.
-    canvas_h = max(total_h, int(IMG_W * PORTRAIT_MIN_RATIO))
     s = _active_scale()
-    img = Image.new("RGB", (IMG_W * s, max(canvas_h, 60) * s), REPORT_BG)
-    draw = ScaledDraw(ImageDraw.Draw(img), _scale)
-
-    y = PAGE_PAD + CARD_PAD
-    y = _render_header(draw, cx, y, house, data, today)
-    y += GAP
-    y = _render_dd_summary(draw, cx, y, INNER, summary)
-    if sup_rows:
-        y += GAP
-        y = render_section(draw, cx, y, INNER, "SUPERVISOR PERFORMANCE",
-                           SUPERVISOR_LABELS, sup_rows, live_cols=[10], total_row=sup_total)
-    if rso_rows:
-        y += GAP
-        y = render_section(draw, cx, y, INNER, "RSO PERFORMANCE",
-                           RSO_LABELS, rso_rows, live_cols=[9, 10, 11],
-                           total_row=rso_total, total_span=4)
-    if bp_rows:
-        y += GAP
-        y = render_section(draw, cx, y, INNER, "BP PERFORMANCE",
-                           BP_LABELS, bp_rows, live_cols=[9],
-                           total_row=bp_total, total_span=4)
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    cx = PAGE_PAD + CARD_PAD
+    total_pages = len(pages)
+    out: list[bytes] = []
+    for page_no, ops in enumerate(pages):
+        # A4 height is the cap. A page packed to within one row of full keeps
+        # the exact A4 sheet; a page whose content leaves a real gap (usually
+        # the only/last page of a small house) shrinks to the content height
+        # instead of leaving a large white void below.
+        footer = FOOTER_H if total_pages > 1 else 0
+        content_h = PAGE_PAD + CARD_PAD + heights[page_no] + CARD_PAD + footer
+        if heights[page_no] >= CONTENT_H - rh:
+            canvas_h = PAGE_H
+        else:
+            canvas_h = min(PAGE_H, content_h)
+        img = Image.new("RGB", (PAGE_W * s, canvas_h * s), REPORT_BG)
+        draw = ScaledDraw(ImageDraw.Draw(img), _scale)
+        y = PAGE_PAD + CARD_PAD
+        for op in ops:
+            kind = op[0]
+            if kind == "header":
+                y = _render_header(draw, cx, y, house, data, today)
+            elif kind == "summary":
+                y = _render_dd_summary(draw, cx, y, INNER, summary)
+            else:  # table chunk
+                _, title, labels, chunk, tro, weights, live_cols, total_span = op
+                y = draw_section_title(draw, cx, y, title)
+                draw_table(draw, cx, y, INNER, labels, chunk, weights=weights,
+                           left_cols=[1], live_cols=list(live_cols),
+                           total_row=tro, total_span=total_span,
+                           f_head=f_head, f_cell=f_cell)
+                y += hh + rh * (len(chunk) + (1 if tro else 0))
+            y += GAP
+        if total_pages > 1:
+            draw.text((cx + INNER, canvas_h - CARD_PAD),
+                      f"Page {page_no + 1}/{total_pages}",
+                      font=load_font(11, True), fill=INK, anchor="rs")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        out.append(buf.getvalue())
+    return out
 
 
 PREVIEW_SCALE = 4
 
 
-def _render_preview_image(house, data, summary, today: date) -> bytes:
+def _render_preview_image(house, data, summary, today: date) -> list[bytes]:
     """Full GA Live report rendered at a reduced (fast) scale for on-screen
     preview only — proportions/layout are identical to the full-res render."""
     with _temp_scale(PREVIEW_SCALE):
@@ -357,11 +479,12 @@ def _render_preview_image(house, data, summary, today: date) -> bytes:
 
 async def build_ga_live_report_image(
     db: AsyncSession, house_id: int, scale: int | None = None
-) -> bytes:
-    """Build the GA live report as a PNG image.
+) -> list[bytes]:
+    """Build the GA live report as PNG images, one per A4 portrait page.
 
     ``scale`` overrides the default RENDER_SCALE — used for fast, reduced-size
-    preview renders. ``None`` produces the full-resolution send-quality image.
+    preview renders. ``None`` produces the full-resolution send-quality images.
+    A single-page house yields a one-item list.
     """
     today = now_naive().date()
     house, data, summary = await _load_report_data(db, house_id, today)
@@ -371,7 +494,7 @@ async def build_ga_live_report_image(
         return _render_image(house, data, summary, today)
 
 
-async def build_ga_live_report_image_preview(db: AsyncSession, house_id: int) -> bytes:
+async def build_ga_live_report_image_preview(db: AsyncSession, house_id: int) -> list[bytes]:
     """Build the GA live report at a reduced scale for the WhatsApp preview modal.
 
     Runs significantly faster than the full-res build (~1s vs ~10s) and

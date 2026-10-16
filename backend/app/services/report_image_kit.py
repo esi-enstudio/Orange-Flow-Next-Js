@@ -271,7 +271,10 @@ def content_weights(labels, rows, f_head, f_cell, live_cols, margin=8, max_total
             v = r[ci] if ci < len(r) else ""
             w = max(w, f_cell.getlength(_live_display(ci, v, live_cols)))
         if total_row is not None and (total_span == 0 or ci >= total_span):
-            w = max(w, f_head.getlength(str(total_row[ci]) if ci < len(total_row) else ""))
+            # Measured with the live-dot decoration, exactly as draw_table renders
+            # it (a "● " prefix would otherwise be ellipsized away on the total).
+            tval = total_row[ci] if ci < len(total_row) else ""
+            w = max(w, f_head.getlength(_live_display(ci, tval, live_cols)))
         req[ci] = math.ceil(w + margin)
     if max_total and sum(req) > max_total:
         scale = max_total / sum(req)

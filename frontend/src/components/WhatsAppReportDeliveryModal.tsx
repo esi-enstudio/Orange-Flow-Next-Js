@@ -1492,7 +1492,7 @@ export default function WhatsAppReportDeliveryModal({
         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
           {
             form.send_as === "image"
-              ? "Sent as a photo — WhatsApp may compress it."
+              ? "Sent as photos — one per page for long reports; WhatsApp may compress them."
               : form.send_as === "document"
                 ? "Sent as a PNG file — WhatsApp keeps the original quality."
                 : "Converted to PDF and sent as a document — best zoom quality."
