@@ -388,6 +388,11 @@ export default function ActiveSsoReportPage() {
 
   const permissionOk = !authLoading && hasPermission("active_sso.view");
 
+  // Report delivery is shared with the Live Activations schedulers; either
+  // permission unlocks the WhatsApp/Telegram schedule module (mirrors the API).
+  const canShare =
+    hasPermission("reports.whatsapp_share") || hasPermission("live_activations.schedule");
+
   // Redirect if no permission
   useEffect(() => {
     if (!authLoading && !hasPermission("active_sso.view")) {
@@ -770,6 +775,16 @@ export default function ActiveSsoReportPage() {
               title={t("active_sso_report.config.title")}
             >
               <Settings className="w-4 h-4" />
+            </button>
+          )}
+          {canShare && (
+            <button
+              onClick={() => setWsModalOpen(true)}
+              disabled={!filters.houseId}
+              className="inline-flex items-center gap-2 p-2.5 rounded-lg border border-green-300 dark:border-green-500/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={t("active_sso_report.actions.share")}
+            >
+              <Share2 className="w-4 h-4" />
             </button>
           )}
           <button
@@ -1510,8 +1525,8 @@ export default function ActiveSsoReportPage() {
         open={wsModalOpen}
         houseId={filters.houseId ? Number(filters.houseId) : null}
         reportType="active_sso"
-        title="Active SSO Report Delivery"
-        subtitle="Auto-send the Active SSO Report daily at a fixed time"
+        title={t("active_sso_report.whatsapp.title")}
+        subtitle={t("active_sso_report.whatsapp.subtitle")}
         onClose={() => setWsModalOpen(false)}
       />
     </div>

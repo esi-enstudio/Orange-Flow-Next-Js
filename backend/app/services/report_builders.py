@@ -2,8 +2,8 @@
 
 Central registry mapping report_type strings to their image builder functions.
 Each builder takes (db: AsyncSession, house_id: int) and returns either a single
-PNG (``bytes``) or, for paginated reports (e.g. ga_live, recharge, active_lso),
-a list of A4 page PNGs (``list[bytes]``).
+PNG (``bytes``) or, for paginated reports (e.g. ga_live, recharge, active_lso,
+active_sso), a list of A4 page PNGs (``list[bytes]``).
 
 To add a new report type:
 1. Create a builder function: async def build_xxx_report_image(db, house_id) -> bytes
@@ -76,6 +76,7 @@ def _register_all():
 
     SCALE_AWARE_BUILDERS["ga_live"] = build_ga_live_report_image
     SCALE_AWARE_BUILDERS["active_lso"] = build_active_lso_report_image
+    SCALE_AWARE_BUILDERS["active_sso"] = build_active_sso_report_image
     SCALE_AWARE_BUILDERS["activation"] = build_activation_report_image
     SCALE_AWARE_BUILDERS["recharge"] = build_recharge_report_image
     SCALE_AWARE_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
