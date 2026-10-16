@@ -1556,6 +1556,7 @@ export const translations = {
       loading: "Loading dashboard...",
       error_loading: "Failed to load dashboard data",
       no_data: "No data available",
+      select_month: "Select Month",
       report_type: "Report Type",
       whatsapp: {
         title: "Recharge Report Delivery",
@@ -6020,6 +6021,7 @@ employees: "Employees",
       loading: "ড্যাশবোর্ড লোড হচ্ছে...",
       error_loading: "ড্যাশবোর্ড ডেটা লোড করতে ব্যর্থ",
       no_data: "কোনো ডেটা নেই",
+      select_month: "মাস নির্বাচন",
       report_type: "রিপোর্টের ধরন",
       whatsapp: {
         title: "রিচার্জ রিপোর্ট ডেলিভারি",

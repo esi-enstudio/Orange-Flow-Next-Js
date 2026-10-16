@@ -703,6 +703,17 @@ export default function RechargeDashboardPage() {
     return monthNames[m as keyof typeof monthNames] || "";
   };
 
+  // Native month picker ("YYYY-MM") value derived from the month/year state.
+  const monthValue = `${year}-${String(month).padStart(2, "0")}`;
+
+  const handleMonthChange = (value: string) => {
+    // A cleared native month input yields "" — keep the last valid selection.
+    const [y, m] = value.split("-").map(Number);
+    if (!y || !m) return;
+    setYear(y);
+    setMonth(m);
+  };
+
   if (!authLoading && !canViewRechargeReport) {
     return <AccessDenied />;
   }
@@ -771,26 +782,16 @@ export default function RechargeDashboardPage() {
             </div>
           )}
           <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-              className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer"
-            >
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                <option key={m} value={m}>{getMonthName(m)}</option>
-              ))}
-            </select>
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <input
+              type="month"
+              value={monthValue}
+              onChange={(e) => handleMonthChange(e.target.value)}
+              title={t("recharge_report.select_month")}
+              aria-label={t("recharge_report.select_month")}
+              className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+            />
           </div>
-          <select
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
-          >
-            {Array.from({ length: 5 }, (_, i) => today.getFullYear() - 2 + i).map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
           <button
             onClick={handleExport}
             className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
