@@ -207,17 +207,9 @@ class RechargeReportService:
 
     async def _get_employee_name(self, emp: Employee) -> str:
         # employees.employee_name is the HR name imported from Excel and is the
-        # canonical display name. A linked users row is only a fallback: employee
-        # user accounts are frequently missing (user_id may be stale/null), which
-        # previously made the report fall back to a DMS code instead of the name.
-        if emp.employee_name:
-            return emp.employee_name
-        if emp.user_id:
-            user_res = await self.db.execute(select(User.name).where(User.id == emp.user_id))
-            name = user_res.scalar_one_or_none()
-            if name:
-                return name
-        return emp.dms_code or emp.employee_id or f"#{emp.id}"
+        # canonical display name. Employee names always come from the `employees`
+        # table, never from the linked user account.
+        return emp.employee_name or emp.dms_code or emp.employee_id or f"#{emp.id}"
 
     async def get_rso_performance(self) -> list[dict]:
         emps = await self.db.execute(

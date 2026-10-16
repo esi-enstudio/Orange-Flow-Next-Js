@@ -143,7 +143,7 @@ async def list_retailer_filters(
             item["retailer"] = {
                 "id": f.retailer.id, "name": f.retailer.name, "retailer_code": f.retailer.retailer_code,
                 "itop_number": f.retailer.itop_number, "thana": f.retailer.thana, "type": f.retailer.type,
-                "employee": {"name": emp.user.name if emp and emp.user else (emp.dms_code if emp else None),
+                "employee": {"name": (emp.employee_name or emp.dms_code) if emp else None,
                              "itop_number": emp.itop_number if emp else None} if emp else None
             }
         output.append(item)

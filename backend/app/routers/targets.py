@@ -194,7 +194,7 @@ async def get_supervisor_targets(
                     Employee.dms_code.ilike(term),
                     Employee.pool_number.ilike(term),
                     Employee.itop_number.ilike(term),
-                    Employee.user.has(User.name.ilike(term)),
+                    Employee.employee_name.ilike(term),
                 )
             )
         )
@@ -256,7 +256,7 @@ async def export_supervisor_targets(
                     Employee.dms_code.ilike(term),
                     Employee.pool_number.ilike(term),
                     Employee.itop_number.ilike(term),
-                    Employee.user.has(User.name.ilike(term)),
+                    Employee.employee_name.ilike(term),
                 )
             )
         )

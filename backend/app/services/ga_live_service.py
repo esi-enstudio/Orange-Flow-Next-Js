@@ -372,14 +372,12 @@ class GaLiveQueryBuilder:
 
         user_ids = [u[0] for u in emp_id_to_user.values() if u[0]]
         user_role_map: dict[int, list[str]] = {}
-        user_name_map: dict[int, str] = {}
         if user_ids:
             users_res = await self.db.execute(
                 select(User).options(selectinload(User.roles)).where(User.id.in_(user_ids))
             )
             for u in users_res.unique().scalars().all():
                 user_role_map[u.id] = [r.name.lower() for r in u.roles]
-                user_name_map[u.id] = u.name or ""
 
         emp_user_id_to_emp_id = {}
         for eid, (uid, *_) in emp_id_to_user.items():
@@ -613,8 +611,6 @@ class GaLiveQueryBuilder:
 
             sup_name = emp_id_to_emp_name.get(sup_emp_id)
             if not sup_name:
-                sup_name = user_name_map.get(sup_uid) if sup_uid else None
-            if not sup_name:
                 sup_name = (sup_info[1] if sup_info else None) or (sup_info[4] if sup_info else None)
             sup_name = sup_name or emp_id_to_biz_id.get(sup_emp_id) or f"Supervisor #{sup_emp_id}"
 
@@ -757,8 +753,6 @@ class GaLiveQueryBuilder:
                     res = await self.db.execute(select(func.count()).select_from(market_own_q.subquery()))
                     rso_market = max(0, rso_market - (res.scalar() or 0))
             rso_name = emp_id_to_emp_name.get(rso_emp_id)
-            if not rso_name:
-                rso_name = user_name_map.get(rso_uid) if rso_uid else None
             rso_name = rso_name or rso_info[1] or rso_info[4] or emp_id_to_biz_id.get(rso_emp_id) or f"RSO #{rso_emp_id}"
             rso_target_val = rso_target_map.get(rso_emp_id, 0)
             mtd_achievement = 0
@@ -920,8 +914,6 @@ class GaLiveQueryBuilder:
                 res = await self.db.execute(select(func.count()).select_from(bp_q.subquery()))
                 bp_total = res.scalar() or 0
             bp_name = emp_id_to_emp_name.get(bp_emp_id)
-            if not bp_name:
-                bp_name = user_name_map.get(bp_uid) if bp_uid else None
             if not bp_name:
                 bp_name = (bp_info[1] if bp_info else None) or (bp_info[4] if bp_info else None)
             bp_name = bp_name or emp_id_to_biz_id.get(bp_emp_id) or f"BP #{bp_emp_id}"

@@ -53,7 +53,7 @@ interface Retailer {
   dob: string;
   route: string;
   house?: { name: string, code: string };
-  employee?: { name: string, itop_number: string, dms_code: string, user?: { name: string } };
+  employee?: { name: string, employee_name?: string, itop_number: string, dms_code: string, user?: { name: string } };
 }
 
 interface PaginationMeta {
@@ -410,7 +410,7 @@ export default function RetailersPage() {
                       <td className="px-6 py-4">
                         <div className="space-y-1">
                           <p className="text-xs font-bold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                            <User className="w-3 h-3 text-purple-500" /> {r.employee?.user?.name || r.employee?.name || t('retailers.no_rso')}
+                            <User className="w-3 h-3 text-purple-500" /> {r.employee?.employee_name || r.employee?.name || t('retailers.no_rso')}
                           </p>
                           {r.employee?.itop_number && (
                             <p className="text-[10px] text-gray-500 dark:text-gray-400 font-mono flex items-center gap-1">
@@ -525,7 +525,7 @@ export default function RetailersPage() {
               <Field label={t('retailers.field_sim_seller')} value={viewingRetailer.sim_seller === "Yes" || viewingRetailer.sim_seller === "Y" ? "Yes" : "No"} />
               <Field label={t('common.enabled')} value={viewingRetailer.enabled === "Yes" || viewingRetailer.enabled === "Y" ? t('common.enabled') : t('common.disabled')} />
               <Field label={t('retailers.field_house')} value={viewingRetailer.house ? `${viewingRetailer.house.name} (${viewingRetailer.house.code})` : "N/A"} />
-              <Field label={t('retailers.no_rso')} value={viewingRetailer.employee?.user?.name || viewingRetailer.employee?.name || "N/A"} />
+              <Field label={t('retailers.no_rso')} value={viewingRetailer.employee?.employee_name || viewingRetailer.employee?.name || "N/A"} />
               <Field label={t('retailers.field_owner_name')} value={viewingRetailer.owner_name} />
               <Field label={t('retailers.field_contact_no')} value={viewingRetailer.contact_no} />
               <Field label={t('retailers.field_district')} value={viewingRetailer.district} />

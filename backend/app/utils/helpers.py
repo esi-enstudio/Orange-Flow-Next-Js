@@ -58,7 +58,7 @@ def get_employee_full_profile_text(m):
         f"👥 **Employee Profile Details**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>🆔 Basic Info:</b>\n"
-        f"🔹 Name: {m.user.name if m.user else m.dms_code}\n"
+        f"🔹 Name: {m.employee_name or m.dms_code}\n"
         f"🔹 DMS Code: `{m.dms_code}`\n"
         f"🔹 Own Code: `{clean(m.assisted_retailer_code)}`\n"
         f"🔹 ITop Number: {clean(m.itop_number)}\n"
@@ -103,7 +103,7 @@ def get_retailer_full_profile_text(r):
         return str(val) if val and str(val).lower() != 'nan' else "N/A"
     
     # Get RSO (SR) name (if linked)
-    sr_name = r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else "Not Assigned")
+    sr_name = (r.employee.employee_name or r.employee.dms_code) if r.employee else "Not Assigned"
 
     return (
         f"🏪 **Retailer Profile Details**\n"

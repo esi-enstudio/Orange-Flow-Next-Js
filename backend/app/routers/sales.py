@@ -35,8 +35,9 @@ def _pagination(page: int, per_page: int, total: int):
 def _emp_name(emp) -> Optional[str]:
     if emp is None:
         return None
-    return (getattr(emp, "user", None).name if getattr(emp, "user", None) else None) \
-        or emp.employee_id or emp.dms_code or None
+    # Employee names come only from the `employees` table (`employee_name`),
+    # never from the linked user account.
+    return emp.employee_name or emp.employee_id or emp.dms_code or None
 
 
 def _house_filter_condition(Model, user: User, house_id: Optional[int]):

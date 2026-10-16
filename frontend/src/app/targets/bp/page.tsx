@@ -431,7 +431,7 @@ export default function BPTargetsPage() {
                     const formattedDate = d
                       ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })
                       : "";
-                    const empName = bt.employee?.employee_name || bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
+                    const empName = bt.employee?.employee_name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
                     const dmsCode = bt.employee?.dms_code || "";
                     const poolNo = bt.employee?.pool_number || "";
                     const houseName = bt.house?.display_name || bt.house?.name || `House #${bt.house_id}`;
@@ -504,7 +504,7 @@ export default function BPTargetsPage() {
               const formattedDate = d
                 ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })
                 : "";
-              const empName = bt.employee?.user?.name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
+              const empName = bt.employee?.employee_name || bt.employee?.employee_id || `BP #${bt.employee_id}`;
               const dmsCode = bt.employee?.dms_code || "";
               const poolNo = bt.employee?.pool_number || "";
               const houseName = bt.house?.display_name || bt.house?.name || `House #${bt.house_id}`;

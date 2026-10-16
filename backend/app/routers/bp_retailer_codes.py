@@ -75,7 +75,7 @@ async def list_bp_employees(
             continue
         bp_list.append({
             "id": emp.id,
-            "name": (emp.user.name if emp.user else None) or emp.employee_name or emp.dms_code,
+            "name": emp.employee_name or emp.dms_code,
             "dms_code": emp.dms_code,
             "employee_id": emp.employee_id,
             "pool_number": emp.pool_number,
@@ -117,10 +117,7 @@ async def list_bp_retailer_codes(
         bp_dms_code = ""
         if r.bp_employee:
             bp_dms_code = r.bp_employee.dms_code or ""
-            if r.bp_employee.user:
-                bp_name = r.bp_employee.user.name or ""
-            else:
-                bp_name = r.bp_employee.dms_code or f"BP #{r.bp_employee_id}"
+            bp_name = r.bp_employee.employee_name or r.bp_employee.dms_code or f"BP #{r.bp_employee_id}"
         out.append(BpRetailerCodeOut(
             id=r.id,
             bp_employee_id=r.bp_employee_id,

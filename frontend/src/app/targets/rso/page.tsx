@@ -66,7 +66,7 @@ interface RSOTargetRecord {
   target_date: string;
   house?: { id: number; name: string; code: string };
   employee?: { user?: { name: string }; employee_name?: string; dms_code: string; itop_number: string };
-  supervisor?: { user?: { name: string }; pool_number: string };
+  supervisor?: { user?: { name: string }; employee_name?: string; pool_number: string };
 }
 
 type ErrDict = Record<string, string>;
@@ -648,13 +648,13 @@ export default function RSOTargetsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.employee?.employee_name || r.employee?.user?.name || r.employee?.dms_code || `#${r.employee_id}`}</div>
+                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.employee?.employee_name || r.employee?.dms_code || `#${r.employee_id}`}</div>
                     {r.employee?.dms_code && (
                       <div className="text-xs text-gray-400 mt-0.5">{r.employee.dms_code} • {r.employee.itop_number || ''}</div>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.supervisor?.user?.name || r.supervisor?.pool_number || "-"}</div>
+                    <div className="font-medium text-gray-900 dark:text-gray-100">{r.supervisor?.employee_name || r.supervisor?.pool_number || "-"}</div>
                     {r.supervisor?.pool_number && (
                       <div className="text-xs text-gray-400 mt-0.5">{r.supervisor.pool_number}</div>
                     )}

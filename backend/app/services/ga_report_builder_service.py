@@ -213,7 +213,7 @@ class GaReportBuilderService:
                     "name": r.name,
                     "itop_number": r.itop_number or "",
                     "rso_name": (
-                        (r.employee.employee_name or (r.employee.user.name if r.employee.user else "") or r.employee.dms_code or "")
+                        (r.employee.employee_name or r.employee.dms_code or "")
                         if r.employee else ""
                     ),
                 }
@@ -232,7 +232,7 @@ class GaReportBuilderService:
                     Employee.dms_code.ilike(p),
                     Employee.itop_number.ilike(p),
                     Employee.pool_number.ilike(p),
-                    Employee.user.has(User.name.ilike(p)),
+                    Employee.employee_name.ilike(p),
                 )
             )
         res = await self.db.execute(query.order_by(Employee.dms_code.asc()).limit(limit))
@@ -241,7 +241,7 @@ class GaReportBuilderService:
             {
                 "id": e.id,
                 "code": e.dms_code or "",
-                "name": e.employee_name or (e.user.name if e.user else None) or e.dms_code or f"#{e.id}",
+                "name": e.employee_name or e.dms_code or f"#{e.id}",
                 "itop_number": e.itop_number or "",
                 "pool_number": e.pool_number or "",
                 "assisted_code": e.assisted_retailer_code or "",
@@ -537,7 +537,7 @@ class GaReportBuilderService:
                 "retailer_address": r.address or "",
                 "retailer_contact_no": r.contact_no or "",
                 "rso_name": (
-                    (r.employee.employee_name or (r.employee.user.name if r.employee.user else "") or r.employee.dms_code or "")
+                    (r.employee.employee_name or r.employee.dms_code or "")
                     if r.employee else ""
                 ),
                 "rso_itop_number": r.employee.itop_number or "" if r.employee else "",
@@ -659,14 +659,14 @@ class GaReportBuilderService:
         for emp in employees:
             if entity_type == "rso":
                 row = {
-                    "rso_name": emp.employee_name or (emp.user.name if emp.user else "") or emp.dms_code or f"#{emp.id}",
+                    "rso_name": emp.employee_name or emp.dms_code or f"#{emp.id}",
                     "rso_dms_code": emp.dms_code or "",
                     "rso_itop_number": emp.itop_number or "",
                 }
                 ach = achievement_map.get(emp.id, 0)
             else:
                 row = {
-                    "bp_name": emp.employee_name or (emp.user.name if emp.user else "") or emp.dms_code or f"#{emp.id}",
+                    "bp_name": emp.employee_name or emp.dms_code or f"#{emp.id}",
                     "bp_pool_number": emp.pool_number or "",
                     "bp_assisted_code": emp.assisted_retailer_code or "",
                 }

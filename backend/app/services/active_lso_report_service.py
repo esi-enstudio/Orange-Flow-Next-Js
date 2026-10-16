@@ -85,18 +85,15 @@ async def employee_options(db: AsyncSession, emp_ids: Sequence[int]) -> List[dic
     if not emp_ids:
         return []
     # employees.employee_name is the HR name imported from Excel and is the
-    # canonical display name. A linked users row is only a fallback: employee
-    # user accounts are frequently missing (user_id may be stale/null), which
-    # previously made the report fall back to a DMS code instead of the name.
+    # canonical display name. Employee names always come from the `employees`
+    # table, never from the linked user account.
     q = (
         select(
             Employee.id,
             Employee.employee_name,
-            User.name,
             Employee.dms_code,
             Employee.employee_id,
         )
-        .outerjoin(User, User.id == Employee.user_id)
         .where(Employee.id.in_(list(set(emp_ids))))
         .order_by(Employee.employee_id)
     )
@@ -104,8 +101,8 @@ async def employee_options(db: AsyncSession, emp_ids: Sequence[int]) -> List[dic
     return [
         {
             "id": r[0],
-            "name": r[1] or r[2] or r[3] or r[4] or f"EMP-{r[0]}",
-            "code": r[4] or r[3],
+            "name": r[1] or r[2] or r[3] or f"EMP-{r[0]}",
+            "code": r[3] or r[2],
         }
         for r in rows
     ]
@@ -318,12 +315,10 @@ async def _manager_options(db: AsyncSession, house_ids: Sequence[int]) -> List[d
         select(
             Employee.id,
             Employee.employee_name,
-            User.name,
             Employee.dms_code,
             Employee.employee_id,
             Employee.house_id,
         )
-        .outerjoin(User, User.id == Employee.user_id)
         .where(
             Employee.house_id.in_(list(house_ids)),
             Employee.employee_type == "manager",
@@ -335,9 +330,9 @@ async def _manager_options(db: AsyncSession, house_ids: Sequence[int]) -> List[d
     return [
         {
             "id": r[0],
-            "name": r[1] or r[2] or r[3] or r[4] or f"EMP-{r[0]}",
-            "code": r[4] or r[3],
-            "house_id": r[5],
+            "name": r[1] or r[2] or r[3] or f"EMP-{r[0]}",
+            "code": r[3] or r[2],
+            "house_id": r[4],
         }
         for r in rows
     ]

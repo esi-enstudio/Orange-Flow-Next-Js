@@ -268,7 +268,7 @@ async def get_rsos_by_house(
             "dms_code": e.dms_code,
             "itop_number": e.itop_number,
             "pool_number": e.pool_number,
-            "name": e.user.name if e.user else None,
+            "name": e.employee_name if e else None,
             "employee_id": e.employee_id,
             "assisted_retailer_code": e.assisted_retailer_code,
         }
@@ -298,7 +298,7 @@ async def get_bps_by_house(
             "dms_code": e.dms_code,
             "itop_number": e.itop_number,
             "pool_number": e.pool_number,
-            "name": e.user.name if e.user else None,
+            "name": e.employee_name if e else None,
             "employee_id": e.employee_id,
             "assisted_retailer_code": e.assisted_retailer_code,
         }
@@ -1517,7 +1517,7 @@ async def get_event(
                 "id": eid,
                 "dms_code": e.dms_code if e else None,
                 "itop_number": e.itop_number if e else None,
-                "name": e.user.name if e and e.user else None,
+                "name": e.employee_name if e else None,
                 "assisted_retailer_code": code,
                 "activation_count": retailer_code_counts.get(code, 0) if code else 0,
             })
@@ -1538,7 +1538,7 @@ async def get_event(
                 "id": eid,
                 "dms_code": e.dms_code if e else None,
                 "pool_number": e.pool_number if e else None,
-                "name": e.user.name if e and e.user else None,
+                "name": e.employee_name if e else None,
                 "assisted_retailer_code": code,
                 "activation_count": retailer_code_counts.get(code, 0) if code else 0,
             })
@@ -1559,7 +1559,7 @@ async def get_event(
                 "retailer_code": code,
                 "name": r.name if r else None,
                 "itop_number": r.itop_number if r else None,
-                "employee_name": emp.user.name if emp and emp.user else None,
+                "employee_name": emp.employee_name if emp else None,
                 "employee_itop_number": emp.itop_number if emp else None,
                 "activation_count": retailer_code_counts.get(code, 0) if code else 0,
             })

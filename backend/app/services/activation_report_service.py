@@ -357,14 +357,9 @@ class ActivationReportService:
         return {r[0] for r in res.all()}
 
     async def _get_employee_name(self, emp: Employee) -> str:
-        if emp.employee_name:
-            return emp.employee_name
-        if emp.user_id:
-            user_res = await self.db.execute(select(User.name).where(User.id == emp.user_id))
-            name = user_res.scalar_one_or_none()
-            if name:
-                return name
-        return emp.dms_code or emp.employee_id or f"#{emp.id}"
+        # Employee names always come from the `employees` table (`employee_name`),
+        # never from the linked user account.
+        return emp.employee_name or emp.dms_code or emp.employee_id or f"#{emp.id}"
 
     async def get_rso_performance(self) -> list[dict]:
         _, _, included_emp_ids = await self._load_rule_conditions("RSO", apply_to="rso")

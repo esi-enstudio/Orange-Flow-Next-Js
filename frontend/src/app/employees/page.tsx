@@ -186,8 +186,10 @@ function FieldRow({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
+// Employee names come only from the `employees` table (`employee_name`) — never
+// from the linked `users` account, which may carry a different display name.
 function employeeDisplayName(m: Employee): string {
-  return (m.user?.name || m.employee_name || m.dms_code || `#${m.id}`).trim();
+  return (m.employee_name || m.dms_code || `#${m.id}`).trim();
 }
 
 function typeBadgeColor(type: string): string {
@@ -325,7 +327,7 @@ export default function EmployeesPage() {
   const [reassignTeamData, setReassignTeamData] = useState<{ emp: Employee; newStatus: string; memberCount: number } | null>(null);
   const [reassignTeamTargetId, setReassignTeamTargetId] = useState<number>(0);
   const [reassignTeamLoading, setReassignTeamLoading] = useState(false);
-  const [reassignTeamTargets, setReassignTeamTargets] = useState<any[]>([]);
+  const [reassignTeamTargets, setReassignTeamTargets] = useState<Employee[]>([]);
   const [reassignTeamTargetsLoading, setReassignTeamTargetsLoading] = useState(false);
 
   // Import/Export Progress
@@ -789,12 +791,17 @@ export default function EmployeesPage() {
     setReassignTeamTargetsLoading(true);
     setReassignTeamTargets([]);
     try {
+      // Source supervisors from the employees list so the displayed name always
+      // comes from the `employees` table (employee_name), never the user account.
+      const params = new URLSearchParams();
+      params.set("status", "Active");
+      params.set("employee_type", "supervisor");
+      params.set("per_page", "100");
+      if (emp.house_id) params.set("filter_house_id", String(emp.house_id));
       const headers: Record<string, string> = {};
       if (emp.house_id) headers["X-House-ID"] = String(emp.house_id);
-      const res = await apiClient.get("employees/supervisors", { headers });
-      const list = (res.data.data || [])
-        .filter((m: any) => m.id != null && m.id !== emp.id)
-        .filter((m: any) => m.status === "Active");
+      const res = await apiClient.get(`employees?${params.toString()}`, { headers });
+      const list = (res.data.data || []).filter((m: Employee) => m.id !== emp.id);
       setReassignTeamTargets(list);
     } catch {
       toast.error(t('common.action_failed'));
@@ -1267,11 +1274,11 @@ export default function EmployeesPage() {
                   {viewingMember.photo_url || viewingMember.user?.profile_pic ? (
                     <img src={resolveImageUrl(viewingMember.photo_url || viewingMember.user?.profile_pic)!} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    (viewingMember.user?.name || viewingMember.employee_name || viewingMember.dms_code).charAt(0)
+                    employeeDisplayName(viewingMember).charAt(0)
                   )}
                 </div>
                 <div className="flex-1 text-white min-w-0">
-                  <h2 className="text-base sm:text-xl font-bold truncate">{viewingMember.user?.name || viewingMember.employee_name || viewingMember.dms_code || "Unnamed"}</h2>
+                  <h2 className="text-base sm:text-xl font-bold truncate">{employeeDisplayName(viewingMember)}</h2>
                   <div className="flex flex-wrap items-center gap-1 mt-1.5">
                     <span className="text-[11px] font-mono bg-white/15 px-2 py-0.5 rounded-lg whitespace-nowrap">{viewingMember.dms_code}</span>
                     {viewingMember.house && (
@@ -1942,7 +1949,7 @@ export default function EmployeesPage() {
                     <option value={0} disabled>Select an employee...</option>
                     {reassignTargets.map(m => (
                       <option key={m.id} value={m.id}>
-                        {m.user?.name || m.employee_name || `#${m.id}`} — {m.dms_code || "N/A"} {m.itop_number ? `(${m.itop_number})` : ""}
+                        {employeeDisplayName(m)} — {m.dms_code || "N/A"} {m.itop_number ? `(${m.itop_number})` : ""}
                       </option>
                     ))}
                   </select>
@@ -2010,7 +2017,7 @@ export default function EmployeesPage() {
                     <option value={0} disabled>Select a supervisor...</option>
                     {reassignTeamTargets.map(m => (
                       <option key={m.id} value={m.id}>
-                        {m.name || `#${m.id}`} — {m.dms_code || "N/A"} {m.pool_number ? `(${m.pool_number})` : ""}
+                        {employeeDisplayName(m)} — {m.dms_code || "N/A"} {m.pool_number ? `(${m.pool_number})` : ""}
                       </option>
                     ))}
                   </select>

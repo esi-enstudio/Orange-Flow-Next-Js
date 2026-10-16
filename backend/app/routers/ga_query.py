@@ -73,7 +73,7 @@ async def get_ga_query_retailers(
             "owner_name": r.owner_name,
             "itop_number": r.itop_number,
             "house_id": r.house_id,
-            "employee_name": r.employee.user.name if r.employee and r.employee.user else None,
+            "employee_name": r.employee.employee_name if r.employee else None,
             "rso_itop_number": r.employee.itop_number if r.employee else None,
         }
         for r in retailers
@@ -174,7 +174,6 @@ async def get_ga_query_activations(
                 or_(
                     Employee.employee_name.in_(rso_values),
                     Employee.dms_code.in_(rso_values),
-                    User.name.in_(rso_values),
                 )
             )
 
@@ -198,7 +197,7 @@ async def get_ga_query_activations(
     sort_map = {
         "activation_date": Activation.activation_date,
         "retailer": Activation.retailer_name,
-        "rso": func.coalesce(Employee.employee_name, User.name, Employee.dms_code),
+        "rso": func.coalesce(Employee.employee_name, Employee.dms_code),
         "sim_msisdn": Activation.sim_no,
         "product": Activation.product_code,
         "selling_price": Activation.selling_price,
@@ -248,7 +247,7 @@ async def get_ga_query_activations(
         }
         if r.retailer and r.retailer.employee:
             emp = r.retailer.employee
-            item["rso_name"] = emp.employee_name or (emp.user.name if emp.user else emp.dms_code)
+            item["rso_name"] = emp.employee_name or emp.dms_code
             item["rso_dms_code"] = emp.dms_code
         data.append(item)
 
@@ -337,7 +336,7 @@ async def get_ga_query_rso_options(
     """Get distinct RSO options (name + DMS code) for the filter dropdown."""
     ids = _parse_ids(retailer_ids)
 
-    effective_name = func.coalesce(Employee.employee_name, User.name, Employee.dms_code)
+    effective_name = func.coalesce(Employee.employee_name, Employee.dms_code)
 
     query = (
         select(

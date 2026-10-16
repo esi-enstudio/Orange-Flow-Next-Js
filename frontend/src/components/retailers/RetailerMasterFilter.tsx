@@ -233,7 +233,7 @@ export default function RetailerMasterFilter({ filters, onChange, onClear, house
   if (filters.route) chipList.push({ label: `Route: ${filters.route}`, onRemove: () => update("route", "") });
   if (filters.employee_id) {
     const e = employees.find(e => e.id === filters.employee_id);
-    if (e) chipList.push({ label: `RSO: ${e.user?.name || e.employee_name || e.dms_code}`, onRemove: () => update("employee_id", null) });
+    if (e) chipList.push({ label: `RSO: ${e.employee_name || e.dms_code}`, onRemove: () => update("employee_id", null) });
   }
   if (filters.has_employee !== null) chipList.push({ label: `Linked RSO: ${filters.has_employee ? "Yes" : "No"}`, onRemove: () => update("has_employee", null) });
 
@@ -306,7 +306,7 @@ export default function RetailerMasterFilter({ filters, onChange, onClear, house
             <SelectFilter
               value={filters.employee_id ? String(filters.employee_id) : ""}
               onChange={(v) => update("employee_id", v ? Number(v) : null)}
-              options={employees.map((e) => ({ value: String(e.id), label: `${e.user?.name || e.employee_name || e.dms_code}${e.itop_number ? ` (${e.itop_number})` : ""}` }))}
+              options={employees.map((e) => ({ value: String(e.id), label: `${e.employee_name || e.dms_code}${e.itop_number ? ` (${e.itop_number})` : ""}` }))}
               placeholder={t('retailers.filters_all_rsos')}
             />
           </div>

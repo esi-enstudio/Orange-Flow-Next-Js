@@ -198,17 +198,16 @@ async def export_ga_live_performance_excel(
     emp_rows = await db.execute(
         select(Employee.id, Employee.user_id, Employee.dms_code, Employee.itop_number,
                Employee.personal_number, Employee.assisted_retailer_code, Employee.pool_number,
-               Employee.employee_type)
+               Employee.employee_name, Employee.employee_type)
         .where(Employee.house_id == house_id, Employee.status == "Active")
     )
     all_employees = emp_rows.all()
 
-    user_ids = [e.user_id for e in all_employees if e.user_id]
-    user_name_map: dict[int, str] = {}
-    if user_ids:
-        users_res = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
-        for uid, uname in users_res.all():
-            user_name_map[uid] = uname
+    # Employee display names come only from the `employees` table (`employee_name`),
+    # keyed by user_id so existing lookups keep working.
+    user_name_map: dict[int, str] = {
+        e.user_id: (e.employee_name or "") for e in all_employees if e.user_id
+    }
 
     ret_rows = await db.execute(
         select(Retailer.id, Retailer.retailer_code, Retailer.name, Retailer.employee_id)

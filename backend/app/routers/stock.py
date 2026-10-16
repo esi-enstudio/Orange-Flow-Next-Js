@@ -49,8 +49,9 @@ def _unit_value(product: Product) -> float:
 def _emp_name(emp) -> Optional[str]:
     if emp is None:
         return None
-    return (getattr(emp, "user", None).name if getattr(emp, "user", None) else None) \
-        or emp.employee_id or emp.dms_code or None
+    # Employee names come only from the `employees` table (`employee_name`),
+    # never from the linked user account.
+    return emp.employee_name or emp.employee_id or emp.dms_code or None
 
 
 def _house_filter_condition(Model, user: User, house_id: Optional[int]):
@@ -291,7 +292,7 @@ async def stock_employees(
             {
                 "id": e.id,
                 "employee_id": e.employee_id,
-                "name": e.user.name if e.user else e.employee_id or e.dms_code,
+                "name": e.employee_name or e.employee_id or e.dms_code,
                 "dms_code": e.dms_code,
                 "employee_type": e.employee_type,
                 "house_id": e.house_id,
@@ -322,14 +323,14 @@ async def employee_stock(
                 Employee.employee_id.ilike(like),
                 Employee.dms_code.ilike(like),
                 Employee.itop_number.ilike(like),
-                User.name.ilike(like),
+                Employee.employee_name.ilike(like),
             )
         )
     total = (await db.execute(select(func.count()).select_from(emp_query.subquery()))).scalar() or 0
     employees = (await db.execute(
         emp_query
         .options(joinedload(Employee.user))
-        .order_by(func.coalesce(User.name, Employee.employee_id))
+        .order_by(func.coalesce(Employee.employee_name, Employee.employee_id))
         .offset((page - 1) * per_page)
         .limit(per_page)
     )).unique().scalars().all()

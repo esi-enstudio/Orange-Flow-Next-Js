@@ -223,7 +223,7 @@ async def get_activations(
             item["house"] = {"id": r.house.id, "name": r.house.name, "code": r.house.code}
         if r.retailer and r.retailer.employee:
             emp = r.retailer.employee
-            item["rso_name"] = emp.employee_name or (emp.user.name if emp.user else emp.dms_code)
+            item["rso_name"] = emp.employee_name or emp.dms_code
             item["rso_employee_id"] = emp.id
             item["rso_dms_code"] = emp.dms_code
             item["rso_itop_number"] = emp.itop_number
@@ -351,7 +351,7 @@ async def get_itopup_details(
                             or_(
                                 Employee.dms_code.ilike(p),
                                 Employee.itop_number.ilike(p),
-                                Employee.user.has(User.name.ilike(p)),
+                                Employee.employee_name.ilike(p),
                             )
                         ),
                     )
@@ -429,7 +429,7 @@ async def get_itopup_rso_list(
                 Employee.employee_name.ilike(p),
                 Employee.dms_code.ilike(p),
                 Employee.itop_number.ilike(p),
-                Employee.user.has(User.name.ilike(p)),
+                Employee.employee_name.ilike(p),
             )
         )
     result = await db.execute(base.order_by(Employee.id))
@@ -1119,17 +1119,16 @@ async def get_activation_report(
         for rid, tname in tag_rows.all():
             tags_map.setdefault(rid, []).append(tname)
 
-    # Bulk fetch RSO info
+    # Bulk fetch RSO info (name from the employees table, not the user account)
     rso_map: dict[int, dict] = {}
     if retailer_ids:
         rso_rows = await db.execute(
-            select(Retailer.id, Employee.user_id, User.name, Employee.itop_number)
+            select(Retailer.id, Employee.employee_name, Employee.itop_number)
             .join(Employee, Retailer.employee_id == Employee.id)
-            .join(User, Employee.user_id == User.id)
             .where(Retailer.id.in_(retailer_ids))
         )
-        for rid, uid, uname, itop in rso_rows.all():
-            rso_map[rid] = {"name": uname, "itop": itop}
+        for rid, ename, itop in rso_rows.all():
+            rso_map[rid] = {"name": ename or itop, "itop": itop}
 
     data = []
     for r in records:
@@ -1384,10 +1383,7 @@ async def get_employee_activation_details(
     result = await db.execute(base_q)
     records = result.scalars().all()
 
-    emp_name = (
-        (await db.execute(select(User.name).where(User.id == emp.user_id))).scalar()
-        if emp.user_id else emp.dms_code or f"#{emp.id}"
-    )
+    emp_name = emp.employee_name or emp.dms_code or f"#{emp.id}"
 
     groups: dict[str, dict] = {}
     for rec in records:

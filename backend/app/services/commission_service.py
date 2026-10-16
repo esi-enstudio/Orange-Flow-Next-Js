@@ -390,7 +390,7 @@ class CommissionImportService:
                 )
                 employee = emp_result.scalar_one_or_none()
 
-            user_name = employee.user.name if (employee and employee.user) else None
+            user_name = employee.employee_name if employee else None
             txn = CampaignTransaction(
                 statement_batch_id=batch.id,
                 house_id=house.id,

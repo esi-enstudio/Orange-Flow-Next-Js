@@ -116,7 +116,7 @@ async def list_employees_by_house_grouped(
 @router.get("", response_model=PaginatedResponse)
 async def list_employees(
     pagination: PaginationParams = Depends(),
-    search: Optional[str] = Query(None, description="Global search across name, dms_code, itop_number"),
+    search: Optional[str] = Query(None, description="Global search across employee name, dms_code, itop_number"),
     status: Optional[str] = Query(None, description="Filter by status: Active, Resigned, Suspended, Inactive"),
     market_type: Optional[str] = Query(None, description="Filter by market type: Urban, Rural"),
     motor_bike: Optional[str] = Query(None, description="Filter by motor_bike: Yes, No"),
@@ -168,7 +168,6 @@ async def list_employees(
                 Employee.nid.ilike(search_pattern),
                 Employee.employee_name.ilike(search_pattern),
                 Employee.employee_id.ilike(search_pattern),
-                Employee.user.has(User.name.ilike(search_pattern)),
             )
         )
 
@@ -240,13 +239,14 @@ async def list_employees(
 
     from sqlalchemy import func as sa_func
     house_name_expr = select(House.name).where(House.id == Employee.house_id).scalar_subquery()
-    user_name_expr = select(User.name).where(User.id == Employee.user_id).scalar_subquery()
     sort_map = {
         "dms_code": Employee.dms_code,
         "assisted_code": Employee.assisted_retailer_code,
         "status": Employee.status,
         "house": sa_func.lower(house_name_expr),
-        "name": sa_func.lower(user_name_expr),
+        # Employee names live only in the `employees` table — sort by that, not
+        # the linked user account's name.
+        "name": sa_func.lower(Employee.employee_name),
         "id": Employee.id,
     }
     sort_column = sort_map.get(pagination.sort_by, Employee.id)
@@ -305,7 +305,7 @@ async def list_employees(
 
 @router.get("/status-counts")
 async def get_employee_status_counts(
-    search: Optional[str] = Query(None, description="Global search across name, dms_code, itop_number"),
+    search: Optional[str] = Query(None, description="Global search across employee name, dms_code, itop_number"),
     status: Optional[str] = Query(None, description="Filter by status: Active, Resigned, Suspended, Inactive"),
     market_type: Optional[str] = Query(None, description="Filter by market type: Urban, Rural"),
     motor_bike: Optional[str] = Query(None, description="Filter by motor_bike: Yes, No"),
@@ -358,7 +358,6 @@ async def get_employee_status_counts(
                 Employee.nid.ilike(search_pattern),
                 Employee.employee_name.ilike(search_pattern),
                 Employee.employee_id.ilike(search_pattern),
-                Employee.user.has(User.name.ilike(search_pattern)),
             )
         )
     
@@ -1151,7 +1150,7 @@ async def get_rso_list(
         rso_list.append({
             "id": emp.id,
             "user_id": emp.user_id,
-            "name": emp.employee_name or (emp.user.name if emp.user else None),
+            "name": emp.employee_name or emp.dms_code or emp.employee_id,
             "employee_name": emp.employee_name,
             "employee_id": emp.employee_id,
             "dms_code": emp.dms_code,
@@ -1201,7 +1200,7 @@ async def get_supervisors_list(
         supervisors.append({
             "id": emp.id,
             "user_id": emp.user_id,
-            "name": emp.employee_name or (emp.user.name if emp.user else None),
+            "name": emp.employee_name or emp.dms_code or emp.employee_id,
             "employee_name": emp.employee_name,
             "employee_id": emp.employee_id,
             "dms_code": emp.dms_code,
@@ -1272,7 +1271,7 @@ async def get_supervisors_with_teams(
             team.append({
                 "member_employee_id": member_emp.id,
                 "member_user_id": mu.id if mu else None,
-                "name": (mu.name if mu else None) or member_emp.employee_name or member_emp.employee_id,
+                "name": member_emp.employee_name or member_emp.employee_id,
                 "employee_id": member_emp.employee_id,
                 "employee_type": member_emp.employee_type,
                 "dms_code": member_emp.dms_code,
@@ -1286,7 +1285,7 @@ async def get_supervisors_with_teams(
         data.append({
             "id": sup.id,
             "user_id": sup_user.id if sup_user else None,
-            "name": (sup_user.name if sup_user else None) or sup.employee_name or sup.employee_id,
+            "name": sup.employee_name or sup.employee_id,
             "employee_id": sup.employee_id,
             "dms_code": sup.dms_code,
             "itop_number": sup.itop_number,
@@ -1339,7 +1338,7 @@ async def _list_unassigned_members(
         unassigned.append({
             "member_employee_id": emp.id,
             "member_user_id": ru.id if ru else None,
-            "name": (ru.name if ru else None) or emp.employee_name or emp.employee_id,
+            "name": emp.employee_name or emp.employee_id,
             "employee_id": emp.employee_id,
             "employee_type": emp.employee_type,
             "dms_code": emp.dms_code,
@@ -1529,7 +1528,7 @@ async def get_rso_bp_assignments(
         return {
             "member_employee_id": e.id,
             "member_user_id": mu.id if mu else None,
-            "name": (mu.name if mu else None) or e.employee_name or e.employee_id,
+            "name": e.employee_name or e.employee_id,
             "employee_id": e.employee_id,
             "employee_type": e.employee_type,
             "dms_code": e.dms_code,
@@ -1547,8 +1546,7 @@ async def get_rso_bp_assignments(
     for rso_emp_id in by_rso:
         rso = emp_by_id.get(rso_emp_id)
         by_rso[rso_emp_id]["rso_name"] = (
-            (rso.user.name if rso and rso.user else None)
-            or (rso.employee_name if rso else None)
+            (rso.employee_name if rso else None)
             or f"RSO #{rso_emp_id}"
         )
     return {"success": True, "data": list(by_rso.values())}

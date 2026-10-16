@@ -264,9 +264,8 @@ class TransactionReportService:
                     "name": r.name,
                     "itop_number": r.itop_number or "",
                     "rso_name": (
-                        r.employee.employee_name
-                        if r.employee and r.employee.employee_name
-                        else (r.employee.user.name if r.employee and r.employee.user else (r.employee.dms_code if r.employee else ""))
+                        (r.employee.employee_name or r.employee.dms_code or "")
+                        if r.employee else ""
                     ),
                     "rso_itop_number": r.employee.itop_number if r.employee and r.employee.itop_number else "",
                 }
@@ -283,7 +282,7 @@ class TransactionReportService:
                 or_(
                     Employee.dms_code.ilike(p),
                     Employee.itop_number.ilike(p),
-                    Employee.user.has(User.name.ilike(p)),
+                    Employee.employee_name.ilike(p),
                 )
             )
         res = await self.db.execute(query.order_by(Employee.dms_code.asc()).limit(limit))
@@ -292,11 +291,7 @@ class TransactionReportService:
             {
                 "id": e.id,
                 "code": e.dms_code or "",
-                "name": (
-                    e.employee_name
-                    or (e.user.name if e.user else "")
-                    or (e.dms_code or f"#{e.id}")
-                ),
+                "name": e.employee_name or e.dms_code or f"#{e.id}",
                 "itop_number": e.itop_number or "",
             }
             for e in employees
@@ -453,7 +448,7 @@ class TransactionReportService:
             select(
                 House.code,
                 ITopUpDetail.report_date,
-                func.coalesce(Employee.employee_name, User.name, Employee.dms_code, "").label("rso_name"),
+                func.coalesce(Employee.employee_name, Employee.dms_code, "").label("rso_name"),
                 Employee.dms_code,
                 Employee.itop_number,
                 Retailer.retailer_code,
@@ -465,7 +460,6 @@ class TransactionReportService:
             .join(House, ITopUpDetail.house_id == House.id)
             .outerjoin(Retailer, ITopUpDetail.retailer_id == Retailer.id)
             .outerjoin(Employee, Retailer.employee_id == Employee.id)
-            .outerjoin(User, Employee.user_id == User.id)
             .order_by(ITopUpDetail.report_date.desc(), Retailer.name.asc())
         )
         if conditions:
