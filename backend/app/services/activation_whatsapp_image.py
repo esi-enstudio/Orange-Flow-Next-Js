@@ -70,12 +70,13 @@ from app.utils.timezone import now_naive
 # ── Layout ──
 # The whole report is one full-width column so it reads as one page on a phone
 # and fills the full width of its A4 page when printed. Portrait keeps the same
-# A4-portrait page width as the GA Live report image (800); landscape uses the
-# A4-landscape page width shared by the Recharge / Active LSO / Active SSO
-# report images (1600). Either orientation therefore spans the full width of its
-# matching A4 page, and only the height follows the content.
+# A4-portrait page width as the GA Live report image (800). Landscape is based
+# on the A4-landscape page width shared by the Recharge / Active LSO / Active
+# SSO report images (1600) plus an extra 19.5-unit strip — +78px at the 4x
+# render scale, 6478px wide in total. Either orientation keeps a fixed width
+# and only the height follows the content.
 PORTRAIT_W = 800
-LANDSCAPE_W = 1600
+LANDSCAPE_W = 1619.5
 ORIENTATIONS = {"portrait": PORTRAIT_W, "landscape": LANDSCAPE_W}
 DEFAULT_ORIENTATION = "portrait"
 PAGE_PAD = 0             # no page margin — the report is full-bleed
@@ -87,7 +88,7 @@ GAP = 8                  # minimum gap between sections
 # ── Native high-resolution rendering ──
 # All layout math stays in the design-space width; ScaledDraw renders every
 # coordinate and font natively at RENDER_SCALE so text stays crisp when zoomed.
-# A scale-4 send is 3200px (4524px in landscape) wide, comfortably above any
+# A scale-4 send is 3200px (6478px in landscape) wide, comfortably above any
 # phone display while keeping the build fast and the PNG small enough for
 # WhatsApp.
 RENDER_SCALE = 4
@@ -495,7 +496,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
     # gets a short sheet instead of a tall empty tail. The width never follows
     # the content: it is always the full canvas width of the chosen orientation.
     s = _active_scale()
-    img = Image.new("RGB", (img_w * s, max(total_h, 60) * s), REPORT_BG)
+    img = Image.new("RGB", (round(img_w * s), round(max(total_h, 60) * s)), REPORT_BG)
     draw = ScaledDraw(ImageDraw.Draw(img), _scale)
 
     y = PAGE_PAD + CARD_PAD
