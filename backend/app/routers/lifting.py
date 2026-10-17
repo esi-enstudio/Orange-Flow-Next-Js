@@ -1,9 +1,9 @@
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -72,31 +72,27 @@ def _compute_lifting(
     }
 
 
-@router.get("", response_model=List[LiftingRecordSchema])
-async def list_lifting_records(
-    house_id: Optional[int] = Query(None, description="Filter by house"),
-    date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
-    date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    search: Optional[str] = Query(None, description="Search by product code/name or notes"),
-    limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(["lifting.view", "products.view"])),
-    header_house_id: Optional[int] = Depends(get_house_context),
-):
-    is_admin = is_admin_user(current_user)
-    query = select(LiftingRecord).options(
-        selectinload(LiftingRecord.house),
-        selectinload(LiftingRecord.products).selectinload(LiftingProduct.product),
-    ).order_by(LiftingRecord.lifting_date.desc(), LiftingRecord.id.desc())
-
+def _build_lifting_conditions(
+    *,
+    current_user: User,
+    header_house_id: Optional[int],
+    house_id: Optional[int],
+    date_from: Optional[date],
+    date_to: Optional[date],
+    status: Optional[str],
+    search: Optional[str],
+) -> Tuple[list, Optional[int]]:
+    """
+    Shared WHERE conditions for lifting list/export/summary so the summary always
+    reflects exactly the same (house/db isolated) filter set as the list.
+    Returns the conditions and the effective house id (for activity logging).
+    """
     conditions = [LiftingRecord.is_deleted == False]
 
     eff_house_id = header_house_id or house_id
     if eff_house_id:
         conditions.append(LiftingRecord.house_id == eff_house_id)
-    elif not is_admin:
+    elif not is_admin_user(current_user):
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
             conditions.append(LiftingRecord.house_id.in_(user_house_ids))
@@ -125,8 +121,38 @@ async def list_lifting_records(
             )
         )
 
-    if conditions:
-        query = query.where(and_(*conditions))
+    return conditions, eff_house_id
+
+
+@router.get("", response_model=List[LiftingRecordSchema])
+async def list_lifting_records(
+    house_id: Optional[int] = Query(None, description="Filter by house"),
+    date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search by product code/name or notes"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["lifting.view", "products.view"])),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    conditions, _ = _build_lifting_conditions(
+        current_user=current_user,
+        header_house_id=header_house_id,
+        house_id=house_id,
+        date_from=date_from,
+        date_to=date_to,
+        status=status,
+        search=search,
+    )
+
+    query = select(LiftingRecord).options(
+        selectinload(LiftingRecord.house),
+        selectinload(LiftingRecord.products).selectinload(LiftingProduct.product),
+    ).where(and_(*conditions)).order_by(
+        LiftingRecord.lifting_date.desc(), LiftingRecord.id.desc()
+    )
 
     query = query.offset(offset).limit(limit)
     result = await db.execute(query)
@@ -145,48 +171,22 @@ async def export_lifting_records(
     current_user: User = Depends(has_any_permission(["lifting.view", "lifting.export"])),
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
-    is_admin = is_admin_user(current_user)
+    conditions, eff_house_id = _build_lifting_conditions(
+        current_user=current_user,
+        header_house_id=header_house_id,
+        house_id=house_id,
+        date_from=date_from,
+        date_to=date_to,
+        status=status,
+        search=search,
+    )
+
     query = select(LiftingRecord).options(
         selectinload(LiftingRecord.house),
         selectinload(LiftingRecord.products).selectinload(LiftingProduct.product),
-    ).order_by(LiftingRecord.lifting_date.desc(), LiftingRecord.id.desc())
-
-    conditions = [LiftingRecord.is_deleted == False]
-
-    eff_house_id = header_house_id or house_id
-    if eff_house_id:
-        conditions.append(LiftingRecord.house_id == eff_house_id)
-    elif not is_admin:
-        user_house_ids = [h.id for h in current_user.houses]
-        if user_house_ids:
-            conditions.append(LiftingRecord.house_id.in_(user_house_ids))
-        else:
-            conditions.append(LiftingRecord.house_id == -1)
-
-    if date_from:
-        conditions.append(LiftingRecord.lifting_date >= date_from)
-    if date_to:
-        conditions.append(LiftingRecord.lifting_date <= date_to)
-    if status:
-        conditions.append(LiftingRecord.status == status)
-
-    if search:
-        pattern = f"%{search}%"
-        subq = select(LiftingProduct.lifting_record_id).where(
-            or_(
-                LiftingProduct.product_code.ilike(pattern),
-                LiftingProduct.product_name.ilike(pattern),
-            )
-        ).subquery()
-        conditions.append(
-            or_(
-                LiftingRecord.id.in_(subq),
-                LiftingRecord.notes.ilike(pattern),
-            )
-        )
-
-    if conditions:
-        query = query.where(and_(*conditions))
+    ).where(and_(*conditions)).order_by(
+        LiftingRecord.lifting_date.desc(), LiftingRecord.id.desc()
+    )
 
     result = await db.execute(query)
     records = result.unique().scalars().all()
@@ -215,6 +215,93 @@ async def export_lifting_records(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=lifting_records_export.xlsx"}
     )
+
+
+@router.get("/summary")
+async def lifting_summary(
+    house_id: Optional[int] = Query(None, description="Filter by house"),
+    date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search by product code/name or notes"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("lifting.view")),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    """
+    Totals for the currently filtered lifting records: bank deposit, lifting value,
+    iTopUp and the product value/quantity grouped by product category.
+
+    Each category carries both `mrp_amount` (current product MRP x quantity) and
+    `amount` (the stored DD lifting price x quantity). MRP is the headline number,
+    the lifting value stays available as the subtotal.
+    """
+    conditions, _ = _build_lifting_conditions(
+        current_user=current_user,
+        header_house_id=header_house_id,
+        house_id=house_id,
+        date_from=date_from,
+        date_to=date_to,
+        status=status,
+        search=search,
+    )
+
+    totals_stmt = select(
+        func.count(LiftingRecord.id),
+        func.coalesce(func.sum(LiftingRecord.total_bank_deposit), 0.0),
+        func.coalesce(func.sum(LiftingRecord.total_lifting_amount), 0.0),
+        func.coalesce(func.sum(LiftingRecord.itopup_amount), 0.0),
+        func.coalesce(func.sum(LiftingRecord.remaining_amount), 0.0),
+    ).where(and_(*conditions))
+
+    (
+        total_records,
+        total_bank_deposit,
+        total_lifting_amount,
+        total_itopup,
+        total_remaining,
+    ) = (await db.execute(totals_stmt)).one()
+
+    category_stmt = (
+        select(
+            Product.category,
+            func.coalesce(func.sum(LiftingProduct.quantity), 0),
+            func.coalesce(func.sum(LiftingProduct.total_price), 0.0),
+            func.coalesce(
+                func.sum(func.coalesce(Product.mrp, 0.0) * LiftingProduct.quantity), 0.0
+            ),
+        )
+        .select_from(LiftingProduct)
+        .join(LiftingRecord, LiftingProduct.lifting_record_id == LiftingRecord.id)
+        .join(Product, LiftingProduct.product_id == Product.id)
+        .where(and_(*conditions))
+        .group_by(Product.category)
+        .order_by(func.sum(Product.mrp * LiftingProduct.quantity).desc().nullslast())
+    )
+    category_rows = (await db.execute(category_stmt)).all()
+
+    categories = [
+        {
+            "category": category or "Other",
+            "quantity": int(quantity or 0),
+            "amount": round(float(amount or 0.0), 2),
+            "mrp_amount": round(float(mrp_amount or 0.0), 2),
+        }
+        for category, quantity, amount, mrp_amount in category_rows
+    ]
+
+    return {
+        "success": True,
+        "data": {
+            "total_records": int(total_records or 0),
+            "total_bank_deposit": round(float(total_bank_deposit or 0.0), 2),
+            "total_lifting_amount": round(float(total_lifting_amount or 0.0), 2),
+            "total_itopup": round(float(total_itopup or 0.0), 2),
+            "total_remaining": round(float(total_remaining or 0.0), 2),
+            "total_quantity": sum(c["quantity"] for c in categories),
+            "categories": categories,
+        },
+    }
 
 
 @router.get("/{record_id}", response_model=LiftingRecordSchema)

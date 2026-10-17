@@ -8,9 +8,10 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, Trash2, Eye, Upload, Pencil } from "lucide-react";
+import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, Trash2, Eye, Upload, Pencil, BarChart3, Wallet, Landmark, Package, Coins, CreditCard, Smartphone, Cpu, Boxes } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ImageLightbox from "@/components/ui/ImageLightbox";
+import PageGuideModal from "@/components/PageGuideModal";
 
 function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -104,6 +105,24 @@ type LiftingRecord = {
     products: LiftingProduct[];
 };
 
+type LiftingSummaryCategory = {
+    category: string;
+    quantity: number;
+    amount: number;
+    // Absent on responses from a backend that predates the MRP addition.
+    mrp_amount?: number;
+};
+
+type LiftingSummary = {
+    total_records: number;
+    total_bank_deposit: number;
+    total_lifting_amount: number;
+    total_itopup: number;
+    total_remaining: number;
+    total_quantity: number;
+    categories: LiftingSummaryCategory[];
+};
+
 function getMonthRange() {
     const now = new Date();
     const y = now.getFullYear();
@@ -120,6 +139,25 @@ const statusColors: Record<string, string> = {
     Draft: "bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-300",
     Cancelled: "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300",
 };
+
+// Static class strings (never built dynamically) so Tailwind keeps them in the bundle.
+const summaryTones: Record<string, string> = {
+    amber: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
+    blue: "bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400",
+    emerald: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
+    violet: "bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-400",
+    rose: "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400",
+    slate: "bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-300",
+};
+
+function categoryStyle(category: string) {
+    const c = category.toLowerCase();
+    if (c.includes("scratch")) return { icon: CreditCard, tone: "rose" };
+    if (c.includes("sim")) return { icon: Smartphone, tone: "blue" };
+    if (c.includes("device")) return { icon: Cpu, tone: "violet" };
+    if (c.includes("box") || c.includes("other")) return { icon: Boxes, tone: "slate" };
+    return { icon: Package, tone: "amber" };
+}
 
 export default function LiftingRecordsPage() {
     const router = useRouter();
@@ -143,6 +181,7 @@ export default function LiftingRecordsPage() {
     };
 
     const [records, setRecords] = useState<LiftingRecord[]>([]);
+    const [summary, setSummary] = useState<LiftingSummary | null>(null);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
 
@@ -238,6 +277,7 @@ export default function LiftingRecordsPage() {
         fetchingRef.current = true;
         setLoading(true);
         try {
+            const s = overrides?.search !== undefined ? overrides.search : search;
             const params: Record<string, any> = {
                 limit: 10,
                 offset: 0,
@@ -246,11 +286,19 @@ export default function LiftingRecordsPage() {
             if (dateFrom) params.date_from = dateFrom;
             if (dateTo) params.date_to = dateTo;
             if (statusFilter) params.status = statusFilter;
-            const s = overrides?.search !== undefined ? overrides.search : search;
             if (s.trim()) params.search = s.trim();
 
-            const res = await apiClient.get("lifting", { params });
-            setRecords(res.data);
+            const summaryParams: Record<string, any> = { ...params };
+            delete summaryParams.limit;
+            delete summaryParams.offset;
+
+            // The summary is an add-on: if it is unavailable the record list must keep working.
+            const [recordsRes, summaryRes] = await Promise.all([
+                apiClient.get("lifting", { params }),
+                apiClient.get("lifting/summary", { params: summaryParams }).catch(() => null),
+            ]);
+            setRecords(recordsRes.data);
+            setSummary(summaryRes?.data?.data ?? null);
         } catch (err: any) {
             if (!overrides?.silent) {
                 toast.error(err?.response?.data?.detail || t("common.error"));
@@ -317,24 +365,7 @@ export default function LiftingRecordsPage() {
         searchRef.current = value;
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => {
-            if (fetchingRef.current) return;
-            fetchingRef.current = true;
-            const params: Record<string, any> = { limit: 10, offset: 0 };
-            if (houseId) params.house_id = houseId;
-            if (dateFrom) params.date_from = dateFrom;
-            if (dateTo) params.date_to = dateTo;
-            if (statusFilter) params.status = statusFilter;
-            if (searchRef.current.trim()) params.search = searchRef.current.trim();
-
-            setLoading(true);
-            apiClient.get("lifting", { params }).then((res) => {
-                setRecords(res.data);
-            }).catch((err) => {
-                toast.error(err?.response?.data?.detail || t("common.error"));
-            }).finally(() => {
-                setLoading(false);
-                fetchingRef.current = false;
-            });
+            fetchRecords({ search: value, silent: true });
         }, 400);
     };
 
@@ -348,6 +379,14 @@ export default function LiftingRecordsPage() {
     const formatDate = (dateStr: string) => {
         const d = new Date(dateStr + "T00:00:00");
         return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    };
+
+    // Product categories come from the database; translate the known ones and fall
+    // back to the stored value for any custom category.
+    const categoryLabel = (category: string) => {
+        const key = `liftings.summary.categories.${category.toLowerCase().replace(/\s+/g, "_")}`;
+        const label = t(key);
+        return label === key ? category : label;
     };
 
     const activeFilterCount = [houseId, dateFrom, dateTo, statusFilter, search.trim()].filter(Boolean).length;
@@ -377,14 +416,17 @@ export default function LiftingRecordsPage() {
             {/* Header */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="min-w-0">
-                    <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-2.5 sm:gap-3">
-                        <div className="p-2 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
-                            <ClipboardList className="w-5 h-5" />
-                        </div>
-                        Liftings
-                    </h1>
+                    <div className="flex items-center gap-2.5">
+                        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-2.5 sm:gap-3">
+                            <div className="p-2 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
+                                <ClipboardList className="w-5 h-5" />
+                            </div>
+                            {t("liftings.title")}
+                        </h1>
+                        <PageGuideModal pageKey="liftings" />
+                    </div>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 ml-1">
-                        View and filter historical lifting records.
+                        {t("liftings.subtitle")}
                     </p>
                 </div>
                 <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-2.5 sm:shrink-0">
@@ -567,6 +609,136 @@ export default function LiftingRecordsPage() {
                         </div>
                     )}
                 </div>
+            </div>
+
+            {/* Filtered Summary */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
+                <div className="px-3.5 py-3 sm:px-5 sm:py-3.5 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="p-1.5 rounded-lg bg-primary-100 dark:bg-primary-500/15 text-primary-600 shrink-0">
+                            <BarChart3 className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
+                            {t("liftings.summary.title")}
+                        </span>
+                    </div>
+                    {!loading && summary && summary.total_records > 0 && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300">
+                                {t("liftings.summary.records", { count: summary.total_records })}
+                            </span>
+                            <span className="hidden sm:inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300">
+                                {t("liftings.summary.items", { count: summary.total_quantity })}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {loading ? (
+                    <div className="p-3.5 sm:p-5 space-y-4">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <div key={i} className="rounded-xl border border-gray-100 dark:border-slate-800 p-3.5 flex items-center gap-3 animate-pulse">
+                                    <div className="w-9 h-9 rounded-lg bg-gray-200 dark:bg-slate-700 shrink-0" />
+                                    <div className="space-y-2 flex-1 min-w-0">
+                                        <div className="h-2.5 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                                        <div className="h-3.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="pt-4 border-t border-gray-100 dark:border-slate-800 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <div key={i} className="rounded-xl border border-gray-100 dark:border-slate-800 p-3.5 animate-pulse space-y-2">
+                                    <div className="h-2.5 w-16 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                                    <div className="h-3.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                                    <div className="h-2.5 w-14 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : !summary ? (
+                    <p className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">
+                        {t("liftings.summary.unavailable")}
+                    </p>
+                ) : summary.total_records === 0 ? (
+                    <p className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">
+                        {t("liftings.summary.no_data")}
+                    </p>
+                ) : (
+                    <div className="p-3.5 sm:p-5 space-y-4">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
+                            {[
+                                { key: "itopup", label: t("liftings.summary.total_itopup"), value: formatNumber(summary.total_itopup), icon: Wallet, tone: "amber" },
+                                { key: "deposit", label: t("liftings.summary.total_bank_deposit"), value: formatNumber(summary.total_bank_deposit), icon: Landmark, tone: "blue" },
+                                { key: "lifting", label: t("liftings.summary.total_lifting"), value: formatNumber(summary.total_lifting_amount), icon: Package, tone: "emerald" },
+                                { key: "remaining", label: t("liftings.summary.remaining"), value: formatNumber(summary.total_remaining), icon: Coins, tone: summary.total_remaining < 0 ? "rose" : "violet" },
+                            ].map((metric) => {
+                                const Icon = metric.icon;
+                                const isNegative = metric.key === "remaining" && summary.total_remaining < 0;
+                                return (
+                                    <div
+                                        key={metric.key}
+                                        className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-3.5 flex items-center gap-3 min-w-0"
+                                    >
+                                        <div className={cn("p-2.5 rounded-lg shrink-0", summaryTones[metric.tone])}>
+                                            <Icon className="w-4 h-4" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 truncate">{metric.label}</p>
+                                            <p className={cn(
+                                                "text-base sm:text-lg font-bold font-mono truncate",
+                                                isNegative ? "text-rose-600 dark:text-rose-400" : "text-gray-900 dark:text-gray-100"
+                                            )}>
+                                                {metric.value}
+                                            </p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {summary.categories.length > 0 && (
+                            <div className="pt-4 border-t border-gray-100 dark:border-slate-800">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2.5">
+                                    {t("liftings.summary.breakdown")}
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
+                                    {summary.categories.map((cat) => {
+                                        const { icon: CategoryIcon, tone } = categoryStyle(cat.category);
+                                        return (
+                                            <div
+                                                key={cat.category}
+                                                className="rounded-xl border border-gray-100 dark:border-slate-800 p-3.5 flex items-center gap-3 min-w-0"
+                                            >
+                                                <div className={cn("p-2.5 rounded-lg shrink-0", summaryTones[tone])}>
+                                                    <CategoryIcon className="w-4 h-4" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 truncate">
+                                                        {categoryLabel(cat.category)}
+                                                    </p>
+                                                    <p className="text-base font-bold font-mono text-gray-900 dark:text-gray-100 truncate">
+                                                        {formatNumber(cat.mrp_amount ?? cat.amount)}
+                                                        <span className="ml-1.5 align-middle text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                                                            {t("liftings.summary.mrp")}
+                                                        </span>
+                                                    </p>
+                                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                                                        {t("liftings.summary.lifting_value", { amount: formatNumber(cat.amount) })}
+                                                    </p>
+                                                    <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                                                        {t("liftings.summary.quantity", { count: cat.quantity })}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Records Table / Accordion */}
