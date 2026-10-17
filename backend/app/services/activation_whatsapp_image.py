@@ -8,9 +8,11 @@ and one plain bordered table each for supervisors, RSOs and BPs.
 The layout is a single full-width column with small margins, rendered in the
 requested orientation: ``portrait`` reads as one tall page on a phone, while
 ``landscape`` uses the width of an A4 landscape sheet and therefore fits a
-larger table font. Every section renders at one shared font size — the largest
-that fits the chosen canvas — so no table looks bigger or smaller than the
-others in the same image.
+larger table font. The canvas is always the full width of the chosen
+orientation and only its height follows the content, so a house with little
+data produces a short image instead of a tall empty tail. Every section renders
+at one shared font size — the largest that fits the chosen canvas — so no table
+looks bigger or smaller than the others in the same image.
 
 Business rules mirror the dashboard page:
     * Status    -> projectionStatus(achievement %, projection %) identity with
@@ -72,11 +74,6 @@ PAGE_PAD = 0             # no page margin — the report is full-bleed
 CARD_PAD = 10            # inner padding of the report content
 GAP = 8                  # minimum gap between sections
 HDR_H = 118
-
-# Minimum canvas height keeps the sheet in its orientation's shape even for a
-# house with no employees: portrait stays taller than wide, landscape keeps an
-# A4-landscape ratio (height = width * 210/297).
-MIN_HEIGHT_RATIO = {"portrait": 1.0, "landscape": 210 / 297}
 
 # ── Native high-resolution rendering ──
 # All layout math stays in the design-space width; ScaledDraw renders every
@@ -479,11 +476,11 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
 
     cx = PAGE_PAD + CARD_PAD
     total_h = PAGE_PAD + CARD_PAD + HDR_H + GAP + body_h + PAGE_PAD + CARD_PAD
-    # Guard against a short strip for tiny datasets — the sheet must keep the
-    # chosen orientation's shape.
-    canvas_h = max(total_h, int(img_w * MIN_HEIGHT_RATIO.get(orientation, 1.0)))
+    # The canvas height follows the content exactly — a house with little data
+    # gets a short sheet instead of a tall empty tail. The width never follows
+    # the content: it is always the full canvas width of the chosen orientation.
     s = _active_scale()
-    img = Image.new("RGB", (img_w * s, max(canvas_h, 60) * s), REPORT_BG)
+    img = Image.new("RGB", (img_w * s, max(total_h, 60) * s), REPORT_BG)
     draw = ScaledDraw(ImageDraw.Draw(img), _scale)
 
     y = PAGE_PAD + CARD_PAD
