@@ -23,9 +23,10 @@ with every cell fully visible. Only when the data is too wide for full display
 columns give way — so a table with fewer columns renders its text bigger while
 every number / status / bucket column stays fully legible without clipping.
 
-Every page stays inside an exact A4 landscape sheet: the page width is the A4
-landscape width (1600 design units) and the height is capped at the A4 landscape
-height (1600 * 210/297) — a page packed to full keeps the exact A4 ratio, while
+Every page stays inside an exact A4 landscape sheet: the page width is the
+shared WhatsApp landscape sheet width (1750 design units — the A4-landscape 1600
+plus a 150-unit strip) and the height is capped at the matching A4 landscape
+ratio (width * 210/297) — a page packed to full keeps the exact A4 ratio, while
 a page whose content does not fill it shrinks to its content height instead of
 leaving a white void. A house with many rows spills onto extra pages, repeating
 the (grouped) table header on every continuation page.
@@ -86,19 +87,25 @@ from app.services.report_image_kit import (
 from app.utils.timezone import now_naive
 
 # ── Layout ──
-# A4 landscape pages: A4 landscape is the page size — width 1600 design units,
-# height = 1600 * 210/297 so a full page has the exact A4 landscape ratio (same
-# geometry as the Recharge report image). Header + threshold note lead the first
-# page, then the house / supervisor / RSO tables flow top to bottom, splitting
-# onto extra pages when a table has many rows; a page whose content does not
-# fill its A4 sheet shrinks to the content height, never beyond the sheet.
-IMG_W = 1600
+# A4 landscape pages: width 1750 design units — the shared WhatsApp landscape
+# sheet width (the A4-landscape 1600 plus a 150-unit strip, same geometry as the
+# Recharge report image) — height = width * 210/297 so a full page keeps the
+# exact A4 landscape ratio. Header + threshold note lead the first page, then
+# the house / supervisor / RSO tables flow top to bottom, splitting onto extra
+# pages when a table has many rows; a page whose content does not fill its A4
+# sheet shrinks to the content height, never beyond the sheet.
+IMG_W = 1750
 PAGE_PAD = 0             # no page margin — content is padded by CARD_PAD
 CARD_PAD = 10            # inner padding of the page content
 INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
+# Table fonts are sized against the former 1600-wide sheet's content width, so
+# the wider 1750 sheet never inflates the text — the same fitted font numbers
+# render slightly smaller here, while the drawn tables still stretch to the
+# full INNER width.
+PROBE_INNER = 1600 - 2 * PAGE_PAD - 2 * CARD_PAD  # 1580
 GAP = 8                  # minimum gap between sections
 # Header band height, scaled from the kit's standard 800-wide header block
-# (header_scale(IMG_W) ~ 1.41 here) so the header keeps its standard size
+# (header_scale(IMG_W) ~ 1.48 here) so the header keeps its standard size
 # without dominating the wider sheet.
 HDR_H = round(HDR_BAND_H * header_scale(IMG_W))
 NOTE_H = 18              # caption line under the header (Active threshold)
@@ -107,7 +114,7 @@ NOTE_H = 18              # caption line under the header (Active threshold)
 A4_SHORT_MM = 210
 A4_LONG_MM = 297
 PAGE_W = IMG_W
-PAGE_H = round(IMG_W * A4_SHORT_MM / A4_LONG_MM)  # ≈1131 → exact A4 landscape
+PAGE_H = round(IMG_W * A4_SHORT_MM / A4_LONG_MM)  # ≈1237 → exact A4 landscape
 FOOTER_H = 16            # reserved band for the "Page n/N" footer
 CONTENT_H = PAGE_H - 2 * CARD_PAD - FOOTER_H
 
@@ -118,7 +125,7 @@ CONTENT_H = PAGE_H - 2 * CARD_PAD - FOOTER_H
 # do the customarily-flexible name columns give way, each keeping at least
 # NAME_MIN_W so names stay readable. The native RENDER_SCALE keeps everything
 # crisp.
-FONT_MAX = 16            # largest table font tried
+FONT_MAX = 15            # largest table font tried
 FONT_MIN = 11            # smallest table font (used when a table is very wide)
 NAME_MIN_W = 120         # flexible name columns never shrink below this
 
@@ -331,6 +338,9 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
     that (the 23-column RSO table of a house with long names), the font stays
     as large as possible while only the flexible name columns give way — every
     number / status / bucket column keeps its exact content width.
+
+    Sized against PROBE_INNER — the content width of the former 1600-wide
+    sheet — so widening the sheet never inflates the text.
     Returns ``(size, f_head, f_cell, weights)``.
     """
     full = None
@@ -342,10 +352,10 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
                               total_row=total_row, total_span=total_span)
         fixed = sum(req) - sum(req[i] for i in name_cols)
         last = (candidate, req)
-        if sum(req) <= INNER:
+        if sum(req) <= PROBE_INNER:
             full = last
             break
-        if flex is None and fixed + NAME_MIN_W * len(name_cols) <= INNER:
+        if flex is None and fixed + NAME_MIN_W * len(name_cols) <= PROBE_INNER:
             flex = last
 
     size, req = full or flex or last
@@ -355,13 +365,13 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
         # width proportionally, so the rest of the table keeps its exact fit
         # (very long names ellipsize instead).
         name_req = sum(req[i] for i in name_cols)
-        name_avail = INNER - (sum(req) - name_req)
+        name_avail = PROBE_INNER - (sum(req) - name_req)
         if name_req > name_avail and name_req > 0:
             scale = name_avail / name_req
             for i in name_cols:
                 req[i] = max(1, int(req[i] * scale))
-        if sum(req) > INNER:  # rounding / merged-total-label safety
-            req = [max(1, int(r * INNER / sum(req))) for r in req]
+        if sum(req) > PROBE_INNER:  # rounding / merged-total-label safety
+            req = [max(1, int(r * PROBE_INNER / sum(req))) for r in req]
     return size, f, f, req
 
 
@@ -376,8 +386,8 @@ def _metric_box(draw, bx, by, box_w, box_h, label, value, bg, ink, fl, fv,
 
 def _render_header(draw, x, y, house_name, house_code, period, today,
                    yesterday_active=0) -> int:
-    # Standard header block scaled from the 800-wide reference (~1.41x on this
-    # 1600-wide sheet) so the header keeps its standard size everywhere.
+    # Standard header block scaled from the 800-wide reference (~1.48x on this
+    # 1750-wide sheet) so the header keeps its standard size everywhere.
     s = header_scale(IMG_W)
     x1 = x + INNER
     pad_x = round(16 * s)

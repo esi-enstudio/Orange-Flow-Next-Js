@@ -63,18 +63,20 @@ from app.services.report_image_kit import (
 from app.utils.timezone import now_naive
 
 # ── Layout ──
-# A4 landscape pages: A4 landscape is the maximum page size — width 1600 design
-# units, max height = 1600 * 210/297 so a full page has the exact A4 landscape
-# ratio. Header + house summary lead the first page, then the supervisor and RSO
-# tables flow top to bottom, splitting onto extra pages when a house has many
-# members; a page whose content does not fill A4 shrinks to the content height.
-IMG_W = 1600
+# A4 landscape pages: width 1750 design units — the shared WhatsApp landscape
+# sheet width (the A4-landscape 1600 plus a 150-unit strip, matching the
+# Activation landscape image) — and max height = width * 210/297 so a full page
+# keeps the exact A4 landscape ratio. Header + house summary lead the first
+# page, then the supervisor and RSO tables flow top to bottom, splitting onto
+# extra pages when a house has many members; a page whose content does not fill
+# A4 shrinks to the content height.
+IMG_W = 1750
 PAGE_PAD = 0             # no page margin — content is padded by CARD_PAD
 CARD_PAD = 10            # inner padding of the page content
 INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
 GAP = 8                  # minimum gap between sections
 # Header band height, scaled from the kit's standard 800-wide header block
-# (header_scale(IMG_W) ~ 1.41 here) so the header keeps its standard size
+# (header_scale(IMG_W) ~ 1.48 here) so the header keeps its standard size
 # without dominating the wider sheet.
 HDR_H = round(HDR_BAND_H * header_scale(IMG_W))
 
@@ -82,7 +84,7 @@ HDR_H = round(HDR_BAND_H * header_scale(IMG_W))
 A4_SHORT_MM = 210
 A4_LONG_MM = 297
 PAGE_W = IMG_W
-PAGE_H = round(IMG_W * A4_SHORT_MM / A4_LONG_MM)  # ≈ 1131 → exact A4 landscape
+PAGE_H = round(IMG_W * A4_SHORT_MM / A4_LONG_MM)  # ≈ 1237 → exact A4 landscape
 FOOTER_H = 16            # reserved band for the "Page n/N" footer
 CONTENT_H = PAGE_H - 2 * CARD_PAD - FOOTER_H
 
@@ -90,14 +92,14 @@ CONTENT_H = PAGE_H - 2 * CARD_PAD - FOOTER_H
 # The A4 landscape canvas is wide enough that the shared kit's table text (11pt)
 # reads small once the image is scaled onto a phone, so this report uses larger
 # table text and headings. Overrides apply to this report only.
-TABLE_FONT = 17          # table header + body cell text
+TABLE_FONT = 16          # table header + body cell text
 SECTION_TITLE_FONT_SIZE = 18
 
 # ── Native high-resolution rendering ──
 # All layout math stays in the IMG_W-wide design space; ScaledDraw renders every
 # coordinate and font natively at RENDER_SCALE so text stays crisp when zoomed.
-# Each A4-landscape page is twice as wide as the portrait siblings (IMG_W = 1600),
-# so a scale-4 page is 6400x4524px — light on disk (~1MB PNG) because the tables
+# Each A4-landscape page is wider than the portrait siblings (IMG_W = 1750),
+# so a scale-4 page is 7000x4948px — light on disk (~1MB PNG) because the tables
 # are mostly white, keeping WhatsApp sends and PDF conversion fast.
 RENDER_SCALE = 4
 
@@ -205,8 +207,8 @@ def _remaining(item: dict) -> float:
 # ── Header ──
 def _render_header(draw, x, y, house_name, house_code, summary, today: date,
                    report_title: str) -> int:
-    # Standard header block scaled from the 800-wide reference (~1.41x on this
-    # 1600-wide sheet) so the header keeps its standard size everywhere.
+    # Standard header block scaled from the 800-wide reference (~1.48x on this
+    # 1750-wide sheet) so the header keeps its standard size everywhere.
     s = header_scale(IMG_W)
     x1 = x + INNER
     pad_x = round(16 * s)

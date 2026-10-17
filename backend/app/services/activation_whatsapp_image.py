@@ -70,13 +70,13 @@ from app.utils.timezone import now_naive
 # ── Layout ──
 # The whole report is one full-width column so it reads as one page on a phone
 # and fills the full width of its A4 page when printed. Portrait keeps the same
-# A4-portrait page width as the GA Live report image (800). Landscape is based
-# on the A4-landscape page width shared by the Recharge / Active LSO / Active
-# SSO report images (1600) plus an extra 19.5-unit strip — +78px at the 4x
-# render scale, 6478px wide in total. Either orientation keeps a fixed width
-# and only the height follows the content.
+# A4-portrait page width as the GA Live report image (800). Landscape uses the
+# shared WhatsApp landscape sheet width (1750 — the A4-landscape 1600 plus a
+# 150-unit strip, the same width as the Recharge / Active LSO / Active SSO
+# images), 7000px wide at the 4x render scale. Either orientation keeps a fixed
+# width and only the height follows the content.
 PORTRAIT_W = 800
-LANDSCAPE_W = 1619.5
+LANDSCAPE_W = 1750
 ORIENTATIONS = {"portrait": PORTRAIT_W, "landscape": LANDSCAPE_W}
 DEFAULT_ORIENTATION = "portrait"
 PAGE_PAD = 0             # no page margin — the report is full-bleed
@@ -88,7 +88,7 @@ GAP = 8                  # minimum gap between sections
 # ── Native high-resolution rendering ──
 # All layout math stays in the design-space width; ScaledDraw renders every
 # coordinate and font natively at RENDER_SCALE so text stays crisp when zoomed.
-# A scale-4 send is 3200px (6478px in landscape) wide, comfortably above any
+# A scale-4 send is 3200px (7000px in landscape) wide, comfortably above any
 # phone display while keeping the build fast and the PNG small enough for
 # WhatsApp.
 RENDER_SCALE = 4
@@ -104,11 +104,11 @@ def _active_scale() -> int:
 HOUSE_LABELS = ["Target", "Ach", "%", "Remain", "Daily Req", "Daily Avg",
                 "Projection", "Proj %"]
 SUPERVISOR_LABELS = ["#", "Supervisor Name", "Pool", "RSO", "BP", "Target", "Ach",
-                     "%", "Remain", "DRR", "Proj %", "Status"]
+                     "%", "Remain", "DRR", "D.Avg", "Proj %", "Status"]
 RSO_LABELS = ["#", "RSO Name", "ITop No", "Target", "Ach", "%", "Remain", "DRR",
-              "Proj %", "Yest Own", "Tot", "Yest Mkt", "Tot", "Status"]
+              "D.Avg", "Proj %", "Yest Own", "Tot", "Yest Mkt", "Tot", "Status"]
 BP_LABELS = ["#", "BP Name", "Pool No", "Target", "Ach", "%", "Remain", "DRR",
-             "Proj %", "Yest GA", "Day Count", "Status"]
+             "D.Avg", "Proj %", "Yest GA", "Day Count", "Status"]
 
 
 # ── Status rules (mirror projectionStatus in page.tsx) ──
@@ -140,6 +140,11 @@ def _drr(remaining: float, days_remaining: int) -> str:
     if remaining <= 0:
         return "0"
     return fmt_num(math.ceil(remaining / max(days_remaining, 1)))
+
+
+def _daily_avg(achievement: float, days_elapsed: int) -> int:
+    """Average achievement per elapsed day (mirrors the dashboard's Daily Avg)."""
+    return round(achievement / max(days_elapsed, 1))
 
 
 def _metrics(item: dict) -> tuple[float, float, float, float, float]:
@@ -233,7 +238,7 @@ def _team_counts(sup: dict) -> tuple[int, int]:
     return rso, bp
 
 
-def _supervisor_rows(dashboard: dict, days_remaining: int):
+def _supervisor_rows(dashboard: dict, days_remaining: int, days_elapsed: int):
     """Rows + total for the SUPERVISOR PERFORMANCE table (all supervisors)."""
     supervisors = dashboard.get("supervisor_performance") or []
     rows = []
@@ -250,7 +255,8 @@ def _supervisor_rows(dashboard: dict, days_remaining: int):
             str(idx + 1), str(sup.get("name") or ""), str(sup.get("pool_number") or "-"),
             str(rso_count), str(bp_count),
             fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
-            fmt_num(remain), _drr(remain, days_remaining), pct_2dp(proj, target),
+            fmt_num(remain), _drr(remain, days_remaining),
+            fmt_num(_daily_avg(ach, days_elapsed)), pct_2dp(proj, target),
             _status_label(ach_pct, proj_pct),
         ])
         sums["rso"] += rso_count
@@ -278,7 +284,8 @@ def _supervisor_rows(dashboard: dict, days_remaining: int):
             str(len(rows) + 1), "Others (Unassigned)", "-",
             str(len(unassigned_rso)), str(len(unassigned_bp)),
             fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
-            fmt_num(remain), _drr(remain, days_remaining), pct_2dp(proj, target),
+            fmt_num(remain), _drr(remain, days_remaining),
+            fmt_num(_daily_avg(ach, days_elapsed)), pct_2dp(proj, target),
             _status_label(ach_pct, proj_pct),
         ])
         sums["rso"] += len(unassigned_rso)
@@ -298,13 +305,14 @@ def _supervisor_rows(dashboard: dict, days_remaining: int):
         pct_2dp(sums["ach"], sums["target"]),
         fmt_num(sums["remain"]),
         _drr(sums["remain"], days_remaining),
+        fmt_num(_daily_avg(sums["ach"], days_elapsed)),
         pct_2dp(sums["proj"], sums["target"]),
         "",
     ]
     return rows, total_row
 
 
-def _rso_rows(rsos: list[dict], days_remaining: int):
+def _rso_rows(rsos: list[dict], days_remaining: int, days_elapsed: int):
     """Rows + total for the RSO PERFORMANCE table (every RSO)."""
     rows = []
     tot = {"target": 0.0, "ach": 0.0, "remain": 0.0, "proj": 0.0,
@@ -321,7 +329,8 @@ def _rso_rows(rsos: list[dict], days_remaining: int):
             str(i + 1), str(r.get("name") or ""),
             str(r.get("itop_number") or r.get("dms_code") or "-"),
             fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
-            fmt_num(remain), _drr(remain, days_remaining), pct_2dp(proj, target),
+            fmt_num(remain), _drr(remain, days_remaining),
+            fmt_num(_daily_avg(ach, days_elapsed)), pct_2dp(proj, target),
             fmt_num(yest_own), fmt_num(own),
             fmt_num(yest_market), fmt_num(market),
             _status_label(ach_pct, proj_pct),
@@ -342,6 +351,7 @@ def _rso_rows(rsos: list[dict], days_remaining: int):
         f"Total ({len(rows)} RSO)", "", "",
         fmt_num(tot["target"]), fmt_num(tot["ach"]), pct_2dp(tot["ach"], tot["target"]),
         fmt_num(tot["remain"]), _drr(tot["remain"], days_remaining),
+        fmt_num(_daily_avg(tot["ach"], days_elapsed)),
         pct_2dp(tot["proj"], tot["target"]),
         fmt_num(tot["yest_own"]), fmt_num(tot["own"]),
         fmt_num(tot["yest_market"]), fmt_num(tot["market"]), "",
@@ -349,7 +359,7 @@ def _rso_rows(rsos: list[dict], days_remaining: int):
     return rows, total_row
 
 
-def _bp_rows(bps: list[dict], days_remaining: int):
+def _bp_rows(bps: list[dict], days_remaining: int, days_elapsed: int):
     """Rows + total for the BP PERFORMANCE table (every BP)."""
     rows = []
     tot = {"target": 0.0, "ach": 0.0, "remain": 0.0, "proj": 0.0,
@@ -363,7 +373,8 @@ def _bp_rows(bps: list[dict], days_remaining: int):
         rows.append([
             str(i + 1), str(b.get("name") or ""), str(b.get("pool_number") or "-"),
             fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
-            fmt_num(remain), _drr(remain, days_remaining), pct_2dp(proj, target),
+            fmt_num(remain), _drr(remain, days_remaining),
+            fmt_num(_daily_avg(ach, days_elapsed)), pct_2dp(proj, target),
             fmt_num(yest), fmt_num(days),
             _status_label(ach_pct, proj_pct),
         ])
@@ -381,6 +392,7 @@ def _bp_rows(bps: list[dict], days_remaining: int):
         f"Total ({len(rows)} BP)", "", "",
         fmt_num(tot["target"]), fmt_num(tot["ach"]), pct_2dp(tot["ach"], tot["target"]),
         fmt_num(tot["remain"]), _drr(tot["remain"], days_remaining),
+        fmt_num(_daily_avg(tot["ach"], days_elapsed)),
         pct_2dp(tot["proj"], tot["target"]),
         fmt_num(tot["yest"]), fmt_num(tot["days"]), "",
     ]
@@ -395,7 +407,7 @@ def _bp_rows(bps: list[dict], days_remaining: int):
 # sizes). The house summary cells are evenly split, so its longest label/value
 # is the one section that can cap the font (e.g. a wide "Projection" header).
 FONT_MIN = 8
-FONT_MAX = 22
+FONT_MAX = 20
 
 RSO_NAME_COL = 1
 RSO_NAME_MIN_W = 130
@@ -466,10 +478,13 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
 
     summary = dashboard.get("summary") or {}
     days_remaining = int(summary.get("days_remaining") or 0)
+    days_elapsed = int(summary.get("days_elapsed") or 0)
 
-    sup_rows, sup_total = _supervisor_rows(dashboard, days_remaining)
-    rso_rows, rso_total = _rso_rows(dashboard.get("rso_performance") or [], days_remaining)
-    bp_rows, bp_total = _bp_rows(dashboard.get("bp_performance") or [], days_remaining)
+    sup_rows, sup_total = _supervisor_rows(dashboard, days_remaining, days_elapsed)
+    rso_rows, rso_total = _rso_rows(dashboard.get("rso_performance") or [], days_remaining,
+                                    days_elapsed)
+    bp_rows, bp_total = _bp_rows(dashboard.get("bp_performance") or [], days_remaining,
+                                 days_elapsed)
 
     # One shared font size for every table, as large as the canvas allows. The
     # section titles ride along one notch above the table font (capped so they
@@ -478,7 +493,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
                                    bp_rows, bp_total, inner)
     f_head = load_font(font_size, True)
     f_cell = load_font(font_size, True)
-    title_font_size = max(SECTION_TITLE_FONT, min(font_size + 2, 16))
+    title_font_size = max(SECTION_TITLE_FONT, min(font_size + 2, 18))
 
     # Height accounting mirrors the render pass below exactly.
     body_h = SECTION_TITLE_H + table_height(1, f_head, f_cell)   # HOUSE SUMMARY
