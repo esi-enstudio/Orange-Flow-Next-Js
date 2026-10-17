@@ -36,6 +36,11 @@ Image.MAX_IMAGE_PIXELS = None
 from app.models.house import House
 from app.services.recharge_report_service import RechargeReportService
 from app.services.report_image_kit import (
+    HDR_BAND_H,
+    HDR_BOX_LABEL_F,
+    HDR_BOX_VALUE_F,
+    HDR_META_F,
+    HDR_TITLE_F,
     INK,
     REPORT_BG,
     SECTION_TITLE_H,
@@ -47,6 +52,7 @@ from app.services.report_image_kit import (
     draw_section_title,
     draw_table,
     ellipsize,
+    header_scale,
     hugging_page_height,
     load_font,
     pct_2dp,
@@ -67,7 +73,10 @@ PAGE_PAD = 0             # no page margin — content is padded by CARD_PAD
 CARD_PAD = 10            # inner padding of the page content
 INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
 GAP = 8                  # minimum gap between sections
-HDR_H = 118
+# Header band height, scaled from the kit's standard 800-wide header block
+# (header_scale(IMG_W) = 2 here) so the header matches the portrait reports
+# when the image is viewed at equal width.
+HDR_H = round(HDR_BAND_H * header_scale(IMG_W))
 
 # ── A4 pagination ──
 A4_SHORT_MM = 210
@@ -196,39 +205,43 @@ def _remaining(item: dict) -> float:
 # ── Header ──
 def _render_header(draw, x, y, house_name, house_code, summary, today: date,
                    report_title: str) -> int:
+    # Standard header block scaled from the 800-wide reference (x2 on this
+    # 1600-wide sheet) so the header keeps its proportional size everywhere.
+    s = header_scale(IMG_W)
     x1 = x + INNER
-    pad_x = 16
+    pad_x = round(16 * s)
     date_str = today.strftime("%d %B %Y")
     time_str = now_naive().strftime("%I:%M %p").lstrip("0").replace(" 0", " ")
 
     # metric box (right) — measured first so the brand text can be kept clear of it
     lbl = "Yesterday C2C"
     val = _fmt(summary.get("yesterday_achievement") or 0)
-    fl = load_font(16, True)
-    fv = load_font(40, True)
-    box_w = max(draw.textlength(lbl, font=fl), draw.textlength(val, font=fv)) + 40
-    box_w = max(box_w, 200)
-    box_h = 80
+    fl = load_font(round(HDR_BOX_LABEL_F * s), True)
+    fv = load_font(round(HDR_BOX_VALUE_F * s), True)
+    box_w = max(draw.textlength(lbl, font=fl), draw.textlength(val, font=fv)) + round(40 * s)
+    box_w = max(box_w, round(200 * s))
+    box_h = round(80 * s)
     bx = x1 - pad_x - box_w
     by = y + (HDR_H - box_h) // 2
 
     # brand (left) — text column, vertically centred
     tx = x + pad_x
-    brand_max = bx - tx - 10  # keep clear of the metric box
+    brand_max = bx - tx - round(10 * s)  # keep clear of the metric box
 
-    draw.text((tx, y + 50), report_title, font=load_font(30, True),
+    draw.text((tx, y + round(50 * s)), report_title,
+              font=load_font(round(HDR_TITLE_F * s), True),
               fill=INK, anchor="ls")
-    f_meta = load_font(16, True)
-    draw.text((tx, y + 74), ellipsize(
+    f_meta = load_font(round(HDR_META_F * s), True)
+    draw.text((tx, y + round(74 * s)), ellipsize(
         draw, f"House: {house_name or ''} ({house_code or ''})", f_meta, brand_max),
         font=f_meta, fill=INK, anchor="lm")
-    draw.text((tx, y + 94), f"Generated: {date_str}, {time_str}",
+    draw.text((tx, y + round(94 * s)), f"Generated: {date_str}, {time_str}",
               font=f_meta, fill=INK, anchor="lm")
 
-    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=9,
-                           fill=TOTAL_BG, outline=TOTAL_INK, width=2)
-    draw.text((bx + box_w / 2, by + 17), lbl, font=fl, fill=TOTAL_INK, anchor="mm")
-    draw.text((bx + box_w / 2, by + 52), val, font=fv, fill=TOTAL_INK, anchor="mm")
+    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=round(9 * s),
+                           fill=TOTAL_BG, outline=TOTAL_INK, width=round(2 * s))
+    draw.text((bx + box_w / 2, by + round(17 * s)), lbl, font=fl, fill=TOTAL_INK, anchor="mm")
+    draw.text((bx + box_w / 2, by + round(52 * s)), val, font=fv, fill=TOTAL_INK, anchor="mm")
     return y + HDR_H
 
 

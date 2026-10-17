@@ -34,6 +34,23 @@ SECTION_TITLE_FONT = 13  # section title font size
 TBL_F_HEAD = 11          # table header font size
 TBL_F_CELL = 11          # table body font size
 
+# ── Standard header block ──
+# The header block (report title, "House:" / "Generated:" meta lines and the
+# highlighted metric box) is authored for an 800-wide sheet; wider sheets (e.g.
+# the 1600-wide A4 landscape reports) scale these with header_scale so the
+# header keeps the same proportional size when every report is viewed at equal
+# width.
+HDR_REF_W = 800
+HDR_TITLE_F = 28
+HDR_META_F = 14
+HDR_BOX_LABEL_F = 15
+HDR_BOX_VALUE_F = 40
+HDR_BAND_H = 118
+
+
+def header_scale(sheet_w: int) -> float:
+    return sheet_w / HDR_REF_W
+
 # Font candidates, most preferred first. The deployment image ships Liberation;
 # DejaVu is the fallback so a bare dev machine can still render a report.
 FONT_REG_CANDIDATES = [

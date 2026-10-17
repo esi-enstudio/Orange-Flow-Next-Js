@@ -58,6 +58,9 @@ Image.MAX_IMAGE_PIXELS = None
 from app.models.house import House
 from app.services.active_sso_report_service import ActiveSsoReportService
 from app.services.report_image_kit import (
+    HDR_BAND_H,
+    HDR_META_F,
+    HDR_TITLE_F,
     INK,
     REPORT_BG,
     SECTION_TITLE_H,
@@ -72,6 +75,7 @@ from app.services.report_image_kit import (
     ellipsize,
     fit_widths,
     fmt_num,
+    header_scale,
     hugging_page_height,
     load_font,
     pct_2dp,
@@ -92,7 +96,10 @@ PAGE_PAD = 0             # no page margin — content is padded by CARD_PAD
 CARD_PAD = 10            # inner padding of the page content
 INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
 GAP = 8                  # minimum gap between sections
-HDR_H = 118
+# Header band height, scaled from the kit's standard 800-wide header block
+# (header_scale(IMG_W) = 2 here) so the header matches the portrait reports
+# when the image is viewed at equal width.
+HDR_H = round(HDR_BAND_H * header_scale(IMG_W))
 NOTE_H = 18              # caption line under the header (Active threshold)
 
 # ── A4 pagination ──
@@ -337,20 +344,24 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
 
 # ── Header ──
 def _render_header(draw, x, y, house_name, house_code, today) -> int:
-    pad_x = 16
+    # Standard header block scaled from the 800-wide reference (x2 on this
+    # 1600-wide sheet) so the header keeps its proportional size everywhere.
+    s = header_scale(IMG_W)
+    pad_x = round(16 * s)
     date_str = today.strftime("%d %B %Y")
     time_str = now_naive().strftime("%I:%M %p").lstrip("0").replace(" 0", " ")
 
     tx = x + pad_x
     brand_max = INNER - 2 * pad_x
 
-    draw.text((tx, y + 46), "Active SSO Report", font=load_font(30, True),
+    draw.text((tx, y + round(46 * s)), "Active SSO Report",
+              font=load_font(round(HDR_TITLE_F * s), True),
               fill=INK, anchor="ls")
-    f_meta = load_font(15, True)
-    draw.text((tx, y + 68), ellipsize(
+    f_meta = load_font(round(HDR_META_F * s), True)
+    draw.text((tx, y + round(68 * s)), ellipsize(
         draw, f"House: {house_name or ''} ({house_code or ''})", f_meta, brand_max),
         font=f_meta, fill=INK, anchor="lm")
-    draw.text((tx, y + 88), f"Generated: {date_str}, {time_str}",
+    draw.text((tx, y + round(88 * s)), f"Generated: {date_str}, {time_str}",
               font=f_meta, fill=INK, anchor="lm")
     return y + HDR_H
 

@@ -58,6 +58,11 @@ Image.MAX_IMAGE_PIXELS = None
 from app.models.house import House
 from app.services.active_lso_report_service import ActiveLsoReportService
 from app.services.report_image_kit import (
+    HDR_BAND_H,
+    HDR_BOX_LABEL_F,
+    HDR_BOX_VALUE_F,
+    HDR_META_F,
+    HDR_TITLE_F,
     INK,
     REPORT_BG,
     SECTION_TITLE_H,
@@ -72,6 +77,7 @@ from app.services.report_image_kit import (
     ellipsize,
     fit_widths,
     fmt_num,
+    header_scale,
     hugging_page_height,
     load_font,
     pct_2dp,
@@ -91,7 +97,10 @@ PAGE_PAD = 0             # no page margin — content is padded by CARD_PAD
 CARD_PAD = 10            # inner padding of the page content
 INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
 GAP = 8                  # minimum gap between sections
-HDR_H = 118
+# Header band height, scaled from the kit's standard 800-wide header block
+# (header_scale(IMG_W) = 2 here) so the header matches the portrait reports
+# when the image is viewed at equal width.
+HDR_H = round(HDR_BAND_H * header_scale(IMG_W))
 NOTE_H = 18              # caption line under the header (Active threshold)
 
 # ── A4 pagination ──
@@ -357,48 +366,53 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
 
 
 # ── Header ──
-def _metric_box(draw, bx, by, box_w, box_h, label, value, bg, ink, fl, fv) -> None:
-    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=9,
-                           fill=bg, outline=ink, width=2)
-    draw.text((bx + box_w / 2, by + 17), label, font=fl, fill=ink, anchor="mm")
-    draw.text((bx + box_w / 2, by + 52), value, font=fv, fill=ink, anchor="mm")
+def _metric_box(draw, bx, by, box_w, box_h, label, value, bg, ink, fl, fv,
+                s: float = 1.0) -> None:
+    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=round(9 * s),
+                           fill=bg, outline=ink, width=round(2 * s))
+    draw.text((bx + box_w / 2, by + round(17 * s)), label, font=fl, fill=ink, anchor="mm")
+    draw.text((bx + box_w / 2, by + round(52 * s)), value, font=fv, fill=ink, anchor="mm")
 
 
 def _render_header(draw, x, y, house_name, house_code, period, today,
                    yesterday_active=0) -> int:
+    # Standard header block scaled from the 800-wide reference (x2 on this
+    # 1600-wide sheet) so the header keeps its proportional size everywhere.
+    s = header_scale(IMG_W)
     x1 = x + INNER
-    pad_x = 16
+    pad_x = round(16 * s)
     date_str = today.strftime("%d %B %Y")
     time_str = now_naive().strftime("%I:%M %p").lstrip("0").replace(" 0", " ")
 
     # metric box (right): retailers active yesterday — measured first so the
     # brand text can be kept clear of it
     label, value = "Active Yesterday", fmt_num(yesterday_active)
-    fl = load_font(16, True)
-    fv = load_font(40, True)
-    box_w = int(max(220, draw.textlength(label, font=fl) + 40,
-                    draw.textlength(value, font=fv) + 40))
-    box_h = 80
+    fl = load_font(round(HDR_BOX_LABEL_F * s), True)
+    fv = load_font(round(HDR_BOX_VALUE_F * s), True)
+    box_w = int(max(round(220 * s), draw.textlength(label, font=fl) + round(40 * s),
+                    draw.textlength(value, font=fv) + round(40 * s)))
+    box_h = round(80 * s)
     by = y + (HDR_H - box_h) // 2
     bx = x1 - pad_x - box_w
 
     # brand (left) — text column, vertically centred
     tx = x + pad_x
-    brand_max = bx - tx - 10  # keep clear of the metric box
+    brand_max = bx - tx - round(10 * s)  # keep clear of the metric box
 
-    draw.text((tx, y + 46), "Active LSO Report", font=load_font(30, True),
+    draw.text((tx, y + round(46 * s)), "Active LSO Report",
+              font=load_font(round(HDR_TITLE_F * s), True),
               fill=INK, anchor="ls")
-    f_meta = load_font(15, True)
-    draw.text((tx, y + 68), ellipsize(
+    f_meta = load_font(round(HDR_META_F * s), True)
+    draw.text((tx, y + round(68 * s)), ellipsize(
         draw, f"House: {house_name or ''} ({house_code or ''})", f_meta, brand_max),
         font=f_meta, fill=INK, anchor="lm")
-    draw.text((tx, y + 88), ellipsize(
+    draw.text((tx, y + round(88 * s)), ellipsize(
         draw, _period_text(period), f_meta, brand_max),
         font=f_meta, fill=INK, anchor="lm")
-    draw.text((tx, y + 106), f"Generated: {date_str}, {time_str}",
+    draw.text((tx, y + round(106 * s)), f"Generated: {date_str}, {time_str}",
               font=f_meta, fill=INK, anchor="lm")
 
-    _metric_box(draw, bx, by, box_w, box_h, label, value, YDAY_BG, YDAY_INK, fl, fv)
+    _metric_box(draw, bx, by, box_w, box_h, label, value, YDAY_BG, YDAY_INK, fl, fv, s)
     return y + HDR_H
 
 

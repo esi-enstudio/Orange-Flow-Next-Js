@@ -42,6 +42,11 @@ Image.MAX_IMAGE_PIXELS = None
 from app.models.house import House
 from app.services.activation_report_service import ActivationReportService
 from app.services.report_image_kit import (
+    HDR_BAND_H,
+    HDR_BOX_LABEL_F,
+    HDR_BOX_VALUE_F,
+    HDR_META_F,
+    HDR_TITLE_F,
     INK,
     REPORT_BG,
     SECTION_TITLE_FONT,
@@ -54,6 +59,7 @@ from app.services.report_image_kit import (
     ellipsize,
     fit_widths,
     fmt_num,
+    header_scale,
     load_font,
     pct_2dp,
     render_section,
@@ -75,7 +81,8 @@ DEFAULT_ORIENTATION = "portrait"
 PAGE_PAD = 0             # no page margin — the report is full-bleed
 CARD_PAD = 10            # inner padding of the report content
 GAP = 8                  # minimum gap between sections
-HDR_H = 118
+# Header band height comes from the kit's standard header block (HDR_BAND_H)
+# scaled to the chosen sheet width via header_scale().
 
 # ── Native high-resolution rendering ──
 # All layout math stays in the design-space width; ScaledDraw renders every
@@ -149,41 +156,45 @@ def _remaining(item: dict) -> float:
 
 
 # ── Header ──
-def _render_header(draw, x, y, inner, house_name, house_code, summary, today: date) -> int:
+def _render_header(draw, x, y, sheet_w, inner, house_name, house_code, summary, today: date) -> int:
+    # The standard header block is authored for an 800-wide sheet; sheet_w
+    # scales it so the header keeps the same proportional size at any width.
+    s = header_scale(sheet_w)
     x1 = x + inner
-    pad_x = 16
+    pad_x = round(16 * s)
     date_str = today.strftime("%d %B %Y")
     time_str = now_naive().strftime("%I:%M %p").lstrip("0").replace(" 0", " ")
 
     # metric box (right) — measured first so the brand text can be kept clear of it
     lbl = "Yesterday Activation"
     val = fmt_num(summary.get("yesterday_activation") or 0)
-    fl = load_font(15, True)
-    fv = load_font(40, True)
-    box_w = max(draw.textlength(lbl, font=fl), draw.textlength(val, font=fv)) + 40
-    box_w = max(box_w, 200)
-    box_h = 80
+    fl = load_font(round(HDR_BOX_LABEL_F * s), True)
+    fv = load_font(round(HDR_BOX_VALUE_F * s), True)
+    box_w = max(draw.textlength(lbl, font=fl), draw.textlength(val, font=fv)) + round(40 * s)
+    box_w = max(box_w, round(200 * s))
+    box_h = round(80 * s)
     bx = x1 - pad_x - box_w
-    by = y + (HDR_H - box_h) // 2
+    by = y + (round(HDR_BAND_H * s) - box_h) // 2
 
     # brand (left) — text column, vertically centred
     tx = x + pad_x
-    brand_max = bx - tx - 10  # keep clear of the metric box
+    brand_max = bx - tx - round(10 * s)  # keep clear of the metric box
 
-    draw.text((tx, y + 50), "Activation Report", font=load_font(28, True),
+    draw.text((tx, y + round(50 * s)), "Activation Report",
+              font=load_font(round(HDR_TITLE_F * s), True),
               fill=INK, anchor="ls")
-    f_meta = load_font(14, True)
-    draw.text((tx, y + 74), ellipsize(
+    f_meta = load_font(round(HDR_META_F * s), True)
+    draw.text((tx, y + round(74 * s)), ellipsize(
         draw, f"House: {house_name or ''} ({house_code or ''})", f_meta, brand_max),
         font=f_meta, fill=INK, anchor="lm")
-    draw.text((tx, y + 94), f"Generated: {date_str}, {time_str}",
+    draw.text((tx, y + round(94 * s)), f"Generated: {date_str}, {time_str}",
               font=f_meta, fill=INK, anchor="lm")
 
-    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=9,
-                           fill=TOTAL_BG, outline=TOTAL_INK, width=2)
-    draw.text((bx + box_w / 2, by + 17), lbl, font=fl, fill=TOTAL_INK, anchor="mm")
-    draw.text((bx + box_w / 2, by + 52), val, font=fv, fill=TOTAL_INK, anchor="mm")
-    return y + HDR_H
+    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=round(9 * s),
+                           fill=TOTAL_BG, outline=TOTAL_INK, width=round(2 * s))
+    draw.text((bx + box_w / 2, by + round(17 * s)), lbl, font=fl, fill=TOTAL_INK, anchor="mm")
+    draw.text((bx + box_w / 2, by + round(52 * s)), val, font=fv, fill=TOTAL_INK, anchor="mm")
+    return y + round(HDR_BAND_H * s)
 
 
 # ── Sections ──
@@ -477,7 +488,8 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
         body_h += GAP + SECTION_TITLE_H + table_height(len(bp_rows) + 1, f_head, f_cell)
 
     cx = PAGE_PAD + CARD_PAD
-    total_h = PAGE_PAD + CARD_PAD + HDR_H + GAP + body_h + PAGE_PAD + CARD_PAD
+    hdr_h = round(HDR_BAND_H * header_scale(img_w))
+    total_h = PAGE_PAD + CARD_PAD + hdr_h + GAP + body_h + PAGE_PAD + CARD_PAD
     # The canvas height follows the content exactly — a house with little data
     # gets a short sheet instead of a tall empty tail. The width never follows
     # the content: it is always the full canvas width of the chosen orientation.
@@ -486,7 +498,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
     draw = ScaledDraw(ImageDraw.Draw(img), _scale)
 
     y = PAGE_PAD + CARD_PAD
-    y = _render_header(draw, cx, y, inner, house_name, house_code, summary, today)
+    y = _render_header(draw, cx, y, img_w, inner, house_name, house_code, summary, today)
     y += GAP
     y = _render_house_summary(draw, cx, y, inner, summary, f_head, f_cell, title_font_size)
     if sup_rows:
