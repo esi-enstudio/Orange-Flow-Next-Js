@@ -158,7 +158,8 @@ def _remaining(item: dict) -> float:
 # ── Header ──
 def _render_header(draw, x, y, sheet_w, inner, house_name, house_code, summary, today: date) -> int:
     # The standard header block is authored for an 800-wide sheet; sheet_w
-    # scales it so the header keeps the same proportional size at any width.
+    # scales it (square-root growth) so it keeps its standard size at any width
+    # without dominating the wider sheets.
     s = header_scale(sheet_w)
     x1 = x + inner
     pad_x = round(16 * s)

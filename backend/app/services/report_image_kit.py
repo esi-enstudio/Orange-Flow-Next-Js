@@ -36,10 +36,9 @@ TBL_F_CELL = 11          # table body font size
 
 # ── Standard header block ──
 # The header block (report title, "House:" / "Generated:" meta lines and the
-# highlighted metric box) is authored for an 800-wide sheet; wider sheets (e.g.
-# the 1600-wide A4 landscape reports) scale these with header_scale so the
-# header keeps the same proportional size when every report is viewed at equal
-# width.
+# highlighted metric box) is authored for an 800-wide sheet; wider sheets (the
+# 1600-wide A4 landscape reports) scale these with header_scale so the header
+# stays legible and proportionate without dominating the wider sheet.
 HDR_REF_W = 800
 HDR_TITLE_F = 28
 HDR_META_F = 14
@@ -49,7 +48,10 @@ HDR_BAND_H = 118
 
 
 def header_scale(sheet_w: int) -> float:
-    return sheet_w / HDR_REF_W
+    # Square-root growth: 1.0 at the 800 reference, ~1.41 on the 1600-wide
+    # sheets — the header grows with the sheet but is damped so it never looks
+    # oversized.
+    return (sheet_w / HDR_REF_W) ** 0.5
 
 # Font candidates, most preferred first. The deployment image ships Liberation;
 # DejaVu is the fallback so a bare dev machine can still render a report.

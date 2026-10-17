@@ -74,8 +74,8 @@ CARD_PAD = 10            # inner padding of the page content
 INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
 GAP = 8                  # minimum gap between sections
 # Header band height, scaled from the kit's standard 800-wide header block
-# (header_scale(IMG_W) = 2 here) so the header matches the portrait reports
-# when the image is viewed at equal width.
+# (header_scale(IMG_W) ~ 1.41 here) so the header keeps its standard size
+# without dominating the wider sheet.
 HDR_H = round(HDR_BAND_H * header_scale(IMG_W))
 
 # ── A4 pagination ──
@@ -205,8 +205,8 @@ def _remaining(item: dict) -> float:
 # ── Header ──
 def _render_header(draw, x, y, house_name, house_code, summary, today: date,
                    report_title: str) -> int:
-    # Standard header block scaled from the 800-wide reference (x2 on this
-    # 1600-wide sheet) so the header keeps its proportional size everywhere.
+    # Standard header block scaled from the 800-wide reference (~1.41x on this
+    # 1600-wide sheet) so the header keeps its standard size everywhere.
     s = header_scale(IMG_W)
     x1 = x + INNER
     pad_x = round(16 * s)
