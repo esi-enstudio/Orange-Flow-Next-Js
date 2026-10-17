@@ -10,11 +10,13 @@ import {
   Pencil, CheckCircle2, User, Search, Copy, History, BellRing,
   Lock, ChevronDown, ChevronUp, CalendarDays, Wifi, WifiOff, ListChecks, Zap,
   Sunrise, Sunset, Eye, FileText, FileType2, Image as ImageIcon,
+  RectangleHorizontal, RectangleVertical,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/i18n/useLanguage";
 import WhatsAppConnectModal from "@/components/WhatsAppConnectModal";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
@@ -38,6 +40,8 @@ interface Props {
   reportType: string;
   title?: string;
   subtitle?: string;
+  /** Offer the portrait/landscape image-layout picker (orientation-aware reports only). */
+  supportsOrientation?: boolean;
   onClose: () => void;
 }
 
@@ -93,6 +97,7 @@ interface ScheduleItem {
   channel: string;
   report_type: string;
   send_as: string;
+  orientation?: string;
   whatsapp_chat_id: string;
   whatsapp_chat_name: string;
   target_ids: string[];
@@ -132,6 +137,7 @@ interface FormState {
   end_time: string;
   channel: "whatsapp" | "telegram";
   send_as: "image" | "document" | "pdf";
+  orientation: "portrait" | "landscape";
   caption: string;
   starts_on: string;
   ends_on: string;
@@ -177,6 +183,7 @@ const emptyForm: FormState = {
   end_time: "21:00",
   channel: "whatsapp",
   send_as: "image",
+  orientation: "portrait",
   caption: "",
   starts_on: "",
   ends_on: "",
@@ -255,6 +262,7 @@ export default function WhatsAppReportDeliveryModal({
   reportType,
   title = "WhatsApp Report Delivery",
   subtitle = "Auto-send the report daily at a fixed time",
+  supportsOrientation = false,
   onClose,
 }: Props) {
   const [status, setStatus] = useState<WsStatus | null>(null);
@@ -295,6 +303,7 @@ export default function WhatsAppReportDeliveryModal({
   const router = useRouter();
 
   const { hasPermission } = useAuth();
+  const { t } = useLanguage();
   const canAddContact = hasPermission("whatsapp.contact.create");
   const canEditContact = hasPermission("whatsapp.contact.edit");
   const canDeleteContact = hasPermission("whatsapp.contact.delete");
@@ -313,7 +322,10 @@ export default function WhatsAppReportDeliveryModal({
     setPreviewLoading(true);
     try {
       const res = await apiClient.get("/whatsapp-schedules/preview", {
-        params: { report_type: reportType },
+        params: {
+          report_type: reportType,
+          ...(supportsOrientation ? { orientation: form.orientation } : {}),
+        },
         headers: { "X-House-ID": String(houseId) },
         responseType: "blob",
         timeout: PREVIEW_TIMEOUT,
@@ -783,6 +795,7 @@ export default function WhatsAppReportDeliveryModal({
         channel: form.channel,
         report_type: reportType,
         send_as: form.send_as,
+        ...(supportsOrientation ? { orientation: form.orientation } : {}),
         caption: form.caption || null,
         starts_on: form.starts_on || null,
         ends_on: form.ends_never || !form.ends_on ? null : form.ends_on,
@@ -827,6 +840,7 @@ export default function WhatsAppReportDeliveryModal({
         channel: form.channel,
         report_type: reportType,
         send_as: form.send_as,
+        ...(supportsOrientation ? { orientation: form.orientation } : {}),
         caption: form.caption || null,
       };
       if (form.channel === "whatsapp") {
@@ -871,6 +885,7 @@ export default function WhatsAppReportDeliveryModal({
       end_time: s.end_time || "21:00",
       channel: s.channel === "telegram" ? "telegram" : "whatsapp",
       send_as: s.send_as === "pdf" || s.send_as === "document" ? s.send_as : "image",
+      orientation: s.orientation === "landscape" ? "landscape" : "portrait",
       caption: s.caption ?? "",
       starts_on: s.starts_on ?? "",
       ends_on: s.ends_on ?? "",
@@ -1502,6 +1517,48 @@ export default function WhatsAppReportDeliveryModal({
     </div>
   );
 
+  const ORIENTATION_OPTIONS: Array<{
+    key: "portrait" | "landscape";
+    icon: typeof ImageIcon;
+    label: string;
+  }> = [
+    { key: "portrait", icon: RectangleVertical, label: t("activation_report.whatsapp.portrait") },
+    { key: "landscape", icon: RectangleHorizontal, label: t("activation_report.whatsapp.landscape") },
+  ];
+
+  const renderOrientationSelector = ({ compact = false }: { compact?: boolean } = {}) => (
+    <div>
+      <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+        {t("activation_report.whatsapp.orientation")}
+      </label>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {ORIENTATION_OPTIONS.map(({ key, icon: Icon, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setForm((f) => ({ ...f, orientation: key }))}
+            className={cn(
+              "flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-xl border text-sm transition-colors cursor-pointer",
+              form.orientation === key
+                ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 font-medium"
+                : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
+            )}
+          >
+            <Icon className="w-4 h-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {!compact && (
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+          {form.orientation === "portrait"
+            ? t("activation_report.whatsapp.orientation_hint_portrait")
+            : t("activation_report.whatsapp.orientation_hint_landscape")}
+        </p>
+      )}
+    </div>
+  );
+
   const renderSummary = () => (
     <div className="space-y-2">
       <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
@@ -1621,6 +1678,18 @@ export default function WhatsAppReportDeliveryModal({
                       >
                         {s.is_active ? "Active" : "Paused"}
                       </span>
+                      {supportsOrientation && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                          {s.orientation === "landscape" ? (
+                            <RectangleHorizontal className="w-2.5 h-2.5" />
+                          ) : (
+                            <RectangleVertical className="w-2.5 h-2.5" />
+                          )}
+                          {s.orientation === "landscape"
+                            ? t("activation_report.whatsapp.landscape")
+                            : t("activation_report.whatsapp.portrait")}
+                        </span>
+                      )}
                     </div>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1 flex-wrap">
                       <span className="font-medium text-gray-600 dark:text-gray-300">{recipientsLabel}</span>
@@ -1932,6 +2001,9 @@ export default function WhatsAppReportDeliveryModal({
 
                   {/* Send as */}
                   {renderSendAsSelector()}
+
+                  {/* Image layout (orientation-aware reports only) */}
+                  {supportsOrientation && renderOrientationSelector()}
 
                   {/* Frequency */}
                   <div>
@@ -2341,6 +2413,9 @@ export default function WhatsAppReportDeliveryModal({
                 </div>
               </div>
               <div className="mt-4">{renderSendAsSelector({ compact: true })}</div>
+              {supportsOrientation && (
+                <div className="mt-4">{renderOrientationSelector({ compact: true })}</div>
+              )}
               <div className="flex items-center justify-end gap-2 mt-5">
                 <button
                   onClick={() => setShowDirectConfirm(false)}

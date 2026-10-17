@@ -3,9 +3,9 @@
 Report image builds are expensive (the GA Live report renders a large PNG in
 ~10s). Preview, "Send Now", direct sends and scheduled deliveries all call the
 same builder, so we cache the bytes for a short TTL keyed by
-(report_type, house_id, report_date, scale). With a 60s window a user who
-previews and then sends (or sends twice in quick succession) reuses the exact
-same built image instead of rebuilding it.
+(report_type, house_id, report_date, scale, orientation). With a 60s window a
+user who previews and then sends (or sends twice in quick succession) reuses the
+exact same built image instead of rebuilding it.
 
 The GA Live report is "live", but a 60-second staleness window is negligible
 for this workflow, and it is what makes repeated previews/sends instant.
@@ -20,12 +20,14 @@ _cache: dict[tuple, tuple[float, bytes | list[bytes]]] = {}
 _lock = Lock()
 
 
-def _key(report_type: str, house_id: int, day, scale: int | None) -> tuple:
-    return (str(report_type), int(house_id), str(day), scale)
+def _key(report_type: str, house_id: int, day, scale: int | None,
+         orientation: str | None) -> tuple:
+    return (str(report_type), int(house_id), str(day), scale, orientation)
 
 
-def get(report_type: str, house_id: int, day, scale: int | None = None) -> bytes | list[bytes] | None:
-    k = _key(report_type, house_id, day, scale)
+def get(report_type: str, house_id: int, day, scale: int | None = None,
+        orientation: str | None = None) -> bytes | list[bytes] | None:
+    k = _key(report_type, house_id, day, scale, orientation)
     with _lock:
         item = _cache.get(k)
         if item is None:
@@ -37,8 +39,9 @@ def get(report_type: str, house_id: int, day, scale: int | None = None) -> bytes
         return data
 
 
-def set(report_type: str, house_id: int, day, scale: int | None, data: bytes | list[bytes]) -> None:
-    k = _key(report_type, house_id, day, scale)
+def set(report_type: str, house_id: int, day, scale: int | None,
+        data: bytes | list[bytes], orientation: str | None = None) -> None:
+    k = _key(report_type, house_id, day, scale, orientation)
     with _lock:
         if len(_cache) >= MAX_ENTRIES:
             _cache.pop(next(iter(_cache)))

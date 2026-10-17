@@ -17,6 +17,7 @@ from app.services.whatsapp_service_client import (
 from app.services import telegram_service
 from app.services.telegram_service import TelegramError
 from app.services.report_builders import (
+    ORIENTATION_AWARE_BUILDERS,
     SCALE_AWARE_BUILDERS,
     get_report_builder,
     get_report_title,
@@ -33,12 +34,21 @@ def _today_bst() -> datetime:
     return now_naive()
 
 
+VALID_ORIENTATIONS = ("portrait", "landscape")
+
+
+def normalize_orientation(orientation: str | None) -> str:
+    """Return a valid report orientation, falling back to portrait."""
+    return orientation if orientation in VALID_ORIENTATIONS else "portrait"
+
+
 async def get_report_image(
     db: AsyncSession,
     report_type: str,
     house_id: int,
     *,
     scale: int | None = None,
+    orientation: str | None = None,
 ) -> bytes | list[bytes]:
     """Build (or reuse a cached copy of) the report image for the house.
 
@@ -46,25 +56,33 @@ async def get_report_image(
     for paginated reports (e.g. recharge) that split onto several sheets.
 
     Images are cached for a short TTL keyed by (report_type, house_id, date,
-    scale) so preview, Send Now, direct sends and scheduled deliveries share
-    one build instead of paying the ~10s GA Live render every time.
+    scale, orientation) so preview, Send Now, direct sends and scheduled
+    deliveries share one build instead of paying the ~10s GA Live render every
+    time.
 
     ``scale`` only affects report types registered in SCALE_AWARE_BUILDERS.
+    ``orientation`` ("portrait" | "landscape") only affects report types
+    registered in ORIENTATION_AWARE_BUILDERS.
     """
     day = _today_bst().date()
     cache_scale = scale if report_type in SCALE_AWARE_BUILDERS else None
-    cached = report_image_cache.get(report_type, house_id, day, cache_scale)
+    aware = report_type in ORIENTATION_AWARE_BUILDERS
+    cache_orientation = normalize_orientation(orientation) if aware else None
+    cached = report_image_cache.get(report_type, house_id, day, cache_scale,
+                                    cache_orientation)
     if cached is not None:
         return cached
 
+    kwargs = {"orientation": cache_orientation} if aware else {}
     scaled_builder = SCALE_AWARE_BUILDERS.get(report_type) if scale is not None else None
     if scaled_builder is not None:
-        image_bytes = await scaled_builder(db, house_id, scale=scale)
+        image_bytes = await scaled_builder(db, house_id, scale=scale, **kwargs)
     else:
         builder = get_report_builder(report_type)
-        image_bytes = await builder(db, house_id)
+        image_bytes = await builder(db, house_id, **kwargs)
 
-    report_image_cache.set(report_type, house_id, day, cache_scale, image_bytes)
+    report_image_cache.set(report_type, house_id, day, cache_scale, image_bytes,
+                           cache_orientation)
     return image_bytes
 
 
@@ -526,6 +544,7 @@ async def send_direct_report(
     whatsapp_chat_names: list[str] | None = None,
     caption: str | None = None,
     send_as: str = "image",
+    orientation: str | None = None,
 ) -> tuple[bool, str | None]:
     """Send a report image immediately without creating a schedule.
 
@@ -552,7 +571,8 @@ async def send_direct_report(
 
     # 1. Build the report image
     try:
-        image_bytes = await get_report_image(db, report_type, house_id)
+        image_bytes = await get_report_image(db, report_type, house_id,
+                                             orientation=orientation)
     except ValueError as e:
         return False, f"Unknown report type: {report_type}"
     except Exception as e:
@@ -723,7 +743,10 @@ async def _send_telegram_report(
     """Post the report image to the house's linked Telegram group."""
     report_type = getattr(schedule, "report_type", None) or "ga_live"
     try:
-        image_bytes = await get_report_image(db, report_type, schedule.house_id)
+        image_bytes = await get_report_image(
+            db, report_type, schedule.house_id,
+            orientation=getattr(schedule, "orientation", None),
+        )
     except ValueError as e:
         _mark_run_status(schedule, triggered_by, "failed", f"Unknown report type: {report_type}")
         await db.commit()
@@ -853,7 +876,10 @@ async def _send_whatsapp_report(
     chat_names = [n for _, n in targets]
 
     try:
-        image_bytes = await get_report_image(db, report_type, schedule.house_id)
+        image_bytes = await get_report_image(
+            db, report_type, schedule.house_id,
+            orientation=getattr(schedule, "orientation", None),
+        )
     except ValueError as e:
         _mark_run_status(schedule, triggered_by, "failed", f"Unknown report type: {report_type}")
         await db.commit()

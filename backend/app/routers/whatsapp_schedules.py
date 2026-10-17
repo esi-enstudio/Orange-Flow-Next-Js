@@ -56,6 +56,12 @@ def _validate_report_type_value(v: str) -> None:
         raise ValueError(f"report_type must be one of {ALLOWED_REPORT_TYPES}")
 
 
+def _validate_orientation_value(v: str) -> str:
+    if v not in ("portrait", "landscape"):
+        raise ValueError("orientation must be 'portrait' or 'landscape'")
+    return v
+
+
 class ScheduleCreate(BaseModel):
     schedule_type: str = "daily"  # daily | interval
     schedule_time: Optional[str] = None  # daily: fixed time; interval: optional first-run time ("00:00" = start immediately)
@@ -73,6 +79,7 @@ class ScheduleCreate(BaseModel):
     timezone_name: Optional[str] = None
     caption: Optional[str] = None
     send_as: str = "image"  # image | document | pdf
+    orientation: str = "portrait"  # portrait | landscape (orientation-aware reports)
 
     @field_validator("schedule_type")
     @classmethod
@@ -94,6 +101,11 @@ class ScheduleCreate(BaseModel):
         if v not in ("image", "document", "pdf"):
             raise ValueError("send_as must be 'image', 'document' or 'pdf'")
         return v
+
+    @field_validator("orientation")
+    @classmethod
+    def _validate_orientation(cls, v: str) -> str:
+        return _validate_orientation_value(v)
 
     @field_validator("report_type")
     @classmethod
@@ -147,6 +159,7 @@ class ScheduleUpdate(BaseModel):
     timezone_name: Optional[str] = None
     caption: Optional[str] = None
     send_as: Optional[str] = None  # image | document | pdf
+    orientation: Optional[str] = None  # portrait | landscape
     is_active: Optional[bool] = None
 
     @field_validator("schedule_type")
@@ -168,6 +181,13 @@ class ScheduleUpdate(BaseModel):
     def _validate_send_as(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in ("image", "document", "pdf"):
             raise ValueError("send_as must be 'image', 'document' or 'pdf'")
+        return v
+
+    @field_validator("orientation")
+    @classmethod
+    def _validate_orientation(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            _validate_orientation_value(v)
         return v
 
     @field_validator("report_type")
@@ -209,6 +229,7 @@ class DirectSendPayload(BaseModel):
     whatsapp_chat_names: Optional[list[str]] = None
     caption: Optional[str] = None
     send_as: str = "image"  # image | document | pdf
+    orientation: str = "portrait"  # portrait | landscape (orientation-aware reports)
 
     @field_validator("channel")
     @classmethod
@@ -223,6 +244,11 @@ class DirectSendPayload(BaseModel):
         if v not in ("image", "document", "pdf"):
             raise ValueError("send_as must be 'image', 'document' or 'pdf'")
         return v
+
+    @field_validator("orientation")
+    @classmethod
+    def _validate_orientation(cls, v: str) -> str:
+        return _validate_orientation_value(v)
 
     @field_validator("report_type")
     @classmethod
@@ -268,6 +294,7 @@ def _serialize_schedule(s: WhatsAppSchedule) -> dict:
         "channel": getattr(s, "channel", "whatsapp") or "whatsapp",
         "report_type": getattr(s, "report_type", "ga_live") or "ga_live",
         "send_as": getattr(s, "send_as", "image") or "image",
+        "orientation": getattr(s, "orientation", "portrait") or "portrait",
         "whatsapp_chat_id": s.whatsapp_chat_id,
         "whatsapp_chat_name": s.whatsapp_chat_name,
         "target_ids": [t[0] for t in targets],
@@ -430,6 +457,7 @@ async def create_schedule(
         channel=channel,
         report_type=data.report_type or "ga_live",
         send_as=data.send_as or "image",
+        orientation=data.orientation or "portrait",
         whatsapp_chat_id=chat_id or "-",
         whatsapp_chat_name=chat_name or "-",
         target_ids=ids_json or None,
@@ -489,6 +517,7 @@ async def update_schedule(
         "end_time": schedule.end_time,
         "channel": getattr(schedule, "channel", "whatsapp") or "whatsapp",
         "report_type": getattr(schedule, "report_type", "ga_live") or "ga_live",
+        "orientation": getattr(schedule, "orientation", "portrait") or "portrait",
         "whatsapp_chat_name": schedule.whatsapp_chat_name,
         "whatsapp_chat_id": schedule.whatsapp_chat_id,
         "caption": schedule.caption,
@@ -523,6 +552,9 @@ async def update_schedule(
     if data.send_as is not None:
         schedule.send_as = data.send_as
         new_values["send_as"] = data.send_as
+    if data.orientation is not None:
+        schedule.orientation = data.orientation
+        new_values["orientation"] = data.orientation
     if data.starts_on is not None:
         schedule.starts_on = data.starts_on
         new_values["starts_on"] = str(data.starts_on)
@@ -642,6 +674,7 @@ async def duplicate_schedule(
         end_time=getattr(source, "end_time", None),
         channel=getattr(source, "channel", "whatsapp") or "whatsapp",
         report_type=getattr(source, "report_type", "ga_live") or "ga_live",
+        orientation=getattr(source, "orientation", "portrait") or "portrait",
         whatsapp_chat_id=first_id,
         whatsapp_chat_name=first_name,
         target_ids=source.target_ids,
@@ -731,6 +764,7 @@ async def send_direct(
             whatsapp_chat_names=data.whatsapp_chat_names,
             caption=data.caption,
             send_as=data.send_as,
+            orientation=data.orientation,
         )
     except WhatsAppServiceError as e:
         raise HTTPException(status_code=503, detail=f"{e.code}: {e.message}")
@@ -761,6 +795,7 @@ async def send_direct(
 @router.get("/whatsapp-schedules/preview")
 async def whatsapp_report_preview(
     report_type: str = Query("ga_live"),
+    orientation: str = Query("portrait"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
     house_context: int = Depends(require_house_context),
@@ -768,8 +803,9 @@ async def whatsapp_report_preview(
     """Render the current report image for the active house without sending it."""
     try:
         _validate_report_type_value(report_type)
+        _validate_orientation_value(orientation)
     except ValueError as e:
-        # A bad report_type is client input, not a server fault.
+        # A bad report_type/orientation is client input, not a server fault.
         raise HTTPException(status_code=400, detail=str(e))
     await _verify_house_access(current_user, house_context)
 
@@ -781,6 +817,7 @@ async def whatsapp_report_preview(
         image_bytes = await get_report_image(
             db, report_type, house_context,
             scale=PREVIEW_SCALE if report_type in SCALE_AWARE_BUILDERS else None,
+            orientation=orientation,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

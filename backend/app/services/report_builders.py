@@ -25,6 +25,12 @@ REPORT_BUILDERS: dict[str, callable] = {}
 # their builder's default resolution.
 SCALE_AWARE_BUILDERS: dict[str, callable] = {}
 
+# Builders that also accept an ``orientation`` keyword ("portrait" | "landscape"),
+# letting the user pick a phone-friendly tall layout or a wider A4-landscape
+# layout with larger table fonts. Report types missing here ignore the requested
+# orientation and always render in their builder's default layout.
+ORIENTATION_AWARE_BUILDERS: dict[str, callable] = {}
+
 
 def register_builder(report_type: str):
     """Decorator to register a report builder function."""
@@ -80,6 +86,8 @@ def _register_all():
     SCALE_AWARE_BUILDERS["activation"] = build_activation_report_image
     SCALE_AWARE_BUILDERS["recharge"] = build_recharge_report_image
     SCALE_AWARE_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
+
+    ORIENTATION_AWARE_BUILDERS["activation"] = build_activation_report_image
 
     logger.info(f"Report builders registered: {list(REPORT_BUILDERS.keys())}")
 
