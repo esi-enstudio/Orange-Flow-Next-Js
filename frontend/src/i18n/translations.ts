@@ -4446,6 +4446,12 @@ export const translations = {
     liftings: {
       title: "Liftings",
       subtitle: "View and filter historical lifting records.",
+      export: "Export",
+      create: "Create Lifting",
+      statement: {
+        button: "Statement (PDF)",
+        success: "Lifting statement downloaded",
+      },
       summary: {
         title: "Summary",
         records: "{count} records",
@@ -4477,6 +4483,7 @@ export const translations = {
           f3: { title: "Records table", desc: "One row per lifting record. Expand a row to see the item lines, notes and the bank deposit slip. Below the lg breakpoint the table becomes an expandable list." },
           f4: { title: "Export", desc: "Downloads every record matching the current filters as an Excel file." },
           f5: { title: "Create Lifting", desc: "Opens the form for a new lifting record." },
+          f6: { title: "Statement (PDF)", desc: "Downloads a borderless A4 statement for exactly the filtered records: the house name and code, the period and the generated time, then one table with every product line (date, record, code, name, category, quantity, unit price and total), the iTopUp and bank deposit totals, and a signature area at the end. Longer statements continue over further pages with the table header repeated." },
         },
         steps_title: "Common Workflows",
         steps: {
@@ -8968,6 +8975,12 @@ employees: "Employees",
     liftings: {
       title: "লিফটিং",
       subtitle: "পূর্বের লিফটিং রেকর্ড দেখুন এবং ফিল্টার করুন।",
+      export: "এক্সপোর্ট",
+      create: "নতুন লিফটিং",
+      statement: {
+        button: "স্টেটমেন্ট (PDF)",
+        success: "লিফটিং স্টেটমেন্ট ডাউনলোড হয়েছে",
+      },
       summary: {
         title: "সারসংক্ষেপ",
         records: "{count}টি রেকর্ড",
@@ -8999,6 +9012,7 @@ employees: "Employees",
           f3: { title: "রেকর্ড টেবিল", desc: "প্রতিটি লিফটিং রেকর্ডের জন্য একটি রো। রো expand করলে আইটেমের লাইন, নোট ও ব্যাংক ডিপোজিট স্লিপ দেখা যায়। lg ব্রেকপয়েন্টের নিচে টেবিলটি expandable লিস্ট হয়ে যায়।" },
           f4: { title: "এক্সপোর্ট", desc: "বর্তমান ফিল্টারে মেলা সব রেকর্ড Excel ফাইল হিসেবে ডাউনলোড হয়।" },
           f5: { title: "নতুন লিফটিং", desc: "নতুন লিফটিং রেকর্ড তৈরির ফর্ম খোলে।" },
+          f6: { title: "স্টেটমেন্ট (PDF)", desc: "ঠিক যেই রেকর্ডগুলো ফিল্টার করা হয়েছে সেগুলোর মার্জিনবিহীন A4 স্টেটমেন্ট ডাউনলোড হয়: হাউসের নাম ও কোড, পিরিয়ড ও তৈরি করার সময়, তারপর একটি টেবিলে প্রতিটি পণ্যের লাইন (তারিখ, রেকর্ড, কোড, নাম, ক্যাটাগরি, পরিমাণ, একক দাম ও টোটাল), নিচে আইটপআপ ও ব্যাংক ডিপোজিটের টোটাল এবং শেষে স্বাক্ষরের জায়গা। বড় স্টেটমেন্ট একাধিক পেজে যায় এবং টেবিলের হেডার প্রতিটি পেজে পুনরাবৃত্তি হয়।" },
         },
         steps_title: "সাধারণ কাজের ধাপ",
         steps: {

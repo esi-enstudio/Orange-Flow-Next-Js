@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, Trash2, Eye, Upload, Pencil, BarChart3, Wallet, Landmark, Package, Coins, CreditCard, Smartphone, Cpu, Boxes } from "lucide-react";
+import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, FileText, Trash2, Eye, Upload, Pencil, BarChart3, Wallet, Landmark, Package, Coins, CreditCard, Smartphone, Cpu, Boxes } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 import PageGuideModal from "@/components/PageGuideModal";
@@ -184,6 +184,7 @@ export default function LiftingRecordsPage() {
     const [summary, setSummary] = useState<LiftingSummary | null>(null);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
+    const [printing, setPrinting] = useState(false);
 
     const [houses, setHouses] = useState<House[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
@@ -309,6 +310,52 @@ export default function LiftingRecordsPage() {
         }
     }, [houseId, dateFrom, dateTo, statusFilter, search, t]);
 
+    const statementParams = () => {
+        const params: Record<string, any> = {};
+        if (houseId) params.house_id = houseId;
+        if (dateFrom) params.date_from = dateFrom;
+        if (dateTo) params.date_to = dateTo;
+        if (statusFilter) params.status = statusFilter;
+        if (search.trim()) params.search = search.trim();
+        return params;
+    };
+
+    const handleStatement = async () => {
+        setPrinting(true);
+        try {
+            const res = await apiClient.get("lifting/statement", {
+                params: statementParams(),
+                responseType: "blob",
+            });
+            const url = window.URL.createObjectURL(
+                new Blob([res.data], { type: "application/pdf" })
+            );
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `lifting_statement_${dateFrom || "start"}_${dateTo || "end"}.pdf`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+            toast.success(t("liftings.statement.success"));
+        } catch (err: any) {
+            // Error bodies arrive as a Blob because of responseType: "blob".
+            let message = t("common.error");
+            const data = err?.response?.data;
+            if (data instanceof Blob) {
+                try {
+                    const parsed = JSON.parse(await data.text());
+                    message = parsed?.detail || parsed?.error?.message || message;
+                } catch {
+                    /* keep the generic message */
+                }
+            } else if (data?.detail) {
+                message = data.detail;
+            }
+            toast.error(message);
+        } finally {
+            setPrinting(false);
+        }
+    };
+
     const handleExport = async () => {
         setExporting(true);
         try {
@@ -431,21 +478,31 @@ export default function LiftingRecordsPage() {
                 </div>
                 <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-2.5 sm:shrink-0">
                     {hasPermission("lifting.export") && (
-                        <button
-                            onClick={handleExport}
-                            disabled={exporting || loading}
-                            className="w-full sm:w-auto justify-center px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                            Export
-                        </button>
+                        <>
+                            <button
+                                onClick={handleStatement}
+                                disabled={printing || loading}
+                                className="w-full sm:w-auto justify-center px-4 py-2.5 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 rounded-xl text-sm font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                {printing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                                {t("liftings.statement.button")}
+                            </button>
+                            <button
+                                onClick={handleExport}
+                                disabled={exporting || loading}
+                                className="w-full sm:w-auto justify-center px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                                {t("liftings.export")}
+                            </button>
+                        </>
                     )}
                     <button
                         onClick={() => router.push("/liftings/create")}
                         className="w-full sm:w-auto justify-center shrink-0 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-2 shadow-sm"
                     >
                         <Plus className="w-4 h-4" />
-                        Create Lifting
+                        {t("liftings.create")}
                     </button>
                 </div>
             </div>

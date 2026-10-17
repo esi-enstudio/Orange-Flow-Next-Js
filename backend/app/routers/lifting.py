@@ -16,11 +16,13 @@ from app.schemas.lifting import (
 )
 from app.models.lifting import LiftingRecord, LiftingProduct, LiftingStatus, PaymentMethod
 from app.models.product import Product
+from app.models.house import House
 from app.models.user import User
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
 from app.services.Automation.lifting_excel import export_lifting_records_excel
+from app.services.Automation.lifting_statement_pdf import build_lifting_statement_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -302,6 +304,106 @@ async def lifting_summary(
             "categories": categories,
         },
     }
+
+
+@router.get("/statement")
+async def lifting_statement(
+    house_id: Optional[int] = Query(None, description="Filter by house"),
+    date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search by product code/name or notes"),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+    current_user: User = Depends(has_permission("lifting.export")),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    """
+    Printable PDF statement (one or more pages) for the lifting records that
+    match the current filters. Totals, category breakdown and every product line
+    are included; the house scope comes from the X-House-ID header / house_id.
+    """
+    conditions, eff_house_id = _build_lifting_conditions(
+        current_user=current_user,
+        header_house_id=header_house_id,
+        house_id=house_id,
+        date_from=date_from,
+        date_to=date_to,
+        status=status,
+        search=search,
+    )
+
+    query = (
+        select(LiftingRecord)
+        .options(
+            selectinload(LiftingRecord.house),
+            selectinload(LiftingRecord.products).selectinload(LiftingProduct.product),
+        )
+        .where(and_(*conditions))
+        .order_by(LiftingRecord.lifting_date.asc(), LiftingRecord.id.asc())
+    )
+    records = (await db.execute(query)).unique().scalars().all()
+
+    if not records:
+        # NOTE: `status` is the query filter here, so it shadows fastapi.status.
+        raise HTTPException(
+            status_code=400,
+            detail="No lifting records match the selected filters.",
+        )
+
+    house_name = "All Houses"
+    if eff_house_id:
+        house = await db.get(House, eff_house_id)
+        house_name = house.display_name if house else f"House #{eff_house_id}"
+
+    if date_from and date_to:
+        period_label = f"{date_from.strftime('%d %b %Y')} - {date_to.strftime('%d %b %Y')}"
+    elif date_from:
+        period_label = f"From {date_from.strftime('%d %b %Y')}"
+    elif date_to:
+        period_label = f"Up to {date_to.strftime('%d %b %Y')}"
+    else:
+        period_label = "All dates"
+
+    pdf_bytes = build_lifting_statement_pdf(
+        records,
+        house_name=house_name,
+        period_label=period_label,
+        generated_by=current_user.name,
+        generated_at=now_naive(),
+    )
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="lifting",
+        action="export",
+        record_identifier=f"{len(records)} records",
+        new_values={
+            "format": "pdf",
+            "statement": True,
+            "house_id": eff_house_id,
+            "date_from": date_from.isoformat() if date_from else None,
+            "date_to": date_to.isoformat() if date_to else None,
+            "status": status,
+            "search": search,
+            "count": len(records),
+        },
+        request=request,
+        status_code=200,
+    )
+
+    filename = (
+        "lifting_statement_"
+        f"{date_from.isoformat() if date_from else 'start'}_"
+        f"{date_to.isoformat() if date_to else 'end'}.pdf"
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{record_id}", response_model=LiftingRecordSchema)
