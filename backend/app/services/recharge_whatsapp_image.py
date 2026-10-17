@@ -17,7 +17,11 @@ Business rules mirror the dashboard page:
     * Status    -> projectionStatus(achievement %, projection %) identity with
                    the page (achieved / on track / needs attention / behind)
     * DRR       -> ceil(remaining / days_remaining), like the page table
+    * D.Avg     -> service-computed daily average (achievement / elapsed days)
+    * Proj      -> service-computed month-end projection (summed in the total
+                   row, like the page's Subtotal row)
     * Proj %    -> projection / target, the value the page status is based on
+    * Trans     -> unique retailers transacted yesterday (page's Trans Count)
     * Daily Req -> remaining / remaining working days (Fridays excluded)
     * Rows      -> already ranked by achievement % by RechargeReportService
 """
@@ -92,8 +96,8 @@ CONTENT_H = PAGE_H - 2 * CARD_PAD - FOOTER_H
 # The A4 landscape canvas is wide enough that the shared kit's table text (11pt)
 # reads small once the image is scaled onto a phone, so this report uses larger
 # table text and headings. Overrides apply to this report only.
-TABLE_FONT = 16          # table header + body cell text
-SECTION_TITLE_FONT_SIZE = 18
+TABLE_FONT = 18          # table header + body cell text
+SECTION_TITLE_FONT_SIZE = 20
 
 # ── Native high-resolution rendering ──
 # All layout math stays in the IMG_W-wide design space; ScaledDraw renders every
@@ -128,12 +132,17 @@ REPORT_TYPES = {
 }
 
 # ── Section column sets ──
+# The supervisor and RSO tables share one column shape covering every metric the
+# dashboard table shows beyond the targets (DRR, D.Avg, Proj, Proj %,
+# Yest C2C/C2S, Trans Count), so the image lines up with the page.
 HOUSE_LABELS = ["Target", "Ach", "%", "Remain", "Daily Req", "Daily Avg",
                 "Projection", "Proj %", "Status"]
 SUPERVISOR_LABELS = ["#", "Supervisor Name", "Pool No", "Target", "Ach", "%", "Remain",
-                     "DRR", "Proj %", "Yest C2C", "Yest C2S", "Status"]
+                     "DRR", "D.Avg", "Proj", "Proj %", "Yest C2C", "Yest C2S",
+                     "Trans Count", "Status"]
 RSO_LABELS = ["#", "RSO Name", "ITop No", "Target", "Ach", "%", "Remain",
-              "DRR", "Proj %", "Yest C2C", "Yest C2S", "Trans Count", "Status"]
+              "DRR", "D.Avg", "Proj", "Proj %", "Yest C2C", "Yest C2S",
+              "Trans Count", "Status"]
 
 
 # ── Status rules (mirror projectionStatus in page.tsx) ──
@@ -282,27 +291,33 @@ def _render_house_summary(draw, x, y, w, summary) -> int:
 def _supervisor_rows(supervisors: list[dict], days_remaining: int):
     """Rows + total for the SUPERVISOR PERFORMANCE table."""
     rows = []
-    tot = {"target": 0.0, "ach": 0.0, "remain": 0.0, "proj": 0.0,
-           "c2c": 0.0, "c2s": 0.0}
+    tot = {"target": 0.0, "ach": 0.0, "remain": 0.0, "davg": 0.0, "proj": 0.0,
+           "c2c": 0.0, "c2s": 0.0, "txn": 0}
     for i, sup in enumerate(supervisors):
         target, ach, ach_pct, proj, proj_pct = _metrics(sup)
         remain = _remaining(sup)
+        daily_avg = float(sup.get("daily_average") or 0)
         yest_c2c = float(sup.get("yesterday_c2c") or 0)
         yest_c2s = float(sup.get("yesterday_c2s") or 0)
+        # Unique retailers the supervisor's team transacted C2C with yesterday.
+        yest_txn = int(sup.get("yesterday_transaction_count") or 0)
         rows.append([
             str(i + 1), str(sup.get("name") or ""),
             str(sup.get("pool_number") or sup.get("dms_code") or "-"),
             _fmt(target), _fmt(ach), pct_2dp(ach, target),
-            _fmt(remain), _drr(remain, days_remaining), pct_2dp(proj, target),
-            _fmt(yest_c2c), _fmt(yest_c2s),
+            _fmt(remain), _drr(remain, days_remaining),
+            _fmt(daily_avg), _fmt(proj), pct_2dp(proj, target),
+            _fmt(yest_c2c), _fmt(yest_c2s), _fmt(yest_txn),
             _status_label(ach_pct, proj_pct),
         ])
         tot["target"] += target
         tot["ach"] += ach
         tot["remain"] += remain
+        tot["davg"] += daily_avg
         tot["proj"] += proj
         tot["c2c"] += yest_c2c
         tot["c2s"] += yest_c2s
+        tot["txn"] += yest_txn
 
     if not rows:
         return [], None
@@ -311,8 +326,9 @@ def _supervisor_rows(supervisors: list[dict], days_remaining: int):
         f"Total ({len(rows)} Supervisor)", "", "",
         _fmt(tot["target"]), _fmt(tot["ach"]), pct_2dp(tot["ach"], tot["target"]),
         _fmt(tot["remain"]), _drr(tot["remain"], days_remaining),
+        _fmt(tot["davg"]), _fmt(tot["proj"]),
         pct_2dp(tot["proj"], tot["target"]),
-        _fmt(tot["c2c"]), _fmt(tot["c2s"]), "",
+        _fmt(tot["c2c"]), _fmt(tot["c2s"]), _fmt(tot["txn"]), "",
     ]
     return rows, total_row
 
@@ -320,11 +336,12 @@ def _supervisor_rows(supervisors: list[dict], days_remaining: int):
 def _rso_rows(rsos: list[dict], days_remaining: int):
     """Rows + total for the RSO PERFORMANCE table."""
     rows = []
-    tot = {"target": 0.0, "ach": 0.0, "remain": 0.0, "proj": 0.0,
+    tot = {"target": 0.0, "ach": 0.0, "remain": 0.0, "davg": 0.0, "proj": 0.0,
            "c2c": 0.0, "c2s": 0.0, "txn": 0}
     for i, r in enumerate(rsos):
         target, ach, ach_pct, proj, proj_pct = _metrics(r)
         remain = _remaining(r)
+        daily_avg = float(r.get("daily_average") or 0)
         yest_c2c = float(r.get("yesterday_c2c") or 0)
         yest_c2s = float(r.get("yesterday_c2s") or 0)
         # Unique retailers the RSO transacted C2C with yesterday.
@@ -333,13 +350,15 @@ def _rso_rows(rsos: list[dict], days_remaining: int):
             str(i + 1), str(r.get("name") or ""),
             str(r.get("itop_number") or r.get("dms_code") or "-"),
             _fmt(target), _fmt(ach), pct_2dp(ach, target),
-            _fmt(remain), _drr(remain, days_remaining), pct_2dp(proj, target),
+            _fmt(remain), _drr(remain, days_remaining),
+            _fmt(daily_avg), _fmt(proj), pct_2dp(proj, target),
             _fmt(yest_c2c), _fmt(yest_c2s), _fmt(yest_txn),
             _status_label(ach_pct, proj_pct),
         ])
         tot["target"] += target
         tot["ach"] += ach
         tot["remain"] += remain
+        tot["davg"] += daily_avg
         tot["proj"] += proj
         tot["c2c"] += yest_c2c
         tot["c2s"] += yest_c2s
@@ -352,6 +371,7 @@ def _rso_rows(rsos: list[dict], days_remaining: int):
         f"Total ({len(rows)} RSO)", "", "",
         _fmt(tot["target"]), _fmt(tot["ach"]), pct_2dp(tot["ach"], tot["target"]),
         _fmt(tot["remain"]), _drr(tot["remain"], days_remaining),
+        _fmt(tot["davg"]), _fmt(tot["proj"]),
         pct_2dp(tot["proj"], tot["target"]),
         _fmt(tot["c2c"]), _fmt(tot["c2s"]), _fmt(tot["txn"]), "",
     ]
