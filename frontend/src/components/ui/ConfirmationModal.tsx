@@ -78,19 +78,19 @@ export function ConfirmationModal({
   if (!isOpen) return null;
 
   return (
-    <div className={cn("fixed inset-0 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300", zIndex)}>
+    <div className={cn("fixed inset-0 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300", zIndex)}>
       <motion.div 
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden"
+        className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl sm:rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 max-h-[90dvh] overflow-y-auto"
       >
-        <div className="p-8 flex flex-col items-center text-center">
-          <div className={cn("w-20 h-20 rounded-full flex items-center justify-center mb-6", current.iconBg)}>
-            <Icon className={cn("w-10 h-10", current.iconColor)} />
+        <div className="p-6 sm:p-8 flex flex-col items-center text-center">
+          <div className={cn("w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-4 sm:mb-6", current.iconBg)}>
+            <Icon className={cn("w-8 h-8 sm:w-10 sm:h-10", current.iconColor)} />
           </div>
           
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+          <h3 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             {title}
           </h3>
           {message && (
@@ -101,12 +101,12 @@ export function ConfirmationModal({
           {children}
         </div>
 
-        <div className="p-6 pt-0 flex flex-col gap-3">
+        <div className="p-5 pt-0 sm:p-6 sm:pt-0 flex flex-col gap-2.5 sm:gap-3">
           <button
             onClick={onConfirm}
             disabled={loading}
             className={cn(
-              "w-full py-4 rounded-2xl text-white font-bold transition-all shadow-lg active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+              "w-full py-3.5 sm:py-4 rounded-2xl text-white font-bold transition-all shadow-lg active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
               current.btnBg
             )}
           >
@@ -115,7 +115,7 @@ export function ConfirmationModal({
           <button
             onClick={onClose}
             disabled={loading}
-            className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3.5 sm:py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {resolvedCancel}
           </button>

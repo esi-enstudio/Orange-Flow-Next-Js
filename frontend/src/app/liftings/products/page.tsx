@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import { Loader2, Plus, Search, Trash2, Pencil, Save, X, Upload, Download, FileDown } from "lucide-react";
+import { Loader2, Plus, Search, Trash2, Pencil, Save, X, Upload, Download, FileDown, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ProductCategory = "SIM" | "Scratch Card" | "Device" | "Other";
@@ -58,6 +58,7 @@ export default function ProductsPage() {
 
     const [submitting, setSubmitting] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+    const [expandedProductId, setExpandedProductId] = useState<number | null>(null);
 
     const [importing, setImporting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -258,11 +259,11 @@ export default function ProductsPage() {
     const canDelete = hasPermission("products.delete");
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-500">
             {/* Header */}
             <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-2.5 sm:gap-3">
+                    <div className="p-2 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
                         <Plus className="w-5 h-5" />
                     </div>
                     Products
@@ -273,8 +274,8 @@ export default function ProductsPage() {
             </div>
 
             {/* Form */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
-                <div className="flex items-start justify-between gap-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-4 sm:p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div>
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                             {formMode === "create" ? "Create Product" : "Edit Product"}
@@ -288,7 +289,7 @@ export default function ProductsPage() {
                             <button
                                 type="button"
                                 onClick={resetForm}
-                                className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-800 text-sm hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                                className="w-full sm:w-auto px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-800 text-sm hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                             >
                                 <X className="w-4 h-4 inline-block mr-2 align-[-2px]" />
                                 Cancel
@@ -445,7 +446,7 @@ export default function ProductsPage() {
                     </div>
                 </div>
 
-                <div className="mt-6 flex items-center gap-3">
+                <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
                     <button
                         type="button"
                         onClick={handleSubmit}
@@ -455,7 +456,7 @@ export default function ProductsPage() {
                             !form.product_code.trim() ||
                             !form.product_name.trim()
                         }
-                        className="px-5 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                        className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                     >
                         {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                         {formMode === "create" ? "Create Product" : "Save Changes"}
@@ -464,7 +465,7 @@ export default function ProductsPage() {
                     <button
                         type="button"
                         onClick={resetForm}
-                        className="px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-800 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                        className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-800 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                     >
                         Reset
                     </button>
@@ -473,7 +474,7 @@ export default function ProductsPage() {
 
             {/* List */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="px-3.5 py-3 sm:px-6 sm:py-4 border-b border-gray-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-3">
                     <div className="flex items-center gap-2.5 flex-1 min-w-0">
                         <div className="p-2 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
                             <Search className="w-4 h-4" />
@@ -540,11 +541,11 @@ export default function ProductsPage() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
                         <select
                             value={category}
                             onChange={(e) => setCategory(e.target.value)}
-                            className="px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none transition-all focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 dark:focus:border-primary-500"
+                            className="w-full sm:w-auto px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none transition-all focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 dark:focus:border-primary-500"
                         >
                             <option value="">All Categories</option>
                             {categories.map((c) => (
@@ -557,7 +558,7 @@ export default function ProductsPage() {
                         <select
                             value={status}
                             onChange={(e) => setStatus(e.target.value)}
-                            className="px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none transition-all focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 dark:focus:border-primary-500"
+                            className="w-full sm:w-auto px-3 py-2 rounded-xl bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 outline-none transition-all focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 dark:focus:border-primary-500"
                         >
                             <option value="">All Statuses</option>
                             {statuses.map((s) => (
@@ -570,45 +571,118 @@ export default function ProductsPage() {
                 </div>
 
                 {loading ? (
-                    <div className="flex items-center justify-center py-16">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary-500" />
+                    <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                            <div key={i} className="flex items-center gap-4 px-3.5 py-4 sm:px-4 animate-pulse">
+                                <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                                <div className="space-y-2 flex-1 min-w-0">
+                                    <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                                    <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                                </div>
+                                <div className="hidden sm:block flex-1 space-y-2">
+                                    <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                                    <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                                </div>
+                                <div className="hidden sm:block w-16 h-3 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                            </div>
+                        ))}
                     </div>
                 ) : filteredProducts.length === 0 ? (
-                    <div className="px-6 py-16 text-center">
+                    <div className="px-4 py-12 text-center">
                         <p className="text-gray-400 dark:text-gray-500 text-sm">No products found</p>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
-                                    <th className="text-left px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Code</th>
-                                    <th className="text-left px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</th>
-                                    <th className="text-left px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Category</th>
-                                    <th className="text-right px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">MRP</th>
-                                    <th className="text-right px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">DD Price</th>
-                                    <th className="text-right px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Ret Price</th>
-                                    <th className="text-center px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
-                                    <th className="text-right px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
-                                {filteredProducts.map((p) => (
-                                    <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                        <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">{p.product_code}</td>
-                                        <td className="px-6 py-4 font-semibold text-gray-900 dark:text-gray-100">{p.product_name}</td>
-                                        <td className="px-6 py-4">
-                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-300">
-                                                {p.category}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.mrp.toLocaleString()}</td>
-                                        <td className="px-6 py-4 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.dd_lifting_price.toLocaleString()}</td>
-                                        <td className="px-6 py-4 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.ret_lifting_price.toLocaleString()}</td>
-                                        <td className="px-6 py-4 text-center">
+                    <>
+                        {/* Desktop Table — lg+ */}
+                        <div className="hidden lg:block overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
+                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Code</th>
+                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</th>
+                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Category</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">MRP</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">DD Price</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Ret Price</th>
+                                        <th className="text-center px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
+                                    {filteredProducts.map((p) => (
+                                        <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                            <td className="px-2 py-1 font-mono text-xs text-gray-600 dark:text-gray-400">{p.product_code}</td>
+                                            <td className="px-2 py-1 font-semibold text-gray-900 dark:text-gray-100">{p.product_name}</td>
+                                            <td className="px-2 py-1">
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-300">
+                                                    {p.category}
+                                                </span>
+                                            </td>
+                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.mrp.toLocaleString()}</td>
+                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.dd_lifting_price.toLocaleString()}</td>
+                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.ret_lifting_price.toLocaleString()}</td>
+                                            <td className="px-2 py-1 text-center">
+                                                <span
+                                                    className={cn(
+                                                        "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold",
+                                                        p.status === "Active"
+                                                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                                            : "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-gray-400"
+                                                    )}
+                                                >
+                                                    {p.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-2 py-1 text-right">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    {canEdit && (
+                                                        <button
+                                                            onClick={() => startEdit(p)}
+                                                            className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-all"
+                                                            title="Edit"
+                                                        >
+                                                            <Pencil className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                    {canDelete && (
+                                                        <button
+                                                            onClick={() => setDeleteTarget(p)}
+                                                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all"
+                                                            title="Delete"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Mobile Accordion — below lg */}
+                        <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
+                            {filteredProducts.map((p) => {
+                                const isExpanded = expandedProductId === p.id;
+                                return (
+                                    <div key={p.id} className="transition-colors">
+                                        <button
+                                            onClick={() => setExpandedProductId(isExpanded ? null : p.id)}
+                                            className="w-full flex items-center gap-3 px-3.5 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left"
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.product_name}</p>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500">{p.product_code}</span>
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-300">
+                                                        {p.category}
+                                                    </span>
+                                                </div>
+                                            </div>
                                             <span
                                                 className={cn(
-                                                    "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold",
+                                                    "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0",
                                                     p.status === "Active"
                                                         ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
                                                         : "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-gray-400"
@@ -616,34 +690,60 @@ export default function ProductsPage() {
                                             >
                                                 {p.status}
                                             </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-1">
-                                                {canEdit && (
-                                                    <button
-                                                        onClick={() => startEdit(p)}
-                                                        className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-lg transition-all"
-                                                        title="Edit"
-                                                    >
-                                                        <Pencil className="w-4 h-4" />
-                                                    </button>
-                                                )}
-                                                {canDelete && (
-                                                    <button
-                                                        onClick={() => setDeleteTarget(p)}
-                                                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all"
-                                                        title="Delete"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
+                                            <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform duration-300", isExpanded && "rotate-180")} />
+                                        </button>
+                                        {isExpanded && (
+                                            <div className="px-3.5 pb-3.5 space-y-2.5 animate-in slide-in-from-top-1 duration-200">
+                                                <div className="h-px bg-gray-100 dark:bg-slate-800" />
+                                                <div className="space-y-1.5">
+                                                    {p.subcategory && (
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <p className="text-[11px] font-bold text-gray-400 uppercase">Subcategory</p>
+                                                            <p className="text-xs font-medium text-gray-700 dark:text-gray-200 text-right">{p.subcategory}</p>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <p className="text-[11px] font-bold text-gray-400 uppercase">MRP</p>
+                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{p.mrp.toLocaleString()}</p>
+                                                    </div>
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <p className="text-[11px] font-bold text-gray-400 uppercase">DD Price</p>
+                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{p.dd_lifting_price.toLocaleString()}</p>
+                                                    </div>
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <p className="text-[11px] font-bold text-gray-400 uppercase">Ret Price</p>
+                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{p.ret_lifting_price.toLocaleString()}</p>
+                                                    </div>
+                                                </div>
+                                                {(canEdit || canDelete) && (
+                                                    <div className="flex items-center gap-2 pt-1">
+                                                        {canEdit && (
+                                                            <button
+                                                                onClick={() => startEdit(p)}
+                                                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 text-xs font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all active:scale-[0.98]"
+                                                            >
+                                                                <Pencil className="w-3.5 h-3.5" />
+                                                                Edit
+                                                            </button>
+                                                        )}
+                                                        {canDelete && (
+                                                            <button
+                                                                onClick={() => setDeleteTarget(p)}
+                                                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-red-200 dark:border-red-500/20 text-red-500 text-xs font-bold hover:bg-red-50 dark:hover:bg-red-500/10 transition-all active:scale-[0.98]"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                Delete
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 )}
             </div>
 

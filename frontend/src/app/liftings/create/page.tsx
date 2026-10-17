@@ -7,8 +7,50 @@ import { toast } from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
-import { Loader2, ClipboardList, Eye, Check, Pencil, X, Banknote, Building2, Package } from "lucide-react";
+import { Loader2, ClipboardList, Eye, Check, Pencil, X, Banknote, Building2, Package, Upload, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import ImageLightbox from "@/components/ui/ImageLightbox";
+
+function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width = Math.round((width * maxHeight) / height);
+                        height = maxHeight;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) {
+                    reject(new Error("Failed to get canvas context"));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+                const dataUrl = canvas.toDataURL("image/jpeg", quality);
+                resolve(dataUrl);
+            };
+            img.onerror = (err) => reject(err);
+            img.src = e.target?.result as string;
+        };
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+    });
+}
 
 type House = {
     id: number;
@@ -64,6 +106,24 @@ export default function CreateLiftingPage() {
     const [paymentMethod, setPaymentMethod] = useState<"Cash" | "Credit">("Cash");
     const [bankDeposit, setBankDeposit] = useState("0");
     const [notes, setNotes] = useState("");
+    const [depositSlip, setDepositSlip] = useState<string | null>(null);
+    const [compressingSlip, setCompressingSlip] = useState(false);
+    const [lightboxOpen, setLightboxOpen] = useState(false);
+
+    const handleDepositSlipChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setCompressingSlip(true);
+        try {
+            const compressed = await compressImage(file, 1200, 1200, 0.75);
+            setDepositSlip(compressed);
+            toast.success("Bank deposit slip uploaded & optimized");
+        } catch (err) {
+            toast.error("Failed to process image");
+        } finally {
+            setCompressingSlip(false);
+        }
+    };
 
     const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([]);
     const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
@@ -167,6 +227,7 @@ export default function CreateLiftingPage() {
                 payment_method: paymentMethod,
                 total_bank_deposit: Number(bankDeposit || 0),
                 notes: notes.trim() || null,
+                deposit_slip: depositSlip,
                 products: selectedProducts.map((sp) => ({
                     product_id: sp.product.id,
                     quantity: sp.quantity,
@@ -191,6 +252,7 @@ export default function CreateLiftingPage() {
                 payment_method: paymentMethod,
                 total_bank_deposit: Number(bankDeposit || 0),
                 notes: notes.trim() || null,
+                deposit_slip: depositSlip,
                 products: selectedProducts.map((sp) => ({
                     product_id: sp.product.id,
                     quantity: sp.quantity,
@@ -230,11 +292,11 @@ export default function CreateLiftingPage() {
     }
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-500">
             {/* Header */}
             <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-2.5 sm:gap-3">
+                    <div className="p-2 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
                         <ClipboardList className="w-5 h-5" />
                     </div>
                     Create Lifting
@@ -245,14 +307,14 @@ export default function CreateLiftingPage() {
             </div>
 
             {/* House, Date, Payment */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-4 sm:p-6">
                 <div className="flex items-center gap-2 pb-2 mb-4 border-b border-gray-100 dark:border-slate-800">
                     <Building2 className="w-4 h-4 text-primary-500" />
                     <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                         Basic Information
                     </h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             House *
@@ -309,7 +371,7 @@ export default function CreateLiftingPage() {
             </div>
 
             {/* Product Selection */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-4 sm:p-6">
                 <div className="flex items-center gap-2 pb-2 mb-4 border-b border-gray-100 dark:border-slate-800">
                     <Package className="w-4 h-4 text-primary-500" />
                     <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -318,8 +380,10 @@ export default function CreateLiftingPage() {
                 </div>
 
                 {loading ? (
-                    <div className="flex items-center justify-center py-12">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary-500" />
+                    <div className="space-y-3">
+                        {Array.from({ length: 3 }).map((_, i) => (
+                            <div key={i} className="h-14 rounded-xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+                        ))}
                     </div>
                 ) : (
                     <div className="space-y-4">
@@ -333,15 +397,15 @@ export default function CreateLiftingPage() {
                                     <button
                                         type="button"
                                         onClick={() => setExpandedCategory(isExpanded ? null : category)}
-                                        className="w-full flex items-center justify-between px-5 py-3.5 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors text-left"
+                                        className="w-full flex items-center justify-between gap-2 px-3.5 py-3 sm:px-5 sm:py-3.5 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors text-left"
                                     >
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{category}</span>
-                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-primary-100/70 dark:bg-primary-500/15 text-primary-700 dark:text-primary-300">
+                                        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                            <span className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{category}</span>
+                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-primary-100/70 dark:bg-primary-500/15 text-primary-700 dark:text-primary-300 shrink-0">
                                                 {catProducts.length}
                                             </span>
                                         </div>
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                                             {selectedCount > 0 && (
                                                 <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
                                                     {selectedCount} selected
@@ -366,26 +430,28 @@ export default function CreateLiftingPage() {
                                                     <div
                                                         key={product.id}
                                                         className={cn(
-                                                            "flex items-center gap-4 px-5 py-3 transition-colors",
+                                                            "flex items-center gap-3 px-3.5 py-3 sm:gap-4 sm:px-5 transition-colors",
                                                             isSelected ? "bg-primary-50/50 dark:bg-primary-500/5" : "hover:bg-gray-50 dark:hover:bg-slate-800/30"
                                                         )}
                                                     >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={isSelected}
-                                                            onChange={() => toggleProduct(product)}
-                                                            className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-primary-600 focus:ring-primary-500"
-                                                        />
+                                                        <label className="flex items-center justify-center w-8 h-8 -ml-1.5 shrink-0 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isSelected}
+                                                                onChange={() => toggleProduct(product)}
+                                                                className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                                                            />
+                                                        </label>
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex items-center gap-2">
                                                                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
                                                                     {product.product_name}
                                                                 </span>
-                                                                <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500">
+                                                                <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500 shrink-0">
                                                                     {product.product_code}
                                                                 </span>
                                                             </div>
-                                                            <div className="flex items-center gap-3 mt-0.5">
+                                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
                                                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
                                                                     MRP: {product.mrp.toLocaleString()}
                                                                 </span>
@@ -398,14 +464,14 @@ export default function CreateLiftingPage() {
                                                             </div>
                                                         </div>
                                                         {isSelected && selected && (
-                                                            <div className="flex items-center gap-2 shrink-0">
+                                                            <div className="flex items-center gap-1.5 shrink-0">
                                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Qty</label>
                                                                 <input
                                                                     type="number"
                                                                     min={1}
                                                                     value={selected.quantity}
                                                                     onChange={(e) => updateQuantity(product.id, Math.max(1, parseInt(e.target.value) || 1))}
-                                                                    className="w-20 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 text-center outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                                                    className="w-16 sm:w-20 px-2 sm:px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 text-center outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                                                 />
                                                             </div>
                                                         )}
@@ -419,7 +485,7 @@ export default function CreateLiftingPage() {
                         })}
 
                         {productCategories.length === 0 && (
-                            <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">
+                            <div className="text-center py-10 text-gray-400 dark:text-gray-500 text-sm">
                                 No active products found. Create products in the Products section first.
                             </div>
                         )}
@@ -427,21 +493,21 @@ export default function CreateLiftingPage() {
                 )}
 
                 {selectedProducts.length > 0 && (
-                    <div className="mt-5 p-4 bg-primary-50/50 dark:bg-primary-500/5 rounded-xl border border-primary-100 dark:border-primary-500/10">
-                        <div className="flex items-center justify-between text-sm">
+                    <div className="mt-5 p-3.5 sm:p-4 bg-primary-50/50 dark:bg-primary-500/5 rounded-xl border border-primary-100 dark:border-primary-500/10">
+                        <div className="flex items-center justify-between gap-3 text-sm">
                             <span className="font-semibold text-gray-700 dark:text-gray-300">Selected Products:</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">{selectedProducts.length} item(s)</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">{selectedProducts.length} item(s)</span>
                         </div>
                         <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 space-y-1">
                             {selectedProducts.map((sp) => (
-                                <div key={sp.product.id} className="flex justify-between">
-                                    <span>{sp.product.product_name} x {sp.quantity}</span>
-                                    <span className="font-mono">{(sp.product.dd_lifting_price * sp.quantity).toLocaleString()}</span>
+                                <div key={sp.product.id} className="flex justify-between gap-3">
+                                    <span className="truncate">{sp.product.product_name} x {sp.quantity}</span>
+                                    <span className="font-mono shrink-0">{(sp.product.dd_lifting_price * sp.quantity).toLocaleString()}</span>
                                 </div>
                             ))}
-                            <div className="pt-2 mt-2 border-t border-primary-100 dark:border-primary-500/10 flex justify-between font-bold text-gray-900 dark:text-gray-100">
+                            <div className="pt-2 mt-2 border-t border-primary-100 dark:border-primary-500/10 flex justify-between gap-3 font-bold text-gray-900 dark:text-gray-100">
                                 <span>Total Lifting Amount</span>
-                                <span className="font-mono">{totalSelectionAmount.toLocaleString()}</span>
+                                <span className="font-mono shrink-0">{totalSelectionAmount.toLocaleString()}</span>
                             </div>
                         </div>
                     </div>
@@ -449,14 +515,14 @@ export default function CreateLiftingPage() {
             </div>
 
             {/* Bank Deposit & Notes */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-4 sm:p-6">
                 <div className="flex items-center gap-2 pb-2 mb-4 border-b border-gray-100 dark:border-slate-800">
                     <Banknote className="w-4 h-4 text-primary-500" />
                     <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                        Payment Details
+                        Payment & Deposit Slip
                     </h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Total Bank Deposit Amount *
@@ -483,16 +549,70 @@ export default function CreateLiftingPage() {
                             className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 outline-none transition-all text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                         />
                     </div>
+                    <div className="md:col-span-2 space-y-1.5 pt-2">
+                        <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Bank Deposit Slip (Optional — upload anytime)
+                        </label>
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                            <label className="flex-1 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-gray-300 dark:border-slate-700 hover:border-primary-500 bg-gray-50/50 dark:bg-slate-800/50 text-sm font-medium text-gray-600 dark:text-gray-300 cursor-pointer transition-all">
+                                {compressingSlip ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin text-primary-500" />
+                                        <span>Optimizing & compressing slip image...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload className="w-4 h-4 text-primary-500" />
+                                        <span>{depositSlip ? "Change Bank Deposit Slip Image" : "Upload Bank Deposit Slip Image"}</span>
+                                    </>
+                                )}
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleDepositSlipChange}
+                                    className="hidden"
+                                />
+                            </label>
+                            {depositSlip && (
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setLightboxOpen(true)}
+                                        className="px-3.5 py-2.5 bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 rounded-xl text-xs font-semibold hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                    >
+                                        <Eye className="w-3.5 h-3.5" />
+                                        Full Screen Preview
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDepositSlip(null)}
+                                        className="p-2.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors border border-red-200/50 dark:border-red-500/20"
+                                        title="Remove slip"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
 
+            <ImageLightbox
+                open={lightboxOpen}
+                src={depositSlip}
+                alt="Bank Deposit Slip"
+                title="Bank Deposit Slip Preview"
+                onClose={() => setLightboxOpen(false)}
+            />
+
             {/* Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
                 <button
                     type="button"
                     onClick={handlePreview}
                     disabled={previewLoading || !houseId}
-                    className="px-6 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    className="w-full sm:w-auto justify-center px-6 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                     {previewLoading ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -504,7 +624,7 @@ export default function CreateLiftingPage() {
                 <button
                     type="button"
                     onClick={resetForm}
-                    className="px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-800 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                    className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-800 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                 >
                     Reset
                 </button>
@@ -512,60 +632,60 @@ export default function CreateLiftingPage() {
 
             {/* Preview Modal */}
             {showPreview && previewData && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4"
                      onClick={() => setShowPreview(false)}>
-                    <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 max-h-[90vh] flex flex-col"
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 max-h-[92dvh] flex flex-col"
                          onClick={(e) => e.stopPropagation()}>
                         {/* Header */}
-                        <div className="bg-primary-600 rounded-t-2xl px-6 py-5 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-white/20 rounded-xl">
+                        <div className="bg-primary-600 rounded-t-2xl px-4 py-3.5 sm:px-6 sm:py-5 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="p-2 bg-white/20 rounded-xl shrink-0">
                                     <Eye className="w-5 h-5 text-white" />
                                 </div>
-                                <div>
-                                    <h3 className="text-lg font-bold text-white">Lifting Preview</h3>
-                                    <p className="text-sm text-white/80">Review the calculated values before confirming</p>
+                                <div className="min-w-0">
+                                    <h3 className="text-base sm:text-lg font-bold text-white">Lifting Preview</h3>
+                                    <p className="text-xs sm:text-sm text-white/80">Review the calculated values before confirming</p>
                                 </div>
                             </div>
-                            <button onClick={() => setShowPreview(false)} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors">
+                            <button onClick={() => setShowPreview(false)} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors shrink-0">
                                 <X className="w-4 h-4 text-white" />
                             </button>
                         </div>
 
                         {/* Content */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 sm:p-6 sm:space-y-6">
                             {/* Summary Cards */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <div className="bg-blue-50 dark:bg-blue-500/10 rounded-xl p-4 border border-blue-100 dark:border-blue-500/10">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                                <div className="bg-blue-50 dark:bg-blue-500/10 rounded-xl p-3.5 sm:p-4 border border-blue-100 dark:border-blue-500/10">
                                     <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
                                         Total Lifting Amount
                                     </p>
-                                    <p className="text-xl font-bold text-blue-700 dark:text-blue-300 font-mono">
+                                    <p className="text-lg sm:text-xl font-bold text-blue-700 dark:text-blue-300 font-mono">
                                         {previewData.total_lifting_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </p>
                                 </div>
-                                <div className="bg-emerald-50 dark:bg-emerald-500/10 rounded-xl p-4 border border-emerald-100 dark:border-emerald-500/10">
+                                <div className="bg-emerald-50 dark:bg-emerald-500/10 rounded-xl p-3.5 sm:p-4 border border-emerald-100 dark:border-emerald-500/10">
                                     <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-1">
                                         Remaining Amount
                                     </p>
-                                    <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300 font-mono">
+                                    <p className="text-lg sm:text-xl font-bold text-emerald-700 dark:text-emerald-300 font-mono">
                                         {previewData.remaining_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </p>
                                 </div>
-                                <div className="bg-purple-50 dark:bg-purple-500/10 rounded-xl p-4 border border-purple-100 dark:border-purple-500/10">
+                                <div className="bg-purple-50 dark:bg-purple-500/10 rounded-xl p-3.5 sm:p-4 border border-purple-100 dark:border-purple-500/10">
                                     <p className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 mb-1">
                                         iTopUp Amount
                                     </p>
-                                    <p className="text-xl font-bold text-purple-700 dark:text-purple-300 font-mono">
+                                    <p className="text-lg sm:text-xl font-bold text-purple-700 dark:text-purple-300 font-mono">
                                         {previewData.itopup_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </p>
                                 </div>
                             </div>
 
                             {/* Bank Deposit */}
-                            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-800">
+                            <div className="flex items-center justify-between gap-3 px-3.5 py-3 sm:px-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-800">
                                 <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total Bank Deposit</span>
-                                <span className="text-lg font-bold text-gray-900 dark:text-gray-100 font-mono">
+                                <span className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100 font-mono text-right">
                                     {Number(bankDeposit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
                             </div>
@@ -577,21 +697,23 @@ export default function CreateLiftingPage() {
                                 </h4>
                                 <div className="space-y-2">
                                     {previewData.products.map((p) => (
-                                        <div key={p.product_id} className="flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-slate-800/30 rounded-lg">
-                                            <div>
-                                                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{p.product_name}</span>
-                                                <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-2 font-mono">{p.product_code}</span>
+                                        <div key={p.product_id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 sm:px-4 bg-gray-50 dark:bg-slate-800/30 rounded-lg">
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.product_name}</p>
+                                                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono shrink-0">{p.product_code}</span>
+                                                </div>
                                                 <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                                                     {p.quantity} x {p.unit_price.toLocaleString()}
                                                 </div>
                                             </div>
-                                            <span className="text-sm font-bold text-gray-900 dark:text-gray-100 font-mono">
+                                            <span className="text-sm font-bold text-gray-900 dark:text-gray-100 font-mono shrink-0">
                                                 {p.total_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </span>
                                         </div>
                                     ))}
                                     {previewData.products.length === 0 && (
-                                        <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/30 rounded-lg text-sm text-gray-500 dark:text-gray-400">
+                                        <div className="px-3.5 py-3 sm:px-4 bg-gray-50 dark:bg-slate-800/30 rounded-lg text-sm text-gray-500 dark:text-gray-400">
                                             No products — iTopUp only lifting.
                                         </div>
                                     )}
@@ -599,9 +721,9 @@ export default function CreateLiftingPage() {
                             </div>
 
                             {/* Formulas */}
-                            <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-800">
+                            <div className="px-3.5 py-3 sm:px-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-800">
                                 <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Calculation</h4>
-                                <div className="text-[11px] text-gray-500 dark:text-gray-400 space-y-1 font-mono">
+                                <div className="text-[11px] text-gray-500 dark:text-gray-400 space-y-1 font-mono break-words">
                                     <div>Bank Deposit = {Number(bankDeposit || 0).toLocaleString()}</div>
                                     <div>Total Lifting = {previewData.total_lifting_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                                     <div>Remaining = Bank Deposit - Total Lifting = {previewData.remaining_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
@@ -611,11 +733,11 @@ export default function CreateLiftingPage() {
                         </div>
 
                         {/* Footer Actions */}
-                        <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-800 flex items-center justify-end gap-3">
+                        <div className="px-4 py-3.5 sm:px-6 sm:py-4 border-t border-gray-100 dark:border-slate-800 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
                             <button
                                 type="button"
                                 onClick={() => setShowPreview(false)}
-                                className="px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-800 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2"
+                                className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-800 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2"
                             >
                                 <X className="w-4 h-4" />
                                 Cancel
@@ -623,7 +745,7 @@ export default function CreateLiftingPage() {
                             <button
                                 type="button"
                                 onClick={() => setShowPreview(false)}
-                                className="px-4 py-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300 text-sm font-semibold hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors flex items-center gap-2"
+                                className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300 text-sm font-semibold hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors flex items-center gap-2"
                             >
                                 <Pencil className="w-4 h-4" />
                                 Modify
@@ -632,7 +754,7 @@ export default function CreateLiftingPage() {
                                 type="button"
                                 onClick={handleConfirm}
                                 disabled={confirmLoading || !canCreate}
-                                className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                                className="w-full sm:w-auto justify-center px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                             >
                                 {confirmLoading ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />

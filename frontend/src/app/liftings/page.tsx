@@ -8,8 +8,50 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, Trash2 } from "lucide-react";
+import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, Trash2, Eye, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import ImageLightbox from "@/components/ui/ImageLightbox";
+
+function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width = Math.round((width * maxHeight) / height);
+                        height = maxHeight;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) {
+                    reject(new Error("Failed to get canvas context"));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+                const dataUrl = canvas.toDataURL("image/jpeg", quality);
+                resolve(dataUrl);
+            };
+            img.onerror = (err) => reject(err);
+            img.src = e.target?.result as string;
+        };
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+    });
+}
 
 type House = {
     id: number;
@@ -230,12 +272,12 @@ export default function LiftingRecordsPage() {
     }
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-500">
             {/* Header */}
-            <div className="flex items-start justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-3">
-                        <div className="p-2.5 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                <div className="min-w-0">
+                    <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-2.5 sm:gap-3">
+                        <div className="p-2 rounded-xl bg-primary-50 text-primary-600 shadow-sm">
                             <ClipboardList className="w-5 h-5" />
                         </div>
                         Liftings
@@ -244,12 +286,12 @@ export default function LiftingRecordsPage() {
                         View and filter historical lifting records.
                     </p>
                 </div>
-                <div className="flex items-center gap-2.5 shrink-0">
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-2.5 sm:shrink-0">
                     {hasPermission("lifting.export") && (
                         <button
                             onClick={handleExport}
                             disabled={exporting || loading}
-                            className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="w-full sm:w-auto justify-center px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                             Export
@@ -257,7 +299,7 @@ export default function LiftingRecordsPage() {
                     )}
                     <button
                         onClick={() => router.push("/liftings/create")}
-                        className="shrink-0 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-2 shadow-sm"
+                        className="w-full sm:w-auto justify-center shrink-0 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-2 shadow-sm"
                     >
                         <Plus className="w-4 h-4" />
                         Create Lifting
@@ -267,7 +309,7 @@ export default function LiftingRecordsPage() {
 
             {/* Filters */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="px-3.5 py-3 sm:px-5 sm:py-3.5 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
                         <div className={cn(
                             "p-1.5 rounded-lg transition-colors",
@@ -303,8 +345,8 @@ export default function LiftingRecordsPage() {
                         </button>
                     )}
                 </div>
-                <div className="p-5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                <div className="p-3.5 sm:p-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-3.5">
                         <div>
                             <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
                                 House
@@ -382,10 +424,10 @@ export default function LiftingRecordsPage() {
                             </div>
                         </div>
                     </div>
-                    <div className="mt-4 flex items-center gap-2.5">
+                    <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
                         <button
                             onClick={() => fetchRecords({ silent: false })}
-                            className="px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-sm hover:shadow-md active:scale-[0.98] flex items-center gap-1.5"
+                            className="w-full sm:w-auto justify-center px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-sm hover:shadow-md active:scale-[0.98] flex items-center gap-1.5"
                         >
                             <Search className="w-3.5 h-3.5" />
                             Search
@@ -401,7 +443,7 @@ export default function LiftingRecordsPage() {
                                 setExpandedId(null);
                                 fetchRecords({ search: "", silent: true });
                             }}
-                            className="px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800/50 hover:text-gray-700 dark:hover:text-gray-300 transition-all active:scale-[0.98]"
+                            className="w-full sm:w-auto justify-center px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800/50 hover:text-gray-700 dark:hover:text-gray-300 transition-all active:scale-[0.98]"
                         >
                             Reset
                         </button>
@@ -429,11 +471,24 @@ export default function LiftingRecordsPage() {
             {/* Records Table / Accordion */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
                 {loading ? (
-                    <div className="flex items-center justify-center py-16">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary-500" />
+                    <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                            <div key={i} className="flex items-center gap-4 px-3.5 py-4 sm:px-4 animate-pulse">
+                                <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                                <div className="space-y-2 flex-1 min-w-0">
+                                    <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                                    <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                                </div>
+                                <div className="hidden sm:block flex-1 space-y-2">
+                                    <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                                    <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                                </div>
+                                <div className="hidden sm:block w-16 h-3 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                            </div>
+                        ))}
                     </div>
                 ) : records.length === 0 ? (
-                    <div className="px-6 py-16 text-center">
+                    <div className="px-4 py-12 text-center">
                         <p className="text-gray-400 dark:text-gray-500 text-sm">No lifting records found</p>
                     </div>
                 ) : (
@@ -443,16 +498,16 @@ export default function LiftingRecordsPage() {
                             <table className="w-full text-sm whitespace-nowrap">
                                 <thead>
                                     <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
-                                        <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-8"></th>
-                                        <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Date</th>
-                                        <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">House</th>
-                                        <th className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Payment</th>
-                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Bank Deposit</th>
-                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total Lifting</th>
-                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">iTopUp</th>
-                                        <th className="text-center px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
-                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Items</th>
-                                        <th className="text-right px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-14">Actions</th>
+                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-8"></th>
+                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Date</th>
+                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">House</th>
+                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Payment</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Bank Deposit</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total Lifting</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">iTopUp</th>
+                                        <th className="text-center px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Items</th>
+                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-14">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
@@ -462,32 +517,32 @@ export default function LiftingRecordsPage() {
                                                 className="hover:bg-gray-50/50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer"
                                                 onClick={() => handleViewDetail(r.id)}
                                             >
-                                                <td className="px-4 py-3">
+                                                <td className="px-2 py-1">
                                                     {expandedId === r.id ? (
                                                         <ChevronUp className="w-4 h-4 text-gray-400" />
                                                     ) : (
                                                         <ChevronDown className="w-4 h-4 text-gray-400" />
                                                     )}
                                                 </td>
-                                                <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                                                <td className="px-2 py-1 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
                                                     {formatDate(r.lifting_date)}
                                                 </td>
-                                                <td className="px-4 py-3 font-semibold text-gray-900 dark:text-gray-100">
+                                                <td className="px-2 py-1 font-semibold text-gray-900 dark:text-gray-100">
                                                     {r.house?.display_name || r.house?.name || `House #${r.house_id}`}
                                                 </td>
-                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                <td className="px-2 py-1 text-gray-600 dark:text-gray-400">
                                                     {r.payment_method}
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
+                                                <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
                                                     {formatNumber(r.total_bank_deposit)}
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
+                                                <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
                                                     {formatNumber(r.total_lifting_amount)}
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
+                                                <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
                                                     {formatNumber(r.itopup_amount)}
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
+                                                <td className="px-2 py-1 text-center">
                                                     <span
                                                         className={cn(
                                                             "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold",
@@ -497,10 +552,10 @@ export default function LiftingRecordsPage() {
                                                         {r.status}
                                                     </span>
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
+                                                <td className="px-2 py-1 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
                                                     {r.products.length}
                                                 </td>
-                                                <td className="px-4 py-3 text-right">
+                                                <td className="px-2 py-1 text-right">
                                                     {hasPermission("lifting.delete") && (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); setDeleteTarget(r); }}
@@ -514,7 +569,7 @@ export default function LiftingRecordsPage() {
                                             </tr>
                                             {expandedId === r.id && (
                                                 <tr>
-                                                    <td colSpan={10} className="px-6 py-4 bg-gray-50/50 dark:bg-slate-800/20">
+                                                    <td colSpan={10} className="px-3 py-3 bg-gray-50/50 dark:bg-slate-800/20">
                                                         {r.notes && (
                                                             <div className="mb-3 text-sm text-gray-500 dark:text-gray-400">
                                                                 <span className="font-semibold text-gray-700 dark:text-gray-300">Notes:</span> {r.notes}
@@ -524,21 +579,21 @@ export default function LiftingRecordsPage() {
                                                             <table className="w-full text-sm">
                                                                 <thead>
                                                                     <tr className="bg-gray-100/70 dark:bg-slate-800/50">
-                                                                        <th className="text-left px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Code</th>
-                                                                        <th className="text-left px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</th>
-                                                                        <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Qty</th>
-                                                                        <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Unit Price</th>
-                                                                        <th className="text-right px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total</th>
+                                                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Code</th>
+                                                                        <th className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</th>
+                                                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Qty</th>
+                                                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Unit Price</th>
+                                                                        <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total</th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
                                                                     {r.products.map((p) => (
                                                                         <tr key={p.id} className="bg-white/50 dark:bg-transparent">
-                                                                            <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">{p.product_code}</td>
-                                                                            <td className="px-4 py-2 font-semibold text-gray-900 dark:text-gray-100">{p.product_name}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.quantity}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatNumber(p.unit_price)}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatNumber(p.total_price)}</td>
+                                                                            <td className="px-2 py-1 font-mono text-xs text-gray-600 dark:text-gray-400">{p.product_code}</td>
+                                                                            <td className="px-2 py-1 font-semibold text-gray-900 dark:text-gray-100">{p.product_name}</td>
+                                                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.quantity}</td>
+                                                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatNumber(p.unit_price)}</td>
+                                                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatNumber(p.total_price)}</td>
                                                                         </tr>
                                                                     ))}
                                                                 </tbody>
@@ -560,7 +615,7 @@ export default function LiftingRecordsPage() {
                                     {/* Always visible header */}
                                     <button
                                         onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
-                                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left"
+                                        className="w-full flex items-center justify-between px-3.5 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left"
                                     >
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-2">
@@ -580,28 +635,28 @@ export default function LiftingRecordsPage() {
                                     </button>
                                     {/* Expandable content */}
                                     {expandedId === r.id && (
-                                        <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                                        <div className="px-3.5 pb-3.5 space-y-2.5 animate-in slide-in-from-top-1 duration-200">
                                             <div className="h-px bg-gray-100 dark:bg-slate-800" />
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Payment</p>
-                                                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.payment_method}</p>
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-[11px] font-bold text-gray-400 uppercase">Payment</p>
+                                                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200 text-right">{r.payment_method}</p>
                                                 </div>
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Items</p>
-                                                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{r.products.length}</p>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-[11px] font-bold text-gray-400 uppercase">Items</p>
+                                                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200 text-right">{r.products.length}</p>
                                                 </div>
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Bank Deposit</p>
-                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{formatNumber(r.total_bank_deposit)}</p>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-[11px] font-bold text-gray-400 uppercase">Bank Deposit</p>
+                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.total_bank_deposit)}</p>
                                                 </div>
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Total Lifting</p>
-                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{formatNumber(r.total_lifting_amount)}</p>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-[11px] font-bold text-gray-400 uppercase">Total Lifting</p>
+                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.total_lifting_amount)}</p>
                                                 </div>
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">iTopUp</p>
-                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200">{formatNumber(r.itopup_amount)}</p>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-[11px] font-bold text-gray-400 uppercase">iTopUp</p>
+                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.itopup_amount)}</p>
                                                 </div>
                                             </div>
                                             {r.notes && (
@@ -610,27 +665,16 @@ export default function LiftingRecordsPage() {
                                                 </div>
                                             )}
                                             {r.products.length > 0 && (
-                                                <div className="rounded-lg border border-gray-100 dark:border-slate-800 overflow-hidden">
-                                                    <table className="w-full text-xs">
-                                                        <thead>
-                                                            <tr className="bg-gray-100/70 dark:bg-slate-800/50">
-                                                                <th className="text-left px-3 py-1.5 text-[10px] font-bold uppercase text-gray-500">Code</th>
-                                                                <th className="text-left px-3 py-1.5 text-[10px] font-bold uppercase text-gray-500">Name</th>
-                                                                <th className="text-right px-3 py-1.5 text-[10px] font-bold uppercase text-gray-500">Qty</th>
-                                                                <th className="text-right px-3 py-1.5 text-[10px] font-bold uppercase text-gray-500">Total</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-gray-50 dark:divide-slate-800/50">
-                                                            {r.products.map((p) => (
-                                                                <tr key={p.id}>
-                                                                    <td className="px-3 py-1.5 font-mono text-gray-600 dark:text-gray-400">{p.product_code}</td>
-                                                                    <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-gray-100 truncate max-w-[120px]">{p.product_name}</td>
-                                                                    <td className="px-3 py-1.5 text-right font-mono text-gray-700 dark:text-gray-300">{p.quantity}</td>
-                                                                    <td className="px-3 py-1.5 text-right font-mono text-gray-700 dark:text-gray-300">{formatNumber(p.total_price)}</td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                <div className="rounded-lg border border-gray-100 dark:border-slate-800 divide-y divide-gray-50 dark:divide-slate-800/50">
+                                                    {r.products.map((p) => (
+                                                        <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                                                            <div className="min-w-0">
+                                                                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">{p.product_name}</p>
+                                                                <p className="text-[10px] font-mono text-gray-400 dark:text-gray-500">{p.product_code} × {p.quantity}</p>
+                                                            </div>
+                                                            <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-300 shrink-0">{formatNumber(p.total_price)}</p>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             )}
                                             {hasPermission("lifting.delete") && (

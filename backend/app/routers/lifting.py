@@ -11,6 +11,7 @@ from app.routers.deps import get_db, has_permission, has_any_permission, get_hou
 from app.schemas.lifting import (
     LiftingPreviewResponse,
     LiftingRecordCreate,
+    LiftingRecordUpdate,
     LiftingRecordSchema,
 )
 from app.models.lifting import LiftingRecord, LiftingProduct, LiftingStatus, PaymentMethod
@@ -359,6 +360,7 @@ async def create_lifting(
         itopup_amount=computed["itopup_amount"],
         status=LiftingStatus.CONFIRMED,
         notes=lifting_data.notes,
+        deposit_slip=lifting_data.deposit_slip,
     )
     db.add(record)
 
@@ -394,4 +396,57 @@ async def create_lifting(
     refreshed_record = result.scalar_one()
 
     return refreshed_record
+
+
+@router.patch("/{record_id}", response_model=LiftingRecordSchema)
+async def update_lifting_record(
+    record_id: int,
+    lifting_data: LiftingRecordUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("lifting.edit")),
+):
+    result = await db.execute(
+        select(LiftingRecord)
+        .options(
+            selectinload(LiftingRecord.house),
+            selectinload(LiftingRecord.products).selectinload(LiftingProduct.product),
+        )
+        .where(LiftingRecord.id == record_id, LiftingRecord.is_deleted == False)
+    )
+    record = result.unique().scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Lifting record not found")
+
+    user_house_ids = [h.id for h in current_user.houses]
+    if not is_admin_user(current_user) and record.house_id not in user_house_ids:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if lifting_data.notes is not None:
+        record.notes = lifting_data.notes
+    if lifting_data.deposit_slip is not None:
+        record.deposit_slip = lifting_data.deposit_slip
+    if lifting_data.status is not None:
+        record.status = LiftingStatus(lifting_data.status)
+    if lifting_data.total_bank_deposit is not None:
+        record.total_bank_deposit = lifting_data.total_bank_deposit
+        # Recalculate remaining and itopup
+        remaining = float(record.total_bank_deposit) - float(record.total_lifting_amount)
+        record.remaining_amount = remaining
+        record.itopup_amount = remaining / TOPUP_DIVISOR if TOPUP_DIVISOR else 0.0
+
+    await db.commit()
+    await db.refresh(record)
+
+    # Reload relationships
+    stmt = (
+        select(LiftingRecord)
+        .options(
+            selectinload(LiftingRecord.house),
+            selectinload(LiftingRecord.products).selectinload(LiftingProduct.product)
+        )
+        .where(LiftingRecord.id == record.id)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one()
 

@@ -36,6 +36,7 @@ class LiftingRecordBase(BaseModel):
     payment_method: str = Field(..., pattern="^(Cash|Credit)$")
     total_bank_deposit: float = Field(..., ge=0)
     notes: Optional[str] = None
+    deposit_slip: Optional[str] = None
 
 
 class LiftingRecordCreate(LiftingRecordBase):
@@ -49,6 +50,7 @@ class LiftingRecordUpdate(BaseModel):
     total_bank_deposit: Optional[float] = Field(None, ge=0)
     notes: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(Draft|Confirmed|Approved|Cancelled)$")
+    deposit_slip: Optional[str] = None
 
 
 class LiftingRecordSchema(LiftingRecordBase):
@@ -57,6 +59,7 @@ class LiftingRecordSchema(LiftingRecordBase):
     remaining_amount: float
     itopup_amount: float
     status: str
+    deposit_slip: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     house: Optional["HouseSchema"] = None

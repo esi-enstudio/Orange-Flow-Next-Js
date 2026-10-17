@@ -482,6 +482,23 @@ async def _migrate_lifting_stock_added():
     except Exception as e:
         logger.warning(f"Migration warning (lifting_records stock_added): {e}")
 
+async def _migrate_lifting_deposit_slip():
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='lifting_records' AND column_name='deposit_slip'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating lifting_records: adding deposit_slip column...")
+            await conn.execute(text(
+                "ALTER TABLE lifting_records ADD COLUMN deposit_slip TEXT"
+            ))
+            logger.info("Migration complete: lifting_records.deposit_slip")
+    except Exception as e:
+        logger.warning(f"Migration warning (lifting_records deposit_slip): {e}")
+
 async def _migrate_house_live_sync_enabled():
     """Add is_live_sync_enabled column to houses table (GA live sync toggle)."""
     try:
@@ -1440,6 +1457,7 @@ async def init_db():
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_stock_added()
+        await _migrate_lifting_deposit_slip()
         await _migrate_indexes()
         await _migrate_location_telemetry_columns()
         await _migrate_whatsapp_schedule_columns()
