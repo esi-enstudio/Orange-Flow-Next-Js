@@ -7,12 +7,13 @@ and one plain bordered table each for supervisors, RSOs and BPs.
 
 The layout is a single full-width column with small margins, rendered in the
 requested orientation: ``portrait`` reads as one tall page on a phone, while
-``landscape`` uses the width of an A4 landscape sheet and therefore fits a
-larger table font. The canvas is always the full width of the chosen
-orientation and only its height follows the content, so a house with little
-data produces a short image instead of a tall empty tail. Every section renders
-at one shared font size — the largest that fits the chosen canvas — so no table
-looks bigger or smaller than the others in the same image.
+``landscape`` uses the full A4-landscape page width shared by the other
+landscape report images and therefore fits a larger table font. The canvas is
+always the full width of the chosen orientation and only its height follows the
+content, so a house with little data produces a short image instead of a tall
+empty tail. Every section renders at one shared font size — the largest that
+fits the chosen canvas — so no table looks bigger or smaller than the others in
+the same image.
 
 Business rules mirror the dashboard page:
     * Status    -> projectionStatus(achievement %, projection %) identity with
@@ -62,12 +63,13 @@ from app.utils.timezone import now_naive
 
 # ── Layout ──
 # The whole report is one full-width column so it reads as one page on a phone
-# and fills an A4 page width when printed. Same geometry as the GA Live report
-# image, so both reports look like siblings. Landscape uses the width of an A4
-# landscape sheet (800 * 297/210), so either orientation fills its matching A4
-# paper without margins.
+# and fills the full width of its A4 page when printed. Portrait keeps the same
+# A4-portrait page width as the GA Live report image (800); landscape uses the
+# A4-landscape page width shared by the Recharge / Active LSO / Active SSO
+# report images (1600). Either orientation therefore spans the full width of its
+# matching A4 page, and only the height follows the content.
 PORTRAIT_W = 800
-LANDSCAPE_W = 1131
+LANDSCAPE_W = 1600
 ORIENTATIONS = {"portrait": PORTRAIT_W, "landscape": LANDSCAPE_W}
 DEFAULT_ORIENTATION = "portrait"
 PAGE_PAD = 0             # no page margin — the report is full-bleed
