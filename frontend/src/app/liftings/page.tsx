@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState, useCallback, useRef } from "react";
+import { Fragment, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { toast } from "react-hot-toast";
@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, Trash2, Eye, Upload } from "lucide-react";
+import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, Trash2, Eye, Upload, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 
@@ -60,8 +60,26 @@ type House = {
     display_name: string;
 };
 
+type Product = {
+    id: number;
+    product_code: string;
+    category: string;
+    subcategory: string | null;
+    product_name: string;
+    mrp: number;
+    dd_lifting_price: number;
+    ret_lifting_price: number;
+    status: string;
+};
+
+type SelectedProduct = {
+    product: Product;
+    quantity: number;
+};
+
 type LiftingProduct = {
     id: number;
+    product_id: number;
     product_code: string;
     product_name: string;
     quantity: number;
@@ -80,6 +98,8 @@ type LiftingRecord = {
     itopup_amount: number;
     status: string;
     notes: string | null;
+    deposit_slip?: string | null;
+    created_at?: string | null;
     house: House | null;
     products: LiftingProduct[];
 };
@@ -103,14 +123,31 @@ const statusColors: Record<string, string> = {
 
 export default function LiftingRecordsPage() {
     const router = useRouter();
-    const { hasPermission, loading: authLoading } = useAuth();
+    const { user, hasPermission, loading: authLoading } = useAuth();
     const { t } = useLanguage();
+
+    const isAdmin = useMemo(() => {
+        if (!user?.roles) return false;
+        return user.roles.some((r) => {
+            const name = r.name.toLowerCase();
+            return name === "admin" || name === "super admin" || name === "super_admin" || name === "manager" || name === "house manager" || name === "house_manager";
+        });
+    }, [user]);
+
+    const isEditable = (r: LiftingRecord) => {
+        if (isAdmin) return true;
+        if (!r.created_at) return true;
+        const createdTime = new Date(r.created_at).getTime();
+        const now = new Date().getTime();
+        return (now - createdTime) < 3600 * 1000;
+    };
 
     const [records, setRecords] = useState<LiftingRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
 
     const [houses, setHouses] = useState<House[]>([]);
+    const [products, setProducts] = useState<Product[]>([]);
     const [houseId, setHouseId] = useState<number | "">("");
     const [dateFrom, setDateFrom] = useState(getMonthRange().from);
     const [dateTo, setDateTo] = useState(getMonthRange().to);
@@ -120,6 +157,70 @@ export default function LiftingRecordsPage() {
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<LiftingRecord | null>(null);
     const [deleting, setDeleting] = useState(false);
+
+    const [editTarget, setEditTarget] = useState<LiftingRecord | null>(null);
+    const [editBankDeposit, setEditBankDeposit] = useState("");
+    const [editNotes, setEditNotes] = useState("");
+    const [editStatus, setEditStatus] = useState("Confirmed");
+    const [editDepositSlip, setEditDepositSlip] = useState<string | null>(null);
+    const [editSelectedProducts, setEditSelectedProducts] = useState<SelectedProduct[]>([]);
+    const [editProductSearch, setEditProductSearch] = useState("");
+    const [editCompressing, setEditCompressing] = useState(false);
+    const [editLoading, setEditLoading] = useState(false);
+    const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+    const openEditModal = (r: LiftingRecord) => {
+        setEditTarget(r);
+        setEditBankDeposit(String(r.total_bank_deposit ?? 0));
+        setEditNotes(r.notes || "");
+        setEditStatus(r.status || "Confirmed");
+        setEditDepositSlip(r.deposit_slip || null);
+        setEditSelectedProducts(
+            r.products.map((p) => {
+                const found = products.find((prod) => prod.id === p.product_id);
+                const productObj: Product = found || {
+                    id: p.product_id,
+                    product_code: p.product_code,
+                    category: "General",
+                    subcategory: null,
+                    product_name: p.product_name,
+                    mrp: 0,
+                    dd_lifting_price: p.unit_price,
+                    ret_lifting_price: 0,
+                    status: "Active",
+                };
+                return {
+                    product: productObj,
+                    quantity: p.quantity,
+                };
+            })
+        );
+        setEditProductSearch("");
+    };
+
+    const handleUpdate = async () => {
+        if (!editTarget) return;
+        setEditLoading(true);
+        try {
+            await apiClient.patch(`lifting/${editTarget.id}`, {
+                total_bank_deposit: Number(editBankDeposit || 0),
+                notes: editNotes.trim() || null,
+                status: editStatus,
+                deposit_slip: editDepositSlip,
+                products: editSelectedProducts.map((sp) => ({
+                    product_id: sp.product.id,
+                    quantity: sp.quantity,
+                })),
+            });
+            toast.success("Lifting record updated successfully");
+            setEditTarget(null);
+            fetchRecords({ silent: true });
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail || "Failed to update lifting record");
+        } finally {
+            setEditLoading(false);
+        }
+    };
 
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const searchRef = useRef("");
@@ -555,26 +656,51 @@ export default function LiftingRecordsPage() {
                                                 <td className="px-2 py-1 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
                                                     {r.products.length}
                                                 </td>
-                                                <td className="px-2 py-1 text-right">
-                                                    {hasPermission("lifting.delete") && (
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(r); }}
-                                                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
-                                                            title="Delete lifting record"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </button>
-                                                    )}
+                                                <td className="px-2 py-1 text-right whitespace-nowrap">
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        {hasPermission("lifting.edit") && isEditable(r) && (
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); openEditModal(r); }}
+                                                                className="p-1.5 rounded-lg text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-all cursor-pointer"
+                                                                title="Edit lifting record"
+                                                            >
+                                                                <Pencil className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                        {hasPermission("lifting.delete") && (
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); setDeleteTarget(r); }}
+                                                                className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all cursor-pointer"
+                                                                title="Delete lifting record"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                             {expandedId === r.id && (
                                                 <tr>
                                                     <td colSpan={10} className="px-3 py-3 bg-gray-50/50 dark:bg-slate-800/20">
-                                                        {r.notes && (
-                                                            <div className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-                                                                <span className="font-semibold text-gray-700 dark:text-gray-300">Notes:</span> {r.notes}
-                                                            </div>
-                                                        )}
+                                                        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                                                            {r.notes && (
+                                                                <div className="text-sm text-gray-500 dark:text-gray-400">
+                                                                    <span className="font-semibold text-gray-700 dark:text-gray-300">Notes:</span> {r.notes}
+                                                                </div>
+                                                            )}
+                                                            {r.deposit_slip && (
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-semibold text-sm text-gray-700 dark:text-gray-300">Deposit Slip:</span>
+                                                                    <button
+                                                                        onClick={() => setLightboxUrl(r.deposit_slip!)}
+                                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 text-xs font-semibold hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-all cursor-pointer"
+                                                                    >
+                                                                        <Eye className="w-3.5 h-3.5" />
+                                                                        View Slip
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                         <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-slate-800">
                                                             <table className="w-full text-sm">
                                                                 <thead>
@@ -658,6 +784,18 @@ export default function LiftingRecordsPage() {
                                                     <p className="text-[11px] font-bold text-gray-400 uppercase">iTopUp</p>
                                                     <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.itopup_amount)}</p>
                                                 </div>
+                                                {r.deposit_slip && (
+                                                    <div className="flex items-center justify-between gap-3 pt-1">
+                                                        <p className="text-[11px] font-bold text-gray-400 uppercase">Deposit Slip</p>
+                                                        <button
+                                                            onClick={() => setLightboxUrl(r.deposit_slip!)}
+                                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 text-xs font-semibold hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-all cursor-pointer"
+                                                        >
+                                                            <Eye className="w-3.5 h-3.5" />
+                                                            View Slip
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                             {r.notes && (
                                                 <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -677,15 +815,26 @@ export default function LiftingRecordsPage() {
                                                     ))}
                                                 </div>
                                             )}
-                                            {hasPermission("lifting.delete") && (
-                                                <button
-                                                    onClick={() => setDeleteTarget(r)}
-                                                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-red-200 dark:border-red-500/20 text-red-500 text-xs font-bold hover:bg-red-50 dark:hover:bg-red-500/10 transition-all active:scale-[0.98]"
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                    Delete Record
-                                                </button>
-                                            )}
+                                            <div className="flex items-center gap-2 pt-2">
+                                                {hasPermission("lifting.edit") && isEditable(r) && (
+                                                    <button
+                                                        onClick={() => openEditModal(r)}
+                                                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 text-xs font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-[0.98]"
+                                                    >
+                                                        <Pencil className="w-3.5 h-3.5" />
+                                                        Edit
+                                                    </button>
+                                                )}
+                                                {hasPermission("lifting.delete") && (
+                                                    <button
+                                                        onClick={() => setDeleteTarget(r)}
+                                                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-red-200 dark:border-red-500/20 text-red-500 text-xs font-bold hover:bg-red-50 dark:hover:bg-red-500/10 transition-all cursor-pointer active:scale-[0.98]"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                        Delete
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -708,6 +857,245 @@ export default function LiftingRecordsPage() {
                 confirmText="Delete"
                 type="danger"
                 loading={deleting}
+            />
+
+            {/* Edit Lifting Modal */}
+            {editTarget && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-gray-100 dark:border-slate-800 shadow-2xl overflow-hidden p-6 space-y-4">
+                        <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-slate-800">
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                <Pencil className="w-5 h-5 text-primary-500" />
+                                Edit Lifting Record #{editTarget.id}
+                            </h3>
+                            <button
+                                onClick={() => setEditTarget(null)}
+                                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+                                    Bank Deposit Amount
+                                </label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    value={editBankDeposit}
+                                    onChange={(e) => setEditBankDeposit(e.target.value)}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+                                    Status
+                                </label>
+                                <select
+                                    value={editStatus}
+                                    onChange={(e) => setEditStatus(e.target.value)}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 text-sm outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                                >
+                                    <option value="Draft">Draft</option>
+                                    <option value="Confirmed">Confirmed</option>
+                                    <option value="Approved">Approved</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+                                    Notes
+                                </label>
+                                <textarea
+                                    value={editNotes}
+                                    onChange={(e) => setEditNotes(e.target.value)}
+                                    rows={2}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                                    placeholder="Add notes..."
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+                                    Products
+                                </label>
+                                <div className="space-y-2">
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                                        <input
+                                            type="text"
+                                            value={editProductSearch}
+                                            onChange={(e) => setEditProductSearch(e.target.value)}
+                                            placeholder="Search product to add..."
+                                            className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-xs text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+                                        />
+                                    </div>
+                                    {editProductSearch && (
+                                        <div className="max-h-36 overflow-y-auto rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 divide-y divide-gray-100 dark:divide-slate-700">
+                                            {products
+                                                .filter(p => p.product_name.toLowerCase().includes(editProductSearch.toLowerCase()) || p.product_code.toLowerCase().includes(editProductSearch.toLowerCase()))
+                                                .slice(0, 5)
+                                                .map(p => {
+                                                    const alreadySelected = editSelectedProducts.some(sp => sp.product.id === p.id);
+                                                    return (
+                                                        <div key={p.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                                                            <div className="min-w-0 pr-2">
+                                                                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">{p.product_name}</p>
+                                                                <p className="text-[10px] font-mono text-gray-400">{p.product_code} • {p.dd_lifting_price} BDT</p>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                disabled={alreadySelected}
+                                                                onClick={() => {
+                                                                    if (!alreadySelected) {
+                                                                        setEditSelectedProducts(prev => [...prev, { product: p, quantity: 1 }]);
+                                                                        setEditProductSearch("");
+                                                                    }
+                                                                }}
+                                                                className={cn(
+                                                                    "px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer",
+                                                                    alreadySelected ? "bg-gray-100 dark:bg-slate-700 text-gray-400 cursor-not-allowed" : "bg-primary-600 text-white hover:bg-primary-700"
+                                                                )}
+                                                            >
+                                                                {alreadySelected ? "Added" : "Add"}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                        </div>
+                                    )}
+
+                                    {editSelectedProducts.length > 0 ? (
+                                        <div className="rounded-xl border border-gray-200 dark:border-slate-700 divide-y divide-gray-100 dark:divide-slate-800 max-h-48 overflow-y-auto">
+                                            {editSelectedProducts.map((sp) => (
+                                                <div key={sp.product.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-gray-50/50 dark:bg-slate-800/50">
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">{sp.product.product_name}</p>
+                                                        <p className="text-[10px] font-mono text-gray-400">{sp.product.product_code} • {formatNumber(sp.product.dd_lifting_price)}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <div className="flex items-center border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditSelectedProducts(prev => prev.map(item => item.product.id === sp.product.id ? { ...item, quantity: Math.max(1, item.quantity - 1) } : item))}
+                                                                className="px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-l-lg cursor-pointer"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <span className="px-2 text-xs font-mono font-medium text-gray-900 dark:text-gray-100">{sp.quantity}</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditSelectedProducts(prev => prev.map(item => item.product.id === sp.product.id ? { ...item, quantity: item.quantity + 1 } : item))}
+                                                                className="px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-r-lg cursor-pointer"
+                                                            >
+                                                                +
+                                                            </button>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setEditSelectedProducts(prev => prev.filter(item => item.product.id !== sp.product.id))}
+                                                            className="p-1 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 cursor-pointer"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-gray-400 italic">No products selected.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+                                    Bank Deposit Slip
+                                </label>
+                                <div className="flex items-center gap-3">
+                                    {editDepositSlip && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setLightboxUrl(editDepositSlip)}
+                                            className="relative w-16 h-16 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden group shrink-0 cursor-pointer"
+                                        >
+                                            <img src={editDepositSlip} alt="Deposit slip" className="w-full h-full object-cover" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                <Eye className="w-4 h-4 text-white" />
+                                            </div>
+                                        </button>
+                                    )}
+                                    <label className="flex-1 flex flex-col items-center justify-center px-4 py-3 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl hover:border-primary-500 dark:hover:border-primary-500 transition-colors cursor-pointer bg-gray-50/50 dark:bg-slate-800/50">
+                                        <Upload className="w-5 h-5 text-gray-400 mb-1" />
+                                        <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                                            {editCompressing ? "Optimizing image..." : editDepositSlip ? "Change slip image" : "Upload deposit slip"}
+                                        </span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            disabled={editCompressing}
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                setEditCompressing(true);
+                                                try {
+                                                    const compressed = await compressImage(file, 1200, 1200, 0.75);
+                                                    setEditDepositSlip(compressed);
+                                                    toast.success("Deposit slip optimized");
+                                                } catch {
+                                                    toast.error("Failed to process image");
+                                                } finally {
+                                                    setEditCompressing(false);
+                                                }
+                                            }}
+                                        />
+                                    </label>
+                                    {editDepositSlip && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditDepositSlip(null)}
+                                            className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors cursor-pointer"
+                                            title="Remove slip"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-800">
+                            <button
+                                onClick={() => setEditTarget(null)}
+                                disabled={editLoading}
+                                className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleUpdate}
+                                disabled={editLoading || editCompressing}
+                                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-primary-600 text-white hover:bg-primary-700 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                            >
+                                {editLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Lightbox for Deposit Slip */}
+            <ImageLightbox
+                open={!!lightboxUrl}
+                src={lightboxUrl}
+                alt="Bank Deposit Slip"
+                onClose={() => setLightboxUrl(null)}
             />
         </div>
     );

@@ -51,6 +51,7 @@ class LiftingRecordUpdate(BaseModel):
     notes: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(Draft|Confirmed|Approved|Cancelled)$")
     deposit_slip: Optional[str] = None
+    products: Optional[List[LiftingProductCreate]] = None
 
 
 class LiftingRecordSchema(LiftingRecordBase):

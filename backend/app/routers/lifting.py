@@ -422,6 +422,15 @@ async def update_lifting_record(
     if not is_admin_user(current_user) and record.house_id not in user_house_ids:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Enforce 1-hour edit window for non-admin users
+    if not is_admin_user(current_user) and record.created_at:
+        elapsed = (now_naive() - record.created_at).total_seconds()
+        if elapsed > 3600:
+            raise HTTPException(
+                status_code=403,
+                detail="Edit window of 1 hour has expired after record creation."
+            )
+
     if lifting_data.notes is not None:
         record.notes = lifting_data.notes
     if lifting_data.deposit_slip is not None:
@@ -430,7 +439,45 @@ async def update_lifting_record(
         record.status = LiftingStatus(lifting_data.status)
     if lifting_data.total_bank_deposit is not None:
         record.total_bank_deposit = lifting_data.total_bank_deposit
-        # Recalculate remaining and itopup
+
+    if lifting_data.products is not None:
+        product_ids = [p.product_id for p in lifting_data.products]
+        res_prods = await db.execute(
+            select(Product).where(Product.id.in_(product_ids))
+        )
+        products = res_prods.scalars().all()
+        found_ids = {p.id for p in products}
+        missing = [pid for pid in product_ids if pid not in found_ids]
+        if missing:
+            raise HTTPException(status_code=404, detail=f"Products not found: {missing}")
+
+        product_map = {p.id: p for p in products}
+        selected = [{"product": product_map[p.product_id], "quantity": p.quantity} for p in lifting_data.products]
+
+        computed = _compute_lifting(
+            total_bank_deposit=float(record.total_bank_deposit),
+            products=selected,
+        )
+        record.total_lifting_amount = computed["total_lifting_amount"]
+        record.remaining_amount = computed["remaining_amount"]
+        record.itopup_amount = computed["itopup_amount"]
+
+        record.products.clear()
+        for item in selected:
+            product: Product = item["product"]
+            quantity: int = item["quantity"]
+            dd_price = float(product.dd_lifting_price or 0.0)
+            record.products.append(
+                LiftingProduct(
+                    product_id=product.id,
+                    product_code=product.product_code,
+                    product_name=product.product_name,
+                    quantity=quantity,
+                    unit_price=dd_price,
+                    total_price=dd_price * quantity,
+                )
+            )
+    elif lifting_data.total_bank_deposit is not None:
         remaining = float(record.total_bank_deposit) - float(record.total_lifting_amount)
         record.remaining_amount = remaining
         record.itopup_amount = remaining / TOPUP_DIVISOR if TOPUP_DIVISOR else 0.0
