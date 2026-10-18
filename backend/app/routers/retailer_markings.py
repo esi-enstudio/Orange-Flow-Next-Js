@@ -33,6 +33,11 @@ from app.schemas.retailer_marking import (
     UnassignRequest,
 )
 from app.services.retailer_marking_service import get_active_markings
+from app.services.retailer_marking_auto_service import (
+    is_auto_managed,
+    run_auto_marking_sync,
+    sync_auto_markings,
+)
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
@@ -79,6 +84,7 @@ def _marking_to_dict(m: RetailerMarking, retailer_count: int = 0) -> dict:
         "code": m.code,
         "description": m.description,
         "status": m.status,
+        "auto_source": m.auto_source,
         "created_by": m.created_by,
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
@@ -182,6 +188,7 @@ async def create_marking(
         code=data.code.strip().upper(),
         description=data.description,
         status="active",
+        auto_source=data.auto_source,
         created_by=current_user.id,
     )
     db.add(marking)
@@ -191,10 +198,13 @@ async def create_marking(
         await db.rollback()
         raise HTTPException(status_code=409, detail="Marking name or code already exists")
     await db.refresh(marking)
+    # A new auto marking is populated right away from the employee assisted codes.
+    if is_auto_managed(marking):
+        await run_auto_marking_sync(db)
     await log_activity(
         db, current_user.id, current_user.name, MODULE, "create",
         record_id=marking.id, record_identifier=marking.name,
-        new_values={"name": marking.name, "code": marking.code},
+        new_values={"name": marking.name, "code": marking.code, "auto_source": marking.auto_source},
         request=None, status_code=201,
     )
     return _marking_to_dict(marking)
@@ -242,6 +252,11 @@ async def update_marking(
     if data.description is not None:
         marking.description = data.description.strip() or None
         updates["description"] = marking.description
+    # `auto_source` uses explicit-set detection so the field can be cleared (null)
+    # to hand the marking back to manual assignment.
+    if "auto_source" in data.model_fields_set and data.auto_source != marking.auto_source:
+        marking.auto_source = data.auto_source
+        updates["auto_source"] = marking.auto_source
     if data.status is not None and data.status != marking.status:
         if data.status == "inactive" and marking.status == "active":
             active_assignments = (
@@ -264,6 +279,9 @@ async def update_marking(
     marking.updated_by = current_user.id
     await db.commit()
     await db.refresh(marking)
+    # Rebuild the assignments when the marking became (or changed) an auto marking.
+    if is_auto_managed(marking) and "auto_source" in updates:
+        await run_auto_marking_sync(db)
     await log_activity(
         db, current_user.id, current_user.name, MODULE, "edit",
         record_id=marking.id, record_identifier=marking.name,
@@ -301,6 +319,46 @@ async def restore_marking(
     current_user: User = Depends(has_permission(f"{MODULE}.restore")),
 ):
     raise HTTPException(status_code=404, detail="Markings use hard delete only — restore is not supported")
+
+
+# ---------------------------------------------------------------------------
+# Auto-managed markings
+# ---------------------------------------------------------------------------
+
+@router.post("/sync")
+async def sync_auto_markings_now(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission(f"{MODULE}.sync")),
+    house_context: Optional[int] = Depends(get_house_context),
+):
+    """Rebuild every auto-managed marking from the employees' assisted codes.
+
+    Scoped to `X-House-ID` when provided, otherwise to every house the user can
+    access (admins: all houses). Assignments of auto markings are never edited by
+    hand — this endpoint is the only manual trigger of that rebuild.
+    """
+    house_ids: Optional[list[int]] = None
+    if house_context:
+        house_ids = [house_context]
+    elif not is_admin_user(current_user):
+        house_ids = [h.id for h in current_user.houses]
+
+    summary = await sync_auto_markings(db, house_ids=house_ids)
+    await log_activity(
+        db, current_user.id, current_user.name, MODULE, "sync",
+        record_identifier="auto markings",
+        new_values={
+            "added": summary["added"],
+            "removed": summary["removed"],
+            "house_ids": house_ids,
+            "markings": [
+                {"code": m["code"], "added": m["added"], "removed": m["removed"]}
+                for m in summary["markings"]
+            ],
+        },
+        request=None, status_code=200,
+    )
+    return {"success": True, **summary}
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +496,11 @@ async def assign_marking(
     marking = await db.get(RetailerMarking, marking_id)
     if not marking or marking.status != "active":
         raise HTTPException(status_code=400, detail="Marking is not active")
+    if is_auto_managed(marking):
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{marking.name}' is auto-managed from employee assisted codes and cannot be assigned manually.",
+        )
 
     assigned = 0
     already = 0
@@ -496,6 +559,11 @@ async def unassign_marking(
     marking = await db.get(RetailerMarking, marking_id)
     if not marking:
         raise HTTPException(status_code=404, detail="Marking not found")
+    if is_auto_managed(marking):
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{marking.name}' is auto-managed from employee assisted codes and cannot be removed manually.",
+        )
 
     removed = 0
     errors = []

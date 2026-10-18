@@ -296,6 +296,12 @@ async def process_employee_excel(file_path, house_id=None, progress_callback=Non
                     ))
             await session.commit()
 
+            # Auto-managed markings (BP / RSO) follow the assisted codes, which an
+            # import can change in bulk — rebuild them right away.
+            from app.services.retailer_marking_auto_service import run_auto_marking_sync
+
+            await run_auto_marking_sync(session)
+
             return count, None
 
     except Exception as e:

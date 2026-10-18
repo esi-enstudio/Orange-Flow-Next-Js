@@ -61,6 +61,7 @@
         "retailer_markings.delete",
         "retailer_markings.restore",
         "retailer_markings.assign",
+        "retailer_markings.sync",
         "retailer_markings.import",
         "retailer_markings.export"
       ]

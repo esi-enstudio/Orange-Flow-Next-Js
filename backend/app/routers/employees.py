@@ -28,6 +28,7 @@ from app.utils.timezone import now_naive
 from app.utils.validation import safe_filename, validate_excel
 from app.utils.activity_logger import log_activity
 from app.services.Automation.employee_excel import process_employee_excel, export_employees_excel
+from app.services.retailer_marking_auto_service import run_auto_marking_sync
 from app.services.employee_documents import (
     claim_attachments,
     clear_employee_photo,
@@ -542,6 +543,8 @@ async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncS
     await db.commit()
     await db.refresh(new_emp)
     await sync_assisted_code_to_bp_retailer_codes(db, new_emp)
+    # Auto-managed markings (BP / RSO) follow the assisted codes.
+    await run_auto_marking_sync(db)
     if attachments:
         await claim_attachments(db, new_emp, attachments, current_user)
         await db.commit()
@@ -622,6 +625,9 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
     await db.commit()
     await db.refresh(emp)
     await sync_assisted_code_to_bp_retailer_codes(db, emp)
+    # Auto-managed markings (BP / RSO) follow the assisted codes: a type change or a
+    # resignation must drop the marking from this employee's assisted-code retailer.
+    await run_auto_marking_sync(db)
     if attachments or remove_document_ids or remove_photo:
         previous_photo = emp.photo_url
         claimed = await claim_attachments(db, emp, attachments, current_user) if attachments else {"claimed": []}
@@ -990,6 +996,8 @@ async def delete_employee(emp_id: int, db: AsyncSession = Depends(get_db), curre
     if not emp: raise HTTPException(status_code=404, detail="Employee member not found")
     await db.delete(emp)
     await db.commit()
+    # A deleted employee no longer holds an assisted code — refresh auto markings.
+    await run_auto_marking_sync(db)
     return {"message": "Employee member deleted successfully"}
 
 @router.get("/me", response_model=EmployeeSchema)

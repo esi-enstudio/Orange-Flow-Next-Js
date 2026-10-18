@@ -15,6 +15,8 @@ import {
   Hash,
   Tag,
   AlertTriangle,
+  RefreshCw,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
@@ -22,7 +24,7 @@ import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import PageGuideModal from "@/components/PageGuideModal";
 import { useLanguage } from "@/i18n/useLanguage";
-import type { Marking, PaginationMeta } from "../retailer-marking/types";
+import { houseHeaders, type Marking, type PaginationMeta } from "../retailer-marking/types";
 
 export default function MarkingsPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
@@ -45,14 +47,17 @@ export default function MarkingsPage() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [description, setDescription] = useState("");
+  const [autoSource, setAutoSource] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Marking | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const canCreate = hasPermission("retailer_markings.create");
   const canEdit = hasPermission("retailer_markings.edit");
   const canDelete = hasPermission("retailer_markings.delete");
+  const canSync = hasPermission("retailer_markings.sync");
 
   useEffect(() => {
     if (!authLoading && !hasPermission("retailer_markings.view")) {
@@ -108,6 +113,7 @@ export default function MarkingsPage() {
     setName("");
     setCode("");
     setDescription("");
+    setAutoSource("");
     setFormError(null);
     setShowForm(true);
   };
@@ -117,6 +123,7 @@ export default function MarkingsPage() {
     setName(m.name);
     setCode(m.code);
     setDescription(m.description || "");
+    setAutoSource(m.auto_source || "");
     setFormError(null);
     setShowForm(true);
   };
@@ -138,6 +145,7 @@ export default function MarkingsPage() {
         name: name.trim(),
         code: code.trim().toUpperCase(),
         description: description.trim() || null,
+        auto_source: autoSource || null,
       };
       if (editing) {
         await apiClient.patch(`retailer-markings/${editing.id}`, payload);
@@ -175,6 +183,35 @@ export default function MarkingsPage() {
     }
   };
 
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await apiClient.post(
+        "retailer-markings/sync",
+        {},
+        { headers: houseHeaders(selectedHouse) }
+      );
+      toast.success(
+        t("retailer_marking.toast_sync_done", {
+          added: res.data?.added ?? 0,
+          removed: res.data?.removed ?? 0,
+        })
+      );
+      await fetchMarkings();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || t("retailer_marking.toast_sync_failed"));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const autoSourceLabel = (source: string | null) =>
+    source === "bp_assisted"
+      ? t("retailer_marking.auto_source_bp")
+      : source === "rso_assisted"
+        ? t("retailer_marking.auto_source_rso")
+        : "";
+
   if (authLoading)
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -198,6 +235,21 @@ export default function MarkingsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
+          {canSync && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              title={t("retailer_marking.sync_hint")}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {syncing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              {t("retailer_marking.sync_now")}
+            </button>
+          )}
           {canCreate && (
             <button
               onClick={openCreate}
@@ -296,7 +348,20 @@ export default function MarkingsPage() {
                             <Hash className="w-5 h-5" />
                           </div>
                           <div>
-                            <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{m.name}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{m.name}</p>
+                              {m.auto_source && (
+                                <span
+                                  title={t("retailer_marking.auto_source_value", {
+                                    source: autoSourceLabel(m.auto_source),
+                                  })}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                >
+                                  <Zap className="w-3 h-3" />
+                                  {t("retailer_marking.auto_badge")}
+                                </span>
+                              )}
+                            </div>
                             {m.description && (
                               <p className="text-[11px] text-gray-500 dark:text-gray-400 max-w-[260px] truncate">{m.description}</p>
                             )}
@@ -373,7 +438,15 @@ export default function MarkingsPage() {
                       <Hash className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{m.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{m.name}</p>
+                        {m.auto_source && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0">
+                            <Zap className="w-3 h-3" />
+                            {t("retailer_marking.auto_badge")}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">{m.code}</p>
                     </div>
                     <div className="text-right shrink-0">
@@ -396,6 +469,14 @@ export default function MarkingsPage() {
                         {t("retailer_marking.description_col")}:{" "}
                         <span className="text-gray-800 dark:text-gray-100">{m.description || "—"}</span>
                       </p>
+                      {m.auto_source && (
+                        <p className="text-sm text-gray-600 dark:text-gray-300">
+                          {t("retailer_marking.auto_source_label")}:{" "}
+                          <span className="text-gray-800 dark:text-gray-100">
+                            {autoSourceLabel(m.auto_source)}
+                          </span>
+                        </p>
+                      )}
                       <div className="flex items-center gap-2 pt-1">
                         {canEdit && (
                           <button
@@ -512,6 +593,23 @@ export default function MarkingsPage() {
                   placeholder={t("retailer_marking.description_placeholder")}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none resize-none"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
+                  {t("retailer_marking.auto_source_label")}
+                </label>
+                <select
+                  value={autoSource}
+                  onChange={(e) => setAutoSource(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none cursor-pointer"
+                >
+                  <option value="">{t("retailer_marking.auto_source_none")}</option>
+                  <option value="bp_assisted">{t("retailer_marking.auto_source_bp")}</option>
+                  <option value="rso_assisted">{t("retailer_marking.auto_source_rso")}</option>
+                </select>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                  {t("retailer_marking.auto_source_hint")}
+                </p>
               </div>
             </div>
             <div className="p-6 pt-0 flex gap-3">

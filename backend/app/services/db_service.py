@@ -129,7 +129,10 @@ async def _migrate_retailer_markings():
                 "JOIN filter_tags ft ON ft.id = rf.tag_id "
                 "JOIN retailer_markings rm ON rm.code = UPPER(ft.name) "
                 "WHERE rm.is_deleted = false "
-                "ON CONFLICT (retailer_id, marking_id, status) DO NOTHING"
+                # Bare ON CONFLICT DO NOTHING: the active-row guard is a partial
+                # unique index (status = 'active'), so a column-list conflict
+                # target would no longer find a matching index.
+                "ON CONFLICT DO NOTHING"
             ))
             logger.info("Migration complete: retailer_markings")
     except Exception as e:
@@ -157,6 +160,96 @@ async def _migrate_retailer_markings_hard_delete():
             logger.info("Migration complete: retailer_markings hard delete normalization")
     except Exception as e:
         logger.warning(f"Migration warning (retailer_markings hard delete): {e}")
+
+async def _migrate_retailer_marking_auto_source():
+    """Auto-managed markings: add `retailer_markings.auto_source`.
+
+    The column binds a marking to the employees' assisted codes (values:
+    `bp_assisted` / `rso_assisted`). Existing BP and RSO markings — the ones that
+    have always been maintained from assisted codes by hand — are adopted once,
+    when the column is first created. A later manual clear is never re-applied.
+    Idempotent: the backfill only runs on the run that adds the column.
+    """
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='retailer_markings' AND column_name='auto_source'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating retailer_markings: adding auto_source column...")
+            await conn.execute(text(
+                "ALTER TABLE retailer_markings ADD COLUMN auto_source VARCHAR(30)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_retailer_markings_auto_source "
+                "ON retailer_markings (auto_source)"
+            ))
+            adopted = (await conn.execute(text(
+                "UPDATE retailer_markings SET auto_source = CASE "
+                "WHEN UPPER(code) = 'BP' THEN 'bp_assisted' "
+                "WHEN UPPER(code) = 'RSO' THEN 'rso_assisted' END "
+                "WHERE auto_source IS NULL AND UPPER(code) IN ('BP', 'RSO')"
+            ))).rowcount
+            logger.info(
+                "Migration complete: retailer_markings.auto_source (%s marking(s) adopted)",
+                adopted,
+            )
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer_markings.auto_source): {e}")
+
+
+async def _migrate_retailer_marking_assignment_unique():
+    """Only one *active* assignment per (retailer, marking) — history stays append-only.
+
+    The original unique constraint covered (retailer_id, marking_id, status), which
+    allowed at most one active AND one inactive row per pair. Removing a marking a
+    second time then collided with the tombstone row and raised a 500. It is
+    replaced by a partial unique index that only guards the active row, so
+    assign -> remove -> assign -> remove keeps a full audit trail.
+    Idempotent and safe to run on every startup.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE retailer_marking_assignments "
+                "DROP CONSTRAINT IF EXISTS uq_retailer_marking_active"
+            ))
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_retailer_marking_active "
+                "ON retailer_marking_assignments (retailer_id, marking_id) "
+                "WHERE status = 'active'"
+            ))
+            logger.info("Migration complete: retailer_marking_assignments active-row unique index")
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer_marking_assignments unique): {e}")
+
+
+async def _sync_retailer_markings_on_startup():
+    """Rebuild auto-managed markings once per boot.
+
+    Skipped while the employees table is still empty (fresh install before the
+    first employee import) so nothing is wiped on an incomplete dataset.
+    """
+    try:
+        from app.services.retailer_marking_auto_service import run_auto_marking_sync
+
+        async with async_session() as session:
+            employee_count = (await session.execute(
+                text("SELECT COUNT(*) FROM employees")
+            )).scalar() or 0
+            if not employee_count:
+                return
+            summary = await run_auto_marking_sync(session)
+            if summary and (summary["added"] or summary["removed"]):
+                logger.info(
+                    "Auto marking sync (startup): %s added, %s removed",
+                    summary["added"], summary["removed"],
+                )
+    except Exception as e:
+        logger.warning(f"Startup auto marking sync skipped: {e}")
+
 
 async def _migrate_app_settings_daily_sync():
     try:
@@ -1448,6 +1541,8 @@ async def init_db():
         await _migrate_retailer_filter_tag_id()
         await _migrate_retailer_markings()
         await _migrate_retailer_markings_hard_delete()
+        await _migrate_retailer_marking_auto_source()
+        await _migrate_retailer_marking_assignment_unique()
         await _migrate_house_live_sync_enabled()
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
@@ -1473,6 +1568,7 @@ async def init_db():
         await _migrate_billing_tables_extra()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()
+        await _sync_retailer_markings_on_startup()
     except Exception as e:
         error_msg = str(e).lower()
         if "already exists" in error_msg:

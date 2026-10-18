@@ -14,6 +14,7 @@ import {
   X,
   UserCheck,
   MapPin,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
@@ -81,6 +82,8 @@ export default function AssignPage() {
   }, [authLoading, hasPermission, fetchMarkings]);
 
   const selectedMarking = markings.find((m) => m.id === selectedMarkingId);
+  // Auto-managed markings follow the employees' assisted codes — never editable here.
+  const selectedIsAuto = !!selectedMarking?.auto_source;
 
   const fetchMarkedRetailers = useCallback(
     async (markingName: string) => {
@@ -159,6 +162,13 @@ export default function AssignPage() {
   const markedIds = new Set(markedRetailers.map((r) => r.id));
   const unmarkedResults = searchResults.filter((r) => !markedIds.has(r.id));
 
+  const autoSourceLabel = (source: string | null) =>
+    source === "bp_assisted"
+      ? t("retailer_marking.auto_source_bp")
+      : source === "rso_assisted"
+        ? t("retailer_marking.auto_source_rso")
+        : "";
+
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -174,7 +184,7 @@ export default function AssignPage() {
   };
 
   const handleAssign = async () => {
-    if (!selectedMarking || selectedIds.size === 0) return;
+    if (!selectedMarking || selectedIds.size === 0 || selectedIsAuto) return;
     setApplying(true);
     try {
       const res = await apiClient.post(
@@ -200,7 +210,7 @@ export default function AssignPage() {
   };
 
   const handleUnassign = async (retailerId: number) => {
-    if (!selectedMarking) return;
+    if (!selectedMarking || selectedIsAuto) return;
     setApplying(true);
     try {
       const res = await apiClient.post(
@@ -257,11 +267,17 @@ export default function AssignPage() {
             >
               <option value="">{t("retailer_marking.select_marking")}</option>
               {markings.map((m) => (
-                <option key={m.id} value={m.id}>
+                <option key={m.id} value={m.id} disabled={!!m.auto_source}>
                   {m.name} ({m.code})
+                  {m.auto_source ? ` — ${t("retailer_marking.auto_badge")}` : ""}
                 </option>
               ))}
             </select>
+            {markings.some((m) => m.auto_source) && (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                {t("retailer_marking.auto_managed_assign_blocked")}
+              </p>
+            )}
           </div>
           <div className="sm:w-72 shrink-0 mt-4 sm:mt-0">
             <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
@@ -294,6 +310,17 @@ export default function AssignPage() {
           />
         </div>
       </div>
+
+      {selectedIsAuto && (
+        <div className="flex items-start gap-2.5 px-4 py-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 text-sm">
+          <Zap className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            {t("retailer_marking.auto_managed_notice", {
+              source: autoSourceLabel(selectedMarking?.auto_source ?? null),
+            })}
+          </span>
+        </div>
+      )}
 
       {!selectedMarking ? (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-12 text-center">
@@ -346,8 +373,8 @@ export default function AssignPage() {
                     </div>
                     <button
                       onClick={() => handleUnassign(r.id)}
-                      disabled={applying}
-                      className="p-2 rounded-xl text-gray-300 dark:text-gray-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all disabled:opacity-50"
+                      disabled={applying || selectedIsAuto}
+                      className="p-2 rounded-xl text-gray-300 dark:text-gray-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all disabled:opacity-50 cursor-pointer"
                       title={t("retailer_marking.unassign_btn")}
                     >
                       <X className="w-4 h-4" />
@@ -431,8 +458,8 @@ export default function AssignPage() {
                 </div>
                 <button
                   onClick={handleAssign}
-                  disabled={selectedIds.size === 0 || applying}
-                  className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  disabled={selectedIds.size === 0 || applying || selectedIsAuto}
+                  className="w-full py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tag className="w-4 h-4" />}
                   {t("retailer_marking.assign_btn")}

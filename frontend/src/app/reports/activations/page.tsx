@@ -70,8 +70,11 @@ interface EmployeePerformance {
   pool_number?: string;
   market_activation?: number;
   market_yesterday?: number;
+  market_month?: number;
   yesterday_activation?: number;
   month_total_activation?: number;
+  own_yesterday?: number;
+  own_month?: number;
   active_days?: number;
   team?: {
     employee_id: number;
@@ -318,18 +321,42 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                     </div>
                   </span>
                 </div>
-                {(type === "bp" || type === "supervisor") && (
+                {type === "bp" && (
                   <>
                     <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
                       <span className="text-gray-500 dark:text-gray-400">{t("activation_report.yesterday")}</span>
                       <span className="font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_activation ?? 0)}</span>
                     </div>
-                    {type === "bp" && (
-                      <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
-                        <span className="text-gray-500 dark:text-gray-400">{t("activation_report.day_count")}</span>
-                        <span className="font-semibold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">{t("activation_report.day_count")}</span>
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">{emp.active_days ?? 0}</span>
+                    </div>
+                  </>
+                )}
+                {type === "supervisor" && (
+                  <>
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">{t("activation_report.own_ga")}</span>
+                      <span className="text-right">
+                        <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
+                          {formatNumber(emp.own_yesterday ?? 0)}
+                        </div>
+                        <div className="text-[10px] text-gray-400 leading-tight">
+                          MTD: {formatNumber(emp.own_month ?? 0)}
+                        </div>
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 border-t border-gray-50 dark:border-slate-800">
+                      <span className="text-gray-500 dark:text-gray-400">{t("activation_report.market_ga")}</span>
+                      <span className="text-right">
+                        <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">
+                          {formatNumber(emp.market_yesterday ?? 0)}
+                        </div>
+                        <div className="text-[10px] text-gray-400 leading-tight">
+                          MTD: {formatNumber(emp.market_month ?? 0)}
+                        </div>
+                      </span>
+                    </div>
                   </>
                 )}
                 {type === "rso" && (
@@ -380,7 +407,15 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
               <th className="px-4 py-3 text-center">{t("activation_report.projection")}</th>
               {type === "rso" && <th className="px-4 py-3 text-center">{t("activation_report.market_ga")}</th>}
               {type === "rso" && <th className="px-4 py-3 text-center">{t("activation_report.own_ga")}</th>}
-              {(type === "bp" || type === "supervisor") && <th className="px-4 py-3 text-center">{t("activation_report.yesterday")}</th>}
+              {type === "bp" && <th className="px-4 py-3 text-center">{t("activation_report.yesterday")}</th>}
+              {type === "supervisor" && (
+                <>
+                  <th className="px-4 py-3 text-center">{t("activation_report.yest_emp")}</th>
+                  <th className="px-4 py-3 text-center">{t("activation_report.tot")}</th>
+                  <th className="px-4 py-3 text-center">{t("activation_report.yest_mkt")}</th>
+                  <th className="px-4 py-3 text-center">{t("activation_report.tot")}</th>
+                </>
+              )}
               {type === "bp" && <th className="px-4 py-3 text-center">{t("activation_report.day_count")}</th>}
               <th className="px-4 py-3 text-center">{t("activation_report.status")}</th>
             </tr>
@@ -487,10 +522,26 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                     </div>
                   </td>
                 )}
-                {(type === "bp" || type === "supervisor") && (
+                {type === "bp" && (
                   <td className="px-2 py-1 text-center">
                     <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.yesterday_activation ?? 0)}</span>
                   </td>
+                )}
+                {type === "supervisor" && (
+                  <>
+                    <td className="px-2 py-1 text-center">
+                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.own_yesterday ?? 0)}</span>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.own_month ?? 0)}</span>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.market_yesterday ?? 0)}</span>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(emp.market_month ?? 0)}</span>
+                    </td>
+                  </>
                 )}
                 {type === "bp" && (
                   <td className="px-2 py-1 text-center">
@@ -517,6 +568,9 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
               const totalActiveDays = data.reduce((s, e) => s + (e.active_days ?? 0), 0);
               const totalMrktYest = data.reduce((s, e) => s + (e.market_yesterday ?? 0), 0);
               const totalMrktAct = data.reduce((s, e) => s + (e.market_activation ?? 0), 0);
+              const totalOwnYest = data.reduce((s, e) => s + (e.own_yesterday ?? 0), 0);
+              const totalOwnMonth = data.reduce((s, e) => s + (e.own_month ?? 0), 0);
+              const totalMrktMonth = data.reduce((s, e) => s + (e.market_month ?? 0), 0);
               return (
                 <tr className="border-t-2 border-gray-300 dark:border-slate-600 bg-gray-50/80 dark:bg-slate-800/80">
                   <td className="px-2 py-1" />
@@ -579,10 +633,26 @@ function PerformanceTable({ data, t, type, daysElapsed, daysRemaining }: { data:
                       <div className="text-[11px] text-gray-500 dark:text-gray-400">MTD: {formatNumber(totalMonthTotal)}</div>
                     </td>
                   )}
-                    {(type === "bp" || type === "supervisor") && (
+                    {type === "bp" && (
                     <td className="px-2 py-1 text-center">
                       <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalYesterday)}</span>
                     </td>
+                  )}
+                  {type === "supervisor" && (
+                    <>
+                      <td className="px-2 py-1 text-center">
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalOwnYest)}</span>
+                      </td>
+                      <td className="px-2 py-1 text-center">
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalOwnMonth)}</span>
+                      </td>
+                      <td className="px-2 py-1 text-center">
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalMrktYest)}</span>
+                      </td>
+                      <td className="px-2 py-1 text-center">
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatNumber(totalMrktMonth)}</span>
+                      </td>
+                    </>
                   )}
                   {type === "bp" && (
                     <td className="px-2 py-1 text-center">

@@ -4,6 +4,7 @@ export interface Marking {
   code: string;
   description: string | null;
   status: string;
+  auto_source: string | null;
   retailer_count: number;
   created_at: string | null;
   updated_at: string | null;
@@ -15,6 +16,7 @@ export interface DropdownMarking {
   code: string;
   status: string;
   description: string | null;
+  auto_source: string | null;
 }
 
 export interface PaginationMeta {

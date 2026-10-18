@@ -1,5 +1,6 @@
 from sqlalchemy import (
     Column,
+    Index,
     Integer,
     String,
     Text,
@@ -8,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -35,6 +37,11 @@ class RetailerMarking(Base):
     description = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, default="active", index=True)  # active | inactive
 
+    # When set, the marking is system-managed: its active assignments are rebuilt
+    # from the matching employees' `assisted_retailer_code` values on every sync
+    # (see `retailer_marking_auto_service`). Values: "bp_assisted" | "rso_assisted".
+    auto_source = Column(String(30), nullable=True, index=True)
+
     # Audit
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -59,15 +66,19 @@ class RetailerMarkingAssignment(Base):
     House scope is derived from the retailer (retailers.house_id). Assignment rows
     are never edited or hard-deleted; removing a marking from a retailer flips the
     active row to status='inactive' and records removed_by/removed_at/effective_to.
+    Re-assigning the same pair afterwards inserts a fresh active row, so the
+    partial unique index below only guards "one active row per retailer+marking".
     """
 
     __tablename__ = "retailer_marking_assignments"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_retailer_marking_active",
             "retailer_id",
             "marking_id",
-            "status",
-            name="uq_retailer_marking_active",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
         ),
     )
 

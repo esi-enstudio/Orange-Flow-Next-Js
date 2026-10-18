@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.pagination import PaginatedResponse
 
@@ -12,6 +12,7 @@ class RetailerMarkingSchema(BaseModel):
     code: str
     description: Optional[str] = None
     status: str
+    auto_source: Optional[str] = None
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -24,6 +25,15 @@ class RetailerMarkingCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     code: str = Field(min_length=1, max_length=50)
     description: Optional[str] = Field(None, max_length=1000)
+    auto_source: Optional[str] = Field(None, pattern="^(bp_assisted|rso_assisted)$")
+
+    @field_validator("auto_source", mode="before")
+    @classmethod
+    def _blank_auto_source(cls, value):
+        """An empty string means "no auto source" (dropdown default)."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class RetailerMarkingUpdate(BaseModel):
@@ -31,6 +41,15 @@ class RetailerMarkingUpdate(BaseModel):
     code: Optional[str] = Field(None, min_length=1, max_length=50)
     description: Optional[str] = Field(None, max_length=1000)
     status: Optional[str] = Field(None, pattern="^(active|inactive)$")
+    auto_source: Optional[str] = Field(None, pattern="^(bp_assisted|rso_assisted)$")
+
+    @field_validator("auto_source", mode="before")
+    @classmethod
+    def _blank_auto_source(cls, value):
+        """An empty string means "clear the auto source"."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class AssignmentSchema(BaseModel):

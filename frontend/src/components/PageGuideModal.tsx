@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ElementType } from "react";
+import { useEffect, useRef, useState, type ElementType } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { HelpCircle, Info, Lightbulb, ListChecks, ListOrdered, X } from "lucide-react";
@@ -20,6 +20,58 @@ interface GuideSection {
 
 const MAX_ITEMS = 25;
 
+type TFn = (path: string, params?: Record<string, string | number | undefined>) => string;
+
+interface GuideContent {
+  title: string;
+  overview: string;
+  sections: GuideSection[];
+}
+
+/**
+ * Collects a page's `guide.*` translations.
+ *
+ * Not memoized on purpose: `t()` reads the *current* locale every time it is
+ * called, so a cached result would keep the guide in the language it was first
+ * built in after a language switch. The work is tiny (a few dozen lookups), so
+ * it is rebuilt on every render instead.
+ */
+function buildGuide(pageKey: string, t: TFn): GuideContent | null {
+  const collect = (section: string): GuideItem[] => {
+    const prefix = section.charAt(0);
+    const items: GuideItem[] = [];
+    for (let i = 1; i <= MAX_ITEMS; i++) {
+      const titlePath = `${pageKey}.guide.${section}.${prefix}${i}.title`;
+      const title = t(titlePath);
+      if (title === titlePath) break;
+      const descPath = `${pageKey}.guide.${section}.${prefix}${i}.desc`;
+      const descRaw = t(descPath);
+      items.push({ title, desc: descRaw === descPath ? "" : descRaw });
+    }
+    return items;
+  };
+
+  const overview = t(`${pageKey}.guide.overview`);
+  if (overview === `${pageKey}.guide.overview`) return null;
+
+  const rawTitle = t(`${pageKey}.guide.title`);
+  const title = rawTitle === `${pageKey}.guide.title` ? t("common.page_guide") : rawTitle;
+
+  const features = collect("features");
+  const steps = collect("steps");
+  const notes = collect("notes");
+
+  const sections: GuideSection[] = [];
+  if (features.length > 0)
+    sections.push({ id: "features", label: t(`${pageKey}.guide.features_title`), icon: ListChecks, items: features });
+  if (steps.length > 0)
+    sections.push({ id: "steps", label: t(`${pageKey}.guide.steps_title`), icon: ListOrdered, items: steps });
+  if (notes.length > 0)
+    sections.push({ id: "notes", label: t(`${pageKey}.guide.notes_title`), icon: Lightbulb, items: notes });
+
+  return { title, overview, sections };
+}
+
 /**
  * Renders the page-guide trigger **and** the guide modal.
  *
@@ -38,41 +90,7 @@ export default function PageGuideModal({ pageKey }: { pageKey: string }) {
   const [open, setOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const guide = useMemo(() => {
-    const collect = (section: string): GuideItem[] => {
-      const prefix = section.charAt(0);
-      const items: GuideItem[] = [];
-      for (let i = 1; i <= MAX_ITEMS; i++) {
-        const titlePath = `${pageKey}.guide.${section}.${prefix}${i}.title`;
-        const title = t(titlePath);
-        if (title === titlePath) break;
-        const descPath = `${pageKey}.guide.${section}.${prefix}${i}.desc`;
-        const descRaw = t(descPath);
-        items.push({ title, desc: descRaw === descPath ? "" : descRaw });
-      }
-      return items;
-    };
-
-    const overview = t(`${pageKey}.guide.overview`);
-    if (overview === `${pageKey}.guide.overview`) return null;
-
-    const rawTitle = t(`${pageKey}.guide.title`);
-    const title = rawTitle === `${pageKey}.guide.title` ? t("common.page_guide") : rawTitle;
-
-    const features = collect("features");
-    const steps = collect("steps");
-    const notes = collect("notes");
-
-    const sections: GuideSection[] = [];
-    if (features.length > 0)
-      sections.push({ id: "features", label: t(`${pageKey}.guide.features_title`), icon: ListChecks, items: features });
-    if (steps.length > 0)
-      sections.push({ id: "steps", label: t(`${pageKey}.guide.steps_title`), icon: ListOrdered, items: steps });
-    if (notes.length > 0)
-      sections.push({ id: "notes", label: t(`${pageKey}.guide.notes_title`), icon: Lightbulb, items: notes });
-
-    return { title, overview, sections };
-  }, [pageKey, t]);
+  const guide = buildGuide(pageKey, t);
 
   useEffect(() => {
     if (!open) return;

@@ -21,9 +21,13 @@ Business rules mirror the dashboard page:
     * DRR       -> ceil(remaining / days_remaining), like the page table
     * Proj %    -> projection / target, the value the page status is based on
     * RSO       -> Yest Own / Tot come from the RSO's assisted retailer code
-                   (yesterday and month-to-date); Yest Mkt / Tot are the market
+                   (yesterday and month-to-date) and Day counts how many days
+                   that code activated this month; Yest Mkt / Tot are the market
                    activation counts for the same two periods
     * BP        -> Yesterday GA and Day Count come from the assisted code
+    * Supervisor-> Yest Emp / Tot / Yest Mkt / Tot are the team sums of the
+                   member metrics above (RSO/BP own + RSO market), so the
+                   supervisor table always reconciles with the tables below
     * Others    -> members owned by no supervisor get their own row, so the
                    supervisor table always reconciles with the RSO/BP tables
 """
@@ -57,7 +61,6 @@ from app.services.report_image_kit import (
     ScaledDraw,
     content_weights,
     ellipsize,
-    fit_widths,
     fmt_num,
     header_scale,
     load_font,
@@ -102,11 +105,13 @@ def _active_scale() -> int:
 
 # ── Section column sets ──
 HOUSE_LABELS = ["Target", "Ach", "%", "Remain", "Daily Req", "Daily Avg",
-                "Projection", "Proj %"]
+                "Projection", "Proj %", "Status"]
 SUPERVISOR_LABELS = ["#", "Supervisor Name", "Pool", "RSO", "BP", "Target", "Ach",
-                     "%", "Remain", "DRR", "D.Avg", "Proj %", "Status"]
+                     "%", "Remain", "DRR", "D.Avg", "Proj %", "Yest Emp", "Tot",
+                     "Yest Mkt", "Tot", "Status"]
 RSO_LABELS = ["#", "RSO Name", "ITop No", "Target", "Ach", "%", "Remain", "DRR",
-              "D.Avg", "Proj %", "Yest Own", "Tot", "Yest Mkt", "Tot", "Status"]
+              "D.Avg", "Proj %", "Yest Own", "Tot", "Day", "Yest Mkt", "Tot",
+              "Status"]
 BP_LABELS = ["#", "BP Name", "Pool No", "Target", "Ach", "%", "Remain", "DRR",
              "D.Avg", "Proj %", "Yest GA", "Day Count", "Status"]
 
@@ -209,6 +214,10 @@ def _house_values(summary: dict) -> list[str]:
     target = float(summary.get("monthly_target") or 0)
     achievement = float(summary.get("achievement") or 0)
     projection = float(summary.get("projection") or 0)
+    # House-level status uses the same projection rule as the dashboard card and
+    # the supervisor/RSO/BP tables (mirrors projectionStatus in page.tsx).
+    ach_pct = round(achievement / target * 100, 1) if target else 0
+    proj_pct = round(projection / target * 100) if target else 0
     return [
         fmt_num(target),
         fmt_num(achievement),
@@ -218,16 +227,19 @@ def _house_values(summary: dict) -> list[str]:
         fmt_num(summary.get("daily_average") or 0),
         fmt_num(projection),
         pct_2dp(projection, target),
+        _status_label(ach_pct, proj_pct),
     ]
 
 
 def _render_house_summary(draw, x, y, w, summary, f_head, f_cell, title_font_size) -> int:
     """House summary: plain title + a single-row metric table."""
-    # Evenly split metric cells (no left-aligned name column), mirroring the
-    # summary grid in the HTML dashboard.
+    # Column widths come from each column's own content (like every other table
+    # in this report) rather than an even split: the Status column holds free
+    # text like "Needs Attention", which is far wider than the metric columns in
+    # a portrait sheet — splitting the row evenly would either ellipsize it or
+    # drag the shared font size of the whole report down.
     return render_section(draw, x, y, w, "HOUSE SUMMARY", HOUSE_LABELS,
-                          [_house_values(summary)],
-                          weights=[1] * len(HOUSE_LABELS), left_cols=(),
+                          [_house_values(summary)], left_cols=(),
                           f_head=f_head, f_cell=f_cell, title_font_size=title_font_size)
 
 
@@ -243,7 +255,8 @@ def _supervisor_rows(dashboard: dict, days_remaining: int, days_elapsed: int):
     supervisors = dashboard.get("supervisor_performance") or []
     rows = []
     assigned_ids: set[int] = set()
-    sums = {"rso": 0, "bp": 0, "target": 0.0, "ach": 0.0, "remain": 0.0, "proj": 0.0}
+    sums = {"rso": 0, "bp": 0, "target": 0.0, "ach": 0.0, "remain": 0.0, "proj": 0.0,
+            "own_yest": 0.0, "own": 0.0, "mkt_yest": 0.0, "mkt": 0.0}
 
     for idx, sup in enumerate(supervisors):
         assigned_ids.update(m["employee_id"] for m in (sup.get("team") or [])
@@ -251,12 +264,19 @@ def _supervisor_rows(dashboard: dict, days_remaining: int, days_elapsed: int):
         rso_count, bp_count = _team_counts(sup)
         target, ach, ach_pct, proj, proj_pct = _metrics(sup)
         remain = _remaining(sup)
+        # Team own (RSO assisted + BP assisted) and market totals, summed by the
+        # service exactly like the member rows in the RSO/BP tables below.
+        own_yest = float(sup.get("own_yesterday") or 0)
+        own = float(sup.get("own_month") or 0)
+        mkt_yest = float(sup.get("market_yesterday") or 0)
+        mkt = float(sup.get("market_month") or 0)
         rows.append([
             str(idx + 1), str(sup.get("name") or ""), str(sup.get("pool_number") or "-"),
             str(rso_count), str(bp_count),
             fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
             fmt_num(remain), _drr(remain, days_remaining),
             fmt_num(_daily_avg(ach, days_elapsed)), pct_2dp(proj, target),
+            fmt_num(own_yest), fmt_num(own), fmt_num(mkt_yest), fmt_num(mkt),
             _status_label(ach_pct, proj_pct),
         ])
         sums["rso"] += rso_count
@@ -265,6 +285,10 @@ def _supervisor_rows(dashboard: dict, days_remaining: int, days_elapsed: int):
         sums["ach"] += ach
         sums["remain"] += remain
         sums["proj"] += proj
+        sums["own_yest"] += own_yest
+        sums["own"] += own
+        sums["mkt_yest"] += mkt_yest
+        sums["mkt"] += mkt
 
     # Members owned by no supervisor get their own row, so the RSO and BP tables
     # still reconcile with this one.
@@ -280,12 +304,17 @@ def _supervisor_rows(dashboard: dict, days_remaining: int, days_elapsed: int):
         remain = sum(_remaining(m) for m in members)
         ach_pct = round(ach / target * 100, 1) if target else 0
         proj_pct = round(proj / target * 100) if target else 0
+        own_yest = sum(float(m.get("yesterday_activation") or 0) for m in members)
+        own = sum(float(m.get("month_total_activation") or 0) for m in members)
+        mkt_yest = sum(float(m.get("market_yesterday") or 0) for m in members)
+        mkt = sum(float(m.get("market_activation") or 0) for m in members)
         rows.append([
             str(len(rows) + 1), "Others (Unassigned)", "-",
             str(len(unassigned_rso)), str(len(unassigned_bp)),
             fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
             fmt_num(remain), _drr(remain, days_remaining),
             fmt_num(_daily_avg(ach, days_elapsed)), pct_2dp(proj, target),
+            fmt_num(own_yest), fmt_num(own), fmt_num(mkt_yest), fmt_num(mkt),
             _status_label(ach_pct, proj_pct),
         ])
         sums["rso"] += len(unassigned_rso)
@@ -294,6 +323,10 @@ def _supervisor_rows(dashboard: dict, days_remaining: int, days_elapsed: int):
         sums["ach"] += ach
         sums["remain"] += remain
         sums["proj"] += proj
+        sums["own_yest"] += own_yest
+        sums["own"] += own
+        sums["mkt_yest"] += mkt_yest
+        sums["mkt"] += mkt
 
     if not rows:
         return [], None
@@ -307,6 +340,8 @@ def _supervisor_rows(dashboard: dict, days_remaining: int, days_elapsed: int):
         _drr(sums["remain"], days_remaining),
         fmt_num(_daily_avg(sums["ach"], days_elapsed)),
         pct_2dp(sums["proj"], sums["target"]),
+        fmt_num(sums["own_yest"]), fmt_num(sums["own"]),
+        fmt_num(sums["mkt_yest"]), fmt_num(sums["mkt"]),
         "",
     ]
     return rows, total_row
@@ -316,13 +351,17 @@ def _rso_rows(rsos: list[dict], days_remaining: int, days_elapsed: int):
     """Rows + total for the RSO PERFORMANCE table (every RSO)."""
     rows = []
     tot = {"target": 0.0, "ach": 0.0, "remain": 0.0, "proj": 0.0,
-           "yest_own": 0.0, "own": 0.0, "yest_market": 0.0, "market": 0.0}
+           "yest_own": 0.0, "own": 0.0, "days": 0.0,
+           "yest_market": 0.0, "market": 0.0}
     ordered = sorted(rsos, key=lambda r: float(r.get("percentage") or 0), reverse=True)
     for i, r in enumerate(ordered):
         target, ach, ach_pct, proj, proj_pct = _metrics(r)
         remain = _remaining(r)
         yest_own = float(r.get("yesterday_activation") or 0)
         own = float(r.get("month_total_activation") or 0)
+        # Days the RSO's assisted code produced at least one activation this
+        # month — the same "Day Count" the BP table and the dashboard show.
+        days = float(r.get("active_days") or 0)
         yest_market = float(r.get("market_yesterday") or 0)
         market = float(r.get("market_activation") or 0)
         rows.append([
@@ -331,7 +370,7 @@ def _rso_rows(rsos: list[dict], days_remaining: int, days_elapsed: int):
             fmt_num(target), fmt_num(ach), pct_2dp(ach, target),
             fmt_num(remain), _drr(remain, days_remaining),
             fmt_num(_daily_avg(ach, days_elapsed)), pct_2dp(proj, target),
-            fmt_num(yest_own), fmt_num(own),
+            fmt_num(yest_own), fmt_num(own), fmt_num(days),
             fmt_num(yest_market), fmt_num(market),
             _status_label(ach_pct, proj_pct),
         ])
@@ -341,6 +380,7 @@ def _rso_rows(rsos: list[dict], days_remaining: int, days_elapsed: int):
         tot["proj"] += proj
         tot["yest_own"] += yest_own
         tot["own"] += own
+        tot["days"] += days
         tot["yest_market"] += yest_market
         tot["market"] += market
 
@@ -353,7 +393,7 @@ def _rso_rows(rsos: list[dict], days_remaining: int, days_elapsed: int):
         fmt_num(tot["remain"]), _drr(tot["remain"], days_remaining),
         fmt_num(_daily_avg(tot["ach"], days_elapsed)),
         pct_2dp(tot["proj"], tot["target"]),
-        fmt_num(tot["yest_own"]), fmt_num(tot["own"]),
+        fmt_num(tot["yest_own"]), fmt_num(tot["own"]), fmt_num(tot["days"]),
         fmt_num(tot["yest_market"]), fmt_num(tot["market"]), "",
     ]
     return rows, total_row
@@ -404,25 +444,13 @@ def _bp_rows(bps: list[dict], days_remaining: int, days_elapsed: int):
 # which every section still fits the canvas for this house's data. Numeric
 # columns must never lose a digit, so only the free-text name column of the RSO
 # table may give way (down to RSO_NAME_MIN_W, ~14 characters at the largest
-# sizes). The house summary cells are evenly split, so its longest label/value
-# is the one section that can cap the font (e.g. a wide "Projection" header).
+# sizes). The house summary is sized from its own content too, so a wide value
+# (the Status column's "Needs Attention") caps the font instead of being cut.
 FONT_MIN = 8
 FONT_MAX = 20
 
 RSO_NAME_COL = 1
 RSO_NAME_MIN_W = 130
-
-
-def _fits_even(labels, values, inner: int, font) -> bool:
-    """True when all labels/values fit their evenly split column of the row."""
-    widths = fit_widths([1] * len(labels), inner)
-    for ci, label in enumerate(labels):
-        worst = font.getlength(str(label))
-        if ci < len(values):
-            worst = max(worst, font.getlength(str(values[ci])))
-        if widths[ci] < worst + 8:
-            return False
-    return True
 
 
 def _rso_weights(rows, total_row, font, inner: int) -> list[int]:
@@ -458,7 +486,7 @@ def _uniform_font_size(dashboard, sup_rows, sup_total, rso_rows, rso_total,
     summary_values = _house_values(dashboard.get("summary") or {})
     for size in range(FONT_MAX, FONT_MIN - 1, -1):
         font = load_font(size, True)
-        if not _fits_even(HOUSE_LABELS, summary_values, inner, font):
+        if not _fits_full(HOUSE_LABELS, [summary_values], None, 0, inner, font):
             continue
         if sup_rows and not _fits_full(SUPERVISOR_LABELS, sup_rows, sup_total, 2, inner, font):
             continue

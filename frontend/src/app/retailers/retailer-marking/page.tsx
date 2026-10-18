@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -11,16 +11,23 @@ import {
   Loader2,
   Download,
   Store,
-  MapPin,
   Hash,
   ChevronDown,
+  ArrowUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import { useLanguage } from "@/i18n/useLanguage";
-import { houseHeaders, type DropdownMarking, type PaginationMeta, type RetailerRow } from "./types";
+import { type DropdownMarking, type PaginationMeta, type RetailerRow } from "./types";
+
+interface HouseOption {
+  id: number;
+  name: string;
+  code: string;
+  display_name: string;
+}
 
 export default function RetailersPage() {
   const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
@@ -29,10 +36,16 @@ export default function RetailersPage() {
 
   const [retailers, setRetailers] = useState<RetailerRow[]>([]);
   const [markings, setMarkings] = useState<DropdownMarking[]>([]);
+  const [houses, setHouses] = useState<HouseOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingsLoading, setMarkingsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [markingFilter, setMarkingFilter] = useState("");
+  // Page-level house scope. `""` means "All houses": the X-House-ID header is
+  // omitted and the backend returns every house the user may access (all houses
+  // for admins, their own houses otherwise). It starts from the globally
+  // selected house so the page opens on the same scope it had before.
+  const [houseFilter, setHouseFilter] = useState<number | "">(selectedHouse?.id ?? "");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
   const [sortBy, setSortBy] = useState("id");
@@ -66,6 +79,30 @@ export default function RetailersPage() {
     }
   }, [authLoading, hasPermission, fetchMarkings]);
 
+  const pageHeaders = useMemo(
+    () => (houseFilter ? { "X-House-ID": String(houseFilter) } : {}),
+    [houseFilter]
+  );
+
+  // Houses the user may pick from. Only accessible houses are listed, and the
+  // backend re-validates membership on every request, so a forged X-House-ID
+  // cannot leak another house's retailers.
+  useEffect(() => {
+    if (authLoading || !hasPermission("retailer_markings.view")) return;
+    apiClient
+      .get("houses/accessible")
+      .then((res) => setHouses(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setHouses([]));
+  }, [authLoading, hasPermission]);
+
+  // Mirror the global house context so the page keeps the scope it had before
+  // (the user object resolves after the first render). A pick made on this page
+  // wins until the global value changes again.
+  const globalHouseId = selectedHouse?.id ?? null;
+  useEffect(() => {
+    if (globalHouseId) setHouseFilter(globalHouseId);
+  }, [globalHouseId]);
+
   const fetchRetailers = useCallback(async () => {
     setLoading(true);
     try {
@@ -79,7 +116,7 @@ export default function RetailersPage() {
       if (markingFilter) params.marking = markingFilter;
       const res = await apiClient.get("retailer-markings/retailers", {
         params,
-        headers: houseHeaders(selectedHouse),
+        headers: pageHeaders,
       });
       setRetailers(res.data.data || []);
       setPagination(res.data.pagination || null);
@@ -88,16 +125,28 @@ export default function RetailersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, markingFilter, sortBy, sortOrder, selectedHouse, t]);
+  }, [page, search, markingFilter, sortBy, sortOrder, pageHeaders, t]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("retailer_markings.view")) {
       fetchRetailers();
     }
-  }, [selectedHouse, page, sortBy, sortOrder, markingFilter, authLoading, hasPermission, fetchRetailers]);
+  }, [houseFilter, page, sortBy, sortOrder, markingFilter, authLoading, hasPermission, fetchRetailers]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
+    setPage(1);
+  };
+
+  // Re-clicking the active column flips the direction; a new column starts
+  // descending, matching the Retailer List page.
+  const toggleSort = (field: string) => {
+    if (sortBy === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(field);
+      setSortOrder("desc");
+    }
     setPage(1);
   };
 
@@ -109,7 +158,7 @@ export default function RetailersPage() {
       if (markingFilter) params.marking_id = markings.find((m) => m.name === markingFilter)?.id;
       const response = await apiClient.get("retailer-markings/export", {
         params,
-        headers: houseHeaders(selectedHouse),
+        headers: pageHeaders,
         responseType: "blob",
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -163,7 +212,33 @@ export default function RetailersPage() {
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-gray-50 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="p-4 border-b border-gray-50 dark:border-slate-800 flex flex-col sm:flex-row sm:items-end gap-3">
+          {houses.length > 1 && (
+            <div className="sm:w-72 shrink-0">
+              <label
+                htmlFor="retailer-marking-house"
+                className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5"
+              >
+                {t("retailer_marking.house_filter")}
+              </label>
+              <select
+                id="retailer-marking-house"
+                value={houseFilter}
+                onChange={(e) => {
+                  setHouseFilter(e.target.value ? Number(e.target.value) : "");
+                  setPage(1);
+                }}
+                className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer transition-colors"
+              >
+                <option value="">{t("retailer_marking.all_houses")}</option>
+                {houses.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.display_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
             <input
@@ -229,8 +304,12 @@ export default function RetailersPage() {
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
                     <th className="px-6 py-4">{t("retailer_marking.table_house")}</th>
                     <th className="px-6 py-4">
-                      <button onClick={() => setSortBy("name")} className="flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300">
+                      <button
+                        onClick={() => toggleSort("name")}
+                        className="flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                      >
                         {t("retailer_marking.table_retailer")}
+                        <ArrowUpDown className="w-3 h-3" />
                       </button>
                     </th>
                     <th className="px-6 py-4">{t("retailer_marking.rso_col")}</th>

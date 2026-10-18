@@ -197,6 +197,13 @@ async def process_retailer_excel(file_path, progress_callback=None):
             pbar.close()
             # Single commit at the end ✅
             await session.commit()
+
+            # A retailer import can create/refresh the assisted-code retailers that
+            # auto-managed markings mirror — rebuild them right away.
+            from app.services.retailer_marking_auto_service import run_auto_marking_sync
+
+            await run_auto_marking_sync(session)
+
             logger.info(f"✅ {count} retailers processed successfully. Skipped: {skipped_count}")
             return count, None
 

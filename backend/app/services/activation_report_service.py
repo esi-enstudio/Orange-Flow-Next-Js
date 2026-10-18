@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from calendar import monthrange
 from typing import Optional
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.house_target import HouseTarget
@@ -139,6 +139,7 @@ class ActivationReportService:
         role: Optional[str] = None,
         apply_to: Optional[str] = None,
         column_key: Optional[str] = None,
+        extra_where=None,
     ) -> int:
         q = select(func.count()).select_from(Activation).where(
             Activation.house_id == self.house_id,
@@ -146,6 +147,8 @@ class ActivationReportService:
             Activation.activation_date <= (end_date or self.month_end),
         )
         q = await self._apply_rule_filters(q, Activation, role, apply_to, column_key)
+        if extra_where is not None:
+            q = q.where(extra_where)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
@@ -163,12 +166,14 @@ class ActivationReportService:
         )
         return res.scalar_one_or_none()
 
-    async def _count_activations_for_date(self, target_date: date, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, role: Optional[str] = None, apply_to: Optional[str] = None, column_key: Optional[str] = None) -> int:
+    async def _count_activations_for_date(self, target_date: date, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, role: Optional[str] = None, apply_to: Optional[str] = None, column_key: Optional[str] = None, extra_where=None) -> int:
         q = select(func.count()).select_from(Activation).where(
             Activation.house_id == self.house_id,
             Activation.activation_date == target_date,
         )
         q = await self._apply_rule_filters(q, Activation, role, apply_to, column_key)
+        if extra_where is not None:
+            q = q.where(extra_where)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
@@ -176,13 +181,15 @@ class ActivationReportService:
         res = await self.db.execute(q)
         return res.scalar() or 0
 
-    async def _count_active_days(self, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, threshold: int = 1, role: Optional[str] = None, apply_to: Optional[str] = None, column_key: Optional[str] = None) -> int:
+    async def _count_active_days(self, retailer_ids: Optional[set[int]] = None, retailer_codes: Optional[list[str]] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, threshold: int = 1, role: Optional[str] = None, apply_to: Optional[str] = None, column_key: Optional[str] = None, extra_where=None) -> int:
         q = select(Activation.activation_date, func.count()).where(
             Activation.house_id == self.house_id,
             Activation.activation_date >= (start_date or self.month_start),
             Activation.activation_date <= (end_date or self.month_end),
         )
         q = await self._apply_rule_filters(q, Activation, role, apply_to, column_key)
+        if extra_where is not None:
+            q = q.where(extra_where)
         if retailer_ids:
             q = q.where(Activation.retailer_id.in_(retailer_ids))
         if retailer_codes:
@@ -192,6 +199,48 @@ class ActivationReportService:
             q = q.having(func.count() >= threshold)
         res = await self.db.execute(q)
         return len(res.all())
+
+    @staticmethod
+    def _own_assisted_clause(employee_id: int, assisted_code: Optional[str]):
+        """Filter for an employee's own (assisted) activations.
+
+        The GA feed records a person's assisted activations in two shapes and
+        both count as own:
+          * under the employee's assisted retailer code
+            (``employees.assisted_retailer_code``), or
+          * as assisted-tagged rows — the retailer name carries an assisted
+            marker ("Assisted", "Rso Assisted",
+            "Assisted-001-<name>-<dms code>", ...) while the row stays linked
+            to the employee (``activation.employee_id``).
+        """
+        return ActivationReportService._own_assisted_clause_many(
+            [employee_id], [assisted_code]
+        )
+
+    @staticmethod
+    def _own_assisted_clause_many(
+        employee_ids: list[int],
+        assisted_codes: list[Optional[str]],
+    ):
+        """The own predicate for a whole team of employees.
+
+        Used by the supervisor table's team totals (the supervisor's RSO/BP
+        members), so a single query counts every member's assisted activations
+        the same way the per-member clauses would. Each row matches at most
+        once, keeping the total equal to the sum of the member counts.
+        """
+        clauses = [
+            and_(
+                Activation.employee_id.in_(employee_ids),
+                Activation.retailer_name.ilike("%assist%"),
+            )
+        ]
+        codes = sorted(
+            {str(c).strip() for c in (assisted_codes or []) if c and str(c).strip()}
+        )
+        if codes:
+            clauses.append(Activation.retailer_code.in_(codes))
+        return or_(*clauses)
 
     async def get_summary(self) -> dict:
         target = await self._get_house_target()
@@ -301,28 +350,36 @@ class ActivationReportService:
             else:
                 status = "behind"
 
-            # Own Activation (yesterday, MTD total, active days) comes ONLY from
-            # the assisted retailer code. RSOs without an assisted code show zero.
+            # Own Activation (yesterday, MTD total, active days) covers the
+            # employee's assisted activations: rows recorded under the assisted
+            # retailer code plus the feed's assisted-tagged rows that stay
+            # linked to the employee. Non-RSO sections keep their own logic.
             assisted_code = assisted_code_map.get(emp_id) if assisted_code_map else None
-            if type_label == "rso" and assisted_code and yesterday_date >= self.month_start:
+            own_clause = (
+                self._own_assisted_clause(emp_id, assisted_code)
+                if type_label == "rso"
+                else None
+            )
+
+            if own_clause is not None and yesterday_date >= self.month_start:
                 yesterday_activation = await self._count_activations_for_date(
-                    yesterday_date, retailer_codes=[assisted_code], role=role,
-                    apply_to=apply_to, column_key="own_ga",
+                    yesterday_date, role=role, apply_to=apply_to,
+                    column_key="own_ga", extra_where=own_clause,
                 )
             else:
                 yesterday_activation = 0
 
-            if type_label == "rso" and assisted_code and yesterday_date >= self.month_start:
+            if own_clause is not None and yesterday_date >= self.month_start:
                 month_total = await self._count_activations(
-                    retailer_codes=[assisted_code], end_date=yesterday_date, role=role,
-                    apply_to=apply_to, column_key="own_ga",
+                    end_date=yesterday_date, role=role, apply_to=apply_to,
+                    column_key="own_ga", extra_where=own_clause,
                 )
             else:
                 month_total = 0
-            if type_label == "rso" and assisted_code:
+            if own_clause is not None:
                 active_days = await self._count_active_days(
-                    retailer_codes=[assisted_code], end_date=yesterday_date, role=role,
-                    apply_to=apply_to, column_key="own_ga",
+                    end_date=yesterday_date, role=role, apply_to=apply_to,
+                    column_key="own_ga", extra_where=own_clause,
                 )
             else:
                 active_days = 0
@@ -586,9 +643,12 @@ class ActivationReportService:
             } for m in rso_emps_for_sup]
 
             all_rso_retailer_ids: set[int] = set()
-            for rso_emp in rso_emps_for_sup:
-                rso_retailer_ids = await self._get_retailer_ids_for_employee(rso_emp.id)
-                all_rso_retailer_ids.update(rso_retailer_ids)
+            rso_member_retailer_ids: set[int] = set()
+            for member in rso_emps_for_sup:
+                member_retailer_ids = await self._get_retailer_ids_for_employee(member.id)
+                all_rso_retailer_ids.update(member_retailer_ids)
+                if (member.employee_type or "").lower() != "bp":
+                    rso_member_retailer_ids.update(member_retailer_ids)
 
             achievement = await self._count_activations(
                 retailer_ids=all_rso_retailer_ids,
@@ -628,6 +688,57 @@ class ActivationReportService:
                 month_total_activation = 0
                 active_days = 0
 
+            # Team own/market columns (the image's Yest Emp / Tot / Yest Mkt /
+            # Tot): summed over the members with the exact member-row logic of
+            # the RSO/BP tables below — same rule slots (own_ga / market_ga) and
+            # cutoffs — so the supervisor table always reconciles with them.
+            rso_members = [m for m in rso_emps_for_sup
+                           if (m.employee_type or "").lower() != "bp"]
+            bp_members = [m for m in rso_emps_for_sup
+                          if (m.employee_type or "").lower() == "bp"]
+
+            own_yesterday = 0
+            own_month = 0
+            market_yesterday = 0
+            market_month = 0
+            if rso_members:
+                own_clause = self._own_assisted_clause_many(
+                    [m.id for m in rso_members],
+                    [m.assisted_retailer_code for m in rso_members],
+                )
+                if yesterday_date >= self.month_start:
+                    own_yesterday = await self._count_activations_for_date(
+                        yesterday_date, role="RSO", apply_to="rso",
+                        column_key="own_ga", extra_where=own_clause,
+                    )
+                own_month = await self._count_activations(
+                    end_date=yesterday_date, role="RSO", apply_to="rso",
+                    column_key="own_ga", extra_where=own_clause,
+                )
+                if rso_member_retailer_ids:
+                    if yesterday_date >= self.month_start:
+                        market_yesterday = await self._count_activations_for_date(
+                            yesterday_date, retailer_ids=rso_member_retailer_ids,
+                            role="RSO", apply_to="rso", column_key="market_ga",
+                        )
+                    market_month = await self._count_activations(
+                        retailer_ids=rso_member_retailer_ids,
+                        role="RSO", apply_to="rso", column_key="market_ga",
+                    )
+            if bp_members:
+                bp_codes = [m.assisted_retailer_code for m in bp_members
+                            if m.assisted_retailer_code]
+                if bp_codes:
+                    if yesterday_date >= self.month_start:
+                        own_yesterday += await self._count_activations_for_date(
+                            yesterday_date, retailer_codes=bp_codes,
+                            role="BP", apply_to="bp",
+                        )
+                    own_month += await self._count_activations(
+                        retailer_codes=bp_codes, end_date=yesterday_date,
+                        role="BP", apply_to="bp",
+                    )
+
             results.append({
                 "id": emp_id,
                 "name": name_map.get(emp_id, f"#{emp_id}"),
@@ -643,6 +754,10 @@ class ActivationReportService:
                 "yesterday_activation": yesterday_activation,
                 "month_total_activation": month_total_activation,
                 "active_days": active_days,
+                "own_yesterday": own_yesterday,
+                "own_month": own_month,
+                "market_yesterday": market_yesterday,
+                "market_month": market_month,
                 "team": team,
             })
 
