@@ -610,6 +610,24 @@ async def _migrate_house_live_sync_enabled():
     except Exception as e:
         logger.warning(f"Migration warning (houses.is_live_sync_enabled): {e}")
 
+async def _migrate_house_show_pull_button():
+    """Add show_pull_button column to houses table (per-house PULL badge toggle)."""
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='houses' AND column_name='show_pull_button'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating houses: adding show_pull_button column...")
+            await conn.execute(text(
+                "ALTER TABLE houses ADD COLUMN show_pull_button BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            logger.info("Migration complete: houses.show_pull_button")
+    except Exception as e:
+        logger.warning(f"Migration warning (houses.show_pull_button): {e}")
+
 async def _migrate_retailer_employee_link():
     """Fix retailers whose employee_id was auto-linked via itop_number but whose
     retailer_code is actually an employee's assisted_retailer_code.
@@ -1544,6 +1562,7 @@ async def init_db():
         await _migrate_retailer_marking_auto_source()
         await _migrate_retailer_marking_assignment_unique()
         await _migrate_house_live_sync_enabled()
+        await _migrate_house_show_pull_button()
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
         await _migrate_app_settings_sim_serial_length()

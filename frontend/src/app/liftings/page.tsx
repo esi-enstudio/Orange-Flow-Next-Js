@@ -59,6 +59,7 @@ type House = {
     name: string;
     code: string;
     display_name: string;
+    show_pull_button?: boolean;
 };
 
 type Product = {
@@ -398,6 +399,12 @@ export default function LiftingRecordsPage() {
         } finally {
             setDeleting(false);
         }
+    };
+
+    // PULL workflow is defined per house and will be wired here.
+    // For now the badge only acknowledges the click so it is clear it is interactive.
+    const handlePull = (record: LiftingRecord) => {
+        toast(t("liftings.pull.placeholder", { amount: formatNumber(record.itopup_amount) }));
     };
 
     useEffect(() => {
@@ -870,7 +877,19 @@ export default function LiftingRecordsPage() {
                                                     {formatNumber(r.total_lifting_amount)}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
-                                                    {formatNumber(r.itopup_amount)}
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        <span>{formatNumber(r.itopup_amount)}</span>
+                                                        {r.house?.show_pull_button && (
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handlePull(r); }}
+                                                                className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-300 dark:hover:bg-primary-500/20 cursor-pointer"
+                                                                title={t("liftings.pull.title")}
+                                                                aria-label={t("liftings.pull.title")}
+                                                            >
+                                                                {t("liftings.pull.button")}
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="px-2 py-1 text-center">
                                                     <span
@@ -1011,7 +1030,19 @@ export default function LiftingRecordsPage() {
                                                 </div>
                                                 <div className="flex items-center justify-between gap-3">
                                                     <p className="text-[11px] font-bold text-gray-400 uppercase">iTopUp</p>
-                                                    <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.itopup_amount)}</p>
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.itopup_amount)}</p>
+                                                        {r.house?.show_pull_button && (
+                                                            <button
+                                                                onClick={() => handlePull(r)}
+                                                                className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-300 dark:hover:bg-primary-500/20 cursor-pointer"
+                                                                title={t("liftings.pull.title")}
+                                                                aria-label={t("liftings.pull.title")}
+                                                            >
+                                                                {t("liftings.pull.button")}
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 {r.deposit_slip && (
                                                     <div className="flex items-center justify-between gap-3 pt-1">

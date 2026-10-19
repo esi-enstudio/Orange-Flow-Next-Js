@@ -24,6 +24,7 @@ interface House {
   dms_user: string;
   dms_pass: string;
   dms_house_id: string;
+  show_pull_button: boolean;
   is_active: boolean;
 }
 
@@ -74,11 +75,23 @@ export default function HouseFormModal({ isOpen, onClose, onSubmit, formData, se
             <input name="dms_user" placeholder="DMS User" value={formData.dms_user} onChange={e => setFormData({...formData, dms_user: e.target.value})} className="p-2 rounded-lg border" />
             <input name="dms_pass" type="password" placeholder="DMS Pass" value={formData.dms_pass} onChange={e => setFormData({...formData, dms_pass: e.target.value})} className="p-2 rounded-lg border" />
             <input name="dms_house_id" placeholder="DMS House ID" value={formData.dms_house_id} onChange={e => setFormData({...formData, dms_house_id: e.target.value})} className="p-2 rounded-lg border" />
+            <label className="col-span-1 md:col-span-2 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-gray-200 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-800/40 cursor-pointer">
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-gray-800 dark:text-gray-200">{t('houses.field_show_pull_button')}</span>
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('houses.field_show_pull_button_hint')}</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={!!formData.show_pull_button}
+                onChange={e => setFormData({...formData, show_pull_button: e.target.checked})}
+                className="w-5 h-5 shrink-0 accent-primary-600 cursor-pointer"
+              />
+            </label>
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={formData.is_active} onChange={e => setFormData({...formData, is_active: e.target.checked})} />
+              <input type="checkbox" checked={formData.is_active} onChange={e => setFormData({...formData, is_active: e.target.checked})} className="cursor-pointer" />
               Active
             </label>
-            <button type="submit" className="col-span-1 md:col-span-2 py-2 bg-primary-600 text-white rounded-lg" disabled={loading}>
+            <button type="submit" className="col-span-1 md:col-span-2 py-2 bg-primary-600 text-white rounded-lg cursor-pointer disabled:cursor-not-allowed disabled:opacity-60" disabled={loading}>
               {loading ? t('common.processing') : 'Save'}
             </button>
           </form>

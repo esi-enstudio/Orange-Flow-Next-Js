@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+# Next.js renames a stale/unreadable build dir to `.next.stale-<date>` instead
+# of deleting it. Never commit those recovery copies.
+/.next.stale-*/
 /out/
 
 # production

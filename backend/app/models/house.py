@@ -34,6 +34,8 @@ class House(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     is_sync_enabled = Column(Boolean, default=False, nullable=False)
     is_live_sync_enabled = Column(Boolean, default=False, nullable=False)
+    # Show the PULL badge next to iTopUp on this house's lifting records.
+    show_pull_button = Column(Boolean, default=False, nullable=False)
 
     # WhatsApp Gateway (go-whatsapp-multi-session-rest-api)
     wa_api_key = Column(String(200), nullable=True)

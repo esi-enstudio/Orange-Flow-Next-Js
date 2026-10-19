@@ -26,7 +26,13 @@ async def get_accessible_houses(
     else:
         houses = current_user.houses
     return [
-        {"id": h.id, "name": h.name, "code": h.code, "display_name": f"{h.name} ({h.code})"}
+        {
+            "id": h.id,
+            "name": h.name,
+            "code": h.code,
+            "display_name": f"{h.name} ({h.code})",
+            "show_pull_button": bool(h.show_pull_button),
+        }
         for h in houses
     ]
 

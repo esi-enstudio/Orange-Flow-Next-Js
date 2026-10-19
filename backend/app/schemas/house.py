@@ -25,6 +25,7 @@ class HouseSchema(BaseModel):
     dms_house_id: Optional[str]
     telegram_chat_id: Optional[str] = None
     telegram_chat_name: Optional[str] = None
+    show_pull_button: bool = False
     is_active: bool
     class Config: from_attributes = True
 
@@ -48,4 +49,5 @@ class HouseCreate(BaseModel):
     dms_user: Optional[str] = None
     dms_pass: Optional[str] = None
     dms_house_id: Optional[str] = None
+    show_pull_button: bool = False
     is_active: bool = True

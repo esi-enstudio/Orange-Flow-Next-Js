@@ -39,6 +39,7 @@ interface House {
   dms_user: string;
   dms_pass: string;
   dms_house_id: string;
+  show_pull_button: boolean;
   is_active: boolean;
 }
 
@@ -81,6 +82,11 @@ export default function HouseCard({ house, onEdit, onDelete, onToggleStatus, can
                 )}>
                   {house.is_active ? t('common.active') : t('common.inactive')}
                 </span>
+                {house.show_pull_button && (
+                  <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300">
+                    {t('houses.pull_enabled')}
+                  </span>
+                )}
               </div>
             </div>
           </div>

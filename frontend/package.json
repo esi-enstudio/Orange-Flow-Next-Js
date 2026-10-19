@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
     "start": "next start",
+    "clean": "node scripts/clean-next.mjs",
     "lint": "eslint"
   },
   "dependencies": {

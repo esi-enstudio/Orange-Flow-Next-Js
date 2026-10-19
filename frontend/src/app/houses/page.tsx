@@ -38,6 +38,7 @@ interface House {
   dms_user: string;
   dms_pass: string;
   dms_house_id: string;
+  show_pull_button: boolean;
   is_active: boolean;
 }
 
@@ -77,6 +78,7 @@ export default function HousesPage() {
     dms_user: "",
     dms_pass: "",
     dms_house_id: "",
+    show_pull_button: false,
     is_active: true
   });
 
@@ -86,7 +88,7 @@ export default function HousesPage() {
       name: "", code: "", cluster: "", region: "", wh_region: "", district: "",
       email: "", address: "", proprietor_name: "", proprietor_contact: "",
       poc_name: "", poc_mobile: "", lifting_date: "", latitude: "", longitude: "",
-      bts_id: "", dms_user: "", dms_pass: "", dms_house_id: "", is_active: true
+      bts_id: "", dms_user: "", dms_pass: "", dms_house_id: "", show_pull_button: false, is_active: true
     });
     setIsFormModalOpen(true);
   };
@@ -113,6 +115,7 @@ export default function HousesPage() {
       dms_user: house.dms_user || "",
       dms_pass: house.dms_pass || "",
       dms_house_id: house.dms_house_id || "",
+      show_pull_button: house.show_pull_button ?? false,
       is_active: house.is_active ?? true
     });
     setIsFormModalOpen(true);

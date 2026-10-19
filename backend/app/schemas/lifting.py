@@ -82,6 +82,7 @@ class HouseSchema(BaseModel):
     name: str
     code: str
     display_name: str
+    show_pull_button: bool = False
 
     class Config:
         from_attributes = True
