@@ -12,6 +12,7 @@ import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter
 import { cn } from "@/lib/utils";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 import PageGuideModal from "@/components/PageGuideModal";
+import PullPreRFModal, { PullBank } from "./_components/PullPreRFModal";
 
 function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -101,6 +102,13 @@ type LiftingRecord = {
     status: string;
     notes: string | null;
     deposit_slip?: string | null;
+    bank_id?: number | null;
+    bank_name?: string | null;
+    pull_status?: string | null;
+    pull_rf_code?: string | null;
+    pull_message?: string | null;
+    pull_requested_at?: string | null;
+    pull_completed_at?: string | null;
     created_at?: string | null;
     house: House | null;
     products: LiftingProduct[];
@@ -173,6 +181,14 @@ export default function LiftingRecordsPage() {
         });
     }, [user]);
 
+    const isStrictAdmin = useMemo(() => {
+        if (!user?.roles) return false;
+        return user.roles.some((r) => {
+            const name = r.name.toLowerCase();
+            return name === "admin" || name === "super admin" || name === "super_admin";
+        });
+    }, [user]);
+
     const isEditable = (r: LiftingRecord) => {
         if (isAdmin) return true;
         if (!r.created_at) return true;
@@ -189,6 +205,7 @@ export default function LiftingRecordsPage() {
 
     const [houses, setHouses] = useState<House[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [banks, setBanks] = useState<PullBank[]>([]);
     const [houseId, setHouseId] = useState<number | "">("");
     const [dateFrom, setDateFrom] = useState(getMonthRange().from);
     const [dateTo, setDateTo] = useState(getMonthRange().to);
@@ -201,6 +218,7 @@ export default function LiftingRecordsPage() {
 
     const [editTarget, setEditTarget] = useState<LiftingRecord | null>(null);
     const [editBankDeposit, setEditBankDeposit] = useState("");
+    const [editBankId, setEditBankId] = useState<string>("");
     const [editNotes, setEditNotes] = useState("");
     const [editStatus, setEditStatus] = useState("Confirmed");
     const [editDepositSlip, setEditDepositSlip] = useState<string | null>(null);
@@ -209,10 +227,12 @@ export default function LiftingRecordsPage() {
     const [editCompressing, setEditCompressing] = useState(false);
     const [editLoading, setEditLoading] = useState(false);
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+    const [pullTarget, setPullTarget] = useState<LiftingRecord | null>(null);
 
     const openEditModal = (r: LiftingRecord) => {
         setEditTarget(r);
         setEditBankDeposit(String(r.total_bank_deposit ?? 0));
+        setEditBankId(r.bank_id ? String(r.bank_id) : "");
         setEditNotes(r.notes || "");
         setEditStatus(r.status || "Confirmed");
         setEditDepositSlip(r.deposit_slip || null);
@@ -248,6 +268,7 @@ export default function LiftingRecordsPage() {
                 notes: editNotes.trim() || null,
                 status: editStatus,
                 deposit_slip: editDepositSlip,
+                bank_id: editBankId ? Number(editBankId) : null,
                 products: editSelectedProducts.map((sp) => ({
                     product_id: sp.product.id,
                     quantity: sp.quantity,
@@ -271,6 +292,13 @@ export default function LiftingRecordsPage() {
         try {
             const res = await apiClient.get("houses/accessible");
             setHouses(res.data);
+        } catch { }
+    };
+
+    const fetchBanks = async () => {
+        try {
+            const res = await apiClient.get("lifting/pull/options");
+            setBanks(res.data?.banks || []);
         } catch { }
     };
 
@@ -401,15 +429,69 @@ export default function LiftingRecordsPage() {
         }
     };
 
-    // PULL workflow is defined per house and will be wired here.
-    // For now the badge only acknowledges the click so it is clear it is interactive.
     const handlePull = (record: LiftingRecord) => {
-        toast(t("liftings.pull.placeholder", { amount: formatNumber(record.itopup_amount) }));
+        setPullTarget(record);
+    };
+
+    const pullBadge = (r: LiftingRecord, withStop = false) => {
+        if (!r.house?.show_pull_button || !hasPermission("lifting.pull")) return null;
+
+        const running = r.pull_status === "running";
+        const submitted = r.pull_status === "submitted";
+        const blocked = r.pull_status === "blocked";
+        const failed = r.pull_status === "failed";
+        const disabled = running || submitted;
+
+        let tone =
+            "border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-300 dark:hover:bg-primary-500/20";
+        if (submitted) {
+            tone = "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300";
+        } else if (blocked) {
+            tone = "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300";
+        } else if (failed) {
+            tone = "border-red-200 bg-red-50 text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300";
+        }
+
+        const title = running
+            ? t("liftings.pull.running_title")
+            : submitted
+              ? t("liftings.pull.already_submitted")
+              : blocked
+                ? t("liftings.pull.status_blocked")
+                : failed
+                  ? t("liftings.pull.status_failed")
+                  : t("liftings.pull.title");
+
+        return (
+            <button
+                type="button"
+                onClick={(e) => {
+                    if (withStop) e.stopPropagation();
+                    if (disabled) return;
+                    handlePull(r);
+                }}
+                disabled={disabled}
+                className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
+                    tone,
+                    disabled ? "cursor-not-allowed opacity-80" : "cursor-pointer"
+                )}
+                title={r.pull_rf_code ? `${title} • ${r.pull_rf_code}` : title}
+                aria-label={title}
+            >
+                {running && <Loader2 className="w-3 h-3 animate-spin" />}
+                {t("liftings.pull.button")}
+                {submitted && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                {blocked && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                {failed && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+            </button>
+        );
     };
 
     useEffect(() => {
         if (!authLoading && hasPermission("lifting.view")) {
             fetchHouses();
+            fetchBanks();
             fetchRecords({ silent: true });
         }
     }, [authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -879,16 +961,7 @@ export default function LiftingRecordsPage() {
                                                 <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">
                                                     <div className="flex items-center justify-end gap-1.5">
                                                         <span>{formatNumber(r.itopup_amount)}</span>
-                                                        {r.house?.show_pull_button && (
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); handlePull(r); }}
-                                                                className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-300 dark:hover:bg-primary-500/20 cursor-pointer"
-                                                                title={t("liftings.pull.title")}
-                                                                aria-label={t("liftings.pull.title")}
-                                                            >
-                                                                {t("liftings.pull.button")}
-                                                            </button>
-                                                        )}
+                                                        {pullBadge(r, true)}
                                                     </div>
                                                 </td>
                                                 <td className="px-2 py-1 text-center">
@@ -931,6 +1004,18 @@ export default function LiftingRecordsPage() {
                                                 <tr>
                                                     <td colSpan={10} className="px-3 py-3 bg-gray-50/50 dark:bg-slate-800/20">
                                                         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                                                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                                                                <span>
+                                                                    <span className="font-semibold text-gray-700 dark:text-gray-300">{t("liftings.fields.bank_name")}:</span>{" "}
+                                                                    {r.bank_name || "—"}
+                                                                </span>
+                                                                {r.pull_status === "submitted" && r.pull_rf_code && (
+                                                                    <span>
+                                                                        <span className="font-semibold text-gray-700 dark:text-gray-300">{t("liftings.pull.rf_code")}:</span>{" "}
+                                                                        <span className="font-mono">{r.pull_rf_code}</span>
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                             {r.notes && (
                                                                 <div className="text-sm text-gray-500 dark:text-gray-400">
                                                                     <span className="font-semibold text-gray-700 dark:text-gray-300">Notes:</span> {r.notes}
@@ -1025,6 +1110,16 @@ export default function LiftingRecordsPage() {
                                                     <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.total_bank_deposit)}</p>
                                                 </div>
                                                 <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-[11px] font-bold text-gray-400 uppercase">{t("liftings.fields.bank_name")}</p>
+                                                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200 text-right">{r.bank_name || "—"}</p>
+                                                </div>
+                                                {r.pull_status === "submitted" && r.pull_rf_code && (
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <p className="text-[11px] font-bold text-gray-400 uppercase">{t("liftings.pull.rf_code")}</p>
+                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{r.pull_rf_code}</p>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center justify-between gap-3">
                                                     <p className="text-[11px] font-bold text-gray-400 uppercase">Total Lifting</p>
                                                     <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.total_lifting_amount)}</p>
                                                 </div>
@@ -1032,16 +1127,7 @@ export default function LiftingRecordsPage() {
                                                     <p className="text-[11px] font-bold text-gray-400 uppercase">iTopUp</p>
                                                     <div className="flex items-center justify-end gap-1.5">
                                                         <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatNumber(r.itopup_amount)}</p>
-                                                        {r.house?.show_pull_button && (
-                                                            <button
-                                                                onClick={() => handlePull(r)}
-                                                                className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-bold tracking-wide text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-300 dark:hover:bg-primary-500/20 cursor-pointer"
-                                                                title={t("liftings.pull.title")}
-                                                                aria-label={t("liftings.pull.title")}
-                                                            >
-                                                                {t("liftings.pull.button")}
-                                                            </button>
-                                                        )}
+                                                        {pullBadge(r)}
                                                     </div>
                                                 </div>
                                                 {r.deposit_slip && (
@@ -1148,6 +1234,27 @@ export default function LiftingRecordsPage() {
                                     onChange={(e) => setEditBankDeposit(e.target.value)}
                                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 text-sm outline-none focus:ring-2 focus:ring-primary-500"
                                 />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+                                    {t("liftings.fields.bank_name")}
+                                </label>
+                                <select
+                                    value={editBankId}
+                                    onChange={(e) => setEditBankId(e.target.value)}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 text-sm outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                                >
+                                    <option value="">{t("liftings.fields.bank_name_placeholder")}</option>
+                                    {banks.map((bank) => (
+                                        <option key={bank.id} value={bank.id}>
+                                            {bank.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                                    {t("liftings.fields.bank_name_hint")}
+                                </p>
                             </div>
 
                             <div>
@@ -1349,6 +1456,15 @@ export default function LiftingRecordsPage() {
                     </div>
                 </div>
             )}
+
+            {/* PULL PreRF automation */}
+            <PullPreRFModal
+                open={!!pullTarget}
+                record={pullTarget}
+                isAdmin={isStrictAdmin}
+                onClose={() => setPullTarget(null)}
+                onCompleted={() => fetchRecords({ silent: true })}
+            />
 
             {/* Lightbox for Deposit Slip */}
             <ImageLightbox

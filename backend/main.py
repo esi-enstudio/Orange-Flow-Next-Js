@@ -72,6 +72,7 @@ from app.routers.rule_config import router as rule_config_router
 from app.routers.dms import router as dms_router
 from app.routers.products import router as products_router
 from app.routers.lifting import router as lifting_router
+from app.routers.lifting_pull import router as lifting_pull_router
 from app.routers.commission import router as commission_router
 from app.routers.bp_retailer_codes import router as bp_retailer_codes_router
 from app.routers.bp_targets import router as bp_targets_router
@@ -142,6 +143,7 @@ app.include_router(rule_config_router)
 app.include_router(dms_router)
 app.include_router(products_router)
 app.include_router(lifting_router)
+app.include_router(lifting_pull_router)
 app.include_router(commission_router)
 app.include_router(bp_retailer_codes_router)
 app.include_router(bp_targets_router)

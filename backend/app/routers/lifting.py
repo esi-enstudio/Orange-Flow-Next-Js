@@ -18,6 +18,7 @@ from app.models.lifting import LiftingRecord, LiftingProduct, LiftingStatus, Pay
 from app.models.product import Product
 from app.models.house import House
 from app.models.user import User
+from app.constants.dms import DMS_BANK_BY_ID, DMS_BANK_IDS
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
@@ -72,6 +73,15 @@ def _compute_lifting(
         "itopup_amount": itopup_amount,
         "products": computed_products,
     }
+
+
+def _resolve_bank(bank_id: Optional[int]) -> tuple[Optional[int], Optional[str]]:
+    """Validate the DMS BankId and resolve its display name."""
+    if bank_id is None:
+        return None, None
+    if bank_id not in DMS_BANK_IDS:
+        raise HTTPException(status_code=422, detail="Invalid DMS bank selection.")
+    return bank_id, DMS_BANK_BY_ID[bank_id]
 
 
 def _build_lifting_conditions(
@@ -537,6 +547,7 @@ async def create_lifting(
         total_bank_deposit=lifting_data.total_bank_deposit,
         products=selected,
     )
+    bank_id, bank_name = _resolve_bank(lifting_data.bank_id)
 
     # Persist record
     record = LiftingRecord(
@@ -550,6 +561,8 @@ async def create_lifting(
         status=LiftingStatus.CONFIRMED,
         notes=lifting_data.notes,
         deposit_slip=lifting_data.deposit_slip,
+        bank_id=bank_id,
+        bank_name=bank_name,
     )
     db.add(record)
 
@@ -624,6 +637,10 @@ async def update_lifting_record(
         record.notes = lifting_data.notes
     if lifting_data.deposit_slip is not None:
         record.deposit_slip = lifting_data.deposit_slip
+    if "bank_id" in lifting_data.model_fields_set:
+        bank_id, bank_name = _resolve_bank(lifting_data.bank_id)
+        record.bank_id = bank_id
+        record.bank_name = bank_name
     if lifting_data.status is not None:
         record.status = LiftingStatus(lifting_data.status)
     if lifting_data.total_bank_deposit is not None:

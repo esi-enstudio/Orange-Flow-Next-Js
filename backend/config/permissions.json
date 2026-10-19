@@ -109,7 +109,8 @@
         "lifting.delete",
         "lifting.approve",
         "lifting.import",
-        "lifting.export"
+        "lifting.export",
+        "lifting.pull"
       ]
     },
     "reports": {

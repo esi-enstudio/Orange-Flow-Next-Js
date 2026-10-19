@@ -37,6 +37,7 @@ class LiftingRecordBase(BaseModel):
     total_bank_deposit: float = Field(..., ge=0)
     notes: Optional[str] = None
     deposit_slip: Optional[str] = None
+    bank_id: Optional[int] = Field(None, ge=1, le=10)
 
 
 class LiftingRecordCreate(LiftingRecordBase):
@@ -51,6 +52,7 @@ class LiftingRecordUpdate(BaseModel):
     notes: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(Draft|Confirmed|Approved|Cancelled)$")
     deposit_slip: Optional[str] = None
+    bank_id: Optional[int] = Field(None, ge=1, le=10)
     products: Optional[List[LiftingProductCreate]] = None
 
 
@@ -61,6 +63,13 @@ class LiftingRecordSchema(LiftingRecordBase):
     itopup_amount: float
     status: str
     deposit_slip: Optional[str] = None
+    bank_name: Optional[str] = None
+    pull_status: Optional[str] = None
+    pull_rf_code: Optional[str] = None
+    pull_message: Optional[str] = None
+    pull_requested_at: Optional[datetime] = None
+    pull_completed_at: Optional[datetime] = None
+    pull_requested_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     house: Optional["HouseSchema"] = None
@@ -75,6 +84,35 @@ class LiftingPreviewResponse(BaseModel):
     remaining_amount: float
     itopup_amount: float
     products: List[dict]
+
+
+class LiftingPullRequest(BaseModel):
+    dry_run: bool = False
+
+
+class LiftingPullStartResponse(BaseModel):
+    success: bool = True
+    job_id: str
+    status: str = "started"
+    message: str
+
+
+class LiftingPullStatusResponse(BaseModel):
+    status: str = Field(..., description="running | complete | error | not_found")
+    events: List[dict] = Field(default_factory=list)
+    message: Optional[str] = None
+    result: Optional[dict] = None
+
+
+class LiftingPullResult(BaseModel):
+    outcome: str  # created | blocked_pending | blocked_rejected | dry_run_ok | failed
+    message: str
+    rf_code: Optional[str] = None
+    rf_date: Optional[str] = None
+    rf_status: Optional[str] = None
+    total_price: Optional[float] = None
+    requisition_sum: Optional[float] = None
+    dry_run: bool = False
 
 
 class HouseSchema(BaseModel):

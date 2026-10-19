@@ -8,6 +8,134 @@ RECEIVE_SIM_FROM_RETAILER_URL = f"{DMS_BASE_URL}/ReceiveSimFrRetailerSubmitView"
 
 MAX_TABLE_PAGES = 50
 
+PRERF_LIST_URL = f"{DMS_BASE_URL}/PreRF"
+
+
+def normalize_pre_rf_status(raw: str) -> str:
+    """Return a canonical-ish status label for a PreRF Product Status cell."""
+    text = (raw or "").strip()
+    lowered = text.lower()
+    if "pending" in lowered:
+        return "Pending"
+    if "reject" in lowered:
+        return "Rejected"
+    return text
+
+
+def evaluate_pre_rf_rows(rows: list[dict]) -> dict:
+    """Decide whether a new PreRF may be created.
+
+    Rules requested by the business:
+    - Any Pending row blocks a new request.
+    - The latest (first) Rejected row blocks a new request.
+    - No rows, or any other status, allows creation.
+    """
+    if not rows:
+        return {"blocked": False, "outcome": "ok", "row": None}
+
+    for row in rows:
+        if normalize_pre_rf_status(row.get("status", "")) == "Pending":
+            return {"blocked": True, "outcome": "blocked_pending", "row": row}
+
+    latest = rows[0]
+    if normalize_pre_rf_status(latest.get("status", "")) == "Rejected":
+        return {"blocked": True, "outcome": "blocked_rejected", "row": latest}
+
+    return {"blocked": False, "outcome": "ok", "row": None}
+
+
+async def get_pre_rf_rows(page: Page):
+    """Scrape all PreRF list rows from ``#DMS_datatable`` (with pagination).
+
+    Returns ``(rows, error_message)``. An empty list is valid when DMS has no
+    requests; a non-None error means the page could not be read reliably.
+    """
+    rows: list[dict] = []
+    seen = set()
+
+    try:
+        if "login" in (page.url or "").lower():
+            return None, "DMS session expired. Please reconnect the DMS session."
+
+        try:
+            await page.wait_for_selector(
+                "#DMS_datatable tbody, #DMSdatatable tbody",
+                state="attached",
+                timeout=30000,
+            )
+        except Exception:
+            # No table is a valid "no previous PreRF" state, but a login
+            # redirect or an error page is not.
+            if "login" in (page.url or "").lower():
+                return None, "DMS session expired. Please reconnect the DMS session."
+            html = (await page.content()).lower()
+            if "no data" in html or "no record" in html:
+                return [], None
+            return [], None
+
+        for _ in range(MAX_TABLE_PAGES):
+            soup = BeautifulSoup(await page.content(), "html.parser")
+            table = soup.find("table", id="DMS_datatable") or soup.find("table", id="DMSdatatable")
+            if not table:
+                break
+
+            headers = [th.get_text(" ", strip=True).lower() for th in table.find_all("th")]
+            status_idx = 3
+            for idx, header in enumerate(headers):
+                if "product status" in header or header.strip() == "status":
+                    status_idx = idx
+                    break
+
+            tbody = table.find("tbody")
+            added = 0
+            for tr in (tbody.find_all("tr") if tbody else []):
+                cols = tr.find_all("td")
+                if len(cols) <= status_idx:
+                    continue
+                texts = [c.get_text(" ", strip=True) for c in cols]
+                if not texts[0] or "no data" in texts[0].lower():
+                    continue
+
+                link = tr.find("a", href=True)
+                path = (link.get("href") or "").strip() if link else ""
+                if path.startswith("/"):
+                    details_url = f"{DMS_BASE_URL}{path}"
+                elif path.startswith("http"):
+                    details_url = path
+                else:
+                    details_url = None
+
+                key = (texts[0], texts[1] if len(texts) > 1 else "", texts[status_idx])
+                if key in seen:
+                    continue
+                seen.add(key)
+                added += 1
+
+                rows.append({
+                    "rf_code": texts[0].strip(),
+                    "rf_date": texts[1].strip() if len(texts) > 1 else "",
+                    "distributor": texts[2].strip() if len(texts) > 2 else "",
+                    "status": normalize_pre_rf_status(texts[status_idx]),
+                    "details_url": details_url,
+                })
+
+            next_btn = await page.query_selector("#DMS_datatable_next, #DMSdatatable_next")
+            if not next_btn:
+                break
+            btn_class = await next_btn.get_attribute("class") or ""
+            if "disabled" in btn_class:
+                break
+            if added == 0:
+                break
+            await next_btn.click()
+            await asyncio.sleep(1.2)
+
+        return rows, None
+
+    except Exception as e:
+        return None, f"Could not read the DMS PreRF list: {e}"
+
+
 def _normalize_receive_status(raw: str) -> str:
     """Normalize a status cell to DMS codes: S (Pending), A (Approved), R (Rejected)."""
     text = (raw or "").strip()

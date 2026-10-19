@@ -76,6 +76,11 @@ type SelectedProduct = {
     quantity: number;
 };
 
+type PullBank = {
+    id: number;
+    name: string;
+};
+
 type PreviewData = {
     total_lifting_amount: number;
     remaining_amount: number;
@@ -99,12 +104,14 @@ export default function CreateLiftingPage() {
 
     const [houses, setHouses] = useState<House[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [banks, setBanks] = useState<PullBank[]>([]);
     const [loading, setLoading] = useState(true);
 
     const [houseId, setHouseId] = useState<number | "">("");
     const [liftingDate, setLiftingDate] = useState(() => new Date().toISOString().split("T")[0]);
     const [paymentMethod, setPaymentMethod] = useState<"Cash" | "Credit">("Cash");
     const [bankDeposit, setBankDeposit] = useState("0");
+    const [bankId, setBankId] = useState<string>("");
     const [notes, setNotes] = useState("");
     const [depositSlip, setDepositSlip] = useState<string | null>(null);
     const [compressingSlip, setCompressingSlip] = useState(false);
@@ -156,9 +163,10 @@ export default function CreateLiftingPage() {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [housesRes, productsRes] = await Promise.allSettled([
+            const [housesRes, productsRes, banksRes] = await Promise.allSettled([
                 apiClient.get("houses/accessible"),
                 apiClient.get("products", { params: { status: "Active" } }),
+                apiClient.get("lifting/pull/options"),
             ]);
 
             if (housesRes.status === "fulfilled") {
@@ -173,6 +181,12 @@ export default function CreateLiftingPage() {
                 console.error("Failed to load products:", productsRes.reason);
                 const detail = productsRes.reason?.response?.data?.detail;
                 toast.error(detail || "Failed to load products");
+            }
+
+            if (banksRes.status === "fulfilled") {
+                setBanks(banksRes.value.data?.banks || []);
+            } else {
+                console.error("Failed to load DMS banks:", banksRes.reason);
             }
         } finally {
             setLoading(false);
@@ -228,6 +242,7 @@ export default function CreateLiftingPage() {
                 total_bank_deposit: Number(bankDeposit || 0),
                 notes: notes.trim() || null,
                 deposit_slip: depositSlip,
+                bank_id: bankId ? Number(bankId) : null,
                 products: selectedProducts.map((sp) => ({
                     product_id: sp.product.id,
                     quantity: sp.quantity,
@@ -253,6 +268,7 @@ export default function CreateLiftingPage() {
                 total_bank_deposit: Number(bankDeposit || 0),
                 notes: notes.trim() || null,
                 deposit_slip: depositSlip,
+                bank_id: bankId ? Number(bankId) : null,
                 products: selectedProducts.map((sp) => ({
                     product_id: sp.product.id,
                     quantity: sp.quantity,
@@ -272,6 +288,7 @@ export default function CreateLiftingPage() {
         setLiftingDate(new Date().toISOString().split("T")[0]);
         setPaymentMethod("Cash");
         setBankDeposit("0");
+        setBankId("");
         setNotes("");
         setSelectedProducts([]);
         setPreviewData(null);
@@ -538,6 +555,26 @@ export default function CreateLiftingPage() {
                         />
                     </div>
                     <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {t("liftings.fields.bank_name")}
+                        </label>
+                        <select
+                            value={bankId}
+                            onChange={(e) => setBankId(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 outline-none transition-all text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent cursor-pointer"
+                        >
+                            <option value="">{t("liftings.fields.bank_name_placeholder")}</option>
+                            {banks.map((bank) => (
+                                <option key={bank.id} value={bank.id}>
+                                    {bank.name}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                            {t("liftings.fields.bank_name_hint")}
+                        </p>
+                    </div>
+                    <div className="md:col-span-2 space-y-1.5">
                         <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Notes
                         </label>

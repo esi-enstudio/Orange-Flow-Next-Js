@@ -592,6 +592,42 @@ async def _migrate_lifting_deposit_slip():
     except Exception as e:
         logger.warning(f"Migration warning (lifting_records deposit_slip): {e}")
 
+
+async def _migrate_lifting_pull_fields():
+    """Add DMS PreRF bank + pull lifecycle columns to lifting_records."""
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='lifting_records'"
+            ))
+            existing = {row[0] for row in result.fetchall()}
+            wanted = {
+                "bank_id": "INTEGER",
+                "bank_name": "VARCHAR(120)",
+                "pull_status": "VARCHAR(20)",
+                "pull_rf_code": "VARCHAR(100)",
+                "pull_message": "TEXT",
+                "pull_requested_at": "TIMESTAMP WITHOUT TIME ZONE",
+                "pull_completed_at": "TIMESTAMP WITHOUT TIME ZONE",
+                "pull_requested_by": "INTEGER",
+            }
+            missing = {name: ddl for name, ddl in wanted.items() if name not in existing}
+            if not missing:
+                return
+            logger.info("Migrating lifting_records: adding DMS PreRF pull columns...")
+            clauses = ", ".join(
+                f"ADD COLUMN {name} {ddl}" for name, ddl in missing.items()
+            )
+            await conn.execute(text(f"ALTER TABLE lifting_records {clauses}"))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_lifting_records_pull_status "
+                "ON lifting_records (pull_status)"
+            ))
+            logger.info("Migration complete: lifting_records DMS PreRF pull columns")
+    except Exception as e:
+        logger.warning(f"Migration warning (lifting_records pull fields): {e}")
+
 async def _migrate_house_live_sync_enabled():
     """Add is_live_sync_enabled column to houses table (GA live sync toggle)."""
     try:
@@ -1572,6 +1608,7 @@ async def init_db():
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_stock_added()
         await _migrate_lifting_deposit_slip()
+        await _migrate_lifting_pull_fields()
         await _migrate_indexes()
         await _migrate_location_telemetry_columns()
         await _migrate_whatsapp_schedule_columns()

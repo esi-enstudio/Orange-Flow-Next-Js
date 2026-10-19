@@ -32,6 +32,18 @@ class LiftingRecord(Base):
     notes = Column(Text, nullable=True)
     deposit_slip = Column(Text, nullable=True)
 
+    # DMS PreRF bank selection (BankId from the DMS dropdown).
+    bank_id = Column(Integer, nullable=True)
+    bank_name = Column(String(120), nullable=True)
+
+    # DMS PreRF pull lifecycle (running/submitted/blocked/failed).
+    pull_status = Column(String(20), nullable=True, index=True)
+    pull_rf_code = Column(String(100), nullable=True)
+    pull_message = Column(Text, nullable=True)
+    pull_requested_at = Column(DateTime, nullable=True)
+    pull_completed_at = Column(DateTime, nullable=True)
+    pull_requested_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
     is_deleted = Column(Boolean, default=False, index=True)
     deleted_at = Column(DateTime, nullable=True)
     deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
