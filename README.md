@@ -295,6 +295,15 @@ Key variables in `.env`:
 | `SUPER_ADMIN_ID`     | Telegram super admin ID           |
 | `ENABLE_GA_SYNC`     | Enable auto activation sync       |
 | `HEADLESS_MODE`      | Browser automation visibility     |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Google Maps browser key (live-location map provider) |
+| `NEXT_PUBLIC_GOOGLE_MAPS_ALLOWED_ORIGINS` | Optional mirror of the key's GCP referrer list |
+
+> `NEXT_PUBLIC_*` variables are inlined by `next build`. Set them **before** the
+> frontend is built, then rebuild/restart — changing them only at runtime has no
+> effect. If `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is empty at build time, the Google
+> Maps provider is hidden and the app uses OpenStreetMap only. The key must also
+> list the deployed origin (`https://your-domain.com/*`) in Google Cloud Console →
+> Credentials → Application restrictions → Websites.
 
 ---
 
