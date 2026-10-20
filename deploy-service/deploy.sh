@@ -41,6 +41,21 @@ host_systemctl() {
   host systemctl "$@"
 }
 
+# Run `docker compose` against the project.
+#
+# The deploy-service image installs `docker-cli` only — it does NOT ship the
+# compose plugin. Calling `docker compose ...` inside this container therefore
+# fails with "unknown shorthand flag: 'f' in -f" (the CLI parses -f as a
+# top-level flag). The host has compose installed, so fall back to running the
+# host binary through host(), which already nsenter's into the host namespace.
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose -f "$PROJECT_DIR/docker-compose.yml" "$@"
+  else
+    host docker compose -f "$HOST_PROJECT_DIR/docker-compose.yml" "$@"
+  fi
+}
+
 LAST_STATUS_STATE="none"
 write_status() {
   local state="$1" exit_code="${2:-0}" message="${3:-}"
@@ -264,7 +279,7 @@ echo "--> Restarting frontend (docker: orange_flow_frontend)"
 # enabled made them race for port 3000 (EADDRINUSE) and crash-loop.
 if docker restart orange_flow_frontend >/dev/null 2>&1; then
   echo "==> Frontend restarted"
-elif docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d frontend; then
+elif compose up -d frontend; then
   echo "==> Frontend container started (was not running)"
 else
   echo "ERROR: Could not restart frontend container. The old " >&2
@@ -305,7 +320,7 @@ fi
 echo "--> Restarting backend (docker: orange_flow_backend)"
 if [ "$NEED_BACKEND_REBUILD" = true ]; then
   echo "    Rebuilding backend image (Dockerfile or docker-compose.yml changed)..."
-  if docker compose -f "$PROJECT_DIR/docker-compose.yml" build backend; then
+  if compose build backend; then
     echo "    Backend image rebuilt successfully"
   else
     echo "ERROR: Backend image rebuild failed" >&2
@@ -313,9 +328,18 @@ if [ "$NEED_BACKEND_REBUILD" = true ]; then
     echo "[DEPLOY_FAILED:backend_build_failed]"
     exit 5
   fi
-fi
-
-if docker restart orange_flow_backend; then
+  # `docker restart` reuses the EXISTING container, so it would keep running
+  # the old image even after a successful rebuild. Recreate the container from
+  # the freshly built image instead (--no-deps: db/redis are already handled).
+  if compose up -d --no-deps backend; then
+    echo "==> Backend recreated with the new image"
+  else
+    echo "ERROR: Could not recreate backend container with the new image" >&2
+    write_status "failed" 5 "backend container recreate failed"
+    echo "[DEPLOY_FAILED:backend_recreate_failed]"
+    exit 5
+  fi
+elif docker restart orange_flow_backend; then
   echo "==> Backend restarted"
 else
   echo "WARNING: Failed to restart backend container"
@@ -337,7 +361,7 @@ POST_PULL_DEPLOYSVC_MD5=$(cat "$PROJECT_DIR/deploy-service/server.js" \
 if [ -n "${PRE_PULL_DEPLOYSVC_MD5:-}" ] && [ "$PRE_PULL_DEPLOYSVC_MD5" != "${POST_PULL_DEPLOYSVC_MD5:-}" ]; then
   echo ""
   echo "--> Deploy service sources changed — rebuilding + recreating"
-  if docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d --build deploy-service; then
+  if compose up -d --build deploy-service; then
     echo "==> Deploy service rebuilt (log streaming for THIS deploy stops here; the new service is live)"
   else
     echo "WARNING: deploy-service rebuild failed — the previous version is still running" >&2
