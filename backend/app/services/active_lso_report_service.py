@@ -28,6 +28,7 @@ from app.models.itopup_detail import ITopUpDetail
 from app.models.retailer import Retailer
 from app.models.rso_target import RSOTarget
 from app.models.user import User
+from app.services.transaction_report_service import non_zero_value_condition
 from app.utils.access_control import is_admin_user
 
 logger = logging.getLogger("app.services.ActiveLsoReport")
@@ -547,6 +548,11 @@ class ActiveLsoReportService:
                 ITopUpDetail.retailer_id.in_(list(set(retailer_ids))),
                 ITopUpDetail.report_date >= start,
                 ITopUpDetail.report_date <= end,
+                # A 0/NULL daily_value means "no transaction that day" (some
+                # DMS files still emit a row for every retailer). Counting
+                # those rows as sales days pushed every retailer toward the
+                # day threshold and left the 0-6 Day buckets nearly empty.
+                non_zero_value_condition(),
             )
             .group_by(ITopUpDetail.retailer_id)
         )
