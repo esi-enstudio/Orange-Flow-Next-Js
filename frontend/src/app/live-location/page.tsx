@@ -49,7 +49,20 @@ const LiveLocationMap = dynamic(() => import("./_components/LiveLocationMap"), {
   ),
 });
 
+const GoogleLocationMap = dynamic(() => import("./_components/GoogleLocationMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full min-h-[420px] w-full items-center justify-center rounded-2xl bg-gray-100 dark:bg-slate-800">
+      <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+    </div>
+  ),
+});
+
 const LIST_PER_PAGE = 20;
+
+// Operators pick a map provider once; the choice survives reloads.
+type MapProvider = "osm" | "google";
+const MAP_PROVIDER_STORAGE_KEY = "live_location_map_provider";
 
 // Battery filter presets — low-battery triage thresholds an operator actually
 // acts on, instead of a single hardcoded value.
@@ -278,6 +291,7 @@ export default function LiveLocationPage() {
   const [exporting, setExporting] = useState(false);
 
   const [showTelemetry, setShowTelemetry] = useState(true);
+  const [mapProvider, setMapProvider] = useState<MapProvider>("osm");
 
   const filtersKey = `${houseId}|${debouncedSearch}|${employeeType}|${statusFilter}|${batteryBelow}`;
 
@@ -291,6 +305,25 @@ export default function LiveLocationPage() {
   useEffect(() => {
     setListPage(1);
   }, [filtersKey]);
+
+  // Restore the saved map provider (localStorage may be blocked in some browsers).
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(MAP_PROVIDER_STORAGE_KEY);
+      if (saved === "osm" || saved === "google") setMapProvider(saved);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const changeMapProvider = useCallback((provider: MapProvider) => {
+    setMapProvider(provider);
+    try {
+      window.localStorage.setItem(MAP_PROVIDER_STORAGE_KEY, provider);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Fetch accessible houses once.
   useEffect(() => {
@@ -455,6 +488,10 @@ export default function LiveLocationPage() {
     low_battery: t("live_location.map.legend_low_battery"),
     fullscreen: t("live_location.map.fullscreen"),
     exit_fullscreen: t("live_location.map.exit_fullscreen"),
+    google_loading: t("live_location.map.google_loading"),
+    google_error: t("live_location.map.google_error"),
+    google_auth_error: t("live_location.map.google_auth_error"),
+    switch_to_osm: t("live_location.map.switch_to_osm"),
   };
 
   const totalPages = Math.max(1, Math.ceil(items.length / LIST_PER_PAGE));
@@ -581,7 +618,7 @@ export default function LiveLocationPage() {
       {/* Map + detail */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="relative isolate flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5 dark:border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-2.5 dark:border-slate-800">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
               <Navigation className="h-4 w-4 text-emerald-500" />
               {t("live_location.map.legend")}
@@ -591,24 +628,82 @@ export default function LiveLocationPage() {
                 </span>
               )}
             </div>
-            <button
-              onClick={() => setFitSignal((s) => s + 1)}
-              className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-slate-800 dark:hover:text-gray-200"
-            >
-              <Crosshair className="h-3.5 w-3.5" />
-              {t("live_location.map.fit_all")}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <div
+                role="group"
+                aria-label={t("live_location.map.provider_label")}
+                className="flex items-center gap-0.5 rounded-xl border border-gray-200 bg-gray-50 p-0.5 dark:border-slate-800 dark:bg-slate-800/60"
+              >
+                {(["osm", "google"] as const).map((provider) => {
+                  const active = mapProvider === provider;
+                  return (
+                    <button
+                      key={provider}
+                      type="button"
+                      onClick={() => changeMapProvider(provider)}
+                      aria-pressed={active}
+                      title={t(
+                        provider === "osm"
+                          ? "live_location.map.provider_osm"
+                          : "live_location.map.provider_google"
+                      )}
+                      className={`flex min-h-[44px] cursor-pointer items-center rounded-lg px-2 py-1 text-xs font-semibold transition-colors sm:min-h-0 ${
+                        active
+                          ? "bg-white text-primary-700 shadow-sm dark:bg-slate-900 dark:text-primary-300"
+                          : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      }`}
+                    >
+                      <span className="hidden sm:inline">
+                        {t(
+                          provider === "osm"
+                            ? "live_location.map.provider_osm"
+                            : "live_location.map.provider_google"
+                        )}
+                      </span>
+                      <span className="sm:hidden">
+                        {t(
+                          provider === "osm"
+                            ? "live_location.map.provider_osm_short"
+                            : "live_location.map.provider_google_short"
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setFitSignal((s) => s + 1)}
+                className="flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 sm:min-h-0 dark:hover:bg-slate-800 dark:hover:text-gray-200"
+              >
+                <Crosshair className="h-3.5 w-3.5" />
+                {t("live_location.map.fit_all")}
+              </button>
+            </div>
           </div>
           <div className="min-h-0 w-full flex-1">
-            <LiveLocationMap
-              items={mapItems}
-              selectedId={selectedId}
-              onSelect={selectEmployee}
-              trail={trailPoints}
-              labels={mapLabels}
-              fitSignal={fitSignal}
-              emptyLabel={t("live_location.map.no_locations")}
-            />
+            {mapProvider === "google" ? (
+              <GoogleLocationMap
+                items={mapItems}
+                selectedId={selectedId}
+                onSelect={selectEmployee}
+                trail={trailPoints}
+                labels={mapLabels}
+                fitSignal={fitSignal}
+                emptyLabel={t("live_location.map.no_locations")}
+                onFallback={() => changeMapProvider("osm")}
+              />
+            ) : (
+              <LiveLocationMap
+                items={mapItems}
+                selectedId={selectedId}
+                onSelect={selectEmployee}
+                trail={trailPoints}
+                labels={mapLabels}
+                fitSignal={fitSignal}
+                emptyLabel={t("live_location.map.no_locations")}
+              />
+            )}
           </div>
         </div>
 

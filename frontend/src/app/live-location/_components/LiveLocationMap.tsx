@@ -1,37 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
-import { Maximize2, Minimize2 } from "lucide-react";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { employeeIdentifierValue } from "@/lib/employeeIdentifier";
-import { resolveImageUrl } from "@/lib/api";
+import {
+  avatarHtml,
+  batteryGlyph,
+  displayName,
+  escapeHtml,
+  identityCodes,
+  markerTitle,
+  MAP_CENTER,
+  pinColor,
+  type LiveMapItem,
+  type LiveMapLabels,
+} from "./liveMapShared";
+import { FullscreenButton, MapEmptyOverlay, MapLegend, useMapFullscreen } from "./MapChrome";
 
-export interface LiveMapItem {
-  employee_id: number;
-  employee_name?: string | null;
-  employee_type?: string | null;
-  dms_code?: string | null;
-  photo_url?: string | null;
-  // Identity card content — the map prints these into the marker's label.
-  itop_number?: string | null;
-  pool_number?: string | null;
-  latitude: number;
-  longitude: number;
-  battery_percent?: number | null;
-  battery_status: string;
-  is_online: boolean;
-}
-
-export interface LiveMapLabels {
-  legend: string;
-  online: string;
-  offline: string;
-  low_battery: string;
-  fullscreen: string;
-  exit_fullscreen: string;
-}
+// The map item/label types are shared with the Google Maps implementation.
+export type { LiveMapItem, LiveMapLabels } from "./liveMapShared";
 
 interface Props {
   items: LiveMapItem[];
@@ -43,12 +31,7 @@ interface Props {
   emptyLabel: string;
 }
 
-const DHAAKU_CENTER: [number, number] = [23.8103, 90.4125];
-
-function pinColor(item: LiveMapItem): string {
-  if (item.battery_status === "low") return "#f59e0b";
-  return item.is_online ? "#10b981" : "#64748b";
-}
+const DHAAKU_CENTER: [number, number] = [MAP_CENTER.lat, MAP_CENTER.lng];
 
 function pinIcon(item: LiveMapItem, selected: boolean) {
   const color = pinColor(item);
@@ -88,87 +71,6 @@ const LABEL_WIDTH = 176;
 const LABEL_HEIGHT = 68;
 
 /**
- * divIcon HTML is assigned with innerHTML, and employee names/dms codes come
- * from imported spreadsheets, so every interpolated value must be escaped.
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-/** Falls back to generated initials when the employee has no profile photo. */
-function initialsOf(item: LiveMapItem): string {
-  const words = (item.employee_name || "").trim().split(/\s+/).filter(Boolean);
-  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toLocaleUpperCase();
-  if (words.length === 1) return words[0].slice(0, 2).toLocaleUpperCase();
-  const code = (item.dms_code || "").trim();
-  if (code) return code.slice(0, 2).toLocaleUpperCase();
-  return "#";
-}
-
-/**
- * Identity-card avatar: the employee's profile photo when present, otherwise a
- * colour-coded initials circle. The initials stay painted underneath the image
- * so a missing/broken photo silently degrades to them — divIcon HTML is raw
- * innerHTML and cannot fall back through React state.
- */
-function avatarHtml(item: LiveMapItem, color: string): string {
-  const photo = resolveImageUrl(item.photo_url);
-  const initials = escapeHtml(initialsOf(item));
-  const base =
-    "flex:0 0 auto;position:relative;width:22px;height:22px;border-radius:9999px;overflow:hidden;" +
-    `background:${color};color:#ffffff;font-size:10px;font-weight:700;line-height:1;` +
-    "display:flex;align-items:center;justify-content:center;";
-  if (!photo) return `<span style="${base}">${initials}</span>`;
-  return `<span style="${base}">${initials}<img src="${escapeHtml(photo)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'" /></span>`;
-}
-
-/**
- * Battery colours follow the same palette as the page's battery chip:
- * blue while charging, amber below the low threshold, green when healthy.
- */
-function batteryColor(item: LiveMapItem): string {
-  if (item.battery_status === "charging") return "#3b82f6";
-  if (item.battery_status === "low") return "#f59e0b";
-  if (item.battery_percent != null) return "#059669";
-  return "#94a3b8";
-}
-
-/**
- * Tiny SVG battery for the identity card — divIcon HTML cannot use React
- * components, so the shell/fill are drawn inline. The fill width mirrors
- * `battery_percent`; while charging a bolt replaces the fill, matching the
- * BatteryCharging icon used elsewhere on the page.
- */
-function batteryGlyph(item: LiveMapItem): string {
-  const color = batteryColor(item);
-  const pct =
-    item.battery_percent == null
-      ? null
-      : Math.max(0, Math.min(100, item.battery_percent));
-  const inner =
-    item.battery_status === "charging"
-      ? `<path d="M7.6 1.6 L4.1 5.5 H6.3 L5.1 8.4 L8.6 4.5 H6.4 Z" fill="${color}"/>`
-      : `<rect x="2" y="2" width="${pct == null ? 0 : ((pct / 100) * 9).toFixed(1)}" height="6" rx="1" fill="${color}"/>`;
-
-  return `
-    <span style="display:inline-flex;align-items:center;gap:3px;flex:0 0 auto;">
-      <svg width="15" height="10" viewBox="0 0 15 10" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <rect x="0.5" y="0.5" width="12" height="9" rx="2" fill="none" stroke="${color}" stroke-width="1"/>
-        <rect x="13.8" y="3.2" width="1.2" height="3.6" rx="0.6" fill="${color}"/>
-        ${inner}
-      </svg>
-      <span style="font-size:10px;font-weight:600;line-height:12px;color:${color};white-space:nowrap;">${
-        pct == null ? "—" : `${Math.round(pct)}%`
-      }</span>
-    </span>`;
-}
-
-/**
  * Pin with an always-visible identity card above it: avatar, name, the
  * DMS / iTopUp (or pool) numbers plus the live status (online/offline) and
  * battery level, so the operator can read who is where and how each device is
@@ -179,18 +81,11 @@ function labelIcon(item: LiveMapItem, selected: boolean, labels: LiveMapLabels) 
   const color = pinColor(item);
   const size = selected ? 34 : 26;
   const pinHeight = Math.round(size * 1.38);
-  const name =
-    (item.employee_name || "").trim() || item.dms_code || `#${item.employee_id}`;
-  const codes = [item.dms_code, employeeIdentifierValue(item)]
-    .filter(Boolean)
-    .join(" · ");
+  const name = displayName(item);
+  const codes = identityCodes(item);
   const statusLabel = item.is_online ? labels.online : labels.offline;
   const statusColor = item.is_online ? "#059669" : "#64748b";
-  const batteryLabel =
-    item.battery_percent != null ? `${Math.round(item.battery_percent)}%` : "";
-  const accessibleName = [codes ? `${name} (${codes})` : name, statusLabel, batteryLabel]
-    .filter(Boolean)
-    .join(" · ");
+  const accessibleName = markerTitle(item, labels);
 
   const html = `
     <div style="position:relative;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 3px rgba(15,23,42,.35));">
@@ -316,36 +211,10 @@ export default function LiveLocationMap({
     (i) => Number.isFinite(i.latitude) && Number.isFinite(i.longitude)
   );
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [canFullscreen, setCanFullscreen] = useState(false);
+  const { isFullscreen, canFullscreen, toggleFullscreen } = useMapFullscreen(rootRef);
   // Zoom at which the marker's identity card becomes visible; published by
   // ZoomWatcher so marker icons can be swapped without re-mounting the map.
   const [zoom, setZoom] = useState<number>(7);
-
-  useEffect(() => {
-    setCanFullscreen(
-      typeof document !== "undefined" &&
-        document.fullscreenEnabled === true &&
-        typeof document.documentElement.requestFullscreen === "function"
-    );
-    const onChange = () => setIsFullscreen(document.fullscreenElement === rootRef.current);
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
-
-  const toggleFullscreen = useCallback(async () => {
-    const el = rootRef.current;
-    if (!el) return;
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await el.requestFullscreen();
-      }
-    } catch {
-      /* Fullscreen can be blocked by the browser; ignore. */
-    }
-  }, []);
 
   // Identity cards are drawn at zoom >= LABEL_MIN_ZOOM so they never pile on
   // top of each other, but the employee the operator picked always keeps it.
@@ -401,47 +270,16 @@ export default function LiveLocationMap({
         <ZoomWatcher onZoom={setZoom} />
       </MapContainer>
 
-      {canFullscreen && (
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          title={isFullscreen ? labels.exit_fullscreen : labels.fullscreen}
-          aria-label={isFullscreen ? labels.exit_fullscreen : labels.fullscreen}
-          className="absolute right-3 top-3 z-[1000] flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200/80 bg-white/95 px-3 py-2.5 text-xs font-semibold text-gray-600 shadow-lg backdrop-blur transition-colors hover:bg-gray-100 sm:min-h-0 dark:border-slate-700 dark:bg-slate-900/95 dark:text-gray-300 dark:hover:bg-slate-800"
-        >
-          {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          <span className="hidden sm:inline">
-            {isFullscreen ? labels.exit_fullscreen : labels.fullscreen}
-          </span>
-        </button>
-      )}
+      <FullscreenButton
+        canFullscreen={canFullscreen}
+        isFullscreen={isFullscreen}
+        labels={labels}
+        onToggle={toggleFullscreen}
+      />
 
-      {!hasPoints && (
-        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-white/70 dark:bg-slate-950/60 backdrop-blur-[1px]">
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{emptyLabel}</p>
-        </div>
-      )}
+      {!hasPoints && <MapEmptyOverlay label={emptyLabel} />}
 
-      {/* Legend */}
-      <div className="pointer-events-none absolute bottom-4 left-4 z-[1000] rounded-xl border border-gray-200/80 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-          {labels.legend}
-        </p>
-        <div className="space-y-1">
-          <LegendRow color="#10b981" label={labels.online} />
-          <LegendRow color="#64748b" label={labels.offline} />
-          <LegendRow color="#f59e0b" label={labels.low_battery} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LegendRow({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
-      <span className="text-xs font-medium text-gray-600 dark:text-gray-300">{label}</span>
+      <MapLegend labels={labels} />
     </div>
   );
 }

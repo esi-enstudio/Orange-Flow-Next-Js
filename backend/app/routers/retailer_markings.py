@@ -394,10 +394,17 @@ async def list_retailers_with_markings(
         )
     if pagination.search:
         p = f"%{pagination.search}%"
+        # Retailer fields plus the linked RSO/BP (employee) fields, so the search
+        # box finds a retailer by its owner's name, DMS code or iTop number too.
         query = query.where(
             (Retailer.name.ilike(p))
             | (Retailer.retailer_code.ilike(p))
             | (Retailer.itop_number.ilike(p))
+            | Retailer.employee.has(
+                (Employee.employee_name.ilike(p))
+                | (Employee.dms_code.ilike(p))
+                | (Employee.itop_number.ilike(p))
+            )
         )
     if enabled_only:
         query = query.where(Retailer.enabled.in_(["Yes", "Y"]))

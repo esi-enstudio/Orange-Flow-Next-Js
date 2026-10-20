@@ -387,6 +387,16 @@ export const translations = {
         loading: "Loading map...",
         fullscreen: "Full screen",
         exit_fullscreen: "Exit full screen",
+        provider_label: "Map provider",
+        provider_osm: "OpenStreetMap",
+        provider_google: "Google Maps",
+        provider_osm_short: "OSM",
+        provider_google_short: "Google",
+        google_loading: "Loading Google Maps...",
+        google_error: "Google Maps could not be loaded. Check the map API key.",
+        google_auth_error:
+          "Google Maps rejected this API key for this site. Add this page's URL to the key's HTTP referrer restrictions in Google Cloud Console.",
+        switch_to_osm: "Use OpenStreetMap",
       },
       time: {
         just_now: "Just now",
@@ -1301,6 +1311,8 @@ export const translations = {
       // Filters / states
       search_placeholder: "Search by name or code...",
       search_retailers: "Search retailers...",
+      search_retailers_placeholder:
+        "Retailer name, code, iTop — or RSO name, DMS code, iTop...",
       all_status: "All Status",
       all_markings: "All Markings",
       all_houses: "All houses",
@@ -4984,6 +4996,16 @@ employees: "Employees",
         loading: "ম্যাপ লোড হচ্ছে...",
         fullscreen: "ফুল স্ক্রিন",
         exit_fullscreen: "ফুল স্ক্রিন থেকে বের হন",
+        provider_label: "ম্যাপ প্রোভাইডার",
+        provider_osm: "ওপেনস্ট্রিটম্যাপ",
+        provider_google: "গুগল ম্যাপ",
+        provider_osm_short: "OSM",
+        provider_google_short: "গুগল",
+        google_loading: "গুগল ম্যাপ লোড হচ্ছে...",
+        google_error: "গুগল ম্যাপ লোড করা যায়নি। ম্যাপ API কী যাচাই করুন।",
+        google_auth_error:
+          "গুগল ম্যাপ এই সাইটের জন্য API কী গ্রহণ করেনি। Google Cloud Console-এ কী-এর HTTP referrer restriction-এ এই পেজের URL যোগ করুন।",
+        switch_to_osm: "ওপেনস্ট্রিটম্যাপ ব্যবহার করুন",
       },
       time: {
         just_now: "এখনই",
@@ -5930,6 +5952,8 @@ employees: "Employees",
       // Filters / states
       search_placeholder: "নাম বা কোড দিয়ে খুঁজুন...",
       search_retailers: "রিটেইলার খুঁজুন...",
+      search_retailers_placeholder:
+        "রিটেইলার নাম, কোড, আইটপ — অথবা RSO নাম, ডিএমএস কোড, আইটপ...",
       all_status: "সব স্ট্যাটাস",
       all_markings: "সব মার্কিং",
       all_houses: "সব হাউস",
