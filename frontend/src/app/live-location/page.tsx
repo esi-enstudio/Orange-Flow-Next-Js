@@ -39,6 +39,7 @@ import {
   X,
 } from "lucide-react";
 import type { LiveMapItem, LiveMapLabels } from "./_components/LiveLocationMap";
+import { googleMapsApiKey, googleMapsUnavailableReason } from "@/lib/googleMaps";
 
 const LiveLocationMap = dynamic(() => import("./_components/LiveLocationMap"), {
   ssr: false,
@@ -63,6 +64,8 @@ const LIST_PER_PAGE = 20;
 // Operators pick a map provider once; the choice survives reloads.
 type MapProvider = "osm" | "google";
 const MAP_PROVIDER_STORAGE_KEY = "live_location_map_provider";
+// Google Maps is only offered when a browser key exists for this build.
+const MAP_PROVIDERS: readonly MapProvider[] = googleMapsApiKey() ? ["osm", "google"] : ["osm"];
 
 // Battery filter presets — low-battery triage thresholds an operator actually
 // acts on, instead of a single hardcoded value.
@@ -310,7 +313,10 @@ export default function LiveLocationPage() {
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(MAP_PROVIDER_STORAGE_KEY);
-      if (saved === "osm" || saved === "google") setMapProvider(saved);
+      if (saved === "osm") setMapProvider("osm");
+      // A provider Google rejected for this address is not restored: the page
+      // opens on OpenStreetMap instead of replaying the same key error.
+      else if (saved === "google" && googleMapsUnavailableReason() === null) setMapProvider("google");
     } catch {
       /* ignore */
     }
@@ -490,8 +496,11 @@ export default function LiveLocationPage() {
     exit_fullscreen: t("live_location.map.exit_fullscreen"),
     google_loading: t("live_location.map.google_loading"),
     google_error: t("live_location.map.google_error"),
-    google_auth_error: t("live_location.map.google_auth_error"),
+    google_no_key: t("live_location.map.google_no_key"),
+    google_origin_not_allowed: t("live_location.map.google_origin_not_allowed"),
+    google_key_rejected: t("live_location.map.google_key_rejected"),
     switch_to_osm: t("live_location.map.switch_to_osm"),
+    retry: t("live_location.map.retry"),
   };
 
   const totalPages = Math.max(1, Math.ceil(items.length / LIST_PER_PAGE));
@@ -634,7 +643,7 @@ export default function LiveLocationPage() {
                 aria-label={t("live_location.map.provider_label")}
                 className="flex items-center gap-0.5 rounded-xl border border-gray-200 bg-gray-50 p-0.5 dark:border-slate-800 dark:bg-slate-800/60"
               >
-                {(["osm", "google"] as const).map((provider) => {
+                {MAP_PROVIDERS.map((provider) => {
                   const active = mapProvider === provider;
                   return (
                     <button

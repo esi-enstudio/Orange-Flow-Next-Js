@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Loader2, ShieldAlert } from "lucide-react";
-import { googleMapsApiKey, loadGoogleMaps } from "@/lib/googleMaps";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Loader2, RefreshCw, ShieldAlert } from "lucide-react";
+import {
+  clearGoogleMapsKeyRejection,
+  GoogleMapsUnavailableError,
+  googleMapsApiKey,
+  googleMapsReferrerPattern,
+  googleMapsUnavailableReason,
+  loadGoogleMaps,
+  markGoogleMapsKeyRejected,
+  type GoogleMapsUnavailableReason,
+} from "@/lib/googleMaps";
 import { FullscreenButton, MapEmptyOverlay, MapLegend, useMapFullscreen } from "./MapChrome";
 import {
   avatarHtml,
@@ -123,11 +132,22 @@ export default function GoogleLocationMap({
     labelsRef.current = labels;
   });
 
-  const [status, setStatus] = useState<"loading" | "ready" | "error" | "auth-error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "error" | "blocked">("loading");
+  const [blockedReason, setBlockedReason] = useState<GoogleMapsUnavailableReason | null>(null);
   const { isFullscreen, canFullscreen, toggleFullscreen } = useMapFullscreen(rootRef);
 
+  const blockGoogleMaps = useCallback((reason: GoogleMapsUnavailableReason) => {
+    setBlockedReason(reason);
+    setStatus("blocked");
+  }, []);
+
   // Registered before the script loads so the very first auth failure is caught.
-  useGoogleAuthFailure(() => setStatus("auth-error"));
+  // The rejection is remembered per origin, so later visits skip the script
+  // instead of asking Google for the same error again.
+  useGoogleAuthFailure(() => {
+    markGoogleMapsKeyRejected();
+    blockGoogleMaps("key_rejected");
+  });
 
   const hasPoints = items.some(validPoint);
   // The page rebuilds the labels object every render; the signatures keep the
@@ -137,12 +157,15 @@ export default function GoogleLocationMap({
   // Create the map once. `@googlemaps/js-api-loader` is not used — the script is
   // injected by `loadGoogleMaps` so there is a single loader for the whole app.
   useEffect(() => {
-    const apiKey = googleMapsApiKey();
-    if (!apiKey) {
-      setStatus("error");
+    // Never inject the script on a build/origin where the key cannot work: the
+    // guard turns Google's console error into an actionable in-app message.
+    const unavailable = googleMapsUnavailableReason();
+    if (unavailable) {
+      blockGoogleMaps(unavailable);
       return;
     }
 
+    const apiKey = googleMapsApiKey();
     let cancelled = false;
     loadGoogleMaps(apiKey)
       .then(() => {
@@ -166,14 +189,19 @@ export default function GoogleLocationMap({
         }
         setStatus("ready");
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        if (error instanceof GoogleMapsUnavailableError) {
+          blockGoogleMaps(error.reason);
+        } else {
+          setStatus("error");
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [blockGoogleMaps]);
 
   // Sync markers with the live data and the current selection.
   useEffect(() => {
@@ -353,19 +381,46 @@ export default function GoogleLocationMap({
         </div>
       )}
 
-      {status === "auth-error" && (
+      {status === "blocked" && (
         <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-3 bg-white/95 px-6 text-center backdrop-blur-[1px] dark:bg-slate-950/85">
           <ShieldAlert className="h-6 w-6 text-amber-500" />
-          <p className="max-w-sm text-sm font-medium text-gray-600 dark:text-gray-300">{labels.google_auth_error}</p>
-          {onFallback && (
-            <button
-              type="button"
-              onClick={onFallback}
-              className="flex min-h-[44px] cursor-pointer items-center rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
-            >
-              {labels.switch_to_osm}
-            </button>
-          )}
+          <p className="max-w-sm text-sm font-medium text-gray-600 dark:text-gray-300">
+            {blockedReason === "no_key"
+              ? labels.google_no_key
+              : blockedReason === "origin_not_allowed"
+                ? labels.google_origin_not_allowed
+                : labels.google_key_rejected}
+          </p>
+          {(blockedReason === "key_rejected" || blockedReason === "origin_not_allowed") &&
+            googleMapsReferrerPattern() && (
+              <code className="max-w-full break-all rounded-lg bg-gray-100 px-2.5 py-1.5 text-[11px] font-semibold text-gray-600 dark:bg-slate-800 dark:text-gray-300">
+                {googleMapsReferrerPattern()}
+              </code>
+            )}
+          <div className="flex flex-col items-center gap-2 sm:flex-row">
+            {onFallback && (
+              <button
+                type="button"
+                onClick={onFallback}
+                className="flex min-h-[44px] cursor-pointer items-center rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+              >
+                {labels.switch_to_osm}
+              </button>
+            )}
+            {blockedReason === "key_rejected" && (
+              <button
+                type="button"
+                onClick={() => {
+                  clearGoogleMapsKeyRejection();
+                  window.location.reload();
+                }}
+                className="flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:text-gray-300 dark:hover:bg-slate-800"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {labels.retry}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

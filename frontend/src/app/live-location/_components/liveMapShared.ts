@@ -33,12 +33,18 @@ export interface LiveMapLabels {
   exit_fullscreen: string;
   /** Shown while the Google Maps script is still downloading. */
   google_loading: string;
-  /** Shown when the Google Maps script could not be loaded. */
+  /** Shown when the Google Maps script could not be loaded (network, timeout). */
   google_error: string;
-  /** Shown when Google rejects the API key for this page's address (referrer). */
-  google_auth_error: string;
+  /** No browser key is configured for this build. */
+  google_no_key: string;
+  /** The current address is not in the key's allowed origins. */
+  google_origin_not_allowed: string;
+  /** Google refused the key for this address (RefererNotAllowedMapError). */
+  google_key_rejected: string;
   /** Button that falls back to the OpenStreetMap provider. */
   switch_to_osm: string;
+  /** Button that clears the remembered rejection and reloads the page. */
+  retry: string;
 }
 
 /** Dhaka — where the map opens before the first "fit all". */

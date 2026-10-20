@@ -394,9 +394,13 @@ export const translations = {
         provider_google_short: "Google",
         google_loading: "Loading Google Maps...",
         google_error: "Google Maps could not be loaded. Check the map API key.",
-        google_auth_error:
-          "Google Maps rejected this API key for this site. Add this page's URL to the key's HTTP referrer restrictions in Google Cloud Console.",
+        google_no_key: "Google Maps is not configured for this build. Use OpenStreetMap instead.",
+        google_origin_not_allowed:
+          "Google Maps is not enabled for this address. Authorize the referrer below for the map key, or use OpenStreetMap.",
+        google_key_rejected:
+          "Google Maps rejected the map key for this address. Add the referrer below to the key's HTTP referrer restrictions in Google Cloud Console.",
         switch_to_osm: "Use OpenStreetMap",
+        retry: "Try again",
       },
       time: {
         just_now: "Just now",
@@ -5003,9 +5007,13 @@ employees: "Employees",
         provider_google_short: "গুগল",
         google_loading: "গুগল ম্যাপ লোড হচ্ছে...",
         google_error: "গুগল ম্যাপ লোড করা যায়নি। ম্যাপ API কী যাচাই করুন।",
-        google_auth_error:
-          "গুগল ম্যাপ এই সাইটের জন্য API কী গ্রহণ করেনি। Google Cloud Console-এ কী-এর HTTP referrer restriction-এ এই পেজের URL যোগ করুন।",
+        google_no_key: "এই বিল্ডে গুগল ম্যাপ কনফিগার করা নেই। এর বদলে ওপেনস্ট্রিটম্যাপ ব্যবহার করুন।",
+        google_origin_not_allowed:
+          "এই ঠিকানার জন্য গুগল ম্যাপ চালু নেই। ম্যাপ কী-এর জন্য নিচের referrer অনুমোদন করুন, অথবা ওপেনস্ট্রিটম্যাপ ব্যবহার করুন।",
+        google_key_rejected:
+          "গুগল ম্যাপ এই ঠিকানার জন্য ম্যাপ কী গ্রহণ করেনি। Google Cloud Console-এ কী-এর HTTP referrer restriction-এ নিচের referrer যোগ করুন।",
         switch_to_osm: "ওপেনস্ট্রিটম্যাপ ব্যবহার করুন",
+        retry: "আবার চেষ্টা করুন",
       },
       time: {
         just_now: "এখনই",

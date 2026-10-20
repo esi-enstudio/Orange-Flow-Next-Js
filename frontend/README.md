@@ -51,3 +51,22 @@ src/
 ## Page Count
 
 30+ pages covering: auth (1), dashboard (1), CRUD modules (7), targets (3), import (6), reports (5), marking (1), settings (1), BTS (1).
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local`. The Google Maps section controls the
+live-location map provider:
+
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Production browser key. Restrict it by HTTP referrer to the deployed origins. |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_DEV` | Optional localhost-friendly key used only by `next dev`. |
+| `NEXT_PUBLIC_GOOGLE_MAPS_ALLOWED_ORIGINS` | Optional mirror of the key's referrer list. Origins not listed never load Google Maps. |
+
+A browser key only works on origins listed under **Google Cloud Console →
+APIs & Services → Credentials → API key → Application restrictions → Websites**.
+If the site address is missing there, Google answers with
+`RefererNotAllowedMapError`; the app now skips a rejected key, remembers it per
+origin and falls back to OpenStreetMap instead of replaying the error. Add the
+pattern shown in the map panel (e.g. `http://localhost:3000/*`) and press
+**Try again**.
