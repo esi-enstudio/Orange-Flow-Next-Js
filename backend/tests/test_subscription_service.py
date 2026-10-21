@@ -90,7 +90,14 @@ async def test_upgrade_creates_proration(db, house, plan):
     assert result["is_upgrade"] is True
     assert result["prorated_invoice"] is not None
     assert sub.package_id == expensive.id
+    # The cached relationship must follow the FK (no stale plan in this session).
+    assert sub.package.id == expensive.id
     assert sub.status == "active"
+    # Audit trail: from = old plan, to = new plan.
+    log = (await _logs(db))[-1]
+    assert log.change_type == "upgraded"
+    assert log.from_plan_id == cheap.id
+    assert log.to_plan_id == expensive.id
 
 
 async def test_downgrade_no_immediate_invoice(db, house, plan):
@@ -102,6 +109,11 @@ async def test_downgrade_no_immediate_invoice(db, house, plan):
     assert result["is_upgrade"] is False
     assert result["prorated_invoice"] is None
     assert sub.package_id == cheap.id
+    assert sub.package.id == cheap.id
+    log = (await _logs(db))[-1]
+    assert log.change_type == "downgraded"
+    assert log.from_plan_id == expensive.id
+    assert log.to_plan_id == cheap.id
 
 
 async def test_change_to_same_plan(db, house, plan):

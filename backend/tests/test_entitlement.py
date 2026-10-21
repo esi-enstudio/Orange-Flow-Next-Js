@@ -84,6 +84,10 @@ async def test_has_plan_fallback(db, house, plan):
     legacy = await make_sub(db, house.id, plan, trial_days=0)
     legacy.package_id = None
     await db.commit()
+    # `package` is eager-loaded, so re-read it from the FK value instead of
+    # reusing the plan cached on the identity-mapped object.
+    db.expunge_all()
+    legacy = await get_house_subscription(db, house.id)
     assert has_plan_fallback(legacy) is True
     regular = await make_sub(db, house.id, plan, trial_days=0)
     assert has_plan_fallback(regular) is False
@@ -96,6 +100,9 @@ async def test_feature_enabled(db, house, plan):
     legacy = await make_sub(db, house.id, plan, trial_days=0)
     legacy.package_id = None
     await db.commit()
+    # Same reason: reload the subscription so `package` follows package_id.
+    db.expunge_all()
+    legacy = await get_house_subscription(db, house.id)
     assert feature_enabled(legacy, "anything") is True
 
 

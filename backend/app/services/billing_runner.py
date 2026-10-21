@@ -18,6 +18,7 @@ from typing import Optional
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from config.settings import settings
 from app.models.subscription import HouseSubscription
@@ -49,7 +50,9 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
     # ---- 1. auto-renewal invoice issuance -----------------------------------
     cutoff = now + timedelta(days=settings.BILLING_RENEWAL_REMINDER_DAYS)
     result = await db.execute(
-        select(HouseSubscription).where(
+        select(HouseSubscription)
+        .options(selectinload(HouseSubscription.package))
+        .where(
             HouseSubscription.is_deleted == False,  # noqa: E712
             HouseSubscription.auto_renew == True,  # noqa: E712
             HouseSubscription.status.in_(["active", "trialing"]),
@@ -85,7 +88,9 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
     # ---- 1b. trial-ending reminders -----------------------------------------
     trial_cutoff = now + timedelta(days=settings.BILLING_TRIAL_END_REMINDER_DAYS)
     result = await db.execute(
-        select(HouseSubscription).where(
+        select(HouseSubscription)
+        .options(selectinload(HouseSubscription.package))
+        .where(
             HouseSubscription.is_deleted == False,  # noqa: E712
             HouseSubscription.status == "trialing",
             HouseSubscription.trial_end.is_not(None),
@@ -100,7 +105,9 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
 
     # ---- 2. past due ---------------------------------------------------------
     result = await db.execute(
-        select(HouseSubscription).where(
+        select(HouseSubscription)
+        .options(selectinload(HouseSubscription.package))
+        .where(
             HouseSubscription.is_deleted == False,  # noqa: E712
             HouseSubscription.status.in_(["active", "trialing"]),
             HouseSubscription.current_period_end < now,
@@ -129,7 +136,9 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
 
     # ---- 3. expire past grace period ----------------------------------------
     result = await db.execute(
-        select(HouseSubscription).where(
+        select(HouseSubscription)
+        .options(selectinload(HouseSubscription.package))
+        .where(
             HouseSubscription.is_deleted == False,  # noqa: E712
             HouseSubscription.status == "past_due",
             HouseSubscription.grace_period_end.is_not(None),
@@ -176,5 +185,5 @@ async def billing_loop():
             logger.info("Billing scheduler stopped")
             raise
         except Exception as exc:
-            logger.warning("billing cycle error: %s", exc)
+            logger.warning("billing cycle error: %s", exc, exc_info=True)
         await asyncio.sleep(BILLING_INTERVAL_SECONDS)

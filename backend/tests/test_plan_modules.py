@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.services.entitlement import (
     allowed_modules,
     api_path_allowed,
+    get_house_subscription,
     has_plan_fallback,
     module_enabled,
     module_gated,
@@ -37,6 +38,10 @@ async def test_no_plan_fallback_is_unrestricted(db, house, plan):
     sub = await make_sub(db, house.id, plan, trial_days=0)
     sub.package_id = None
     await db.commit()
+    # `package` is eager-loaded, so re-read it from the FK value instead of
+    # reusing the plan cached on the identity-mapped object.
+    db.expunge_all()
+    sub = await get_house_subscription(db, house.id)
     assert has_plan_fallback(sub) is True
     assert allowed_modules(sub) is None
     assert module_enabled(sub, "anything") is True

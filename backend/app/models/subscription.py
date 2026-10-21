@@ -71,7 +71,10 @@ class HouseSubscription(Base):
     house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
 
     package_id = Column(Integer, ForeignKey("subscription_packages.id"), nullable=True)
-    package = relationship("SubscriptionPackage", back_populates="subscriptions")
+    # Always eager-load the plan: subscription objects are read all over the
+    # async app (billing runner, notifications, webhook, admin), and a lazy
+    # load outside a greenlet context raises MissingGreenlet.
+    package = relationship("SubscriptionPackage", back_populates="subscriptions", lazy="selectin")
 
     # Status: trialing | active | past_due | cancelled | expired | paused
     status = Column(String(20), nullable=False, default="active", index=True)

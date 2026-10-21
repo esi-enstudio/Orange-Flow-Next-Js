@@ -41,6 +41,9 @@ from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
 
+# Sentinel for _log(): distinguishes "not provided" from an explicit None.
+_UNSET = object()
+
 
 # ---------------------------------------------------------------------------
 # small helpers
@@ -82,6 +85,7 @@ async def _log(
     note: Optional[str] = None,
     amount: Optional[Decimal] = None,
     to_plan: Optional[SubscriptionPackage] = None,
+    from_plan_id=_UNSET,
     old_status: Optional[str] = None,
     new_status: Optional[str] = None,
     old_period_end=None,
@@ -91,7 +95,9 @@ async def _log(
         house_id=sub.house_id,
         subscription_id=sub.id,
         change_type=change_type,
-        from_plan_id=sub.package_id,
+        # Callers that already moved sub.package_id pass the previous plan id
+        # explicitly, otherwise the audit row would log the new plan as "from".
+        from_plan_id=sub.package_id if from_plan_id is _UNSET else from_plan_id,
         to_plan_id=(to_plan.id if to_plan else sub.package_id),
         from_status=old_status or sub.status,
         to_status=new_status or sub.status,
@@ -220,9 +226,13 @@ async def upgrade_or_downgrade(
     new_price = plan_price(new_plan, sub.billing_interval)
     is_upgrade = new_price >= old_price
     prev_status = sub.status
+    old_plan_id = sub.package_id
 
     old_period_end = sub.current_period_end
     sub.package_id = new_plan.id
+    # Keep the (eager-loaded) relationship in sync with the FK, otherwise the
+    # old plan stays cached on this instance for the rest of the session.
+    sub.package = new_plan
     sub.currency = new_plan.currency or "BDT"
     sub.updated_at = now_naive()
 
@@ -256,7 +266,8 @@ async def upgrade_or_downgrade(
         "upgraded" if is_upgrade else "downgraded",
         changed_by=changed_by, changed_via=changed_via,
         old_status=prev_status, new_status=sub.status,
-        to_plan=new_plan, old_period_end=old_period_end,
+        to_plan=new_plan, from_plan_id=old_plan_id,
+        old_period_end=old_period_end,
         new_period_end=sub.current_period_end,
         amount=delta or None,
         reason="immediate prorated" if invoice else "applied at next renewal",

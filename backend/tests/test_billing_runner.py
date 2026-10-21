@@ -3,7 +3,10 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import select
 
+from app.models.house import House
 from app.models.invoice import Invoice
+from app.models.subscription import HouseSubscription
+from app.services.billing_notifications import build_message
 from app.services.billing_runner import run_billing_cycle
 from app.utils.timezone import now_naive
 
@@ -34,6 +37,32 @@ async def test_renewal_invoice_issued_before_period_end(db, house, plan, recorde
     assert recorded_notifications == [(house.id, "invoice_issued")]
 
 
+async def test_renewal_issued_when_package_is_not_cached(db, house, plan, recorded_notifications):
+    """The scheduler runs in a fresh session, so `sub.package` must be eager-loaded.
+
+    Regression: a lazy load on that attribute raised MissingGreenlet
+    ("greenlet_spawn has not been called") and aborted the whole billing cycle.
+    """
+    end = now_naive() + timedelta(days=2)
+    await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=True, end=end)
+    # Drop the identity map so the package is not already resolved in-session,
+    # mirroring the scheduler's fresh session.
+    db.expunge_all()
+    stats = await run_billing_cycle(db)
+    assert stats["renewals_issued"] == 1
+    assert recorded_notifications == [(house.id, "invoice_issued")]
+
+
+async def test_billing_message_reads_package_from_fresh_session(db, house, plan):
+    """Billing notifications build the plan name from `sub.package`."""
+    await make_sub(db, house.id, plan, status="trialing", trial_days=3)
+    db.expunge_all()
+    fresh_house = (await db.execute(select(House))).scalar_one()
+    fresh_sub = (await db.execute(select(HouseSubscription))).scalar_one()
+    subject, text = build_message("trial_ending", fresh_house, sub=fresh_sub)
+    assert "Basic" in text
+
+
 async def test_renewal_skipped_when_open_invoice_exists(db, house, plan, recorded_notifications):
     end = now_naive() + timedelta(days=2)
     sub = await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=True, end=end)
@@ -52,6 +81,9 @@ async def test_renewal_skipped_when_no_package(db, house, plan, recorded_notific
     sub = await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=True, end=end)
     sub.package_id = None
     await db.commit()
+    # `package` is eager-loaded now, so drop the identity map to re-read it
+    # from the FK value (otherwise the stale, previously loaded plan is reused).
+    db.expunge_all()
     stats = await run_billing_cycle(db)
     assert stats["renewals_issued"] == 0
 
