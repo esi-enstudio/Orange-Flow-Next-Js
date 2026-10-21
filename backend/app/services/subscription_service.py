@@ -45,6 +45,20 @@ logger = logging.getLogger(__name__)
 _UNSET = object()
 
 
+async def _sync_house_state(db: AsyncSession, house_id: int) -> None:
+    """Keep House.is_active in sync after a subscription transition.
+
+    Failures here must never break the billing operation itself (the scheduler
+    performs a full reconciliation sweep every cycle anyway).
+    """
+    try:
+        from app.services.house_lifecycle import sync_house_billing_state
+
+        await sync_house_billing_state(db, [house_id])
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("house billing sync failed for house %s: %s", house_id, exc)
+
+
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
@@ -124,6 +138,7 @@ async def set_status(db: AsyncSession, sub: HouseSubscription, new_status: str,
         old_status=old, new_status=new_status,
     )
     await db.commit()
+    await _sync_house_state(db, sub.house_id)
     return sub
 
 
@@ -173,6 +188,7 @@ async def create_subscription(
                old_status=None, new_status=status, to_plan=plan)
     await db.commit()
     await db.refresh(sub)
+    await _sync_house_state(db, sub.house_id)
     return sub
 
 
@@ -299,6 +315,7 @@ async def renew_period(
                old_period_end=old_end, new_period_end=sub.current_period_end)
     await db.commit()
     await db.refresh(sub)
+    await _sync_house_state(db, sub.house_id)
     return sub
 
 
@@ -314,6 +331,7 @@ async def activate(db: AsyncSession, sub: HouseSubscription, changed_via: str = 
                old_status=old_status, new_status="active")
     await db.commit()
     await db.refresh(sub)
+    await _sync_house_state(db, sub.house_id)
     return sub
 
 
@@ -341,6 +359,7 @@ async def cancel(
     sub.updated_at = now
     await db.commit()
     await db.refresh(sub)
+    await _sync_house_state(db, sub.house_id)
     return sub
 
 
@@ -368,6 +387,7 @@ async def reactivate(
                old_period_end=None, new_period_end=sub.current_period_end)
     await db.commit()
     await db.refresh(sub)
+    await _sync_house_state(db, sub.house_id)
     return sub
 
 
@@ -387,6 +407,7 @@ async def pause(
                old_status=old, new_status="paused", reason=f"auto-resume in {resume_days}d")
     await db.commit()
     await db.refresh(sub)
+    await _sync_house_state(db, sub.house_id)
     return sub
 
 
@@ -405,6 +426,7 @@ async def resume(
                old_status=old, new_status="active")
     await db.commit()
     await db.refresh(sub)
+    await _sync_house_state(db, sub.house_id)
     return sub
 
 

@@ -32,6 +32,10 @@ class House(Base):
 
     subscription_date = Column(DateTime)
     is_active = Column(Boolean, default=True, nullable=False)
+    # True when the billing lifecycle auto-deactivated this house (expired
+    # plan). Distinguishes automatic locks from manual admin deactivation so a
+    # renewal only re-enables houses that were locked by billing.
+    deactivated_for_billing = Column(Boolean, default=False, nullable=False)
     is_sync_enabled = Column(Boolean, default=False, nullable=False)
     is_live_sync_enabled = Column(Boolean, default=False, nullable=False)
     # Show the PULL badge next to iTopUp on this house's lifting records.

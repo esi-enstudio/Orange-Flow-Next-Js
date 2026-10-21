@@ -40,6 +40,13 @@ interface House {
   dms_house_id: string;
   show_pull_button: boolean;
   is_active: boolean;
+  plan_name?: string | null;
+  plan_slug?: string | null;
+  plan_status?: string | null;
+  plan_end_date?: string | null;
+  plan_days_remaining?: number | null;
+  plan_billing_interval?: string | null;
+  plan_is_valid?: boolean | null;
 }
 
 export default function HousesPage() {
@@ -57,6 +64,7 @@ export default function HousesPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [editingHouse, setEditingHouse] = useState<House | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -152,19 +160,22 @@ export default function HousesPage() {
   };
 
   const handleSubmit = async (data: any) => {
+    setSaving(true);
     try {
       const url = editingHouse ? `houses/${editingHouse.id}` : 'houses';
       if (editingHouse) {
         await apiClient.put(url, data);
-        toast.success(t('houses.toast_edit_success'));
+        toast.success(t('houses.toast_update_success'));
       } else {
         await apiClient.post(url, data);
-        toast.success(t('houses.toast_add_success'));
+        toast.success(t('houses.toast_create_success'));
       }
       setIsFormModalOpen(false);
       fetchHouses();
     } catch (err) {
       toast.error(t('houses.toast_save_failed'));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -291,8 +302,8 @@ export default function HousesPage() {
         isOpen={isConfirmOpen}
         onClose={() => setIsConfirmOpen(false)}
         onConfirm={handleConfirmDelete}
-        title={t('houses.delete_confirm_title')}
-        message={t('houses.delete_confirm_message')}
+        title={t('houses.delete_title')}
+        message={t('houses.delete_message')}
         type="danger"
       />
       <HouseFormModal
@@ -302,7 +313,7 @@ export default function HousesPage() {
         formData={formData}
         setFormData={setFormData}
         isEdit={!!editingHouse}
-        loading={false}
+        loading={saving}
       />
     </div>
   );

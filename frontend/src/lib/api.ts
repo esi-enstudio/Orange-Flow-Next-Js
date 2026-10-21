@@ -82,6 +82,26 @@ apiClient.interceptors.response.use(
     }
 
     error.message = message;
+
+    // Locked houses: broadcast the backend 403 so the global SubscriptionGate
+    // can explain the block instead of showing repeated failed-request toasts.
+    const errorCode = data?.error_code;
+    if (
+      error.response?.status === 403 &&
+      (errorCode === "SUBSCRIPTION_EXPIRED" || errorCode === "HOUSE_INACTIVE")
+    ) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("house-access-blocked", {
+            detail: {
+              code: errorCode,
+              houseId: data?.error?.house_id ?? null,
+            },
+          })
+        );
+      }
+    }
+
     return Promise.reject(error);
   }
 );

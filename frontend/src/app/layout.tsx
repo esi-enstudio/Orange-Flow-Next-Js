@@ -12,6 +12,7 @@ import { FullscreenProvider } from "@/context/FullscreenContext";
 import { MaintenanceProvider } from "@/context/MaintenanceContext";
 import { MaintenanceGate } from "@/components/layout/MaintenanceGate";
 import { MaintenanceBanner } from "@/components/layout/MaintenanceBanner";
+import { SubscriptionGate } from "@/components/layout/SubscriptionGate";
 import { Toaster } from "react-hot-toast";
 import { Suspense } from "react";
 import PageProgressIndicator from "@/components/ui/PageProgressIndicator";
@@ -100,6 +101,7 @@ export default async function RootLayout({
               </EntitlementsProvider>
               </MaintenanceGate>
               <MaintenanceBanner />
+              <SubscriptionGate />
               <Toaster position="top-center" reverseOrder={false} />
               </MaintenanceProvider>
               </BrandProvider>

@@ -14,10 +14,12 @@ working). Strict gating can be enabled per feature/plan without code changes.
 """
 
 import logging
+import math
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -32,6 +34,7 @@ from app.models.subscription import (
 )
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
+from config.settings import settings
 from config.modules import (
     BASE_MODULES,
     MODULE_LEAF_ROUTES,
@@ -70,6 +73,79 @@ async def get_house_subscription(
     return result.scalars().first()
 
 
+async def get_latest_subscriptions_for_houses(
+    db: AsyncSession, house_ids: list[int]
+) -> dict[int, HouseSubscription]:
+    """Bulk-load the latest subscription per house (single query).
+
+    Used by list endpoints to avoid an N+1 query per house. Houses without a
+    subscription are absent from the returned mapping.
+    """
+    if not house_ids:
+        return {}
+    latest_ids = (
+        select(func.max(HouseSubscription.id))
+        .where(
+            HouseSubscription.is_deleted == False,  # noqa: E712
+            HouseSubscription.house_id.in_(house_ids),
+        )
+        .group_by(HouseSubscription.house_id)
+        .scalar_subquery()
+    )
+    result = await db.execute(
+        select(HouseSubscription)
+        .options(selectinload(HouseSubscription.package))
+        .where(HouseSubscription.id.in_(latest_ids))
+    )
+    return {sub.house_id: sub for sub in result.scalars().all()}
+
+
+def subscription_summary(sub: Optional[HouseSubscription], now=None) -> dict:
+    """Plan/expiry summary for API responses (houses list, switchers).
+
+    `plan_days_remaining` is ceil() so a plan with hours left shows "1 day"
+    instead of "0 days"; a plan that already ended returns 0.
+    """
+    now = now or now_naive()
+    if sub is None:
+        return {
+            "plan_name": None,
+            "plan_slug": None,
+            "plan_status": None,
+            "plan_end_date": None,
+            "plan_days_remaining": None,
+            "plan_billing_interval": None,
+            "plan_is_valid": None,
+        }
+    status = effective_status(sub, now)
+    end_date = sub.current_period_end or sub.end_date
+    days_remaining = None
+    if end_date is not None:
+        remaining_seconds = (end_date - now).total_seconds()
+        days_remaining = (
+            max(0, math.ceil(remaining_seconds / 86400))
+            if remaining_seconds > 0
+            else 0
+        )
+    # `package` may be unloaded (e.g. a fresh object); never trigger a lazy
+    # load inside async code. Callers that need the name eager-load it.
+    package = None
+    try:
+        if "package" not in sa_inspect(sub).unloaded:
+            package = sub.package
+    except Exception:  # pragma: no cover - detached instances
+        package = None
+    return {
+        "plan_name": package.name if package else None,
+        "plan_slug": package.slug if package else None,
+        "plan_status": status,
+        "plan_end_date": end_date,
+        "plan_days_remaining": days_remaining,
+        "plan_billing_interval": sub.billing_interval,
+        "plan_is_valid": is_entitled(sub, now),
+    }
+
+
 def effective_status(sub: HouseSubscription, now=None) -> str:
     """Resolve the real-time status considering trial & grace windows."""
     if sub is None:
@@ -81,6 +157,15 @@ def effective_status(sub: HouseSubscription, now=None) -> str:
             return SUBSCRIPTION_STATUS_ACTIVE
         return SUBSCRIPTION_STATUS_TRALING
     if status_str == SUBSCRIPTION_STATUS_ACTIVE:
+        # Real-time expiry: the scheduler normally flips an overdue period to
+        # past_due, but access must not depend on its 5-minute tick. Treat the
+        # configured grace window after the period end as past_due.
+        period_end = sub.current_period_end or sub.end_date
+        if period_end is not None and now > period_end:
+            grace_end = period_end + timedelta(days=settings.BILLING_GRACE_DAYS)
+            if now <= grace_end:
+                return SUBSCRIPTION_STATUS_PAST_DUE
+            return "expired"
         return SUBSCRIPTION_STATUS_ACTIVE
     if status_str == SUBSCRIPTION_STATUS_PAST_DUE:
         if sub.grace_period_end and now <= sub.grace_period_end:

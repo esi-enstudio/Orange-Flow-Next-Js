@@ -155,4 +155,56 @@ async def test_resume_paused(db, house, plan, recorded_notifications):
 async def test_full_cycle_stats_empty_when_nothing_due(db, house, plan, recorded_notifications):
     sub = await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=False)
     stats = await run_billing_cycle(db)
-    assert stats == {"renewals_issued": 0, "trial_reminders": 0, "marked_past_due": 0, "expired": 0, "resumed": 0}
+    assert stats == {
+        "renewals_issued": 0,
+        "trial_reminders": 0,
+        "marked_past_due": 0,
+        "expired": 0,
+        "resumed": 0,
+        "houses_deactivated": 0,
+        "houses_reactivated": 0,
+    }
+
+
+async def test_expired_subscription_deactivates_house(db, house, plan, recorded_notifications):
+    grace = now_naive() - timedelta(days=1)
+    await make_sub(
+        db, house.id, plan, trial_days=0, status="past_due", auto_renew=False,
+        grace_period_end=grace,
+    )
+    stats = await run_billing_cycle(db)
+    assert stats["expired"] == 1
+    assert stats["houses_deactivated"] == 1
+    await db.refresh(house)
+    assert house.is_active is False
+    assert house.deactivated_for_billing is True
+
+
+async def test_active_subscription_reactivates_billing_locked_house(db, house, plan, recorded_notifications):
+    house.is_active = False
+    house.deactivated_for_billing = True
+    await db.commit()
+    await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=False)
+    stats = await run_billing_cycle(db)
+    assert stats["houses_reactivated"] == 1
+    await db.refresh(house)
+    assert house.is_active is True
+    assert house.deactivated_for_billing is False
+
+
+async def test_manual_inactive_house_is_not_reactivated(db, house, plan, recorded_notifications):
+    house.is_active = False
+    house.deactivated_for_billing = False
+    await db.commit()
+    await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=False)
+    stats = await run_billing_cycle(db)
+    assert stats["houses_reactivated"] == 0
+    await db.refresh(house)
+    assert house.is_active is False
+
+
+async def test_house_without_subscription_stays_active(db, house, recorded_notifications):
+    stats = await run_billing_cycle(db)
+    assert stats["houses_deactivated"] == 0
+    await db.refresh(house)
+    assert house.is_active is True

@@ -9,6 +9,7 @@ from app.schemas.house import HouseSchema, HouseCreate
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.house import House
 from app.models.user import User
+from app.services import entitlement
 from app.utils.access_control import is_admin_user
 
 router = APIRouter(prefix="/api/houses", tags=["houses"])
@@ -123,7 +124,15 @@ async def list_houses(
     query = base_query.order_by(order).offset(offset).limit(pagination.per_page)
     result = await db.execute(query)
     items = result.scalars().all()
-    data = [HouseSchema.model_validate(h) for h in items]
+    # Attach the latest plan + days-remaining for every house in one query.
+    latest_subs = await entitlement.get_latest_subscriptions_for_houses(
+        db, [h.id for h in items]
+    )
+    data = []
+    for h in items:
+        row = HouseSchema.model_validate(h).model_dump()
+        row.update(entitlement.subscription_summary(latest_subs.get(h.id)))
+        data.append(row)
 
     total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
 

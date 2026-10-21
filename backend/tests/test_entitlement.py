@@ -9,9 +9,11 @@ from app.services.entitlement import (
     enforce_plan_limit,
     feature_enabled,
     get_house_subscription,
+    get_latest_subscriptions_for_houses,
     has_plan_fallback,
     is_entitled,
     limit_value,
+    subscription_summary,
 )
 from app.utils.timezone import now_naive
 
@@ -149,3 +151,44 @@ async def test_make_plan_helpers(db):
     sub = await make_sub(db, house.id, plan, trial_days=0)
     assert sub.house_id == house.id
     assert str(plan.price_monthly) == "100.00"
+
+
+async def test_subscription_summary_active_plan(db, house, plan):
+    end = now_naive() + timedelta(days=5, hours=1)
+    await make_sub(db, house.id, plan, trial_days=0, status="active", end=end)
+    sub = await get_house_subscription(db, house.id)
+    summary = subscription_summary(sub)
+    assert summary["plan_name"] == plan.name
+    assert summary["plan_slug"] == plan.slug
+    assert summary["plan_status"] == "active"
+    assert summary["plan_days_remaining"] == 6  # ceil(5d 1h)
+    assert summary["plan_is_valid"] is True
+    assert summary["plan_billing_interval"] == "monthly"
+
+
+async def test_subscription_summary_none_and_expired(db, house, plan):
+    empty = subscription_summary(None)
+    assert empty["plan_status"] is None
+    assert empty["plan_days_remaining"] is None
+    assert empty["plan_is_valid"] is None
+
+    sub = await make_sub(
+        db, house.id, plan, trial_days=0, status="expired",
+        end=now_naive() - timedelta(days=1),
+    )
+    summary = subscription_summary(sub)
+    assert summary["plan_status"] == "expired"
+    assert summary["plan_days_remaining"] == 0
+    assert summary["plan_is_valid"] is False
+
+
+async def test_get_latest_subscriptions_for_houses_bulk(db, house, plan):
+    other = await make_house(db, code="H2", name="Other House")
+    await make_sub(db, house.id, plan, status="active")
+    await make_sub(db, house.id, plan, status="expired")
+    await make_sub(db, other.id, plan, status="active")
+
+    latest = await get_latest_subscriptions_for_houses(db, [house.id, other.id])
+    assert latest[house.id].status == "expired"
+    assert latest[other.id].status == "active"
+    assert await get_latest_subscriptions_for_houses(db, []) == {}

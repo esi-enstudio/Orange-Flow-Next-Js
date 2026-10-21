@@ -7,6 +7,8 @@ lifecycle for the invoice + manual-pay model:
   - marks active/trialing subs past_due once their period ends unpaid
   - expires subs whose grace period ends unpaid
   - resumes paused subs whose resume_at passed
+  - deactivates houses whose latest subscription lost entitlement (and
+    reactivates houses the lifecycle previously locked, once renewed)
 
 Uses its own short-lived async sessions; safe to run frequently (5 min).
 """
@@ -35,7 +37,11 @@ BILLING_INTERVAL_SECONDS = 300  # run every 5 minutes
 
 async def run_billing_cycle(db: AsyncSession) -> dict:
     now = now_naive()
-    stats = {"renewals_issued": 0, "trial_reminders": 0, "marked_past_due": 0, "expired": 0, "resumed": 0}
+    stats = {
+        "renewals_issued": 0, "trial_reminders": 0, "marked_past_due": 0,
+        "expired": 0, "resumed": 0, "houses_deactivated": 0,
+        "houses_reactivated": 0,
+    }
 
     async def _notify(house_id: int, kind: str, invoice=None, sub=None):
         from app.models.house import House
@@ -169,6 +175,17 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
         stats["resumed"] += 1
 
     await db.commit()
+
+    # ---- 5. sync house activation with subscription entitlement -------------
+    try:
+        from app.services.house_lifecycle import sync_house_billing_state
+
+        lifecycle = await sync_house_billing_state(db)
+        stats["houses_deactivated"] = lifecycle["deactivated"]
+        stats["houses_reactivated"] = lifecycle["reactivated"]
+    except Exception as exc:  # never let a lifecycle sync abort billing
+        logger.warning("billing: house lifecycle sync failed: %s", exc)
+
     if any(stats.values()):
         logger.info("billing cycle summary: %s", stats)
     return stats

@@ -664,6 +664,28 @@ async def _migrate_house_show_pull_button():
     except Exception as e:
         logger.warning(f"Migration warning (houses.show_pull_button): {e}")
 
+async def _migrate_house_billing_deactivation():
+    """Add deactivated_for_billing column to houses table.
+
+    Marks houses that the billing lifecycle locked because their plan expired,
+    so renewal only reactivates those and never overrides a manual deactivation.
+    """
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='houses' AND column_name='deactivated_for_billing'"
+            ))
+            if result.scalar():
+                return
+            logger.info("Migrating houses: adding deactivated_for_billing column...")
+            await conn.execute(text(
+                "ALTER TABLE houses ADD COLUMN deactivated_for_billing BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            logger.info("Migration complete: houses.deactivated_for_billing")
+    except Exception as e:
+        logger.warning(f"Migration warning (houses.deactivated_for_billing): {e}")
+
 async def _migrate_retailer_employee_link():
     """Fix retailers whose employee_id was auto-linked via itop_number but whose
     retailer_code is actually an employee's assisted_retailer_code.
@@ -1599,6 +1621,7 @@ async def init_db():
         await _migrate_retailer_marking_assignment_unique()
         await _migrate_house_live_sync_enabled()
         await _migrate_house_show_pull_button()
+        await _migrate_house_billing_deactivation()
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
         await _migrate_app_settings_sim_serial_length()
