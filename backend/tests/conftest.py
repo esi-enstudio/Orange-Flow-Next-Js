@@ -37,8 +37,7 @@ from app.models.subscription import (  # noqa: E402,F401
     SubscriptionRenewal,
 )
 from app.models.invoice import Invoice  # noqa: E402,F401
-from app.models.payment import Payment, PaymentAttempt, Refund  # noqa: E402,F401
-from app.models.webhook_event import WebhookEvent  # noqa: E402,F401
+from app.models.payment import Payment, Refund  # noqa: E402,F401
 from app.models.subscription_change_log import SubscriptionChangeLog  # noqa: E402,F401
 
 from config.settings import settings  # noqa: E402
@@ -52,6 +51,16 @@ test_engine = create_async_engine(
     connect_args={"check_same_thread": False},
 )
 TestSession = async_sessionmaker(test_engine, expire_on_commit=False)
+
+
+@pytest_asyncio.fixture(autouse=True)
+def _invoice_pdf_dir(tmp_path_factory, monkeypatch):
+    """Keep generated invoice PDFs inside the test run, never in the repo."""
+    from app.services import invoice_pdf
+
+    monkeypatch.setattr(
+        invoice_pdf, "INVOICE_PDF_DIR", str(tmp_path_factory.mktemp("invoice_pdfs"))
+    )
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -146,7 +155,6 @@ async def make_sub(
         trial_start=start if trial_days else None,
         trial_end=(start + timedelta(days=trial_days)) if trial_days else None,
         auto_renew=auto_renew,
-        gateway=settings.PAYMENT_GATEWAY,
         billing_interval=billing_interval,
         currency="BDT",
         **overrides,
@@ -181,24 +189,6 @@ async def make_invoice(db, sub, plan, status="issued", amount=None, **overrides)
     await db.commit()
     await db.refresh(invoice)
     return invoice
-
-
-async def make_attempt(db, invoice, **overrides) -> PaymentAttempt:
-    attempt = PaymentAttempt(
-        house_id=invoice.house_id,
-        invoice_id=invoice.id,
-        subscription_id=invoice.subscription_id,
-        amount=invoice.total,
-        currency="BDT",
-        gateway="sslcommerz",
-        gateway_tran_id=overrides.pop("gateway_tran_id", f"TRAN-{invoice.id}-{now_naive().microsecond}"),
-        status="initiated",
-        **overrides,
-    )
-    db.add(attempt)
-    await db.commit()
-    await db.refresh(attempt)
-    return attempt
 
 
 @pytest_asyncio.fixture

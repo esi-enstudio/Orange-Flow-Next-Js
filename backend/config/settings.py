@@ -75,31 +75,10 @@ class Settings(BaseSettings):
     WA_GATEWAY_ENABLED: bool = True
 
     # ---- Subscription & Billing ----
-    # Provider-agnostic. "none" (default) is a cash/manual-only deployment:
-    # hosted checkout and gateway webhooks stay disabled until a real provider
-    # is configured. Set "sslcommerz" (or another registered provider) to turn
-    # online payments back on.
-    #
-    # Add another gateway by implementing
-    # app.services.payment.<provider>.py and registering it.
-    PAYMENT_GATEWAY: str = "none"
-    # Cash is recorded by an authorised admin (billing.cash_payment /
-    # billing.manage). Keep this on even while a gateway is configured: a
-    # tenant may still choose to pay in cash.
+    # Payments are received offline (cash / bank / mobile banking) and recorded
+    # by an authorised admin (billing.cash_payment / billing.manage). There is
+    # no hosted payment gateway and no webhook listener in this deployment.
     CASH_PAYMENTS_ENABLED: bool = True
-
-    SSLCOMMERZ_STORE_ID: str = ""
-    SSLCOMMERZ_STORE_PASSWORD: str = ""
-    SSLCOMMERZ_SANDBOX: bool = True
-    SSLCOMMERZ_API_BASE: str = "https://sandbox.sslcommerz.com"  # live: https://securepay.sslcommerz.com
-    SSLCOMMERZ_SESSION_PATH: str = "/gwprocess/v4/api.php"
-    SSLCOMMERZ_VALIDATION_PATH: str = "/validator/api/validationserverAPI.php"
-    SSLCOMMERZ_MERCHANT_VALIDATION_PATH: str = "/validator/api/merchantTransIDvalidationAPI.php"
-    SSLCOMMERZ_REFUND_PATH: str = "/validator/api/merchantValidation/initRefund.php"
-    SSLCOMMERZ_IPN_URL: Optional[str] = None  # public IPN url registered in merchant panel
-    SSLCOMMERZ_SUCCESS_URL: Optional[str] = None
-    SSLCOMMERZ_FAIL_URL: Optional[str] = None
-    SSLCOMMERZ_CANCEL_URL: Optional[str] = None
 
     # Billing policy
     BILLING_ENABLED: bool = True
@@ -107,7 +86,6 @@ class Settings(BaseSettings):
     BILLING_RENEWAL_REMINDER_DAYS: int = 5  # issue renewal invoice N days before period end
     BILLING_TRIAL_END_REMINDER_DAYS: int = 3
     BILLING_TAX_PERCENT: int = 0
-    BILLING_INVOICE_DRY_RUN: bool = False  # when True, invoicing works without a real gateway
     DEFAULT_SUBSCRIPTION_PLAN_SLUG: str = "basic"  # assigned when a house subscribes without explicit plan
 
     # ---- Plan access policy (deny-by-default) ----
@@ -166,32 +144,14 @@ class Settings(BaseSettings):
     def IS_PRODUCTION(self) -> bool:
         return self.ENVIRONMENT.strip().lower() in {"production", "prod"}
 
-    @computed_field
-    @property
-    def ONLINE_PAYMENTS_ENABLED(self) -> bool:
-        """True only when a hosted checkout provider is explicitly configured.
-
-        This is the single flag the API and UI use to decide whether to offer
-        online checkout. Missing gateway credentials are still caught by the
-        provider (checkout returns 503); this flag answers the product
-        question "does this deployment accept online payments at all?".
-        """
-        name = (self.PAYMENT_GATEWAY or "").strip().lower()
-        return name not in {"", "none", "off", "disabled", "cash", "manual"}
-
     @model_validator(mode="after")
     def enforce_production_billing_safety(self) -> "Settings":
         """Refuse to boot production with a security-weakening billing flag.
 
-        Two flags can silently give the product away:
-          - ``BILLING_REQUIRE_PLAN=false`` restores the old fail-open policy, so
-            a tenant with no plan (or an expired one) keeps full access.
-          - ``BILLING_INVOICE_DRY_RUN=true`` makes the gateway validator return a
-            synthetic VALID result, so any checkout succeeds without money.
-
-        Failing the boot is deliberate: a misconfigured production instance must
-        never serve traffic that leaks access or accepts fake payments. Staging
-        is allowed to exercise both, but must opt in explicitly.
+        ``BILLING_REQUIRE_PLAN=false`` restores the old fail-open policy, so a
+        tenant with no plan (or an expired one) keeps full access. Failing the
+        boot is deliberate: a misconfigured production instance must never
+        serve traffic that leaks access.
         """
         if not self.IS_PRODUCTION:
             return self
@@ -201,13 +161,6 @@ class Settings(BaseSettings):
                 "ENVIRONMENT=production. It restores the fail-open access policy "
                 "and lets houses without a plan use the product. Remove the flag "
                 "(default is true) or set it to true."
-            )
-        if self.BILLING_INVOICE_DRY_RUN:
-            raise ValueError(
-                "BILLING_INVOICE_DRY_RUN=true is not allowed when "
-                "ENVIRONMENT=production. It bypasses the payment gateway's "
-                "server-side validation and would activate subscriptions without "
-                "a real payment. Set it to false."
             )
         if not self.BILLING_ENABLED:
             raise ValueError(

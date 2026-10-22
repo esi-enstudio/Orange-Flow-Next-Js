@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Plus, Search, Settings2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Plus, Search, Settings2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -101,6 +101,36 @@ export default function AdminSubscriptionsPage() {
 
   const canView = hasPermission("subscription.manage");
   const canManage = hasPermission("billing.manage");
+
+  const handleInvoicePdf = async (invoiceId: number, invoiceNo: string) => {
+    try {
+      const res = await apiClient.get(`v1/admin/invoices/${invoiceId}/pdf`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(
+        new Blob([res.data], { type: "application/pdf" })
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${invoiceNo}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      let message = t("common.error");
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await data.text());
+          message = parsed?.detail || parsed?.error?.message || message;
+        } catch {
+          /* keep the generic message */
+        }
+      } else if (data?.detail) {
+        message = data.detail;
+      }
+      toast.error(message);
+    }
+  };
 
   const buildQuery = useCallback(() => {
     const p = new URLSearchParams();
@@ -311,6 +341,7 @@ export default function AdminSubscriptionsPage() {
                 canManage={canManage}
                 onMarkPaid={(invId, invNo) => setConfirm({ kind: "mark_paid", invId, invNo })}
                 onStatus={(next) => setConfirm({ kind: "status", subId: expandedId, status: next })}
+                onInvoicePdf={handleInvoicePdf}
               />
             )}
           </>
@@ -386,6 +417,7 @@ export default function AdminSubscriptionsPage() {
                         canManage={canManage}
                         onMarkPaid={(invId, invNo) => setConfirm({ kind: "mark_paid", invId, invNo })}
                         onStatus={(next) => setConfirm({ kind: "status", subId: expandedId, status: next })}
+                        onInvoicePdf={handleInvoicePdf}
                       />
                     )}
                   </div>
@@ -423,13 +455,26 @@ function SubDetailPanel({
   canManage,
   onMarkPaid,
   onStatus,
+  onInvoicePdf,
 }: {
   d: SubDetail;
   canManage: boolean;
   onMarkPaid: (invId: number, invNo: string) => void;
   onStatus: (next: string) => void;
+  onInvoicePdf: (invoiceId: number, invoiceNo: string) => Promise<void>;
 }) {
   const { t } = useLanguage();
+  const [pdfBusy, setPdfBusy] = useState<number | null>(null);
+
+  const downloadPdf = async (invoiceId: number, invoiceNo: string) => {
+    setPdfBusy(invoiceId);
+    try {
+      await onInvoicePdf(invoiceId, invoiceNo);
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
   return (
     <div className="px-6 py-5 border-t border-gray-100 dark:border-slate-800 bg-gray-50/40 dark:bg-slate-800/30">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -472,6 +517,20 @@ function SubDetailPanel({
                   <div className="flex items-center gap-2">
                     <p className="text-xs font-bold text-gray-900 dark:text-gray-100">{fmtMoney(inv.total)}</p>
                     <Badge status={inv.status} />
+                    <button
+                      onClick={() => downloadPdf(inv.id, inv.invoice_no)}
+                      disabled={pdfBusy === inv.id}
+                      title={t("subscriptions.invoice_pdf")}
+                      aria-label={t("subscriptions.invoice_pdf")}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-[11px] font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      {pdfBusy === inv.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3" />
+                      )}
+                      {t("subscriptions.invoice_pdf")}
+                    </button>
                     {canManage && inv.status !== "paid" && inv.status !== "void" && (
                       <button
                         onClick={() => onMarkPaid(inv.id, inv.invoice_no)}

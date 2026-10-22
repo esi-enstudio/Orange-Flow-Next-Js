@@ -107,10 +107,6 @@ class HouseSubscription(Base):
 
     auto_renew = Column(Boolean, default=False)  # Auto-issue renewal invoice, NOT auto-charge
 
-    # Payment gateway references (non-sensitive)
-    gateway = Column(String(32), nullable=True)  # e.g. "sslcommerz"
-    gateway_customer_id = Column(String(128), nullable=True)
-    gateway_reference = Column(String(128), nullable=True)
     billing_interval = Column(String(16), nullable=False, default="monthly")  # monthly | yearly
     currency = Column(String(3), nullable=False, default="BDT")
 

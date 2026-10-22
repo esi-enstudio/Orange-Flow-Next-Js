@@ -507,7 +507,6 @@
       "display_name": "Billing",
       "permissions": [
         "billing.view",
-        "billing.pay",
         "billing.edit",
         "billing.refund",
         "billing.manage",
@@ -529,12 +528,6 @@
         "payments.view",
         "payments.manage",
         "payments.refund"
-      ]
-    },
-    "webhooks": {
-      "display_name": "Webhook Events",
-      "permissions": [
-        "webhooks.view"
       ]
     }
   },
@@ -610,7 +603,6 @@
         "subscription.renew",
         "subscription.cancel",
         "billing.view",
-        "billing.pay",
         "plans.view",
         "payments.view",
         "billing.edit",
@@ -668,7 +660,6 @@
         "subscription.renew",
         "subscription.cancel",
         "billing.view",
-        "billing.pay",
         "plans.view",
         "payments.view",
         "billing.edit",

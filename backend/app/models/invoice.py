@@ -36,6 +36,9 @@ class Invoice(Base):
     description = Column(String(255), nullable=True)
     gateway_tran_id = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
+    # Generated when a manual payment completes (see services/invoice_pdf.py)
+    pdf_path = Column(String(255), nullable=True)
+    pdf_generated_at = Column(DateTime, nullable=True)
 
     # Soft delete
     is_deleted = Column(Boolean, default=False, index=True)
@@ -48,7 +51,6 @@ class Invoice(Base):
     house = relationship("House", lazy="joined")
     subscription = relationship("HouseSubscription", lazy="joined")
     payments = relationship("Payment", back_populates="invoice", lazy="selectin")
-    attempts = relationship("PaymentAttempt", back_populates="invoice", lazy="selectin")
 
     __table_args__ = (
         Index("ix_invoices_house_status_due", "house_id", "status", "due_date"),

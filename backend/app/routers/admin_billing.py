@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,9 +22,8 @@ from app.models.invoice import (
 )
 from app.models.payment import Payment
 from app.models.subscription import HouseSubscription
-from app.models.webhook_event import WebhookEvent
 from app.models.user import User
-from app.services import manual_payment
+from app.services import invoice_pdf, manual_payment
 from app.services import subscription_service as subsvc
 from app.services import entitlement
 from app.utils.activity_logger import log_activity
@@ -404,6 +403,32 @@ async def admin_record_cash_payment(
     }
 
 
+@router.get("/invoices/{invoice_id}/pdf")
+async def admin_download_invoice_pdf(
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        has_any_permission(["billing.manage", "billing.view", "subscription.manage"])
+    ),
+):
+    """Stream any house's invoice PDF (admin billing view)."""
+    invoice = (await db.execute(
+        select(Invoice).where(
+            Invoice.id == invoice_id,
+            Invoice.is_deleted == False,  # noqa: E712
+        )
+    )).scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    pdf_bytes, filename = await invoice_pdf.get_or_create_invoice_pdf(db, invoice)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/invoices")
 async def admin_list_invoices(
     page: int = 1,
@@ -445,7 +470,7 @@ async def admin_list_invoices(
 
 
 # ---------------------------------------------------------------------------
-# Payments + webhook events
+# Payments
 # ---------------------------------------------------------------------------
 
 @router.get("/payments")
@@ -472,7 +497,7 @@ async def admin_list_payments(
         "id": p.id, "house_id": p.house_id, "house_name": p.house.name if p.house else None,
         "amount": float(p.amount), "currency": p.currency, "status": p.status,
         "gateway": p.gateway, "gateway_tran_id": p.gateway_tran_id,
-        "card_type": p.card_type, "paid_at": p.paid_at, "created_at": p.created_at,
+        "paid_at": p.paid_at, "created_at": p.created_at,
     } for p in result.scalars().unique().all()]
     total_pages = (total + per_page - 1) // per_page
     return {"success": True, "data": rows, "pagination": {
@@ -480,70 +505,6 @@ async def admin_list_payments(
         "total_pages": total_pages, "has_next": page < total_pages, "has_prev": page > 1,
     }}
 
-
-@router.get("/webhook-events")
-async def admin_list_webhook_events(
-    page: int = 1,
-    per_page: int = 20,
-    status: Optional[str] = None,
-    provider: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("webhooks.view")),
-):
-    filters = []
-    if status:
-        filters.append(WebhookEvent.status == status)
-    if provider:
-        filters.append(WebhookEvent.provider == provider)
-    from app.utils.access_control import is_admin_user
-    sensitive = is_admin_user(current_user)
-
-    per_page = max(1, min(per_page, 100))
-    total = (await db.execute(select(func.count(WebhookEvent.id)).where(*filters))).scalar_one()
-    result = await db.execute(
-        select(WebhookEvent).where(*filters).order_by(WebhookEvent.id.desc())
-        .offset((page - 1) * per_page).limit(per_page)
-    )
-    rows = []
-    for ev in result.scalars().all():
-        rows.append({
-            "id": ev.id, "provider": ev.provider, "event_id": ev.event_id,
-            "event_type": ev.event_type, "status": ev.status, "reason": ev.reason,
-            "processing_note": ev.processing_note, "status_code": ev.status_code,
-            "signature_valid": ev.signature_valid,
-            "ip_address": ev.ip_address if sensitive else (ev.ip_address[:8] + "..." if ev.ip_address else None),
-            "error_message": ev.error_message, "processed_at": ev.processed_at,
-            "created_at": ev.created_at,
-        })
-    total_pages = (total + per_page - 1) // per_page
-    return {"success": True, "data": rows, "pagination": {
-        "page": page, "per_page": per_page, "total": total,
-        "total_pages": total_pages, "has_next": page < total_pages, "has_prev": page > 1,
-    }}
-
-
-@router.get("/webhook-events/{event_id}")
-async def admin_webhook_event_detail(
-    event_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("webhooks.view")),
-):
-    ev = (await db.execute(select(WebhookEvent).where(WebhookEvent.id == event_id))).scalar_one_or_none()
-    if not ev:
-        raise HTTPException(status_code=404, detail="Webhook event not found")
-    from app.utils.access_control import is_admin_user
-    sensitive = is_admin_user(current_user)
-    payload = ev.payload or {}
-    if not sensitive:
-        payload = {k: ("***" if k in ("verify_sign", "verify_key") else v) for k, v in payload.items()}
-    return {"success": True, "data": {
-        "id": ev.id, "provider": ev.provider, "event_id": ev.event_id,
-        "event_type": ev.event_type, "status": ev.status, "reason": ev.reason,
-        "method": ev.method, "status_code": ev.status_code, "duration_ms": ev.duration_ms,
-        "ip_address": ev.ip_address if sensitive else "***",
-        "signature_valid": ev.signature_valid, "payload": payload,
-        "error_message": ev.error_message, "processed_at": ev.processed_at, "created_at": ev.created_at,
-    }}    # noqa: E306
 
 # ---------------------------------------------------------------------------
 # Legacy / anomalous subscriptions (fail-open audit surface)

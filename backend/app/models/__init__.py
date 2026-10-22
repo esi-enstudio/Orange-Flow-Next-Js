@@ -67,9 +67,8 @@ from app.models.whatsapp_contact import WhatsAppContact
 from app.models.whatsapp_connection import WhatsappConnection, whatsapp_connection_houses
 from app.models.telegram_bot import TelegramBot, telegram_bot_houses
 from app.models.invoice import Invoice
-from app.models.payment import Payment, PaymentAttempt, Refund
+from app.models.payment import Payment, Refund
 from app.models.payment_method import PaymentMethod
-from app.models.webhook_event import WebhookEvent
 from app.models.subscription_change_log import SubscriptionChangeLog
 from app.models.database_backup import DatabaseBackup
 from app.models.restore_point import RestorePoint

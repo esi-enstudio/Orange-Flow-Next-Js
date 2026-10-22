@@ -4,6 +4,7 @@ Covers the authoritative manual-payment service: open-invoice reuse,
 next-period issuance, amount validation, idempotency and lapsed renewals.
 """
 
+import os
 from datetime import timedelta
 from decimal import Decimal
 
@@ -38,6 +39,12 @@ async def test_cash_payment_pays_open_invoice(db, house, plan, sub):
     assert payment.amount == invoice.total
     assert payment.gateway_tran_id == f"CASH-{invoice.invoice_no}"
     assert await _count(db, Payment) == 1
+
+    # A completed manual payment produces the paid invoice PDF.
+    await db.refresh(invoice)
+    assert invoice.pdf_path
+    assert invoice.pdf_generated_at is not None
+    assert os.path.exists(invoice.pdf_path)
 
 
 async def test_cash_payment_activates_trialing_subscription(db, house, plan):

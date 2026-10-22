@@ -110,6 +110,36 @@ async def _existing_payment(db: AsyncSession, invoice_id: int) -> Optional[Payme
     return result.scalar_one_or_none()
 
 
+async def _generate_paid_invoice_pdf(db: AsyncSession, invoice: Invoice, payment: Optional[Payment]):
+    """Render and store the invoice PDF once the payment is recorded.
+
+    Best effort by design: a PDF failure must never undo a recorded payment.
+    Returns the (possibly re-loaded) invoice/payment so the caller never sees an
+    expired instance after a rollback.
+    """
+    invoice_id = invoice.id
+    payment_id = payment.id if payment is not None else None
+    try:
+        from app.services import invoice_pdf
+
+        pdf_bytes = invoice_pdf.build_invoice_pdf(invoice, payment=payment)
+        stored_path = invoice_pdf.store_invoice_pdf(invoice, pdf_bytes)
+        if stored_path:
+            invoice.pdf_path = stored_path
+            invoice.pdf_generated_at = now_naive()
+            await db.commit()
+        return invoice, payment
+    except Exception as exc:
+        logger.warning("invoice PDF generation failed (invoice id=%s): %s", invoice_id, exc)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        fresh_invoice = await db.get(Invoice, invoice_id)
+        fresh_payment = await db.get(Payment, payment_id) if payment_id else None
+        return fresh_invoice or invoice, fresh_payment or payment
+
+
 async def pay_invoice_manually(
     db: AsyncSession,
     invoice: Invoice,
@@ -211,6 +241,7 @@ async def pay_invoice_manually(
         changed_via="admin_cash" if gateway == CASH_GATEWAY else "admin",
     )
     await db.refresh(payment)
+    invoice, payment = await _generate_paid_invoice_pdf(db, invoice, payment)
     logger.info(
         "manual payment recorded: invoice=%s house=%s amount=%s gateway=%s by=%s",
         invoice.invoice_no, invoice.house_id, paid, gateway, recorded_by,

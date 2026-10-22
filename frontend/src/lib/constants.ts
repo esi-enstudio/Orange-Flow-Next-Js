@@ -314,7 +314,7 @@ export const navItems: NavItem[] = [
     color: "text-violet-500",
     children: [
       { title: "Pricing", translationKey: "nav.pricing", href: "/pricing", permission: "plans.view" },
-      { title: "My Billing", translationKey: "nav.my_billing", href: "/billing", permissions: ["subscription.view", "billing.view", "billing.pay", "payments.view"] },
+      { title: "My Billing", translationKey: "nav.my_billing", href: "/billing", permissions: ["subscription.view", "billing.view", "payments.view"] },
       { title: "Subscriptions", translationKey: "nav.admin_subscriptions", href: "/admin/subscriptions", permissions: ["subscription.manage", "billing.manage"] },
       { title: "Plans", translationKey: "nav.admin_plans", href: "/admin/plans", permission: "plans.manage" },
     ]

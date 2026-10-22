@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Building2,
   CheckCircle2,
   ChevronDown,
   CreditCard,
+  Download,
   Loader2,
   Receipt,
   RefreshCw,
@@ -57,7 +58,6 @@ const fmtMoney = (n: number) => `৳${Number(n).toLocaleString()}`;
 
 export default function BillingPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { t } = useLanguage();
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const { refresh: refreshEntitlements } = useEntitlements();
@@ -73,6 +73,7 @@ export default function BillingPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [action, setAction] = useState<{ kind: string; id?: number; no?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState<number | null>(null);
 
   // Payment method form
   const [methodForm, setMethodForm] = useState({
@@ -88,7 +89,7 @@ export default function BillingPage() {
   });
 
   const canView = useMemo(
-    () => ["subscription.view", "billing.view", "billing.pay", "payments.view"].some(hasPermission),
+    () => ["subscription.view", "billing.view", "payments.view"].some(hasPermission),
     [hasPermission]
   );
   const canAct = useMemo(
@@ -153,18 +154,6 @@ export default function BillingPage() {
     }
   }, [authLoading, canView, router]);
 
-  useEffect(() => {
-    const state = searchParams.get("payment");
-    if (state === "success") {
-      toast.success(t("billing.paid"));
-      // A completed checkout changes the house's plan: refresh the gate state
-      // so the deny-by-default overlay lifts without a reload.
-      void refreshEntitlements();
-    } else if (state === "failed" || state === "cancelled") {
-      toast.error(t("billing.checkout_unavailable"));
-    }
-  }, [searchParams, t, refreshEntitlements]);
-
   const runAction = async (
     path: string,
     body: Record<string, unknown>,
@@ -185,22 +174,38 @@ export default function BillingPage() {
     }
   };
 
-  const handlePay = async (invoice: Invoice) => {
-    setBusy(true);
+  const handleInvoicePdf = async (invoice: Invoice) => {
+    setPdfBusy(invoice.id);
     try {
-      const res = await apiClient.post(
-        `v1/billing/invoices/${invoice.id}/checkout`,
-        {},
-        { headers: houseHeader, timeout: 20000 }
+      const res = await apiClient.get(`v1/billing/invoices/${invoice.id}/pdf`, {
+        headers: houseHeader,
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(
+        new Blob([res.data], { type: "application/pdf" })
       );
-      const redirectUrl = res.data?.redirect_url;
-      if (redirectUrl) {
-        window.location.href = redirectUrl;
-      }
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${invoice.invoice_no}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      toast.error(err?.message || t("billing.checkout_unavailable"));
+      // Error bodies arrive as a Blob because of responseType: "blob".
+      let message = t("common.error");
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await data.text());
+          message = parsed?.detail || parsed?.error?.message || message;
+        } catch {
+          /* keep the generic message */
+        }
+      } else if (data?.detail) {
+        message = data.detail;
+      }
+      toast.error(message);
     } finally {
-      setBusy(false);
+      setPdfBusy(null);
     }
   };
 
@@ -407,6 +412,11 @@ export default function BillingPage() {
                   <Receipt className="w-4 h-4 text-primary-500" />
                   <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("billing.invoices")}</h3>
                 </div>
+                <div className="px-6 py-3 border-b border-amber-100 dark:border-slate-800 bg-amber-50/70 dark:bg-amber-500/5">
+                  <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                    {t("billing.manual_payment_notice")}
+                  </p>
+                </div>
 
                 {/* Desktop */}
                 <div className="hidden lg:block overflow-x-auto scrollbar-custom">
@@ -447,15 +457,18 @@ export default function BillingPage() {
                             <Badge status={inv.status} />
                           </td>
                           <td className="px-6 py-4 text-right">
-                            {inv.status !== "paid" && inv.status !== "void" && (
-                              <button
-                                onClick={() => handlePay(inv)}
-                                disabled={busy}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] bg-primary-600 text-white rounded-lg text-xs font-bold hover:bg-primary-700 transition-colors disabled:opacity-50"
-                              >
-                                <CreditCard className="w-3.5 h-3.5" /> {t("billing.pay_now")}
-                              </button>
-                            )}
+                            <button
+                              onClick={() => handleInvoicePdf(inv)}
+                              disabled={pdfBusy === inv.id}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                              {pdfBusy === inv.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Download className="w-3.5 h-3.5" />
+                              )}
+                              {t("billing.invoice_pdf")}
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -489,15 +502,18 @@ export default function BillingPage() {
                         }`}
                       >
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">{inv.description}</p>
-                        {inv.status !== "paid" && inv.status !== "void" && (
-                          <button
-                            onClick={() => handlePay(inv)}
-                            disabled={busy}
-                            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] bg-primary-600 text-white rounded-xl text-sm font-bold disabled:opacity-50"
-                          >
-                            <CreditCard className="w-4 h-4" /> {t("billing.pay_now")}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleInvoicePdf(inv)}
+                          disabled={pdfBusy === inv.id}
+                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-bold disabled:opacity-50 cursor-pointer"
+                        >
+                          {pdfBusy === inv.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          {t("billing.invoice_pdf")}
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -529,7 +545,6 @@ export default function BillingPage() {
                           <tr key={p.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
                             <td className="px-6 py-4">
                               <p className="text-sm font-bold text-gray-900 dark:text-gray-100 capitalize">{p.gateway || "manual"}</p>
-                              <p className="text-[11px] text-gray-500 dark:text-gray-400">{p.card_type || "—"}</p>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{p.gateway_tran_id || "—"}</td>
                             <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-gray-100">{fmtMoney(p.amount)}</td>

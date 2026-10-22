@@ -199,7 +199,6 @@ async def create_subscription(
     changed_via: str = "api",
     trial: bool = True,
     auto_renew: bool = True,
-    gateway: str = settings.PAYMENT_GATEWAY,
 ) -> HouseSubscription:
     now = now_naive()
     period_start = now
@@ -222,7 +221,6 @@ async def create_subscription(
         grace_period_end=None,
         cancel_at_period_end=False,
         auto_renew=auto_renew,
-        gateway=gateway,
         billing_interval=billing_interval,
         currency=plan.currency or "BDT",
     )

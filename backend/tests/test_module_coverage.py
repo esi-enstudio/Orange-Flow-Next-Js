@@ -111,7 +111,6 @@ def test_every_api_route_is_mapped_or_exempt():
         ("/api/auth/login", "POST", True),
         ("/api/v1/billing/invoices", "GET", True),
         ("/api/v1/subscription/entitlements", "GET", True),
-        ("/api/webhook/gateway/sslcommerz", "POST", True),
         ("/api/houses", "GET", True),
         ("/api/houses", "POST", False),  # mutations are still gated
         ("/api/retailers", "GET", False),

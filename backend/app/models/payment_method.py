@@ -4,16 +4,15 @@ from app.models.base import Base
 from app.utils.timezone import now_naive
 
 
-PAYMENT_METHOD_TYPES = ("cash", "bkash", "nagad", "rocket", "card", "bank", "mobilebanking")
+PAYMENT_METHOD_TYPES = ("cash", "bkash", "nagad", "rocket", "bank", "mobilebanking")
 
 
 class PaymentMethod(Base):
-    """Saved payment method reference for a house.
+    """Manual payment instructions a house can pay into.
 
-    Two flavors:
-      - gateway token reference (card/bkash/nagad) — masked refs only
-      - manual bank/mobile-banking instructions the house pays into
-    Never stores raw card numbers / CVV.
+    Every payment in this deployment is received offline (cash / bank /
+    mobile banking) and recorded by an authorised admin — no card data or
+    gateway tokens are ever stored here.
     """
 
     __tablename__ = "payment_methods"
@@ -21,8 +20,8 @@ class PaymentMethod(Base):
     id = Column(Integer, primary_key=True, index=True)
     house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
 
-    gateway = Column(String(32), nullable=False, default="sslcommerz")
-    method_type = Column(String(32), nullable=True)  # bkash | nagad | rocket | card | bank | mobilebanking
+    gateway = Column(String(32), nullable=False, default="manual")
+    method_type = Column(String(32), nullable=True)  # cash | bkash | nagad | rocket | bank | mobilebanking
     label = Column(String(120), nullable=True)
     instructions = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True, index=True)
@@ -35,14 +34,7 @@ class PaymentMethod(Base):
     bkash_number = Column(String(30), nullable=True)
     nagad_number = Column(String(30), nullable=True)
 
-    # gateway token reference (bkash/nagad/card) — masked fields
-    brand = Column(String(64), nullable=True)  # VISA, MASTER, AMEX...
-    last4 = Column(String(4), nullable=True)  # masked card digits only
-    token_ref = Column(String(255), nullable=True)  # gateway token reference (if supported)
-    customer_id = Column(String(128), nullable=True)  # house user ref at gateway
-
     is_default = Column(Boolean, default=False)
-    is_email_verified = Column(Boolean, default=False)
     added_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 

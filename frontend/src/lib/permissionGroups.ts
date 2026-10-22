@@ -156,7 +156,6 @@ export const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
   billing: "Billing",
   plans: "Plans",
   payments: "Payments",
-  webhooks: "Webhook Events",
   deploy: "Deploy",
   imports: "Imports",
   settings: "Settings",

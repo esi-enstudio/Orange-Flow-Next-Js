@@ -1096,9 +1096,6 @@ async def _migrate_subscription_billing():
                     ("cancelled_by", "INTEGER"),
                     ("paused_at", "TIMESTAMP WITHOUT TIME ZONE"),
                     ("resume_at", "TIMESTAMP WITHOUT TIME ZONE"),
-                    ("gateway", "VARCHAR(32)"),
-                    ("gateway_customer_id", "VARCHAR(128)"),
-                    ("gateway_reference", "VARCHAR(128)"),
                     ("billing_interval", "VARCHAR(16) DEFAULT 'monthly'"),
                     ("currency", "VARCHAR(3) DEFAULT 'BDT'"),
                     ("is_deleted", "BOOLEAN DEFAULT FALSE"),
@@ -1178,9 +1175,6 @@ async def _migrate_billing_tables_extra():
                 ("payments", [
                     ("subscription_id", "INTEGER"),
                 ]),
-                ("payment_attempts", [
-                    ("subscription_id", "INTEGER"),
-                ]),
                 ("payment_methods", [
                     ("label", "VARCHAR(120)"),
                     ("instructions", "VARCHAR(500)"),
@@ -1192,24 +1186,16 @@ async def _migrate_billing_tables_extra():
                     ("bkash_number", "VARCHAR(30)"),
                     ("nagad_number", "VARCHAR(30)"),
                     ("created_by", "INTEGER"),
-                    ("gateway", "VARCHAR(32) DEFAULT 'sslcommerz'"),
+                    ("gateway", "VARCHAR(32) DEFAULT 'manual'"),
                     ("is_default", "BOOLEAN DEFAULT FALSE"),
-                    ("is_email_verified", "BOOLEAN DEFAULT FALSE"),
                     ("added_by", "INTEGER"),
-                    ("brand", "VARCHAR(64)"),
-                    ("last4", "VARCHAR(4)"),
-                    ("token_ref", "VARCHAR(255)"),
-                    ("customer_id", "VARCHAR(128)"),
-                ]),
-                ("webhook_events", [
-                    ("method", "VARCHAR(10)"),
-                    ("status_code", "INTEGER"),
-                    ("duration_ms", "INTEGER"),
-                    ("reason", "VARCHAR(64)"),
-                    ("processing_note", "VARCHAR(500)"),
                 ]),
                 ("house_subscriptions", [
                     ("trial_reminder_sent_at", "TIMESTAMP WITHOUT TIME ZONE"),
+                ]),
+                ("invoices", [
+                    ("pdf_path", "VARCHAR(255)"),
+                    ("pdf_generated_at", "TIMESTAMP WITHOUT TIME ZONE"),
                 ]),
             ):
                 for col_name, col_def in columns:
@@ -1224,6 +1210,45 @@ async def _migrate_billing_tables_extra():
             logger.info("Migration complete: billing tables extra columns ensured")
     except Exception as e:
         logger.warning(f"Migration warning (billing tables extra columns): {e}")
+
+
+async def _migrate_remove_payment_gateway_artifacts():
+    """Drop the obsolete online-payment tables/columns (manual payments only).
+
+    The SSLCommerz integration was removed: payments are received offline and
+    recorded by an authorised admin. The gateway-only artifacts are dropped
+    idempotently so an upgraded database matches the current models. Payments
+    and payment methods themselves are kept — ``gateway`` there now means the
+    manual channel (cash / bank / bkash / ...).
+    """
+    statements = (
+        "DROP TABLE IF EXISTS payment_attempts CASCADE",
+        "DROP TABLE IF EXISTS webhook_events CASCADE",
+        "ALTER TABLE payments DROP COLUMN IF EXISTS gateway_val_id",
+        "ALTER TABLE payments DROP COLUMN IF EXISTS gateway_bank_tran_id",
+        "ALTER TABLE payments DROP COLUMN IF EXISTS card_type",
+        "ALTER TABLE payments ALTER COLUMN gateway SET DEFAULT 'cash'",
+        "ALTER TABLE payment_methods DROP COLUMN IF EXISTS brand",
+        "ALTER TABLE payment_methods DROP COLUMN IF EXISTS last4",
+        "ALTER TABLE payment_methods DROP COLUMN IF EXISTS token_ref",
+        "ALTER TABLE payment_methods DROP COLUMN IF EXISTS customer_id",
+        "ALTER TABLE payment_methods DROP COLUMN IF EXISTS is_email_verified",
+        "ALTER TABLE payment_methods ALTER COLUMN gateway SET DEFAULT 'manual'",
+        "ALTER TABLE house_subscriptions DROP COLUMN IF EXISTS gateway",
+        "ALTER TABLE house_subscriptions DROP COLUMN IF EXISTS gateway_customer_id",
+        "ALTER TABLE house_subscriptions DROP COLUMN IF EXISTS gateway_reference",
+    )
+    try:
+        async with engine.begin() as conn:
+            for stmt in statements:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as exc:
+                    # Missing table/column (fresh DB) or a non-PostgreSQL test DB.
+                    logger.debug("Skipping (%s): %s", stmt, exc)
+        logger.info("Migration complete: online payment gateway artifacts removed")
+    except Exception as e:
+        logger.warning(f"Migration warning (remove payment gateway artifacts): {e}")
 
 
 async def _migrate_bts_own_plan_module():
@@ -1940,6 +1965,7 @@ async def init_db():
         await _migrate_telegram_columns()
         await _migrate_subscription_billing()
         await _migrate_billing_tables_extra()
+        await _migrate_remove_payment_gateway_artifacts()
         await _migrate_billing_fail_closed()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()

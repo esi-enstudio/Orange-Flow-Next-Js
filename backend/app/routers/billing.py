@@ -1,34 +1,35 @@
 """Billing endpoints for the selected house (self-service).
 
-Covers: invoices (list/detail), payment checkout (SSLCommerz session),
-payments history, payment methods, refunds, and a billing overview card.
+Covers: invoices (list/detail), payments history, manual payment methods,
+refund records, and a billing overview card.
+
+Payments are received offline and recorded by an authorised admin
+(``POST /api/v1/admin/invoices/{id}/mark-paid`` or the cash-payment endpoint).
+There is no hosted checkout and no gateway webhook in this deployment.
 """
 
 import logging
-import random
-from typing import Optional, List
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.routers.deps import (
-    get_db, get_house_context, get_current_user, has_any_permission, has_permission,
+    get_db, get_house_context, has_any_permission, has_permission,
 )
 from app.models.house import House
 from app.models.invoice import (
-    Invoice, INVOICE_STATUS_PAID, INVOICE_STATUS_ISSUED, INVOICE_STATUS_UNPAID, INVOICE_STATUS_VOID,
+    Invoice, INVOICE_STATUS_ISSUED, INVOICE_STATUS_UNPAID,
 )
 from app.models.payment import (
-    Payment, PaymentAttempt, Refund,
+    Payment, Refund,
     PAYMENT_STATUS_SUCCEEDED, PAYMENT_STATUS_REFUNDED,
 )
 from app.models.payment_method import PaymentMethod, PAYMENT_METHOD_TYPES
-from app.models.subscription import HouseSubscription, BILLING_INTERVAL_MONTHLY, BILLING_INTERVAL_YEARLY
 from app.models.user import User
-from app.services import entitlement, subscription_service as subsvc
-from app.services.payment import get_gateway, get_active_gateway_name
+from app.services import entitlement, invoice_pdf
 from app.utils.timezone import now_naive
 from config.settings import settings
 
@@ -71,7 +72,6 @@ def _payment_payload(p: Payment) -> dict:
         "status": p.status,
         "gateway": p.gateway,
         "gateway_tran_id": p.gateway_tran_id,
-        "card_type": p.card_type,
         "paid_at": p.paid_at,
         "created_at": p.created_at,
     }
@@ -138,92 +138,36 @@ async def invoice_detail(
     return {"success": True, "data": data}
 
 
-# ---------------------------------------------------------------------------
-# Checkout (hosted gateway session)
-# ---------------------------------------------------------------------------
-
-@router.post("/invoices/{invoice_id}/checkout")
-async def checkout_invoice(
+@router.get("/invoices/{invoice_id}/pdf")
+async def download_invoice_pdf(
     invoice_id: int,
     db: AsyncSession = Depends(get_db),
     house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_permission("billing.pay")),
+    current_user: User = Depends(has_any_permission(["billing.view", "subscription.view", "payments.view"])),
 ):
+    """Stream the invoice PDF for the selected house.
+
+    Manual payments generate and store the PDF when the payment completes; this
+    endpoint also renders one on demand for invoices that predate that (or
+    whose stored file was removed).
+    """
     house_id = await _house_id(current_user, house_context)
     invoice = (await db.execute(
-        select(Invoice).where(Invoice.id == invoice_id, Invoice.house_id == house_id)
+        select(Invoice).where(
+            Invoice.id == invoice_id,
+            Invoice.house_id == house_id,
+            Invoice.is_deleted == False,  # noqa: E712
+        )
     )).scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    if invoice.status == INVOICE_STATUS_PAID:
-        return {"success": True, "redirect_url": None, "already_paid": True,
-                "invoice": _invoice_payload(invoice)}
-    if invoice.status == INVOICE_STATUS_VOID:
-        raise HTTPException(status_code=400, detail="Invoice is void")
-
-    if not settings.ONLINE_PAYMENTS_ENABLED:
-        raise HTTPException(status_code=409, detail={
-            "code": "ONLINE_PAYMENT_DISABLED",
-            "message": (
-                "Online payment is not available in this deployment. "
-                "Please pay in cash and ask an administrator to record the payment."
-            ),
-        })
-
-    gateway_name = get_active_gateway_name()
-    gateway = get_gateway(gateway_name)
-    if gateway is None:
-        raise HTTPException(status_code=503, detail="Payment gateway is not configured")
-
-    house = (await db.execute(select(House).where(House.id == house_id))).scalar_one()
-    tran_id = f"{invoice.invoice_no}A{random.randrange(1000, 9999)}"
-
-    attempt = PaymentAttempt(
-        house_id=house_id,
-        invoice_id=invoice.id,
-        subscription_id=invoice.subscription_id,
-        amount=invoice.total,
-        currency=invoice.currency,
-        gateway=gateway_name,
-        gateway_tran_id=tran_id,
-        status="initiated",
+    pdf_bytes, filename = await invoice_pdf.get_or_create_invoice_pdf(db, invoice)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-    db.add(attempt)
-    await db.flush()
-
-    success_url = settings_value("SSLCOMMERZ_SUCCESS_URL") or default_url(current_user, "success")
-    fail_url = settings_value("SSLCOMMERZ_FAIL_URL") or default_url(current_user, "failed")
-    cancel_url = settings_value("SSLCOMMERZ_CANCEL_URL") or default_url(current_user, "cancelled")
-    ipn_url = settings_value("SSLCOMMERZ_IPN_URL") or default_ipn_url()
-
-    result = await gateway.create_checkout(
-        amount=float(invoice.total),
-        currency=invoice.currency,
-        tran_id=tran_id,
-        item_name=invoice.description or f"Subscription invoice {invoice.invoice_no}",
-        success_url=success_url,
-        fail_url=fail_url,
-        cancel_url=cancel_url,
-        ipn_url=ipn_url,
-        customer_name=house.name,
-        customer_email=current_user.email or "",
-        customer_phone=getattr(current_user, "phone", None) or "",
-    )
-
-    if result.get("status") == "SUCCESS":
-        attempt.session_key = result.get("session_key")
-        await db.commit()
-        return {
-            "success": True,
-            "redirect_url": result["gateway_page_url"],
-            "tran_id": tran_id,
-            "payment_attempt_id": attempt.id,
-        }
-    attempt.status = "failed"
-    attempt.error_reason = result.get("error")
-    await db.commit()
-    raise HTTPException(status_code=502, detail=f"Checkout failed: {result.get('error')}")
 
 
 # ---------------------------------------------------------------------------
@@ -285,24 +229,14 @@ async def refund_payment(
     if payment.status in (PAYMENT_STATUS_REFUNDED, "partially_refunded"):
         raise HTTPException(status_code=400, detail=f"Payment is already {payment.status}")
 
-    gateway = get_gateway(payment.gateway)
-    if gateway is None:
-        raise HTTPException(status_code=503, detail="Payment gateway is not configured")
-    if not payment.gateway_tran_id:
-        raise HTTPException(status_code=400, detail="Payment has no gateway transaction id to refund")
-
     refund_amount = payload.amount or float(payment.amount)
+    if refund_amount <= 0:
+        raise HTTPException(status_code=400, detail="Refund amount must be greater than zero")
     if refund_amount > float(payment.amount):
         raise HTTPException(status_code=400, detail="Refund amount exceeds payment amount")
 
-    result = await gateway.initiate_refund(
-        tran_id=payment.gateway_tran_id,
-        amount=refund_amount,
-        reference=f"refund-{payment.id}-{refund_amount}",
-    )
-    if result.get("status") not in ("SUCCESS", "PROCESSING"):
-        raise HTTPException(status_code=502, detail=f"Refund failed: {result.get('message')}")
-
+    # Money is handed back outside the system; this endpoint records that the
+    # refund happened so the invoice/payment history stays accurate.
     refund = Refund(
         house_id=house_id,
         payment_id=payment.id,
@@ -310,8 +244,7 @@ async def refund_payment(
         amount=refund_amount,
         currency=payment.currency,
         reason=payload.reason,
-        status=result.get("status", "processing"),
-        gateway_refund_id=result.get("refund_ref"),
+        status="succeeded",
         refunded_by=current_user.id,
         refunded_at=now_naive(),
     )
@@ -447,27 +380,6 @@ async def billing_overview(
             "total_received": float(total_received),
             "unpaid_invoices": unpaid_count,
             "amount_due_now": float(due_now),
-            "online_payments_enabled": settings.ONLINE_PAYMENTS_ENABLED,
-            "payment_gateway": settings.PAYMENT_GATEWAY,
             "cash_payments_enabled": settings.CASH_PAYMENTS_ENABLED,
         },
     }
-
-
-# ---------------------------------------------------------------------------
-# small helpers
-# ---------------------------------------------------------------------------
-
-def settings_value(name: str) -> Optional[str]:
-    from config.settings import settings
-    return getattr(settings, name, None) or None
-
-
-def default_url(current_user: User, state: str) -> str:
-    base = settings_value("APP_URL") or "http://localhost:3000"
-    return f"{base}/billing?payment={state}"
-
-
-def default_ipn_url() -> str:
-    base = settings_value("APP_URL") or "http://localhost:8000"
-    return f"{base}/api/webhook/gateway/sslcommerz"

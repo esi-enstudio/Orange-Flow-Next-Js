@@ -1243,7 +1243,7 @@ on page load. It only ever exposes the caller's own house.
 | `BILLING_LEGACY_PLAN_SLUG` | `legacy-unlimited` | Slug of that plan (created on demand, `allowed_modules = NULL`) |
 | `BILLING_DEFAULT_PLAN_SLUG` | `""` | Plan auto-assigned by `POST /api/houses`. Empty = new house starts unsubscribed |
 | `TENANT_STRICT_HOUSE_ISOLATION` | `true` | Non-super-admin users must belong to `X-House-ID`. `false` = single-company deployment only |
-| `BILLING_INVOICE_DRY_RUN` | `false` | `true` in production aborts startup |
+| `CASH_PAYMENTS_ENABLED` | `true` | Offline payment recording is the only payment path (no hosted gateway) |
 | `BILLING_ENABLED` | `true` | `false` in production aborts startup |
 
 ## Production fail-fast guard
@@ -1253,7 +1253,6 @@ When `ENVIRONMENT=production`, the app **refuses to start** if any of these is
 set to a dangerous value:
 
 - `BILLING_REQUIRE_PLAN=false` (would restore fail-open)
-- `BILLING_INVOICE_DRY_RUN=true` (no real payments)
 - `BILLING_ENABLED=false` (billing turned off)
 
 This makes it impossible to ship the fail-open switch to production by accident.
@@ -1309,12 +1308,27 @@ Structured log lines carry `billing_event=<name>` plus `house_id`, `user_id` and
 | `plan_module_denied` | Plan does not include the module/page |
 | `plan_module_unmapped_denied` | Unmapped endpoint refused for a strict plan |
 | `super_admin_bypass` | Platform super admin bypassed billing gates |
-| `payment_validation_failed` | Gateway validation (amount/currency/status) rejected an IPN |
-| `payment_duplicate_webhook` | Idempotent re-delivery of a webhook |
 
 State changes (renewal, activation, plan change, cancel) are persisted in
-`subscription_change_logs`; payment attempts and webhook payloads in
-`payment_attempts` / `webhook_events`.
+`subscription_change_logs`.
+
+## Payments are manual only
+
+There is no hosted payment gateway in this deployment (SSLCommerz was removed).
+Money is received offline and recorded by an authorised admin via
+`POST /api/v1/admin/invoices/{id}/mark-paid` or
+`POST /api/v1/admin/subscriptions/{id}/cash-payment`
+(`billing.cash_payment` / `billing.manage`). The recorded payment is the only
+thing that activates or renews a plan — there is no webhook and no callback to
+trust. `payments.gateway` now stores the manual channel (`cash`, `manual`,
+`bank`, ...). The obsolete `payment_attempts` / `webhook_events` tables are
+dropped by `_migrate_remove_payment_gateway_artifacts()` in `init_db()`.
+
+When a manual payment completes, the invoice PDF is rendered and stored under
+`private_uploads/invoices/` (`app/services/invoice_pdf.py`, path kept on
+`invoices.pdf_path`). Download it from the billing page or via
+`GET /api/v1/billing/invoices/{id}/pdf` / `GET /api/v1/admin/invoices/{id}/pdf`;
+a missing stored file is re-rendered on demand.
 
 ## Legacy audit surface
 

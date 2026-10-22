@@ -38,7 +38,6 @@ export interface Subscription {
   paused_at?: string | null;
   resume_at?: string | null;
   auto_renew: boolean;
-  gateway?: string | null;
   billing_interval: string;
   currency: string;
   package?: Plan | null;
@@ -96,9 +95,9 @@ export interface Payment {
   amount: number;
   currency: string;
   status: string;
+  /** Manual payment channel: cash | manual | bank | bkash | nagad | ... */
   gateway?: string | null;
   gateway_tran_id?: string | null;
-  card_type?: string | null;
   paid_at?: string | null;
   created_at?: string | null;
 }
