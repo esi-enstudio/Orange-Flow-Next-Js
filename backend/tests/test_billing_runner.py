@@ -76,6 +76,23 @@ async def test_renewal_skipped_when_open_invoice_exists(db, house, plan, recorde
     assert len(invoices) == 1
 
 
+async def test_renewal_invoice_is_not_duplicated_across_cycles(db, house, plan, recorded_notifications):
+    """The renewal invoice must cover the *next* period so the open-invoice
+    guard recognises it on the next scheduler run (previously it was issued
+    with the current period and re-created every 5 minutes)."""
+    end = now_naive() + timedelta(days=2)
+    sub = await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=True, end=end)
+
+    await run_billing_cycle(db)
+    await run_billing_cycle(db)
+
+    invoices = (await db.execute(select(Invoice))).scalars().all()
+    assert len(invoices) == 1
+    assert invoices[0].billing_period_start == sub.current_period_end
+    assert invoices[0].billing_period_end > invoices[0].billing_period_start
+    assert recorded_notifications == [(house.id, "invoice_issued")]
+
+
 async def test_renewal_skipped_when_no_package(db, house, plan, recorded_notifications):
     end = now_naive() + timedelta(days=2)
     sub = await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=True, end=end)
@@ -111,11 +128,23 @@ async def test_marked_past_due_after_period_end(db, house, plan, recorded_notifi
     assert recorded_notifications == [(house.id, "past_due")]
 
 
-async def test_paid_invoice_avoids_past_due_and_renews(db, house, plan, recorded_notifications):
+async def test_paid_next_period_invoice_rolls_forward(db, house, plan, recorded_notifications):
+    """Legacy safety net: a paid next-period invoice that never rolled the cycle.
+
+    ``mark_invoice_paid`` now rolls the period itself, but historical/manual
+    rows may not have. The runner may only roll forward for an invoice whose
+    period starts at/after the current period end.
+    """
     end = now_naive() - timedelta(days=1)
-    sub = await make_sub(db, house.id, plan, trial_days=0, status="active", auto_renew=False, end=end)
+    start = end - timedelta(days=30)
+    sub = await make_sub(
+        db, house.id, plan, trial_days=0, status="active", auto_renew=False,
+        start=start, end=end,
+    )
     old_end = sub.current_period_end
     invoice = await make_invoice(db, sub, plan, status="paid")
+    invoice.billing_period_start = old_end
+    invoice.billing_period_end = old_end + timedelta(days=30)
     invoice.paid_at = now_naive()
     await db.commit()
     stats = await run_billing_cycle(db)
@@ -123,6 +152,28 @@ async def test_paid_invoice_avoids_past_due_and_renews(db, house, plan, recorded
     await db.refresh(sub)
     assert sub.status == "active"
     assert sub.current_period_end > old_end
+
+
+async def test_paid_current_period_invoice_does_not_buy_free_month(db, house, plan, recorded_notifications):
+    """A paid invoice for the period that already ended must not renew the sub.
+
+    Regression: the old compensation query looked only at ``paid_at`` and
+    renewed on *any* paid invoice for the current period, giving a free month.
+    """
+    end = now_naive() - timedelta(days=1)
+    start = end - timedelta(days=30)
+    sub = await make_sub(
+        db, house.id, plan, trial_days=0, status="active", auto_renew=False,
+        start=start, end=end,
+    )
+    invoice = await make_invoice(db, sub, plan, status="paid")
+    invoice.paid_at = now_naive()
+    await db.commit()
+    stats = await run_billing_cycle(db)
+    assert stats["marked_past_due"] == 1
+    await db.refresh(sub)
+    assert sub.status == "past_due"
+    assert sub.current_period_end == end
 
 
 async def test_expire_past_grace(db, house, plan, recorded_notifications):

@@ -30,12 +30,11 @@ from app.models.user import User
 from app.services import entitlement, subscription_service as subsvc
 from app.services.payment import get_gateway, get_active_gateway_name
 from app.utils.timezone import now_naive
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/billing", tags=["Billing"])
-
-GATEWAY_NAME = "sslcommerz"
 
 
 async def _house_id(current_user: User, house_context: Optional[int]) -> int:
@@ -163,7 +162,17 @@ async def checkout_invoice(
     if invoice.status == INVOICE_STATUS_VOID:
         raise HTTPException(status_code=400, detail="Invoice is void")
 
-    gateway = get_gateway(GATEWAY_NAME)
+    if not settings.ONLINE_PAYMENTS_ENABLED:
+        raise HTTPException(status_code=409, detail={
+            "code": "ONLINE_PAYMENT_DISABLED",
+            "message": (
+                "Online payment is not available in this deployment. "
+                "Please pay in cash and ask an administrator to record the payment."
+            ),
+        })
+
+    gateway_name = get_active_gateway_name()
+    gateway = get_gateway(gateway_name)
     if gateway is None:
         raise HTTPException(status_code=503, detail="Payment gateway is not configured")
 
@@ -176,7 +185,7 @@ async def checkout_invoice(
         subscription_id=invoice.subscription_id,
         amount=invoice.total,
         currency=invoice.currency,
-        gateway=GATEWAY_NAME,
+        gateway=gateway_name,
         gateway_tran_id=tran_id,
         status="initiated",
     )
@@ -324,7 +333,10 @@ async def list_payment_methods(
 ):
     house_id = await _house_id(current_user, house_context)
     result = (await db.execute(
-        select(PaymentMethod).where(PaymentMethod.house_id == house_id)
+        select(PaymentMethod).where(
+            PaymentMethod.house_id == house_id,
+            PaymentMethod.is_deleted == False,  # noqa: E712
+        ).order_by(PaymentMethod.id.asc())
     )).scalars()
     return {"success": True, "data": [
         {
@@ -367,6 +379,7 @@ async def create_payment_method(
     house_id = await _house_id(current_user, house_context)
     method = PaymentMethod(
         house_id=house_id,
+        gateway="cash" if payload.method_type == "cash" else "manual",
         method_type=payload.method_type,
         label=payload.label,
         bank_name=payload.bank_name,
@@ -434,6 +447,9 @@ async def billing_overview(
             "total_received": float(total_received),
             "unpaid_invoices": unpaid_count,
             "amount_due_now": float(due_now),
+            "online_payments_enabled": settings.ONLINE_PAYMENTS_ENABLED,
+            "payment_gateway": settings.PAYMENT_GATEWAY,
+            "cash_payments_enabled": settings.CASH_PAYMENTS_ENABLED,
         },
     }
 

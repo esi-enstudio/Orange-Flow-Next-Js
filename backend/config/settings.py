@@ -74,10 +74,19 @@ class Settings(BaseSettings):
     WA_GATEWAY_JWT_KEY: str = ""
     WA_GATEWAY_ENABLED: bool = True
 
-    # ---- Subscription & Billing (SSLCommerz gateway) ----
-    # Provider-agnostic; only sslcommerz is implemented. Add another gateway
-    # by implementing app.services.payment.<provider>.py and registering it.
-    PAYMENT_GATEWAY: str = "sslcommerz"
+    # ---- Subscription & Billing ----
+    # Provider-agnostic. "none" (default) is a cash/manual-only deployment:
+    # hosted checkout and gateway webhooks stay disabled until a real provider
+    # is configured. Set "sslcommerz" (or another registered provider) to turn
+    # online payments back on.
+    #
+    # Add another gateway by implementing
+    # app.services.payment.<provider>.py and registering it.
+    PAYMENT_GATEWAY: str = "none"
+    # Cash is recorded by an authorised admin (billing.cash_payment /
+    # billing.manage). Keep this on even while a gateway is configured: a
+    # tenant may still choose to pay in cash.
+    CASH_PAYMENTS_ENABLED: bool = True
 
     SSLCOMMERZ_STORE_ID: str = ""
     SSLCOMMERZ_STORE_PASSWORD: str = ""
@@ -156,6 +165,19 @@ class Settings(BaseSettings):
     @property
     def IS_PRODUCTION(self) -> bool:
         return self.ENVIRONMENT.strip().lower() in {"production", "prod"}
+
+    @computed_field
+    @property
+    def ONLINE_PAYMENTS_ENABLED(self) -> bool:
+        """True only when a hosted checkout provider is explicitly configured.
+
+        This is the single flag the API and UI use to decide whether to offer
+        online checkout. Missing gateway credentials are still caught by the
+        provider (checkout returns 503); this flag answers the product
+        question "does this deployment accept online payments at all?".
+        """
+        name = (self.PAYMENT_GATEWAY or "").strip().lower()
+        return name not in {"", "none", "off", "disabled", "cash", "manual"}
 
     @model_validator(mode="after")
     def enforce_production_billing_safety(self) -> "Settings":

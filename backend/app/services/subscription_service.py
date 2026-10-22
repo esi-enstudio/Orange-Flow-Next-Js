@@ -236,6 +236,18 @@ async def create_subscription(
     return sub
 
 
+def next_billing_period_start(sub: HouseSubscription):
+    """Start of the period the next payment should buy.
+
+    - Active/trialing with time left: the current period end (advance renewal).
+    - Past-due/expired/paused: now, so the tenant is not charged for a period
+      that already elapsed (a backdated renewal would leave them expired).
+    """
+    now = now_naive()
+    end = sub.current_period_end
+    return end if end and end > now else now
+
+
 async def issue_invoice(
     db: AsyncSession,
     sub: HouseSubscription,
@@ -243,8 +255,28 @@ async def issue_invoice(
     billing_interval: Optional[str] = None,
     description: Optional[str] = None,
     due_days: Optional[int] = None,
+    period_start=None,
+    period_end=None,
 ) -> Invoice:
+    """Create an invoice for a subscription.
+
+    Without explicit period bounds the invoice covers the subscription's
+    *current* period (used when a new subscription is created). Renewal callers
+    must pass ``period_start=next_billing_period_start(sub)`` so the invoice
+    covers the period the payment actually buys — otherwise the billing runner
+    would re-issue the same "renewal" invoice forever and paying it would not
+    roll the cycle.
+    """
     period = billing_interval or sub.billing_interval
+    if period_start is not None:
+        start = period_start
+        end = period_end or _add_interval(start, period)
+    else:
+        start = sub.current_period_start or now_naive()
+        end = period_end or sub.current_period_end or _add_interval(start, period)
+    if end <= start:
+        raise ValueError("Invoice period_end must be after period_start")
+
     amount = plan_price(plan, period)
     tax = round(amount * Decimal(settings.BILLING_TAX_PERCENT) / Decimal(100), 2)
     total = amount + tax
@@ -254,8 +286,8 @@ async def issue_invoice(
         house_id=sub.house_id,
         subscription_id=sub.id,
         invoice_no=next_invoice_no(),
-        billing_period_start=sub.current_period_start,
-        billing_period_end=sub.current_period_end,
+        billing_period_start=start,
+        billing_period_end=end,
         due_date=due,
         amount=amount,
         tax=tax,
@@ -342,21 +374,39 @@ async def renew_period(
     db: AsyncSession,
     sub: HouseSubscription,
     changed_via: str = "api",
+    period_start=None,
+    period_end=None,
 ) -> HouseSubscription:
-    """Roll the billing period forward (after a successful renewal payment)."""
+    """Roll the billing period forward (after a successful renewal payment).
+
+    ``period_start``/``period_end`` come from the paid invoice so the cycle
+    moves to exactly the period that was bought. Without them the next period
+    starts at the current period end, clamped to ``now`` so a long-lapsed
+    subscription does not buy a period that is already over.
+    """
     now = now_naive()
     old_end = sub.current_period_end
-    sub.current_period_start = old_end
-    sub.current_period_end = _add_interval(old_end, sub.billing_interval)
-    sub.end_date = sub.current_period_end
+    old_status = sub.status
+    if period_start is not None:
+        start = period_start
+        end = period_end if period_end and period_end > start else _add_interval(start, sub.billing_interval)
+    else:
+        start = old_end if old_end and old_end > now else now
+        end = _add_interval(start, sub.billing_interval)
+    if end <= start:
+        raise ValueError("Renewal period_end must be after period_start")
+
+    sub.current_period_start = start
+    sub.current_period_end = end
+    sub.end_date = end
     sub.status = "active"
     sub.cancel_at_period_end = False
     sub.grace_period_end = None
     sub.cancelled_at = None
     sub.updated_at = now
     await _log(db, sub, "renewed", changed_via=changed_via,
-               old_status="past_due", new_status="active",
-               old_period_end=old_end, new_period_end=sub.current_period_end)
+               old_status=old_status, new_status="active",
+               old_period_end=old_end, new_period_end=end)
     await db.commit()
     await db.refresh(sub)
     await _sync_house_state(db, sub.house_id)
@@ -506,7 +556,11 @@ async def mark_invoice_paid(
         and invoice.billing_period_start >= sub.current_period_end
     )
     if is_renewal:
-        sub = await renew_period(db, sub, changed_via=changed_via)
+        sub = await renew_period(
+            db, sub, changed_via=changed_via,
+            period_start=invoice.billing_period_start,
+            period_end=invoice.billing_period_end,
+        )
     else:
         sub = await activate(db, sub, changed_via=changed_via)
     await db.commit()

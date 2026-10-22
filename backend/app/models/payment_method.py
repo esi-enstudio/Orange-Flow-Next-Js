@@ -4,7 +4,7 @@ from app.models.base import Base
 from app.utils.timezone import now_naive
 
 
-PAYMENT_METHOD_TYPES = ("bkash", "nagad", "rocket", "card", "bank", "mobilebanking")
+PAYMENT_METHOD_TYPES = ("cash", "bkash", "nagad", "rocket", "card", "bank", "mobilebanking")
 
 
 class PaymentMethod(Base):

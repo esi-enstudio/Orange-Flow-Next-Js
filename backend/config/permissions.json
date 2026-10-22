@@ -511,6 +511,7 @@
         "billing.edit",
         "billing.refund",
         "billing.manage",
+        "billing.cash_payment",
         "billing.export",
         "billing.settings"
       ]

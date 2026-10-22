@@ -85,6 +85,7 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
                 db, sub, sub.package,
                 billing_interval=sub.billing_interval,
                 description=f"Renewal - {sub.package.name} ({sub.billing_interval})",
+                period_start=sub.current_period_end,
             )
             stats["renewals_issued"] += 1
             await _notify(sub.house_id, "invoice_issued", invoice=invoice, sub=sub)
@@ -121,17 +122,25 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
         )
     )
     for sub in result.scalars().all():
-        paid = (await db.execute(
-            select(func.count(Invoice.id)).where(
+        # Safety net for legacy/manual payments that marked the next-period
+        # invoice paid without rolling the cycle. Only an invoice whose period
+        # starts at/after the current period end may roll it forward — a paid
+        # invoice for the *current* period must never buy a free month.
+        paid_next = (await db.execute(
+            select(Invoice).where(
                 Invoice.subscription_id == sub.id,
                 Invoice.status == INVOICE_STATUS_PAID,
-                Invoice.paid_at >= sub.current_period_start,
-            )
-        )).scalar_one()
-        if paid:
-            # paid invoice covers this cycle; roll forward instead of punishing
+                Invoice.billing_period_start >= sub.current_period_end,
+                Invoice.is_deleted == False,  # noqa: E712
+            ).order_by(Invoice.billing_period_start.asc()).limit(1)
+        )).scalar_one_or_none()
+        if paid_next:
             from app.services.subscription_service import renew_period
-            await renew_period(db, sub, changed_via="scheduler")
+            await renew_period(
+                db, sub, changed_via="scheduler",
+                period_start=paid_next.billing_period_start,
+                period_end=paid_next.billing_period_end,
+            )
             continue
         sub.status = "past_due"
         sub.grace_period_end = now + timedelta(days=settings.BILLING_GRACE_DAYS)

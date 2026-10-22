@@ -21,8 +21,18 @@ router = APIRouter(prefix="/api/webhook/gateway", tags=["Webhooks"])
 GATEWAY_PROVIDER = "sslcommerz"
 
 
+def _sslcommerz_enabled() -> bool:
+    """Gateways must be explicitly enabled; cash-only deployments stay inert."""
+    return (
+        settings.ONLINE_PAYMENTS_ENABLED
+        and (settings.PAYMENT_GATEWAY or "").strip().lower() == GATEWAY_PROVIDER
+    )
+
+
 @router.post(f"/{GATEWAY_PROVIDER}")
 async def sslcommerz_webhook(request: Request):
+    if not _sslcommerz_enabled():
+        raise HTTPException(status_code=404, detail="Payment gateway webhook is disabled")
     started = time.time()
     try:
         body = await request.body()
@@ -58,8 +68,8 @@ async def sslcommerz_webhook(request: Request):
 
 @router.post("/sslcommerz/mock")
 async def sslcommerz_mock_webhook(payload: dict = Body(...)):
-    """Simulate an SSLCommerz IPN. Only available in dry-run mode (E2E tests)."""
-    if not settings.BILLING_INVOICE_DRY_RUN:
+    """Simulate an SSLCommerz IPN. Only in dry-run + enabled gateway (E2E tests)."""
+    if not settings.BILLING_INVOICE_DRY_RUN or not _sslcommerz_enabled():
         raise HTTPException(status_code=404, detail="Mock webhook is disabled")
     async with async_session() as session:
         result = await webhook_service.process_ipn(

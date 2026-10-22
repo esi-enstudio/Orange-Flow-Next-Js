@@ -349,7 +349,10 @@ async def renew_subscription(
         raise HTTPException(status_code=400, detail=f"Cannot renew from status '{sub.status}'")
     if not sub.package:
         raise HTTPException(status_code=400, detail="Subscription has no plan assigned")
-    invoice = await subsvc.issue_invoice(db, sub, sub.package, billing_interval=sub.billing_interval)
+    invoice = await subsvc.issue_invoice(
+        db, sub, sub.package, billing_interval=sub.billing_interval,
+        period_start=subsvc.next_billing_period_start(sub),
+    )
     return {"success": True, "invoice": _invoice_payload(invoice)}
 
 

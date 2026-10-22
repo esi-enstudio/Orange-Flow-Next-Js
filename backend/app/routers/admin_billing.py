@@ -6,15 +6,16 @@ hold subscription.view.
 """
 
 import logging
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.routers.deps import get_db, has_permission
+from app.routers.deps import get_db, has_any_permission, has_permission
 from app.models.house import House
 from app.models.invoice import (
     Invoice, INVOICE_STATUS_PAID, INVOICE_STATUS_ISSUED, INVOICE_STATUS_UNPAID, INVOICE_STATUS_VOID,
@@ -23,8 +24,10 @@ from app.models.payment import Payment
 from app.models.subscription import HouseSubscription
 from app.models.webhook_event import WebhookEvent
 from app.models.user import User
+from app.services import manual_payment
 from app.services import subscription_service as subsvc
 from app.services import entitlement
+from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,10 @@ def _sub_payload(sub: HouseSubscription) -> dict:
         "status": sub.status,
         "billing_interval": sub.billing_interval,
         "currency": sub.currency,
+        "plan_price": (
+            float(subsvc.plan_price(sub.package, sub.billing_interval))
+            if sub.package else None
+        ),
         "current_period_start": sub.current_period_start,
         "current_period_end": sub.current_period_end,
         "trial_end": sub.trial_end,
@@ -184,6 +191,7 @@ async def admin_update_subscription(
 @router.post("/subscriptions/{subscription_id}/issue-invoice")
 async def admin_issue_invoice(
     subscription_id: int,
+    for_next_period: bool = Query(True, description="Bill the next billing period (default) or the current one"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("billing.manage")),
 ):
@@ -195,6 +203,7 @@ async def admin_issue_invoice(
     invoice = await subsvc.issue_invoice(
         db, sub, sub.package, billing_interval=sub.billing_interval,
         description=f"Manual invoice (admin {current_user.id})",
+        period_start=subsvc.next_billing_period_start(sub) if for_next_period else None,
     )
     return {"success": True, "invoice": {"id": invoice.id, "invoice_no": invoice.invoice_no, "total": float(invoice.total)}}
 
@@ -207,48 +216,192 @@ class MarkPaidRequest(BaseModel):
     gateway_tran_id: Optional[str] = None
     amount: Optional[float] = None
     note: Optional[str] = None
+    reference: Optional[str] = None
+    paid_at: Optional[datetime] = None
+
+
+def _payment_error(exc: "manual_payment.ManualPaymentError") -> HTTPException:
+    detail = {"code": exc.code, "message": exc.message}
+    if exc.fields:
+        detail["fields"] = exc.fields
+    return HTTPException(status_code=exc.status_code, detail=detail)
+
+
+async def _notify_payment(db: AsyncSession, invoice: Invoice, sub) -> None:
+    try:
+        from app.services.billing_notifications import notify_house
+        house = (await db.execute(select(House).where(House.id == invoice.house_id))).scalar_one_or_none()
+        if house:
+            await notify_house(db, house, "payment_succeeded", invoice=invoice, sub=sub)
+    except Exception as exc:  # a notification failure must never undo a payment
+        logger.warning("offline payment notification failed: %s", exc)
+
+
+async def _audit_cash_payment(
+    db: AsyncSession,
+    request: Request,
+    current_user: User,
+    result: dict,
+    amount,
+    reference: Optional[str],
+    note: Optional[str],
+) -> None:
+    payment = result.get("payment")
+    invoice = result["invoice"]
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="billing",
+        action="create",
+        record_id=payment.id if payment else invoice.id,
+        record_identifier=invoice.invoice_no,
+        new_values={
+            "invoice_id": invoice.id,
+            "invoice_no": invoice.invoice_no,
+            "amount": float(amount),
+            "currency": invoice.currency,
+            "gateway": manual_payment.CASH_GATEWAY,
+            "reference": reference,
+            "note": note,
+        },
+        request=request,
+    )
 
 
 @router.post("/invoices/{invoice_id}/mark-paid")
 async def admin_mark_invoice_paid(
     invoice_id: int,
     payload: MarkPaidRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("billing.manage")),
+    current_user: User = Depends(has_any_permission(["billing.manage", "billing.cash_payment"])),
 ):
-    """Authoritative offline/manual payment recording."""
+    """Authoritative offline/cash payment recording for one invoice."""
     invoice = (await db.execute(
         select(Invoice).where(Invoice.id == invoice_id)
     )).scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    if invoice.status == INVOICE_STATUS_PAID:
-        return {"success": True, "already_paid": True}
 
-    from app.models.payment import Payment, PAYMENT_STATUS_SUCCEEDED
-    payment = Payment(
-        house_id=invoice.house_id,
-        invoice_id=invoice.id,
-        subscription_id=invoice.subscription_id,
-        amount=invoice.total,
-        currency=invoice.currency,
-        status=PAYMENT_STATUS_SUCCEEDED,
-        gateway="manual",
-        gateway_tran_id=payload.gateway_tran_id or f"MANUAL-{invoice.invoice_no}-{current_user.id}",
-        paid_at=now_naive(),
-        payment_meta={"note": payload.note or f"Marked paid by admin {current_user.id}"},
-    )
-    db.add(payment)
-    await subsvc.mark_invoice_paid(db, invoice, gateway_tran_id=payment.gateway_tran_id, changed_via="admin")
     try:
-        from app.models.house import House
-        from app.services.billing_notifications import notify_house
-        house = (await db.execute(select(House).where(House.id == invoice.house_id))).scalar_one_or_none()
-        if house:
-            await notify_house(db, house, "payment_succeeded", invoice=invoice, sub=invoice.subscription)
-    except Exception as exc:
-        logger.warning("offline payment notification failed: %s", exc)
-    return {"success": True, "invoice_status": "paid"}
+        result = await manual_payment.pay_invoice_manually(
+            db,
+            invoice,
+            amount=payload.amount,
+            gateway=manual_payment.CASH_GATEWAY,
+            reference=payload.reference or payload.gateway_tran_id,
+            note=payload.note,
+            paid_at=payload.paid_at,
+            recorded_by=current_user.id,
+        )
+    except manual_payment.ManualPaymentError as exc:
+        raise _payment_error(exc)
+
+    invoice = result["invoice"]
+    if not result["already_paid"]:
+        await _notify_payment(db, invoice, result["subscription"])
+        payment = result["payment"]
+        await _audit_cash_payment(
+            db, request, current_user, result,
+            payment.amount if payment else invoice.total,
+            payload.reference or payload.gateway_tran_id, payload.note,
+        )
+
+    return {
+        "success": True,
+        "already_paid": result["already_paid"],
+        "invoice_status": invoice.status,
+        "payment_id": result["payment"].id if result["payment"] else None,
+    }
+
+
+class CashPaymentRequest(BaseModel):
+    amount: Optional[float] = None
+    reference: Optional[str] = None
+    note: Optional[str] = None
+    paid_at: Optional[datetime] = None
+    idempotency_key: Optional[str] = None
+
+
+@router.post("/subscriptions/{subscription_id}/cash-payment")
+async def admin_record_cash_payment(
+    subscription_id: int,
+    payload: CashPaymentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["billing.manage", "billing.cash_payment"])),
+):
+    """Record cash received for a subscription in one step (no gateway).
+
+    Reuses the oldest open invoice when one exists; otherwise issues an invoice
+    for the next billing period. Cash is the authoritative payment: the
+    subscription only activates/renews after this server-side record exists.
+    """
+    sub = (await db.execute(
+        select(HouseSubscription)
+        .options(
+            selectinload(HouseSubscription.house),
+            selectinload(HouseSubscription.package),
+        )
+        .where(
+            HouseSubscription.id == subscription_id,
+            HouseSubscription.is_deleted == False,  # noqa: E712
+        )
+    )).scalar_one_or_none()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    try:
+        result = await manual_payment.record_cash_payment(
+            db,
+            sub,
+            amount=payload.amount,
+            reference=payload.reference,
+            note=payload.note,
+            paid_at=payload.paid_at,
+            recorded_by=current_user.id,
+            idempotency_key=payload.idempotency_key,
+        )
+    except manual_payment.ManualPaymentError as exc:
+        raise _payment_error(exc)
+
+    invoice = result["invoice"]
+    if not result["already_paid"]:
+        await _notify_payment(db, invoice, result["subscription"])
+        payment = result["payment"]
+        await _audit_cash_payment(
+            db, request, current_user, result,
+            payment.amount if payment else invoice.total,
+            payload.reference, payload.note,
+        )
+
+    # Re-read with relationships after mark_invoice_paid refreshed the row.
+    fresh_sub = (await db.execute(
+        select(HouseSubscription)
+        .options(
+            selectinload(HouseSubscription.house),
+            selectinload(HouseSubscription.package),
+        )
+        .where(HouseSubscription.id == subscription_id)
+    )).scalar_one_or_none()
+
+    return {
+        "success": True,
+        "already_paid": result["already_paid"],
+        "invoice": {
+            "id": invoice.id,
+            "invoice_no": invoice.invoice_no,
+            "total": float(invoice.total),
+            "currency": invoice.currency,
+            "status": invoice.status,
+            "paid_at": invoice.paid_at,
+            "billing_period_start": invoice.billing_period_start,
+            "billing_period_end": invoice.billing_period_end,
+        },
+        "subscription": _sub_payload(fresh_sub) if fresh_sub else None,
+        "payment_id": result["payment"].id if result["payment"] else None,
+    }
 
 
 @router.get("/invoices")

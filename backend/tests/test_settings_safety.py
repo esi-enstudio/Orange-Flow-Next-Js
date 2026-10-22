@@ -57,3 +57,29 @@ def test_environment_aliases_are_recognized():
     assert _settings(ENVIRONMENT="prod").IS_PRODUCTION is True
     assert _settings(ENVIRONMENT="Production").IS_PRODUCTION is True
     assert _settings(ENVIRONMENT="staging").IS_PRODUCTION is False
+
+
+@pytest.mark.parametrize("gateway,expected", [
+    ("none", False),
+    ("off", False),
+    ("disabled", False),
+    ("cash", False),
+    ("manual", False),
+    ("sslcommerz", True),
+])
+def test_online_payments_flag_follows_gateway(gateway, expected):
+    config = _settings(PAYMENT_GATEWAY=gateway)
+    assert config.ONLINE_PAYMENTS_ENABLED is expected
+
+
+def test_production_accepts_cash_only_billing():
+    """A cash-only deployment needs no gateway credentials and must boot."""
+    config = _settings(
+        ENVIRONMENT="production",
+        PAYMENT_GATEWAY="none",
+        BILLING_REQUIRE_PLAN=True,
+        BILLING_INVOICE_DRY_RUN=False,
+        BILLING_ENABLED=True,
+    )
+    assert config.ONLINE_PAYMENTS_ENABLED is False
+    assert config.IS_PRODUCTION is True

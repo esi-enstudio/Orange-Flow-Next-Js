@@ -9,6 +9,7 @@ from app.services.subscription_service import (
     create_subscription,
     issue_invoice,
     mark_invoice_paid,
+    next_billing_period_start,
     pause,
     plan_price,
     reactivate,
@@ -75,6 +76,31 @@ async def test_issue_invoice_applies_tax(db, house, plan, monkeypatch):
     assert invoice.amount == Decimal("5000.00")
     assert invoice.tax == Decimal("250.00")
     assert invoice.total == Decimal("5250.00")
+
+
+async def test_issue_invoice_for_next_period(db, house, plan):
+    sub = await make_sub(db, house.id, plan, trial_days=0)
+    invoice = await issue_invoice(db, sub, plan, period_start=sub.current_period_end)
+    assert invoice.billing_period_start == sub.current_period_end
+    assert invoice.billing_period_end > invoice.billing_period_start
+
+
+async def test_next_billing_period_start_clamps_lapsed_subscription(db, house, plan):
+    end = now_naive() - timedelta(days=20)
+    sub = await make_sub(db, house.id, plan, trial_days=0, end=end)
+    start = next_billing_period_start(sub)
+    assert start > end
+    assert start >= now_naive() - timedelta(seconds=5)
+
+
+async def test_renew_period_lapsed_starts_now(db, house, plan):
+    end = now_naive() - timedelta(days=20)
+    sub = await make_sub(db, house.id, plan, trial_days=0, status="expired", end=end)
+    before = now_naive()
+    await renew_period(db, sub)
+    assert sub.current_period_start >= before - timedelta(seconds=5)
+    assert sub.current_period_end > sub.current_period_start
+    assert sub.status == "active"
 
 
 # ----------------------------------------------------------------------
@@ -212,9 +238,7 @@ async def test_mark_invoice_paid_activates(db, house, plan):
 async def test_mark_invoice_paid_renews(db, house, plan):
     sub = await make_sub(db, house.id, plan, trial_days=0)
     old_end = sub.current_period_end
-    invoice = await make_invoice(db, sub, plan)
-    invoice.billing_period_start = sub.current_period_end
-    await db.commit()
+    invoice = await issue_invoice(db, sub, plan, period_start=sub.current_period_end)
     result = await mark_invoice_paid(db, invoice, gateway_tran_id="TRAN-RENEW-1", changed_via="webhook")
     assert result.status == "active"
     assert result.current_period_end > old_end
