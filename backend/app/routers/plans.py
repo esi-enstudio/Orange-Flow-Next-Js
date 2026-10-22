@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -108,18 +109,40 @@ async def create_plan(
     current_user: User = Depends(has_permission("plans.manage")),
 ):
     slug = (payload.slug or payload.name.strip().lower().replace(" ", "-")).lower()
-    existing = (
-        await db.execute(select(SubscriptionPackage).where(
-            or_(SubscriptionPackage.slug == slug, SubscriptionPackage.tier == _tier_or_none(payload.tier))
-        ))
+    tier = _tier_or_none(payload.tier)
+
+    # Slugs and tiers are unique among LIVE plans only. Checking them with one
+    # combined OR query used to crash with MultipleResultsFound (500) as soon
+    # as a soft-deleted plan shared the slug while another plan had a NULL tier
+    # (custom/legacy plans). Check each key separately and ignore archived rows,
+    # matching the partial unique indexes on the model.
+    slug_taken = (
+        await db.execute(
+            select(SubscriptionPackage.id).where(
+                SubscriptionPackage.slug == slug,
+                SubscriptionPackage.is_deleted == False,  # noqa: E712
+            )
+        )
     ).scalar_one_or_none()
-    if existing and not existing.is_deleted:
-        raise HTTPException(status_code=409, detail="Plan with this slug or tier already exists")
+    if slug_taken is not None:
+        raise HTTPException(status_code=409, detail="A plan with this slug already exists")
+
+    if tier is not None:
+        tier_taken = (
+            await db.execute(
+                select(SubscriptionPackage.id).where(
+                    SubscriptionPackage.tier == tier,
+                    SubscriptionPackage.is_deleted == False,  # noqa: E712
+                )
+            )
+        ).scalar_one_or_none()
+        if tier_taken is not None:
+            raise HTTPException(status_code=409, detail="A plan with this tier already exists")
 
     plan = SubscriptionPackage(
         name=payload.name,
         slug=slug,
-        tier=_tier_or_none(payload.tier),
+        tier=tier,
         duration_days=payload.duration_days or 30,
         price=payload.price_monthly,
         currency=payload.currency,
@@ -136,7 +159,14 @@ async def create_plan(
         sort_order=payload.sort_order,
     )
     db.add(plan)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A plan with this slug or tier already exists",
+        )
     await db.refresh(plan)
     return plan
 
@@ -160,26 +190,55 @@ async def update_plan(
     updates = payload.model_dump(exclude_unset=True)
     if "allowed_modules" in updates:
         updates["allowed_modules"] = _normalize_allowed_modules(updates["allowed_modules"])
-    if "tier" in updates and updates["tier"] is not None:
-        tier = _tier_or_none(updates["tier"])
-        dup = (await db.execute(select(SubscriptionPackage).where(
-            SubscriptionPackage.tier == tier,
-            SubscriptionPackage.id != plan_id,
-            SubscriptionPackage.is_deleted == False,  # noqa: E712
-        ))).scalar_one_or_none()
-        if dup:
-            raise HTTPException(status_code=409, detail="Another plan already uses this tier")
+
+    if "slug" in updates:
+        raw_slug = updates["slug"]
+        if raw_slug is None or not str(raw_slug).strip():
+            updates["slug"] = None
+        else:
+            slug = str(raw_slug).strip().lower()
+            dup_slug = (
+                await db.execute(
+                    select(SubscriptionPackage.id).where(
+                        SubscriptionPackage.slug == slug,
+                        SubscriptionPackage.id != plan_id,
+                        SubscriptionPackage.is_deleted == False,  # noqa: E712
+                    )
+                )
+            ).scalar_one_or_none()
+            if dup_slug is not None:
+                raise HTTPException(status_code=409, detail="Another plan already uses this slug")
+            updates["slug"] = slug
+
+    if "tier" in updates:
+        tier = _tier_or_none(updates.pop("tier"))
+        if tier is not None:
+            dup = (
+                await db.execute(
+                    select(SubscriptionPackage.id).where(
+                        SubscriptionPackage.tier == tier,
+                        SubscriptionPackage.id != plan_id,
+                        SubscriptionPackage.is_deleted == False,  # noqa: E712
+                    )
+                )
+            ).scalar_one_or_none()
+            if dup is not None:
+                raise HTTPException(status_code=409, detail="Another plan already uses this tier")
         plan.tier = tier
-        updates.pop("tier")
 
     for key, value in updates.items():
-        if key == "tier":
-            continue
         setattr(plan, key, value)
     if payload.price_monthly is not None:
         plan.price = payload.price_monthly
     plan.updated_at = now_naive()
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Another plan already uses this slug or tier",
+        )
     await db.refresh(plan)
     return plan
 

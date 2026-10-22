@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Enum, Numeric, Text, JSON, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Enum, Numeric, Text, JSON, ForeignKey, BigInteger, Index, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.models.base import Base
@@ -27,8 +27,11 @@ class SubscriptionPackage(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)  # Name (display)
-    slug = Column(String(50), unique=True, nullable=True, index=True)  # machine key: basic/standard/premium
-    tier = Column(Enum(SubscriptionTier), nullable=True, unique=True)  # basic/standard/premium (legacy)
+    # Uniqueness applies to live rows only: soft-deleted plans must not reserve
+    # a slug/tier forever, otherwise "delete then re-create" fails at the DB
+    # level. See __table_args__ for the partial unique indexes.
+    slug = Column(String(50), nullable=True, index=True)  # machine key: basic/standard/premium
+    tier = Column(Enum(SubscriptionTier), nullable=True)  # basic/standard/premium (legacy)
     duration_days = Column(Integer, nullable=True)  # Package duration (days) (legacy, default 30)
     price = Column(Numeric(10, 2), nullable=True)  # Price (legacy alias -> price_monthly)
 
@@ -65,6 +68,23 @@ class SubscriptionPackage(Base):
     updated_at = Column(DateTime, default=now_naive, onupdate=now_naive)
 
     subscriptions = relationship("HouseSubscription", back_populates="package")
+
+    __table_args__ = (
+        Index(
+            "uq_subscription_packages_slug_live",
+            "slug",
+            unique=True,
+            postgresql_where=text("is_deleted = false AND slug IS NOT NULL"),
+            sqlite_where=text("is_deleted = 0 AND slug IS NOT NULL"),
+        ),
+        Index(
+            "uq_subscription_packages_tier_live",
+            "tier",
+            unique=True,
+            postgresql_where=text("is_deleted = false AND tier IS NOT NULL"),
+            sqlite_where=text("is_deleted = 0 AND tier IS NOT NULL"),
+        ),
+    )
 
 class HouseSubscription(Base):
     __tablename__ = "house_subscriptions"

@@ -1167,6 +1167,42 @@ async def _migrate_subscription_billing():
         logger.warning(f"Migration warning (subscription billing columns): {e}")
 
 
+async def _migrate_subscription_package_live_uniqueness():
+    """Scope plan slug/tier uniqueness to live (non-deleted) rows.
+
+    The legacy schema put full UNIQUE constraints on ``slug`` and ``tier``.
+    Soft-deleting a plan therefore kept reserving its identifiers forever, so
+    re-creating a plan with the same name (or the same tier) failed with a DB
+    IntegrityError / 500. Replace those constraints with partial unique
+    indexes that ignore archived rows. Idempotent.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE subscription_packages "
+                "DROP CONSTRAINT IF EXISTS subscription_packages_tier_key"
+            ))
+            # Drop the old full unique slug index, keep a plain lookup index.
+            await conn.execute(text("DROP INDEX IF EXISTS ix_subscription_packages_slug"))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_subscription_packages_slug "
+                "ON subscription_packages (slug)"
+            ))
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_subscription_packages_slug_live "
+                "ON subscription_packages (slug) "
+                "WHERE is_deleted = false AND slug IS NOT NULL"
+            ))
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_subscription_packages_tier_live "
+                "ON subscription_packages (tier) "
+                "WHERE is_deleted = false AND tier IS NOT NULL"
+            ))
+            logger.info("Migration complete: plan slug/tier uniqueness scoped to live rows")
+    except Exception as e:
+        logger.warning(f"Migration warning (subscription package uniqueness): {e}")
+
+
 async def _migrate_billing_tables_extra():
     """Idempotently add columns added after the original billing tables were created."""
     try:
@@ -1797,10 +1833,13 @@ async def _migrate_billing_fail_closed(db_engine=None) -> dict:
                 if dialect == "postgresql":
                     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+                    # Bare ON CONFLICT DO NOTHING: slug uniqueness is now a
+                    # PARTIAL index (live rows only), which PostgreSQL does not
+                    # infer from `index_elements=["slug"]`.
                     await conn.execute(
                         pg_insert(SubscriptionPackage)
                         .values(**plan_values)
-                        .on_conflict_do_nothing(index_elements=["slug"])
+                        .on_conflict_do_nothing()
                     )
                 elif dialect == "sqlite":
                     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -1808,7 +1847,7 @@ async def _migrate_billing_fail_closed(db_engine=None) -> dict:
                     await conn.execute(
                         sqlite_insert(SubscriptionPackage)
                         .values(**plan_values)
-                        .on_conflict_do_nothing(index_elements=["slug"])
+                        .on_conflict_do_nothing()
                     )
                 else:
                     await conn.execute(insert(SubscriptionPackage).values(**plan_values))
@@ -1964,6 +2003,7 @@ async def init_db():
         await _migrate_house_whatsapp_columns()
         await _migrate_telegram_columns()
         await _migrate_subscription_billing()
+        await _migrate_subscription_package_live_uniqueness()
         await _migrate_billing_tables_extra()
         await _migrate_remove_payment_gateway_artifacts()
         await _migrate_billing_fail_closed()
