@@ -92,16 +92,17 @@ export default async function RootLayout({
               <EntitlementsProvider>
               <FullscreenProvider>
               <DynamicPageTitle />
-              <DashboardLayout>
-                <ModuleAccessGuard>
-                  {children}
-                </ModuleAccessGuard>
-              </DashboardLayout>
+              <SubscriptionGate>
+                <DashboardLayout>
+                  <ModuleAccessGuard>
+                    {children}
+                  </ModuleAccessGuard>
+                </DashboardLayout>
+              </SubscriptionGate>
               </FullscreenProvider>
               </EntitlementsProvider>
               </MaintenanceGate>
               <MaintenanceBanner />
-              <SubscriptionGate />
               <Toaster position="top-center" reverseOrder={false} />
               </MaintenanceProvider>
               </BrandProvider>

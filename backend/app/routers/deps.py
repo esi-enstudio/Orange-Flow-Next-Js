@@ -15,7 +15,7 @@ from app.services.db_service import async_session
 from app.models.user import User
 from app.models.role import Role
 from app.models.house import House
-from app.utils.access_control import is_admin_user, is_admin_role
+from app.utils.access_control import is_admin_user, is_admin_role, is_super_admin_user
 from app.utils.timezone import utc_now
 
 logger = logging.getLogger(__name__)
@@ -101,32 +101,43 @@ async def get_house_context(
     x_house_id: Optional[int] = Header(None, alias="X-House-ID"),
     current_user: User = Depends(get_current_user)
 ):
-    is_admin = is_admin_user(current_user)
+    """Resolve the active house from `X-House-ID`.
+
+    Tenant isolation is deny-by-default: only a **super admin** may name a
+    house they do not belong to. A tenant "admin"/"manager"/"house manager"
+    role is still scoped to its own houses — otherwise a header value would be
+    a cross-tenant data leak. `TENANT_STRICT_HOUSE_ISOLATION=false` restores
+    the old platform-wide admin bypass for single-company deployments.
+    """
     if not x_house_id:
         return None
-    if is_admin:
+    if is_super_admin_user(current_user):
         return x_house_id
     user_house_ids = [h.id for h in current_user.houses]
-    if x_house_id not in user_house_ids:
-        raise HTTPException(status_code=403, detail="You do not have access to this house context")
-    return x_house_id
+    if x_house_id in user_house_ids:
+        return x_house_id
+    if not settings.TENANT_STRICT_HOUSE_ISOLATION and is_admin_user(current_user):
+        return x_house_id
+    raise HTTPException(status_code=403, detail="You do not have access to this house context")
 
 
 async def require_house_context(
     x_house_id: Optional[int] = Header(None, alias="X-House-ID"),
     current_user: User = Depends(get_current_user)
 ):
-    is_admin = is_admin_user(current_user)
+    """Like `get_house_context`, but a house must always be resolvable."""
     if not x_house_id:
-        if is_admin or not current_user.houses:
+        if is_super_admin_user(current_user) or not current_user.houses:
             raise HTTPException(status_code=400, detail="Please select a house first (X-House-ID header required)")
         return current_user.houses[0].id
-    if is_admin:
+    if is_super_admin_user(current_user):
         return x_house_id
     user_house_ids = [h.id for h in current_user.houses]
-    if x_house_id not in user_house_ids:
-        raise HTTPException(status_code=403, detail="You do not have access to this house context")
-    return x_house_id
+    if x_house_id in user_house_ids:
+        return x_house_id
+    if not settings.TENANT_STRICT_HOUSE_ISOLATION and is_admin_user(current_user):
+        return x_house_id
+    raise HTTPException(status_code=403, detail="You do not have access to this house context")
 
 def has_any_permission(permissions: List[str]):
     async def permission_dependency(current_user: User = Depends(get_current_user)):

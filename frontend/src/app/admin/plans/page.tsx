@@ -192,7 +192,7 @@ export default function AdminPlansPage() {
 
     // Legacy plans (allowed_modules == null) keep unrestricted access; a
     // strict plan must always include at least one non-base module.
-    const isLegacy = editing && (editing.allowed_modules || []).length === 0;
+    const isLegacy = !!editing && editing.allowed_modules == null;
     const selectedModules = form.allowed_modules.filter((m) => !isBaseModule(m));
     if (selectedModules.length === 0 && !isLegacy) {
       setFieldErrors((prev) => ({

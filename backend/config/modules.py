@@ -30,6 +30,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/auth/", None),
     ("/admin/", None),
     ("/api/v1/admin/", None),
+    ("/api/admin/", None),
     ("/api/webhook/", None),
     ("/api/v1/plans", None),
     ("/api/v1/subscription", None),
@@ -43,6 +44,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/filter-tags", None),
     ("/api/retailer-filters", None),
     ("/api/shifts", None),  # helper used across modules; not a restricted module
+    ("/api/v1/shifts", None),  # helper used across modules; not a restricted module
     ("/api/v1/location/update", None),  # device/macro ingest endpoint (no plan context)
 
     # ---- module-bound prefixes (longest first) -------------------------------------
@@ -52,6 +54,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/rule-config", "administration"),
     ("/api/settings", "administration"),
     ("/api/users", "administration"),
+    ("/api/houses", "houses"),  # GET stays exempt (plan visibility); mutations are gated
     ("/api/cv", "administration"),
     ("/api/bp-retailer-codes", "administration"),
     ("/api/roles", "roles_permissions"),
@@ -145,7 +148,6 @@ PLATFORM_PATHS = tuple(p for p, m in PATH_TO_MODULE if m is None)
 MODULE_LEAF_ROUTES: dict = {
     "live_monitor": ("/live-monitor",),
     "data_import": (
-        "/houses",
         "/import/activations",
         "/import/itopup-details",
         "/import/live-activations",
@@ -227,7 +229,6 @@ LEAF_TO_API_PREFIXES: dict = {
     "/live-monitor": ("/api/system-logs", "/api/otp"),
 
     # ---- data_import ----
-    "/houses": ("/api/houses",),
     "/import/activations": ("/api/activations/import",),
     "/import/itopup-details": ("/api/itopup-details/import",),
     "/import/live-activations": ("/api/live-activations/import",),
@@ -343,12 +344,24 @@ MODULE_SHARED_API_PREFIXES: dict = {
 def module_for_path(path: str) -> Optional[str]:
     """Return the top-level module key an API path belongs to.
 
-    None => platform helper / unmapped / always-allowed.
+    None => platform helper / unmapped / always-allowed. Use `path_is_mapped`
+    to tell "explicitly always-allowed" apart from "nobody mapped this yet".
     """
     for prefix, module in PATH_TO_MODULE:
         if path.startswith(prefix):
             return module
     return None
+
+
+def path_is_mapped(path: str) -> bool:
+    """Whether `PATH_TO_MODULE` has an explicit entry for this path.
+
+    `True` covers both module-bound prefixes and deliberate ``None``
+    (platform/helper) entries. `False` means the path is unknown to the plan
+    system — the middleware fails closed for strict plans so a forgotten
+    mapping cannot leak a paid module.
+    """
+    return any(path.startswith(prefix) for prefix, _module in PATH_TO_MODULE)
 
 
 def leaf_owners_for_path(module_key: str, path: str) -> List[str]:

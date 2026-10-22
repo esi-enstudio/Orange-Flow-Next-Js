@@ -15,6 +15,7 @@ import {
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useEntitlements } from "@/context/EntitlementsContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -59,6 +60,7 @@ export default function BillingPage() {
   const searchParams = useSearchParams();
   const { t } = useLanguage();
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
+  const { refresh: refreshEntitlements } = useEntitlements();
 
   const [houses, setHouses] = useState<HouseOption[]>([]);
   const [houseId, setHouseId] = useState<number | null>(selectedHouse?.id ?? null);
@@ -153,9 +155,15 @@ export default function BillingPage() {
 
   useEffect(() => {
     const state = searchParams.get("payment");
-    if (state === "success") toast.success(t("billing.paid"));
-    else if (state === "failed" || state === "cancelled") toast.error(t("billing.checkout_unavailable"));
-  }, [searchParams, t]);
+    if (state === "success") {
+      toast.success(t("billing.paid"));
+      // A completed checkout changes the house's plan: refresh the gate state
+      // so the deny-by-default overlay lifts without a reload.
+      void refreshEntitlements();
+    } else if (state === "failed" || state === "cancelled") {
+      toast.error(t("billing.checkout_unavailable"));
+    }
+  }, [searchParams, t, refreshEntitlements]);
 
   const runAction = async (
     path: string,
@@ -168,6 +176,8 @@ export default function BillingPage() {
       toast.success(successMsg);
       setAction(null);
       await loadData();
+      // Select / renew / cancel all change what the house is entitled to.
+      void refreshEntitlements();
     } catch (err: any) {
       toast.error(err?.message || t("pricing.something_went_wrong"));
     } finally {
@@ -287,6 +297,34 @@ export default function BillingPage() {
               </div>
             ))}
           </div>
+
+          {/* No plan assigned — access is deny-by-default, so give the tenant a
+              one-click route into the plan catalogue instead of a dead end. */}
+          {!sub && (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-6 dark:border-amber-500/30 dark:bg-amber-500/5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                <div className="flex flex-1 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400">
+                    <CreditCard className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                      {t("billing.no_plan_title")}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
+                      {t("billing.no_plan_hint")}
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href="/pricing"
+                  className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+                >
+                  {t("billing.choose_plan")}
+                </a>
+              </div>
+            </div>
+          )}
 
           {/* Current subscription + actions */}
           {sub && (

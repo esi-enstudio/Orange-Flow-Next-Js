@@ -173,6 +173,13 @@ async def process_ipn(
             event.status = "failed"
             event.reason = "validation_failed"
             event.status_code = 400
+            logger.warning(
+                "billing_event=payment_validation_failed provider=%s tran_id=%s "
+                "house_id=%s invoice_id=%s gateway_status=%s error=%s",
+                provider, tran_id, attempt.house_id, attempt.invoice_id,
+                validation.get("status"),
+                (validation.get("data") or {}).get("error"),
+            )
             await db.commit()
             return {"processed": False, "reason": "validation_failed"}
 
@@ -186,6 +193,11 @@ async def process_ipn(
         )).scalar_one_or_none()
         if duplicate:
             # re-apply invoice paid state (idempotent)
+            logger.info(
+                "billing_event=payment_duplicate_webhook provider=%s tran_id=%s "
+                "house_id=%s invoice_id=%s payment_id=%s",
+                provider, tran_id, attempt.house_id, attempt.invoice_id, duplicate.id,
+            )
             await mark_invoice_paid(db, duplicate.invoice, gateway_tran_id=str(tran_id), changed_via="webhook")
             attempt.status = "success"
             event.status = "processed"

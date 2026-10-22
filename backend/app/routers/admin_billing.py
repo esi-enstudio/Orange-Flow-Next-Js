@@ -391,3 +391,50 @@ async def admin_webhook_event_detail(
         "signature_valid": ev.signature_valid, "payload": payload,
         "error_message": ev.error_message, "processed_at": ev.processed_at, "created_at": ev.created_at,
     }}    # noqa: E306
+
+# ---------------------------------------------------------------------------
+# Legacy / anomalous subscriptions (fail-open audit surface)
+# ---------------------------------------------------------------------------
+
+@router.get("/legacy-subscriptions")
+async def admin_list_legacy_subscriptions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("subscription.manage")),
+):
+    """Subscriptions with no plan attached (the old implicit free pass).
+
+    Deny-by-default blocks these rows as ``SUBSCRIPTION_REQUIRED`` and the
+    startup migration repairs them to the explicit ``legacy-unlimited`` plan.
+    This endpoint exists so operators can find every remaining anomalous row in
+    a deployment: in a healthy database it returns an empty list. Repair a row
+    with ``PATCH /api/v1/admin/subscriptions/{id}`` (set ``package_id``).
+    """
+    rows = (await db.execute(
+        select(HouseSubscription)
+        .options(
+            selectinload(HouseSubscription.house),
+            selectinload(HouseSubscription.package),
+        )
+        .where(
+            HouseSubscription.package_id.is_(None),
+            HouseSubscription.is_deleted == False,  # noqa: E712
+        )
+        .order_by(HouseSubscription.id)
+    )).scalars().all()
+
+    if rows:
+        logger.critical(
+            "BILLING AUDIT: %s package-less subscription(s) need repair: %s",
+            len(rows),
+            ", ".join(f"sub={row.id} house={row.house_id}" for row in rows[:25]),
+        )
+
+    return {
+        "success": True,
+        "data": [_sub_payload(row) for row in rows],
+        "total": len(rows),
+        "note": (
+            "Package-less subscriptions are blocked at runtime as 'no plan'. "
+            "Attach a real plan before treating them as active."
+        ),
+    }

@@ -4,13 +4,21 @@ Single source of truth for:
   - whether a house has an entitled subscription (active / trialing / past_due-in-grace)
   - which features a plan includes
   - whether a plan limit is exceeded
+  - whether a house may use the product at all (`house_access_state`)
 
 Routers MUST go through this module instead of scattering raw subscription
 checks. FastAPI dependencies: `require_subscription`, `require_feature`.
-Admin users and legacy subscribers (no package attached) bypass limits.
 
-Default policy is FAIL-OPEN for legacy houses (existing deployments keep
-working). Strict gating can be enabled per feature/plan without code changes.
+Access policy is DENY-BY-DEFAULT:
+  - no subscription record   -> SUBSCRIPTION_REQUIRED (blocked)
+  - plan expired / cancelled -> SUBSCRIPTION_EXPIRED  (blocked)
+  - house deactivated        -> HOUSE_INACTIVE        (blocked)
+  - package-less subscription (anomalous legacy row) -> SUBSCRIPTION_REQUIRED
+    (blocked + audited; the startup migration attaches the explicit
+    ``legacy-unlimited`` plan so the row keeps meaning what it used to mean)
+Super admins bypass everything; other admins still lose product access but keep
+billing/plans reachable so they can renew. `settings.BILLING_REQUIRE_PLAN`
+restores the old fail-open behaviour for a staged rollout.
 """
 
 import logging
@@ -49,6 +57,20 @@ _ENTITLED_STATUSES = {
     SUBSCRIPTION_STATUS_ACTIVE,
     SUBSCRIPTION_STATUS_TRALING,
     SUBSCRIPTION_STATUS_PAST_DUE,
+}
+
+# ---------------------------------------------------------------------------
+# House access policy codes (deny-by-default)
+# ---------------------------------------------------------------------------
+ACCESS_CODE_NO_PLAN = "SUBSCRIPTION_REQUIRED"
+ACCESS_CODE_EXPIRED = "SUBSCRIPTION_EXPIRED"
+ACCESS_CODE_HOUSE_INACTIVE = "HOUSE_INACTIVE"
+
+# Suggested next step for the frontend, keyed by block code.
+ACCESS_ACTION_BY_CODE = {
+    ACCESS_CODE_NO_PLAN: "select_plan",
+    ACCESS_CODE_EXPIRED: "renew",
+    ACCESS_CODE_HOUSE_INACTIVE: "contact_admin",
 }
 
 
@@ -147,13 +169,26 @@ def subscription_summary(sub: Optional[HouseSubscription], now=None) -> dict:
 
 
 def effective_status(sub: HouseSubscription, now=None) -> str:
-    """Resolve the real-time status considering trial & grace windows."""
+    """Resolve the real-time status considering trial & grace windows.
+
+    Expiry boundary (canonical, do not change silently):
+      - A billing period covers the half-open interval ``[start, end)``.
+      - At exactly ``current_period_end`` the period is OVER (``now >= end``).
+      - The grace window covers ``[end, end + BILLING_GRACE_DAYS)`` and reports
+        ``past_due`` (still entitled).
+      - After the grace window the subscription is ``expired`` (blocked).
+      - Trial covers ``[trial_start, trial_end)`` the same way.
+
+    All timestamps are naive Bangladesh Standard Time (``now_naive()``); the
+    comparison never mixes UTC and BST, so a plan cannot expire hours early or
+    late because of a timezone conversion.
+    """
     if sub is None:
         return None
     now = now or now_naive()
     status_str = sub.status
     if status_str == SUBSCRIPTION_STATUS_TRALING:
-        if sub.trial_end and now > sub.trial_end:
+        if sub.trial_end and now >= sub.trial_end:
             return SUBSCRIPTION_STATUS_ACTIVE
         return SUBSCRIPTION_STATUS_TRALING
     if status_str == SUBSCRIPTION_STATUS_ACTIVE:
@@ -161,14 +196,14 @@ def effective_status(sub: HouseSubscription, now=None) -> str:
         # past_due, but access must not depend on its 5-minute tick. Treat the
         # configured grace window after the period end as past_due.
         period_end = sub.current_period_end or sub.end_date
-        if period_end is not None and now > period_end:
+        if period_end is not None and now >= period_end:
             grace_end = period_end + timedelta(days=settings.BILLING_GRACE_DAYS)
-            if now <= grace_end:
+            if now < grace_end:
                 return SUBSCRIPTION_STATUS_PAST_DUE
             return "expired"
         return SUBSCRIPTION_STATUS_ACTIVE
     if status_str == SUBSCRIPTION_STATUS_PAST_DUE:
-        if sub.grace_period_end and now <= sub.grace_period_end:
+        if sub.grace_period_end and now < sub.grace_period_end:
             return SUBSCRIPTION_STATUS_PAST_DUE
         return "expired"
     return status_str
@@ -180,37 +215,135 @@ def is_entitled(sub: Optional[HouseSubscription], now=None) -> bool:
     return effective_status(sub, now) in _ENTITLED_STATUSES
 
 
-def has_plan_fallback(sub: Optional[HouseSubscription]) -> bool:
-    """Legacy subscribers (no package) are treated as fully entitled (fail-open)."""
-    return sub is None or sub.package is None
+def house_access_state(house, sub: Optional[HouseSubscription], now=None) -> Optional[str]:
+    """Decide whether a house may use the product at all.
+
+    Returns `None` when access is granted, otherwise one of the `ACCESS_CODE_*`
+    strings.
+
+    Order matters, because the billing lifecycle deactivates a house when its
+    plan expires. Checking entitlement first means an expired plan reports
+    "renew your plan" (actionable) instead of the generic "contact your
+    administrator", while a *manually* deactivated house with a valid plan
+    still reports HOUSE_INACTIVE.
+    """
+    if is_package_less(sub):
+        # A subscription row with no plan is a data defect, not a free pass.
+        # It must be repaired (startup migration) or given a real plan.
+        return ACCESS_CODE_NO_PLAN
+    if sub is not None and not is_entitled(sub, now):
+        return ACCESS_CODE_EXPIRED
+    if house is not None and not getattr(house, "is_active", True):
+        return ACCESS_CODE_HOUSE_INACTIVE
+    if sub is None:
+        if settings.BILLING_REQUIRE_PLAN:
+            return ACCESS_CODE_NO_PLAN
+        return None  # staged rollout: legacy fail-open
+    return None
+
+
+def access_block_payload(house, sub, code: str, now=None) -> dict:
+    """Structured, self-explanatory body for a blocked house (HTTP 403).
+
+    The frontend localises `code`; `message` is an English fallback that names
+    the house, the plan and the expiry so a screenshot alone explains the block.
+    """
+    now = now or now_naive()
+    package_less = is_package_less(sub)
+    plan = sub.package if (sub is not None and sub.package is not None) else None
+    status = effective_status(sub, now) if (sub is not None and not package_less) else None
+    end_date = (
+        (sub.current_period_end or sub.end_date)
+        if (sub is not None and not package_less)
+        else None
+    )
+
+    days_remaining = None
+    if end_date is not None:
+        remaining_seconds = (end_date - now).total_seconds()
+        days_remaining = max(0, math.ceil(remaining_seconds / 86400)) if remaining_seconds > 0 else 0
+
+    house_id = getattr(house, "id", None)
+    house_name = getattr(house, "name", None)
+    label = f'"{house_name}"' if house_name else "This house"
+
+    if code == ACCESS_CODE_HOUSE_INACTIVE:
+        message = (
+            f"{label} is deactivated. Contact your administrator to restore access."
+        )
+    elif code == ACCESS_CODE_NO_PLAN:
+        message = (
+            f"No plan is assigned to {label}. An administrator must choose a plan "
+            "before its users can use the system."
+        )
+    else:
+        message = (
+            f"The subscription for {label} is not active (status: {status or 'none'}). "
+            "Renew the plan to restore access for its users."
+        )
+
+    return {
+        "code": code,
+        "message": message,
+        "action": ACCESS_ACTION_BY_CODE.get(code, "contact_admin"),
+        "house_id": house_id,
+        "house_name": house_name,
+        "plan_status": status,
+        "plan_name": plan.name if plan is not None else None,
+        "plan_end_date": end_date.isoformat() if end_date is not None else None,
+        "days_remaining": days_remaining,
+    }
+
+
+def is_package_less(sub: Optional[HouseSubscription]) -> bool:
+    """A subscription row that references no plan at all (data defect).
+
+    Distinct from "no subscription row" (`sub is None`): both are denied, but
+    only this one is repairable by the startup migration. It is **not** a free
+    pass — an old row left package-less must never grant unrestricted access.
+    """
+    return sub is not None and sub.package is None
 
 
 def feature_enabled(sub: Optional[HouseSubscription], feature: str) -> bool:
-    """Whether the house's plan allows `feature`. Admin/legacy => True."""
-    if has_plan_fallback(sub):
-        return True
+    """Whether the house's plan allows `feature`. No plan => nothing included."""
+    if sub is None or is_package_less(sub):
+        return False
     flags = sub.package.feature_flags or []
     return feature in flags
 
 
 def limit_value(sub: Optional[HouseSubscription], limit_key: str) -> Optional[int]:
-    """Plan limit value for a house. None => unlimited (legacy/no config)."""
-    if has_plan_fallback(sub):
-        return None
+    """Plan limit value for a house.
+
+    `None` => unlimited (explicitly configured legacy plan). `0` => no plan at
+    all (or a package-less row), so every quota is exhausted.
+    """
+    if sub is None or is_package_less(sub):
+        return 0
     limits = sub.package.limits or {}
     value = limits.get(limit_key)
     return int(value) if value is not None else None
 
 
 def allowed_modules(sub: Optional[HouseSubscription]) -> Optional[list]:
-    """Explicit top-level module list granted by the house's plan.
+    """Explicit module/page grants from the house's plan.
 
-    None => legacy/unrestricted (fail-open). A list => strict gating.
+    Returns:
+      - `[]`   : no grants at all (no subscription / package-less row)
+      - `None` : plan intentionally grants every module (unlimited/legacy)
+      - `list` : strict plan, only these keys/leaves (+ always-on base modules)
     """
-    if has_plan_fallback(sub):
+    if sub is None or is_package_less(sub):
+        # Deny-by-default: a house without a real plan gets no module grants.
+        return []
+    modules = sub.package.allowed_modules
+    if modules is None:
+        # NULL is the only "unlimited" signal, and it must be explicit.
         return None
-    modules = sub.package.allowed_modules or []
-    return list(modules) if modules else None
+    # An explicit list — including an empty one — is strict. `[]` grants no
+    # modules (base modules stay available), never "everything".
+    return list(modules)
 
 
 def module_enabled(sub: Optional[HouseSubscription], module_key: str) -> bool:
@@ -320,7 +453,15 @@ def require_feature(feature: str):
         if not house_id:
             return None
         sub = await get_house_subscription(db, house_id)
-        if sub is not None and not feature_enabled(sub, feature):
+        if sub is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "SUBSCRIPTION_REQUIRED: An active subscription is required "
+                    "to use this feature."
+                ),
+            )
+        if not feature_enabled(sub, feature):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(

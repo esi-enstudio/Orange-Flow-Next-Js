@@ -7,6 +7,11 @@ from typing import Optional
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
+    # Runtime environment: development | staging | production (prod accepted).
+    # Drives safety rails for security-critical billing flags — see
+    # `_enforce_billing_safety` below.
+    ENVIRONMENT: str = "development"
+
     # Note: Telegram Bot settings are deprecated for web-only mode
     # BOT_TOKEN: str
     # SUPER_ADMIN_ID: int
@@ -96,6 +101,38 @@ class Settings(BaseSettings):
     BILLING_INVOICE_DRY_RUN: bool = False  # when True, invoicing works without a real gateway
     DEFAULT_SUBSCRIPTION_PLAN_SLUG: str = "basic"  # assigned when a house subscribes without explicit plan
 
+    # ---- Plan access policy (deny-by-default) ----
+    # A house with NO subscription record, or one whose plan is no longer
+    # entitled (expired / cancelled / paused / past grace), is blocked for every
+    # user of that house except super admins. Billing, plans, profile and
+    # read-only house routes stay reachable so the tenant can renew or pick a
+    # plan. Set False only for a staged rollout (restores the legacy fail-open
+    # behaviour where a plan-less house had full access).
+    BILLING_REQUIRE_PLAN: bool = True
+    # One-time safety net for the switch to fail-closed: on startup, houses that
+    # existed before plan enforcement are granted an explicit "legacy unlimited"
+    # plan instead of being locked out. Logged loudly so operators can replace
+    # it with a real plan. Idempotent; safe to leave enabled.
+    BILLING_LEGACY_BACKFILL: bool = True
+    # Slug of the plan used for that legacy grant (created on demand).
+    BILLING_LEGACY_PLAN_SLUG: str = "legacy-unlimited"
+    # Slug of the plan auto-assigned when a new house is created. Empty string
+    # disables auto-provisioning (the house then starts unsubscribed and its
+    # employees see the "no plan" gate until an admin assigns one).
+    BILLING_DEFAULT_PLAN_SLUG: str = ""
+
+    # ---- Multi-tenant isolation ----
+    # When True (default), EVERY non-super-admin user must belong to the house
+    # they select via X-House-ID. An "admin"/"manager"/"house manager" role is
+    # tenant-scoped: it must never read another house's data just because the
+    # header names it. Set False only for a single-company deployment where
+    # those roles are deliberately platform-wide.
+    TENANT_STRICT_HOUSE_ISOLATION: bool = True
+    # Report-only pass of the legacy backfill: logs exactly which houses would
+    # receive the legacy plan and what would be attached, without writing.
+    # Use for the staging / production migration dry run.
+    BILLING_LEGACY_BACKFILL_DRY_RUN: bool = False
+
     # ---- Restore Points (rollback safety net) ----
     # The backend does not execute snapshots itself; it asks the deploy-service
     # container to, because that is the only process with the repo, the docker
@@ -114,6 +151,47 @@ class Settings(BaseSettings):
             )
         if len(self.SECRET_KEY) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters long.")
+        return self
+
+    @property
+    def IS_PRODUCTION(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() in {"production", "prod"}
+
+    @model_validator(mode="after")
+    def enforce_production_billing_safety(self) -> "Settings":
+        """Refuse to boot production with a security-weakening billing flag.
+
+        Two flags can silently give the product away:
+          - ``BILLING_REQUIRE_PLAN=false`` restores the old fail-open policy, so
+            a tenant with no plan (or an expired one) keeps full access.
+          - ``BILLING_INVOICE_DRY_RUN=true`` makes the gateway validator return a
+            synthetic VALID result, so any checkout succeeds without money.
+
+        Failing the boot is deliberate: a misconfigured production instance must
+        never serve traffic that leaks access or accepts fake payments. Staging
+        is allowed to exercise both, but must opt in explicitly.
+        """
+        if not self.IS_PRODUCTION:
+            return self
+        if not self.BILLING_REQUIRE_PLAN:
+            raise ValueError(
+                "BILLING_REQUIRE_PLAN=false is not allowed when "
+                "ENVIRONMENT=production. It restores the fail-open access policy "
+                "and lets houses without a plan use the product. Remove the flag "
+                "(default is true) or set it to true."
+            )
+        if self.BILLING_INVOICE_DRY_RUN:
+            raise ValueError(
+                "BILLING_INVOICE_DRY_RUN=true is not allowed when "
+                "ENVIRONMENT=production. It bypasses the payment gateway's "
+                "server-side validation and would activate subscriptions without "
+                "a real payment. Set it to false."
+            )
+        if not self.BILLING_ENABLED:
+            raise ValueError(
+                "BILLING_ENABLED=false is not allowed when ENVIRONMENT=production: "
+                "billing is the only way a blocked tenant can renew."
+            )
         return self
 
     @computed_field

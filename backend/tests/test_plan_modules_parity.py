@@ -31,7 +31,8 @@ from config.modules import (
 NO_API_GROUPS = {"billing_group"}
 
 FRONTEND_CONSTANTS = (
-    pathlib.Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "constants.ts"
+    pathlib.Path(__file__).resolve().parents[2]
+    / "frontend" / "src" / "lib" / "constants.ts"
 )
 
 FRONTEND_AVAILABLE = FRONTEND_CONSTANTS.exists()

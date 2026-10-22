@@ -157,6 +157,12 @@ async def create_house(house_data: HouseCreate, db: AsyncSession = Depends(get_d
     db.add(new_house)
     await db.commit()
     await db.refresh(new_house)
+
+    # Deny-by-default access policy: a brand-new house must not sit in the
+    # "no plan assigned" state where every employee is locked out on day one.
+    from app.services.subscription_service import provision_house_default_plan
+
+    await provision_house_default_plan(db, new_house.id, changed_by=current_user.id)
     return new_house
 
 @router.put("/{house_id}", response_model=HouseSchema)

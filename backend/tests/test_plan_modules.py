@@ -11,7 +11,7 @@ from app.services.entitlement import (
     allowed_modules,
     api_path_allowed,
     get_house_subscription,
-    has_plan_fallback,
+    is_package_less,
     module_enabled,
     module_gated,
     require_plan_module,
@@ -34,7 +34,8 @@ async def test_legacy_plan_is_unrestricted(db, house, plan):
     assert module_gated(sub, "dms") is False
 
 
-async def test_no_plan_fallback_is_unrestricted(db, house, plan):
+async def test_package_less_row_is_denied(db, house, plan):
+    """A subscription row with no plan must never grant unrestricted access."""
     sub = await make_sub(db, house.id, plan, trial_days=0)
     sub.package_id = None
     await db.commit()
@@ -42,16 +43,21 @@ async def test_no_plan_fallback_is_unrestricted(db, house, plan):
     # reusing the plan cached on the identity-mapped object.
     db.expunge_all()
     sub = await get_house_subscription(db, house.id)
-    assert has_plan_fallback(sub) is True
-    assert allowed_modules(sub) is None
-    assert module_enabled(sub, "anything") is True
+    assert is_package_less(sub) is True
+    assert allowed_modules(sub) == []
+    assert module_enabled(sub, "anything") is False
+    assert module_gated(sub, "reports") is True
 
 
-async def test_empty_allowed_modules_treated_as_legacy(db, house, plan):
+async def test_empty_allowed_modules_denies_all_but_base(db, house, plan):
+    """An explicit empty grant list is strict, never "unlimited" (fail-closed)."""
     sub = await make_sub(db, house.id, plan, trial_days=0)
     sub.package.allowed_modules = []
     await db.commit()
-    assert allowed_modules(sub) is None
+    assert allowed_modules(sub) == []
+    assert module_enabled(sub, "dms") is False
+    for base in BASE_MODULES:
+        assert module_enabled(sub, base) is True
 
 
 async def test_strict_plan_grants_only_listed_modules(db, house, plan):

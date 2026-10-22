@@ -146,6 +146,50 @@ async def set_status(db: AsyncSession, sub: HouseSubscription, new_status: str,
 # lifecycle operations
 # ---------------------------------------------------------------------------
 
+async def provision_house_default_plan(
+    db: AsyncSession,
+    house_id: int,
+    changed_by: Optional[int] = None,
+) -> Optional[HouseSubscription]:
+    """Give a newly created house its starting plan.
+
+    Deny-by-default means a plan-less house is locked out, so house creation
+    should not leave one in that state when a default plan is configured
+    (`settings.BILLING_DEFAULT_PLAN_SLUG`). Never raises: house creation must
+    not fail because the billing catalogue is empty — the access gate then
+    reports "no plan assigned" and an admin can pick one.
+    """
+    slug = (settings.BILLING_DEFAULT_PLAN_SLUG or "").strip()
+    if not slug:
+        return None
+    try:
+        plan = (await db.execute(
+            select(SubscriptionPackage).where(
+                SubscriptionPackage.slug == slug,
+                SubscriptionPackage.is_deleted == False,  # noqa: E712
+                SubscriptionPackage.is_active == True,  # noqa: E712
+            )
+        )).scalar_one_or_none()
+        if plan is None:
+            logger.warning(
+                "Default plan slug '%s' not found; house %s starts without a plan",
+                slug, house_id,
+            )
+            return None
+        return await create_subscription(
+            db,
+            house_id=house_id,
+            plan=plan,
+            changed_by=changed_by,
+            changed_via="house_create",
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "Failed to provision default plan for house %s: %s", house_id, exc
+        )
+        return None
+
+
 async def create_subscription(
     db: AsyncSession,
     house_id: int,

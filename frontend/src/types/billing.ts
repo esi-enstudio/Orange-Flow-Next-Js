@@ -58,6 +58,20 @@ export interface Entitlements {
   trial_end?: string | null;
   grace_period_end?: string | null;
   next_billing_date?: string | null;
+
+  /** False when the house may not use the product at all (no plan / expired / deactivated). */
+  access_allowed: boolean;
+  /** SUBSCRIPTION_REQUIRED | SUBSCRIPTION_EXPIRED | HOUSE_INACTIVE (null = allowed). */
+  access_code?: string | null;
+  /** English backend message naming the house/plan; the UI localises by `access_code`. */
+  access_message?: string | null;
+  /** Suggested next step: select_plan | renew | contact_admin. */
+  access_action?: string | null;
+  house_name?: string | null;
+  plan_name?: string | null;
+  plan_status?: string | null;
+  plan_end_date?: string | null;
+  days_remaining?: number | null;
 }
 
 export interface Invoice {
@@ -123,6 +137,27 @@ export interface Paginated<T> {
   success: boolean;
   data: T[];
   pagination: PaginationMeta;
+}
+
+/** Why a house is blocked from the product (deny-by-default access policy). */
+export type HouseAccessCode =
+  | "SUBSCRIPTION_REQUIRED"
+  | "SUBSCRIPTION_EXPIRED"
+  | "HOUSE_INACTIVE";
+
+/** Everything the gate needs to explain a block to the user. */
+export interface HouseAccessBlock {
+  code: HouseAccessCode;
+  houseId?: number | null;
+  houseName?: string | null;
+  planName?: string | null;
+  planStatus?: string | null;
+  planEndDate?: string | null;
+  daysRemaining?: number | null;
+  /** select_plan | renew | contact_admin */
+  action?: string | null;
+  /** English backend fallback message (UI localises by `code`). */
+  message?: string | null;
 }
 
 export interface BillingOverview {

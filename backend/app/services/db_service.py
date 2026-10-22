@@ -51,6 +51,16 @@ import app.models.database_backup
 
 logger = logging.getLogger(__name__)
 
+# Fatal startup problems found by migrations. `main.py` checks this after
+# `init_db()` and refuses to serve traffic when it is non-empty — a
+# half-migrated database must not take requests (e.g. the fail-closed billing
+# rollout failing would otherwise lock every plan-less tenant out).
+STARTUP_FATAL_ERRORS: list[str] = []
+
+# Stable PostgreSQL advisory-lock key for the billing rollout migration, so
+# concurrent workers serialize instead of each inserting a subscription.
+_BILLING_MIGRATION_LOCK_KEY = 7_312_604_118
+
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
@@ -1589,6 +1599,291 @@ async def _migrate_location_telemetry_columns():
         logger.warning(f"Migration warning (location telemetry columns): {e}")
 
 
+async def _migrate_billing_fail_closed(db_engine=None) -> dict:
+    """Deny-by-default rollout: never lock out a tenant that was working before.
+
+    Turning a fail-open entitlement check into a fail-closed one is a behaviour
+    change for every house that has no active plan. Shipping it without a
+    migration would block all of those tenants on the next deploy. This
+    idempotent pass makes the implicit state explicit instead:
+
+    1. **Legacy audit** — every package-less, non-deleted subscription is
+       logged. Those rows used to mean "unrestricted" and are the one remaining
+       fail-open path, so operators must see them.
+    2. Subscriptions with ``package_id IS NULL`` are attached to the
+       legacy-unlimited plan to preserve their meaning.
+    3. Active houses with no subscription row at all receive an explicit
+       legacy-unlimited subscription (10 years), and are logged by name so the
+       grant can be replaced with a real plan.
+
+    Concurrency: the whole pass runs inside one transaction guarded by a
+    PostgreSQL transaction-scoped advisory lock, so N workers booting at once
+    serialize instead of each inserting a subscription. Every insert is also
+    ``WHERE NOT EXISTS`` guarded, so a re-run is a no-op.
+
+    Safety:
+    - ``BILLING_LEGACY_BACKFILL_DRY_RUN`` reports the plan without writing.
+    - In production a failure is fatal (``STARTUP_FATAL_ERRORS``) instead of
+      leaving the fleet half-migrated and locking tenants out.
+
+    Controlled by ``settings.BILLING_LEGACY_BACKFILL``.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import and_, insert, literal, select, update
+
+    from app.models.house import House
+    from app.models.subscription import HouseSubscription, SubscriptionPackage
+    from app.utils.timezone import now_naive
+    from config.settings import settings
+
+    target_engine = db_engine or engine
+    slug = (settings.BILLING_LEGACY_PLAN_SLUG or "legacy-unlimited").strip()
+    dry_run = bool(settings.BILLING_LEGACY_BACKFILL_DRY_RUN)
+    now_dt = now_naive()
+    # Explicit, long grandfather window; replaces the implicit "no plan = forever".
+    legacy_end = now_dt + timedelta(days=3650)
+    report: dict = {
+        "dry_run": dry_run,
+        "legacy_plan_id": None,
+        "legacy_plan_created": False,
+        "package_less_subscriptions": 0,
+        "houses_without_plan": [],
+        "repaired_package_less": 0,
+        "granted_houses": 0,
+    }
+
+    try:
+        async with target_engine.begin() as conn:
+            # Serialize across every app instance booting at the same time.
+            # Transaction-scoped: released automatically on commit/rollback.
+            if conn.sync_connection.dialect.name == "postgresql":
+                await conn.execute(
+                    text("SELECT pg_advisory_xact_lock(:key)"),
+                    {"key": _BILLING_MIGRATION_LOCK_KEY},
+                )
+
+            # --- 1. Legacy audit (always, even in dry-run) -----------------
+            # These rows are the ONLY remaining fail-open path: a package-less
+            # subscription is entitled ("legacy unlimited") by design. Every
+            # such row must be visible to operators until it carries a real plan.
+            legacy_stmt = (
+                select(
+                    HouseSubscription.id,
+                    HouseSubscription.house_id,
+                    House.name,
+                    HouseSubscription.status,
+                    HouseSubscription.end_date,
+                )
+                .select_from(HouseSubscription)
+                .outerjoin(House, House.id == HouseSubscription.house_id)
+                .where(
+                    HouseSubscription.package_id.is_(None),
+                    HouseSubscription.is_deleted.is_(False),
+                )
+                .order_by(HouseSubscription.id)
+            )
+            legacy_rows = (await conn.execute(legacy_stmt)).all()
+            report["package_less_subscriptions"] = len(legacy_rows)
+            if legacy_rows:
+                logger.critical(
+                    "BILLING AUDIT: %s package-less subscription(s) currently get "
+                    "UNRESTRICTED access (fail-open legacy path). Attach a real plan: %s",
+                    len(legacy_rows),
+                    ", ".join(
+                        f"sub={row.id} house={row.house_id}:{row.name}"
+                        for row in legacy_rows[:25]
+                    ),
+                )
+
+            has_sub = (
+                select(HouseSubscription.id)
+                .where(
+                    HouseSubscription.house_id == House.id,
+                    HouseSubscription.is_deleted.is_(False),
+                )
+                .exists()
+            )
+            missing_stmt = (
+                select(House.id, House.name)
+                .where(House.is_active.is_(True), ~has_sub)
+                .order_by(House.id)
+            )
+            missing_houses = (await conn.execute(missing_stmt)).all()
+            report["houses_without_plan"] = [
+                {"id": hid, "name": name} for hid, name in missing_houses
+            ]
+
+            if not settings.BILLING_LEGACY_BACKFILL:
+                logger.warning(
+                    "Billing fail-closed rollout: backfill disabled "
+                    "(BILLING_LEGACY_BACKFILL=false) — %s house(s) with no plan stay "
+                    "blocked and %s package-less row(s) are blocked as 'no plan'.",
+                    len(missing_houses), len(legacy_rows),
+                )
+                return report
+
+            if not legacy_rows and not missing_houses:
+                return report
+
+            if dry_run:
+                logger.warning(
+                    "BILLING MIGRATION DRY RUN: would create/reuse plan '%s', repair "
+                    "%s package-less subscription(s) and grant it to %s house(s): %s",
+                    slug, len(legacy_rows), len(missing_houses),
+                    ", ".join(f"{hid}:{name}" for hid, name in missing_houses[:50]),
+                )
+                return report
+
+            # --- 2. Ensure the explicit legacy plan exists ------------------
+            plan_id = (await conn.execute(
+                select(SubscriptionPackage.id).where(
+                    SubscriptionPackage.slug == slug,
+                    SubscriptionPackage.is_deleted.is_(False),
+                )
+            )).scalar()
+
+            if plan_id is None:
+                plan_values = {
+                    "name": "Legacy Unlimited",
+                    "slug": slug,
+                    "description": (
+                        "Grandfathered plan: full access with no module or feature "
+                        "restrictions. Granted to houses that existed before plan "
+                        "enforcement; replace it with a real plan and an expiry date."
+                    ),
+                    "currency": "BDT",
+                    "billing_interval": "monthly",
+                    "price_monthly": 0,
+                    "price_yearly": 0,
+                    "trial_days": 0,
+                    "feature_flags": ["reports", "import", "dms_sync", "export"],
+                    "allowed_modules": None,
+                    "limits": {},
+                    "is_active": True,
+                    "sort_order": 999,
+                    "is_deleted": False,
+                    "created_at": now_dt,
+                    "updated_at": now_dt,
+                }
+                # ON CONFLICT DO NOTHING closes the race even when the advisory
+                # lock is unavailable (e.g. a non-PostgreSQL engine).
+                dialect = conn.sync_connection.dialect.name
+                if dialect == "postgresql":
+                    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+                    await conn.execute(
+                        pg_insert(SubscriptionPackage)
+                        .values(**plan_values)
+                        .on_conflict_do_nothing(index_elements=["slug"])
+                    )
+                elif dialect == "sqlite":
+                    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+                    await conn.execute(
+                        sqlite_insert(SubscriptionPackage)
+                        .values(**plan_values)
+                        .on_conflict_do_nothing(index_elements=["slug"])
+                    )
+                else:
+                    await conn.execute(insert(SubscriptionPackage).values(**plan_values))
+
+                plan_id = (await conn.execute(
+                    select(SubscriptionPackage.id).where(
+                        SubscriptionPackage.slug == slug,
+                        SubscriptionPackage.is_deleted.is_(False),
+                    )
+                )).scalar()
+                report["legacy_plan_created"] = True
+                logger.warning("Created legacy plan '%s' (id=%s)", slug, plan_id)
+
+            report["legacy_plan_id"] = plan_id
+
+            # --- 3. Repair package-less rows (preserve their meaning) -------
+            if legacy_rows:
+                result = await conn.execute(
+                    update(HouseSubscription)
+                    .where(
+                        HouseSubscription.package_id.is_(None),
+                        HouseSubscription.is_deleted.is_(False),
+                    )
+                    .values(package_id=plan_id, updated_at=now_dt)
+                )
+                report["repaired_package_less"] = result.rowcount or 0
+                logger.warning(
+                    "Billing rollout: attached legacy plan to %s package-less "
+                    "subscription(s) so they keep full access",
+                    report["repaired_package_less"],
+                )
+
+            # --- 4. Grant a plan to houses that had none --------------------
+            if missing_houses:
+                # `from_select` + NOT EXISTS keeps this idempotent: a second
+                # run (or a concurrent worker) inserts nothing new.
+                grant_cols = [
+                    HouseSubscription.house_id,
+                    HouseSubscription.package_id,
+                    HouseSubscription.status,
+                    HouseSubscription.start_date,
+                    HouseSubscription.end_date,
+                    HouseSubscription.current_period_start,
+                    HouseSubscription.current_period_end,
+                    HouseSubscription.auto_renew,
+                    HouseSubscription.billing_interval,
+                    HouseSubscription.currency,
+                    HouseSubscription.is_deleted,
+                    HouseSubscription.created_at,
+                    HouseSubscription.updated_at,
+                ]
+                grant_src = select(
+                    House.id,
+                    literal(plan_id),
+                    literal("active"),
+                    literal(now_dt),
+                    literal(legacy_end),
+                    literal(now_dt),
+                    literal(legacy_end),
+                    literal(False),
+                    literal("monthly"),
+                    literal("BDT"),
+                    literal(False),
+                    literal(now_dt),
+                    literal(now_dt),
+                ).where(
+                    and_(House.is_active.is_(True), ~has_sub)
+                )
+                result = await conn.execute(
+                    insert(HouseSubscription).from_select(grant_cols, grant_src)
+                )
+                granted = result.rowcount
+                report["granted_houses"] = (
+                    granted if isinstance(granted, int) and granted >= 0
+                    else len(missing_houses)
+                )
+
+                names = ", ".join(
+                    f"{hid}:{name}" for hid, name in missing_houses[:20]
+                )
+                more = "" if len(missing_houses) <= 20 else f" (+{len(missing_houses) - 20} more)"
+                logger.warning(
+                    "Billing rollout: %s/%s house(s) had no plan and were granted '%s' "
+                    "for 10 years so they stay online — assign real plans: %s%s",
+                    report["granted_houses"], len(missing_houses), slug, names, more,
+                )
+            return report
+
+    except Exception as exc:
+        if settings.IS_PRODUCTION:
+            # Fail the boot: serving a half-migrated fleet while fail-closed is
+            # on would lock tenants out. Aborting keeps the previous version live.
+            message = f"billing fail-closed rollout failed: {exc}"
+            STARTUP_FATAL_ERRORS.append(message)
+            logger.critical("FATAL: %s", message, exc_info=True)
+        else:
+            logger.warning(f"Migration warning (billing fail-closed rollout): {exc}")
+        return report
+
+
 async def init_db():
     try:
         # Files staged from an employee modal that was never saved are useless
@@ -1645,6 +1940,7 @@ async def init_db():
         await _migrate_telegram_columns()
         await _migrate_subscription_billing()
         await _migrate_billing_tables_extra()
+        await _migrate_billing_fail_closed()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()
         await _sync_retailer_markings_on_startup()

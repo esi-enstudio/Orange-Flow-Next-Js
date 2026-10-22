@@ -85,17 +85,28 @@ apiClient.interceptors.response.use(
 
     // Locked houses: broadcast the backend 403 so the global SubscriptionGate
     // can explain the block instead of showing repeated failed-request toasts.
+    // Covers all three deny-by-default codes (no plan / expired / deactivated).
     const errorCode = data?.error_code;
-    if (
-      error.response?.status === 403 &&
-      (errorCode === "SUBSCRIPTION_EXPIRED" || errorCode === "HOUSE_INACTIVE")
-    ) {
+    const houseBlockCodes = [
+      "SUBSCRIPTION_REQUIRED",
+      "SUBSCRIPTION_EXPIRED",
+      "HOUSE_INACTIVE",
+    ];
+    if (error.response?.status === 403 && errorCode && houseBlockCodes.includes(errorCode)) {
       if (typeof window !== "undefined") {
+        const e = (data?.error ?? {}) as Record<string, unknown>;
         window.dispatchEvent(
           new CustomEvent("house-access-blocked", {
             detail: {
               code: errorCode,
-              houseId: data?.error?.house_id ?? null,
+              houseId: e.house_id ?? null,
+              houseName: e.house_name ?? null,
+              planName: e.plan_name ?? null,
+              planStatus: e.plan_status ?? null,
+              planEndDate: e.plan_end_date ?? null,
+              daysRemaining: e.days_remaining ?? null,
+              action: e.action ?? null,
+              message: typeof e.message === "string" ? e.message : null,
             },
           })
         );

@@ -38,8 +38,8 @@ async def test_active_subscription_allows_access(db, house, plan):
     result = await _resolve_house_access(
         db, make_request(), SimpleNamespace(houses=[house]), entitlement
     )
-    house_id, sub = result
-    assert house_id == house.id
+    resolved_house, sub = result
+    assert resolved_house.id == house.id
     assert sub is not None
 
 
@@ -75,8 +75,8 @@ async def test_active_status_within_grace_allows(db, house, plan):
     result = await _resolve_house_access(
         db, make_request(), SimpleNamespace(houses=[house]), entitlement
     )
-    house_id, _ = result
-    assert house_id == house.id
+    resolved_house, _ = result
+    assert resolved_house.id == house.id
 
 
 async def test_inactive_house_blocks(db, house):
@@ -108,8 +108,8 @@ async def test_multi_house_without_header_uses_valid_house(db, house, plan):
     result = await _resolve_house_access(
         db, make_request(), SimpleNamespace(houses=[other, house]), entitlement
     )
-    house_id, sub = result
-    assert house_id == house.id
+    resolved_house, sub = result
+    assert resolved_house.id == house.id
     assert sub.house_id == house.id
 
 
@@ -127,12 +127,47 @@ async def test_all_houses_blocked_blocks(db, house, plan):
     assert error_code(result) == "SUBSCRIPTION_EXPIRED"
 
 
-async def test_legacy_house_without_subscription_allowed(db, house):
+async def test_house_without_subscription_blocks(db, house):
+    """Deny-by-default: a house with no plan is no longer a legacy free pass."""
     result = await _resolve_house_access(
         db, make_request(), SimpleNamespace(houses=[house]), entitlement
     )
-    house_id, sub = result
-    assert house_id == house.id
+    assert result.status_code == 403
+    assert error_code(result) == "SUBSCRIPTION_REQUIRED"
+    body = json.loads(result.body)["error"]
+    assert body["house_id"] == house.id
+    assert body["house_name"] == house.name
+    assert body["action"] == "select_plan"
+    assert "No plan is assigned" in body["message"]
+
+
+async def test_block_payload_is_self_explanatory(db, house, plan):
+    """The 403 body must explain *why*: plan name, expiry and next action."""
+    await make_sub(
+        db, house.id, plan, trial_days=0, status="active",
+        end=now_naive() - timedelta(days=30),
+    )
+    result = await _resolve_house_access(
+        db, make_request(), SimpleNamespace(houses=[house]), entitlement
+    )
+    body = json.loads(result.body)["error"]
+    assert body["code"] == "SUBSCRIPTION_EXPIRED"
+    assert body["plan_name"] == plan.name
+    assert body["plan_end_date"] is not None
+    assert body["days_remaining"] == 0
+    assert body["action"] == "renew"
+
+
+async def test_staged_rollout_flag_restores_legacy_fail_open(db, house, monkeypatch):
+    """BILLING_REQUIRE_PLAN=false is the documented escape hatch."""
+    monkeypatch.setattr(
+        entitlement.settings, "BILLING_REQUIRE_PLAN", False, raising=False
+    )
+    result = await _resolve_house_access(
+        db, make_request(), SimpleNamespace(houses=[house]), entitlement
+    )
+    resolved_house, sub = result
+    assert resolved_house.id == house.id
     assert sub is None
 
 

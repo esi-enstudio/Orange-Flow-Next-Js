@@ -88,6 +88,21 @@ class EntitlementsSchema(BaseModel):
     grace_period_end: Optional[datetime] = None
     next_billing_date: Optional[datetime] = None
 
+    # ---- House access (deny-by-default) ------------------------------------
+    # A single, explicit answer to "may this tenant use the product at all?",
+    # so the UI gates on load instead of waiting for a 403 from some endpoint.
+    access_allowed: bool = True
+    # SUBSCRIPTION_REQUIRED | SUBSCRIPTION_EXPIRED | HOUSE_INACTIVE (None = ok)
+    access_code: Optional[str] = None
+    access_message: Optional[str] = None
+    # select_plan | renew | contact_admin
+    access_action: Optional[str] = None
+    house_name: Optional[str] = None
+    plan_name: Optional[str] = None
+    plan_status: Optional[str] = None
+    plan_end_date: Optional[datetime] = None
+    days_remaining: Optional[int] = None
+
 
 class BillingError(BaseModel):
     success: bool = False

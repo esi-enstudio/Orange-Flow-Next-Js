@@ -69,6 +69,17 @@ def _r2(value) -> float:
     return round(float(value or 0), 2)
 
 
+def rounded_daily_avg(value) -> int:
+    """The daily average exactly as the report tables display it.
+
+    The D.Avg column shows a whole number (JavaScript ``Math.round``, i.e.
+    half-up). Projection is derived from this displayed value, so
+    ``D.Avg x period days`` always reproduces the Projection column on the
+    page, in the Excel/CSV export and in the WhatsApp image.
+    """
+    return int(math.floor(float(value or 0) + 0.5))
+
+
 def _drr(remaining, days_remaining) -> int:
     """Daily required rate, signed.
 
@@ -595,7 +606,7 @@ class ActiveLsoReportService:
         ach_pct = _r2(achieved / target * 100) if target else 0.0
         remaining = target - achieved
         daily_avg = _r1(achieved / self.days_elapsed) if self.days_elapsed else 0.0
-        projection = _r1(daily_avg * self.total_days)
+        projection = float(rounded_daily_avg(daily_avg) * self.total_days)
         drr = _drr(remaining, self.days_remaining)
 
         return {
@@ -633,7 +644,7 @@ class ActiveLsoReportService:
         ag["ach_pct"] = _r2(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
         ag["status"] = status_for_pct(ag["ach_pct"])
         ag["daily_avg"] = _r1(ag["achieved"] / self.days_elapsed) if self.days_elapsed else 0.0
-        ag["projection"] = _r1(ag["daily_avg"] * self.total_days)
+        ag["projection"] = float(rounded_daily_avg(ag["daily_avg"]) * self.total_days)
         ag["drr"] = _drr(ag["remaining"], self.days_remaining)
         return ag
 

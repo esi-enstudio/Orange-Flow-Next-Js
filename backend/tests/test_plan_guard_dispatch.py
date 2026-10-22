@@ -152,3 +152,34 @@ async def test_guard_blocks_inactive_house(use_test_db, db, house):
     )
     assert response.status_code == 403
     assert json.loads(response.body)["error"]["code"] == "HOUSE_INACTIVE"
+
+
+async def test_guard_blocks_house_without_subscription(use_test_db, db, house):
+    """Deny-by-default: no subscription record means no product access."""
+    user = await make_user(db, "RSO", house)
+
+    async def call_next(request):
+        raise AssertionError("must not reach the endpoint")
+
+    response = await PlanModuleGuard(None).dispatch(
+        make_request("/api/employees", user_id=user.id), call_next
+    )
+    assert response.status_code == 403
+    body = json.loads(response.body)["error"]
+    assert body["code"] == "SUBSCRIPTION_REQUIRED"
+    assert body["house_id"] == house.id
+    assert body["house_name"] == house.name
+    assert body["action"] == "select_plan"
+
+
+async def test_guard_lets_super_admin_through_without_any_plan(use_test_db, db, house):
+    """The platform admin must always be able to assign a plan."""
+    user = await make_user(db, "Super Admin", house)
+
+    async def call_next(request):
+        return JSONResponse({"ok": True})
+
+    response = await PlanModuleGuard(None).dispatch(
+        make_request("/api/employees", user_id=user.id), call_next
+    )
+    assert response.status_code == 200

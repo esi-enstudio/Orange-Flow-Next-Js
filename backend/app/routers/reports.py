@@ -43,6 +43,7 @@ from app.services.active_lso_report_service import (
     get_active_lso_filters as _get_active_lso_filters,
     get_active_lso_thresholds,
     get_employee_profile,
+    rounded_daily_avg,
     subordinate_rso_ids,
 )
 
@@ -2648,7 +2649,7 @@ async def export_active_lso_report(
         base = [item.get("name", "Grand Total"), item.get("supervisor_name") or ""] if include_name else []
         base += [
             item["target"], item["achieved"], item["ach_pct"], item["remaining"],
-            item["drr"], item["daily_avg"], item["projection"],
+            item["drr"], rounded_daily_avg(item["daily_avg"]), item["projection"],
             item["status"].replace("_", " ").title(), item["retailer_count"],
         ]
         rc = item["retailer_counts"]
@@ -2675,7 +2676,7 @@ async def export_active_lso_report(
         for s in result["supervisor_summary"]:
             vals = [s["supervisor_name"], s["rso_count"], s["retailer_count"],
                     s["target"], s["achieved"], s["ach_pct"], s["remaining"],
-                    s["drr"], s["daily_avg"], s["projection"],
+                    s["drr"], rounded_daily_avg(s["daily_avg"]), s["projection"],
                     s["status"].replace("_", " ").title()]
             rc = s["retailer_counts"]
             vals += [rc[k] for k in count_keys]
@@ -2736,7 +2737,7 @@ async def export_active_lso_report(
     for i, s in enumerate(result["supervisor_summary"]):
         vals = [s["supervisor_name"], s["rso_count"], s["retailer_count"],
                 s["target"], s["achieved"], s["ach_pct"], s["remaining"],
-                s["drr"], s["daily_avg"], s["projection"],
+                s["drr"], rounded_daily_avg(s["daily_avg"]), s["projection"],
                 s["status"].replace("_", " ").title()]
         rc = s["retailer_counts"]
         vals += [rc[k] for k in count_keys]

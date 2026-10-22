@@ -6,7 +6,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, get_house_context, has_any_permission, has_permission
+from app.routers.deps import (
+    get_current_user,
+    get_db,
+    get_house_context,
+    has_any_permission,
+    has_permission,
+)
 from app.schemas.subscription import SubscriptionSchema, EntitlementsSchema, PlanSchema
 from app.models.house import House
 from app.models.subscription import (
@@ -76,12 +82,14 @@ async def current_subscription(
 async def get_entitlements(
     db: AsyncSession = Depends(get_db),
     house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_any_permission(["subscription.view", "billing.view"])),
+    current_user: User = Depends(get_current_user),
 ):
-    """Feature/limit entitlements for the selected house.
+    """Feature/limit/access entitlements for the selected house.
 
-    Used by the frontend to hide/disable unavailable features and to
-    communicate which plan is required. Backend guards remain authoritative.
+    Readable by *any* authenticated member of the house (not just billing
+    roles): it is the source of truth the global access gate uses to explain a
+    block on page load. It only exposes the caller's own house, and backend
+    guards remain authoritative.
     """
     is_admin = is_admin_user(current_user)
     if is_admin and house_context is None:
@@ -96,8 +104,27 @@ async def get_entitlements(
     sub = await entitlement.get_house_subscription(db, house_id)
     effective = entitlement.effective_status(sub) if sub else None
     feature_gated = sub is not None and sub.package is not None
-    extra = (sub.package.allowed_modules or list()) if feature_gated else None
-    module_gated = feature_gated and bool(extra)
+    # NULL = the plan intentionally grants every module (unlimited/legacy).
+    # []   = strict plan with no module grants. Never collapse [] into "unlimited".
+    extra = sub.package.allowed_modules if feature_gated else None
+    module_gated = feature_gated and extra is not None
+
+    # Deny-by-default access state: the frontend gate reads this on load so a
+    # blocked tenant gets one clear explanation instead of a wall of 403s.
+    # Mirror the middleware bypasses: super admins always pass, and a house
+    # admin browsing without a house context is not scoped to the fallback
+    # house this endpoint happens to pick.
+    house = await db.get(House, house_id) if house_id else None
+    from app.utils.access_control import is_super_admin_user
+
+    bypass_access_gate = is_super_admin_user(current_user) or (is_admin and house_context is None)
+    access_code = None if bypass_access_gate else entitlement.house_access_state(house, sub)
+    access_payload = (
+        entitlement.access_block_payload(house, sub, access_code)
+        if access_code
+        else {}
+    )
+
     return EntitlementsSchema(
         house_id=house_id,
         subscribed=entitlement.is_entitled(sub),
@@ -111,6 +138,15 @@ async def get_entitlements(
         trial_end=sub.trial_end if sub else None,
         grace_period_end=sub.grace_period_end if sub else None,
         next_billing_date=(sub.current_period_end or sub.end_date) if sub else None,
+        access_allowed=access_code is None,
+        access_code=access_code,
+        access_message=access_payload.get("message"),
+        access_action=access_payload.get("action"),
+        house_name=getattr(house, "name", None),
+        plan_name=access_payload.get("plan_name"),
+        plan_status=access_payload.get("plan_status"),
+        plan_end_date=access_payload.get("plan_end_date"),
+        days_remaining=access_payload.get("days_remaining"),
     )
 
 

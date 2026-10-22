@@ -7,7 +7,9 @@ Policy
   `deactivated_for_billing = True`.
 - A house that was auto-deactivated and later has an entitled subscription
   again (renewal / reactivation / resume) is automatically re-activated.
-- Houses without a subscription record are left untouched (legacy fail-open).
+- Houses without a subscription record are left untouched by this sweep; the
+  request guard (`PlanModuleGuard`) blocks them with `SUBSCRIPTION_REQUIRED`
+  because access is deny-by-default.
 - A manual admin deactivation is never overridden: the flag is only set when
   the lifecycle itself flips the house to inactive.
 

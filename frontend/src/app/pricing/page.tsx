@@ -6,6 +6,7 @@ import { Check, Crown, Loader2, Sparkles, Building2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useEntitlements } from "@/context/EntitlementsContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -21,6 +22,7 @@ export default function PricingPage() {
   const router = useRouter();
   const { t } = useLanguage();
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
+  const { refresh: refreshEntitlements } = useEntitlements();
 
   const [houses, setHouses] = useState<HouseOption[]>([]);
   const [houseId, setHouseId] = useState<number | null>(selectedHouse?.id ?? null);
@@ -121,10 +123,13 @@ export default function PricingPage() {
         );
         toast.success(t("pricing.toast_purchase_success"));
         if (res.data?.invoice?.id) {
+          // The house now has a plan: lift the deny-by-default gate.
+          void refreshEntitlements();
           router.push("/billing");
           return;
         }
       }
+      void refreshEntitlements();
       await loadData();
       if (interval === "monthly" && (active || current)) setInterval("monthly");
     } catch (err: any) {

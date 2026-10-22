@@ -705,14 +705,14 @@ export default function ActiveLsoReportPage() {
     return formatNumber(counts[key] ?? 0);
   };
 
-  const renderACell = (row: { target: number; achieved: number; ach_pct: number; remaining: number; drr: number; daily_avg: number; projection: number; status: string }, key: (typeof A_COL_KEYS)[number], roundDailyAvg = false) => {
+  const renderACell = (row: { target: number; achieved: number; ach_pct: number; remaining: number; drr: number; daily_avg: number; projection: number; status: string }, key: (typeof A_COL_KEYS)[number]) => {
     switch (key) {
       case "target": return <span className="font-semibold text-gray-900 dark:text-gray-100">{formatNumber(row.target)}</span>;
       case "achieved": return <span className="font-bold text-gray-900 dark:text-gray-100">{formatNumber(row.achieved)}</span>;
       case "ach_pct": return <span className="font-bold">{row.ach_pct.toFixed(2)}%</span>;
       case "remaining": return formatNumber(row.remaining);
       case "drr": return formatNumber(row.drr);
-      case "daily_avg": return formatNumber(roundDailyAvg ? Math.round(row.daily_avg) : row.daily_avg);
+      case "daily_avg": return formatNumber(Math.round(row.daily_avg));
       case "projection": return <span className="font-semibold">{formatNumber(Math.round(row.projection))}</span>;
       case "proj_pct": return <span className="font-semibold">{(row.target > 0 ? (row.projection / row.target) * 100 : 0).toFixed(2)}%</span>;
       case "status": return <StatusBadge status={row.status} />;
@@ -722,7 +722,7 @@ export default function ActiveLsoReportPage() {
   const renderTotalCell = (key: (typeof A_COL_KEYS)[number] | string) => {
     if (!summary) return "";
     if ((A_COL_KEYS as readonly string[]).includes(key)) {
-      return renderACell(summary, key as (typeof A_COL_KEYS)[number], true);
+      return renderACell(summary, key as (typeof A_COL_KEYS)[number]);
     }
     if (key === "retailers") return formatNumber(summary.retailer_count);
     return formatNumber(summary.retailer_counts[key] ?? 0);
@@ -1254,7 +1254,7 @@ export default function ActiveLsoReportPage() {
                         </td>
                         {A_COL_KEYS.map((k) => (
                           <td key={k} className="px-2 py-1.5 text-center border-b border-r border-gray-100 dark:border-slate-800">
-                            {renderACell(row, k, true)}
+                            {renderACell(row, k)}
                           </td>
                         ))}
                         {bColKeys.map((k) => (

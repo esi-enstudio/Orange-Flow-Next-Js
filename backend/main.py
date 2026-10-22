@@ -406,6 +406,15 @@ async def main():
     for i in range(max_retries):
         try:
             await init_db()
+            from app.services.db_service import STARTUP_FATAL_ERRORS
+            if STARTUP_FATAL_ERRORS:
+                # A security-critical migration failed (e.g. the fail-closed
+                # billing rollout). Serving traffic now would lock tenants out
+                # or leave access policy half-applied. Fail fast, do not retry.
+                logger.critical(
+                    "Refusing to start: %s", "; ".join(STARTUP_FATAL_ERRORS)
+                )
+                sys.exit(1)
             logger.info("DB Connected Successfully!")
             break
         except Exception as e:
