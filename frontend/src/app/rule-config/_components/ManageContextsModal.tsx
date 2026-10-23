@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -62,9 +62,14 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
   const [deleting, setDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RuleContextOption | null>(null);
   const [editing, setEditing] = useState<RuleContextOption | null>(null);
+  // The form must stay open in create mode even when the context list is not
+  // empty. Previously it was only rendered when `editing` was set or no
+  // context existed, so "New Context" did nothing on a configured install.
+  const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
   const tM = useCallback(
     (path: string, params?: Record<string, string | number | undefined>) =>
@@ -101,6 +106,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
     /* eslint-disable react-hooks/set-state-in-effect */
     load();
     setEditing(null);
+    setFormOpen(false);
     setForm(EMPTY_FORM);
     setFieldErrors({});
     setFormError(null);
@@ -115,6 +121,13 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
     };
   }, [open]);
 
+  // The create/edit form sits below the context list, so on a long list it can
+  // open out of view. Bring it into view when it is toggled on.
+  useEffect(() => {
+    if (!open || !formOpen) return;
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [open, formOpen]);
+
   const metaFor = (c: { context_key: string; icon: string | null }) =>
     CONTEXT_META[c.context_key] ?? DEFAULT_CONTEXT_META;
 
@@ -128,6 +141,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
 
   const handleEdit = (c: RuleContextOption) => {
     setEditing(c);
+    setFormOpen(true);
     setForm({
       context_key: c.context_key,
       name_en: c.name_en,
@@ -142,6 +156,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
 
   const startCreate = () => {
     setEditing(null);
+    setFormOpen(true);
     setForm(EMPTY_FORM);
     setFieldErrors({});
     setFormError(null);
@@ -190,6 +205,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
       await load();
       onSaved();
       setEditing(null);
+      setFormOpen(false);
       setForm(EMPTY_FORM);
     } catch (err) {
       setFormError(
@@ -359,8 +375,8 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
                 </div>
               )}
 
-              {editing !== null || (contexts && contexts.length === 0 && !editing) ? (
-                <div className="border border-gray-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5">
+              {formOpen || (contexts !== null && contexts.length === 0) ? (
+                <div ref={formRef} className="border border-gray-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5">
                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-4">
                     {editing ? tM("edit_title") : tM("create_title")}
                   </p>
@@ -459,7 +475,7 @@ export default function ManageContextsModal({ open, onClose, onSaved }: ManageCo
 
                   <div className="flex items-center justify-end gap-3 mt-5">
                   <button
-                    onClick={() => { setEditing(null); setForm(EMPTY_FORM); setFieldErrors({}); }}
+                    onClick={() => { setEditing(null); setFormOpen(false); setForm(EMPTY_FORM); setFieldErrors({}); }}
                     className="min-h-11 px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
                     {t("common.cancel")}
