@@ -6,10 +6,13 @@ hold subscription.view.
 """
 
 import logging
+import mimetypes
+import os
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +26,7 @@ from app.models.invoice import (
 from app.models.payment import Payment
 from app.models.subscription import HouseSubscription
 from app.models.user import User
-from app.services import invoice_pdf, manual_payment
+from app.services import invoice_pdf, manual_payment, payment_requests
 from app.services import subscription_service as subsvc
 from app.services import entitlement
 from app.utils.activity_logger import log_activity
@@ -493,17 +496,202 @@ async def admin_list_payments(
         select(Payment).options(selectinload(Payment.house)).where(*filters).order_by(Payment.id.desc())
         .offset((page - 1) * per_page).limit(per_page)
     )
-    rows = [{
-        "id": p.id, "house_id": p.house_id, "house_name": p.house.name if p.house else None,
-        "amount": float(p.amount), "currency": p.currency, "status": p.status,
-        "gateway": p.gateway, "gateway_tran_id": p.gateway_tran_id,
-        "paid_at": p.paid_at, "created_at": p.created_at,
-    } for p in result.scalars().unique().all()]
+    rows = []
+    for p in result.scalars().unique().all():
+        meta = p.payment_meta or {}
+        rows.append({
+            "id": p.id, "house_id": p.house_id, "house_name": p.house.name if p.house else None,
+            "invoice_id": p.invoice_id,
+            "invoice_no": p.invoice.invoice_no if p.invoice else None,
+            "amount": float(p.amount), "currency": p.currency, "status": p.status,
+            "gateway": p.gateway, "gateway_tran_id": p.gateway_tran_id,
+            "reference": meta.get("reference"), "note": meta.get("note"),
+            "rejection_reason": meta.get("rejection_reason"),
+            "has_proof": bool(meta.get("proof_path")),
+            "submitted_by": meta.get("submitted_by"),
+            "paid_at": p.paid_at, "created_at": p.created_at,
+        })
     total_pages = (total + per_page - 1) // per_page
     return {"success": True, "data": rows, "pagination": {
         "page": page, "per_page": per_page, "total": total,
         "total_pages": total_pages, "has_next": page < total_pages, "has_prev": page > 1,
     }}
+
+
+# ---------------------------------------------------------------------------
+# Manual payment requests (tenant submitted, admin approved)
+# ---------------------------------------------------------------------------
+
+class RejectPaymentRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+def _admin_payment_payload(payment: Payment) -> dict:
+    meta = payment.payment_meta or {}
+    invoice = payment.invoice
+    return {
+        "id": payment.id,
+        "house_id": payment.house_id,
+        "invoice_id": payment.invoice_id,
+        "invoice_no": invoice.invoice_no if invoice else None,
+        "amount": float(payment.amount),
+        "currency": payment.currency,
+        "status": payment.status,
+        "gateway": payment.gateway,
+        "gateway_tran_id": payment.gateway_tran_id,
+        "reference": meta.get("reference"),
+        "note": meta.get("note"),
+        "rejection_reason": meta.get("rejection_reason"),
+        "has_proof": bool(meta.get("proof_path")),
+        "submitted_by": meta.get("submitted_by"),
+        "paid_at": payment.paid_at,
+        "created_at": payment.created_at,
+    }
+
+
+def _payment_request_http_error(exc: "payment_requests.PaymentRequestError") -> HTTPException:
+    detail = {"code": exc.code, "message": exc.message}
+    if exc.fields:
+        detail["fields"] = exc.fields
+    return HTTPException(status_code=exc.status_code, detail=detail)
+
+
+@router.get("/payments/{payment_id}/proof")
+async def admin_download_payment_proof(
+    payment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["payments.manage", "billing.manage"])),
+):
+    payment = (await db.execute(
+        select(Payment).where(Payment.id == payment_id, Payment.is_deleted == False)  # noqa: E712
+    )).scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    path = payment_requests.proof_disk_path(payment)
+    if not path:
+        raise HTTPException(status_code=404, detail="No proof file attached")
+    meta = payment.payment_meta or {}
+    filename = meta.get("proof_name") or os.path.basename(path)
+    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type, filename=filename)
+
+
+@router.post("/payments/{payment_id}/approve")
+async def admin_approve_payment(
+    payment_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("billing.approve_payment")),
+):
+    """Approve a tenant payment request and start the paid period now.
+
+    Approval time is authoritative: a first activation runs for one billing
+    interval from now (monthly = 1 month, yearly = 1 year). A renewal extends
+    the current period end instead, so approved early payments never lose time.
+    """
+    payment = (await db.execute(
+        select(Payment).where(Payment.id == payment_id, Payment.is_deleted == False)  # noqa: E712
+    )).scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    try:
+        result = await payment_requests.approve_request(
+            db, payment, approved_by=current_user.id
+        )
+    except payment_requests.PaymentRequestError as exc:
+        raise _payment_request_http_error(exc)
+
+    invoice = result["invoice"]
+    sub = result["subscription"]
+    if not result["already_approved"]:
+        await _notify_payment(db, invoice, sub)
+        await log_activity(
+            db=db,
+            user_id=current_user.id,
+            user_name=current_user.name,
+            module="billing",
+            action="approve",
+            record_id=payment.id,
+            record_identifier=invoice.invoice_no if invoice else None,
+            new_values={
+                "payment_id": payment.id,
+                "invoice_id": payment.invoice_id,
+                "amount": float(payment.amount),
+                "currency": payment.currency,
+                "channel": payment.gateway,
+                "subscription_status": sub.status if sub else None,
+                "period_start": invoice.billing_period_start if invoice else None,
+                "period_end": invoice.billing_period_end if invoice else None,
+                "approved_at": payment.paid_at,
+            },
+            request=request,
+            status_code=200,
+        )
+
+    return {
+        "success": True,
+        "already_approved": result["already_approved"],
+        "payment": _admin_payment_payload(payment),
+        "invoice": {
+            "id": invoice.id if invoice else None,
+            "invoice_no": invoice.invoice_no if invoice else None,
+            "status": invoice.status if invoice else None,
+            "billing_period_start": invoice.billing_period_start if invoice else None,
+            "billing_period_end": invoice.billing_period_end if invoice else None,
+        },
+        "subscription": _sub_payload(sub) if sub else None,
+    }
+
+
+@router.post("/payments/{payment_id}/reject")
+async def admin_reject_payment(
+    payment_id: int,
+    payload: RejectPaymentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("billing.reject_payment")),
+):
+    payment = (await db.execute(
+        select(Payment).where(Payment.id == payment_id, Payment.is_deleted == False)  # noqa: E712
+    )).scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    try:
+        payment = await payment_requests.reject_request(
+            db, payment, rejected_by=current_user.id, reason=payload.reason
+        )
+    except payment_requests.PaymentRequestError as exc:
+        raise _payment_request_http_error(exc)
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="billing",
+        action="reject",
+        record_id=payment.id,
+        record_identifier=payment.invoice.invoice_no if payment.invoice else None,
+        new_values={
+            "payment_id": payment.id,
+            "invoice_id": payment.invoice_id,
+            "amount": float(payment.amount),
+            "reason": payload.reason,
+        },
+        request=request,
+        status_code=200,
+    )
+    try:
+        from app.services.billing_notifications import notify_house
+
+        house = (await db.execute(select(House).where(House.id == payment.house_id))).scalar_one_or_none()
+        if house:
+            await notify_house(db, house, "payment_rejected", invoice=payment.invoice)
+    except Exception as exc:  # notification failure must not undo the rejection
+        logger.warning("payment rejection notification failed: %s", exc)
+
+    return {"success": True, "payment": _admin_payment_payload(payment)}
 
 
 # ---------------------------------------------------------------------------

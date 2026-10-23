@@ -21,6 +21,7 @@ import { useLanguage } from "@/i18n/useLanguage";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import PaymentRequestModal from "./_components/PaymentRequestModal";
 import type {
   Subscription,
   Invoice,
@@ -74,6 +75,7 @@ export default function BillingPage() {
   const [action, setAction] = useState<{ kind: string; id?: number; no?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState<number | null>(null);
+  const [requestInvoice, setRequestInvoice] = useState<Invoice | null>(null);
 
   // Payment method form
   const [methodForm, setMethodForm] = useState({
@@ -208,6 +210,11 @@ export default function BillingPage() {
       setPdfBusy(null);
     }
   };
+
+  const pendingPaymentFor = (invoiceId: number) =>
+    payments.find((p) => p.invoice_id === invoiceId && p.status === "pending") || null;
+  const canRequestPayment = hasPermission("billing.request_payment");
+  const isPayable = (inv: Invoice) => inv.status === "issued" || inv.status === "unpaid";
 
   const activeActions = useMemo(() => {
     if (!sub) return { show: [] as string[] };
@@ -457,18 +464,34 @@ export default function BillingPage() {
                             <Badge status={inv.status} />
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <button
-                              onClick={() => handleInvoicePdf(inv)}
-                              disabled={pdfBusy === inv.id}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
-                            >
-                              {pdfBusy === inv.id ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Download className="w-3.5 h-3.5" />
+                            <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                              {isPayable(inv) && pendingPaymentFor(inv.id) && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">
+                                  {t("billing.pending_approval")}
+                                </span>
                               )}
-                              {t("billing.invoice_pdf")}
-                            </button>
+                              {isPayable(inv) && !pendingPaymentFor(inv.id) && canRequestPayment && (
+                                <button
+                                  onClick={() => setRequestInvoice(inv)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                                >
+                                  <Wallet className="w-3.5 h-3.5" />
+                                  {t("billing.request_payment")}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleInvoicePdf(inv)}
+                                disabled={pdfBusy === inv.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+                              >
+                                {pdfBusy === inv.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5" />
+                                )}
+                                {t("billing.invoice_pdf")}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -502,18 +525,34 @@ export default function BillingPage() {
                         }`}
                       >
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">{inv.description}</p>
-                        <button
-                          onClick={() => handleInvoicePdf(inv)}
-                          disabled={pdfBusy === inv.id}
-                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-bold disabled:opacity-50 cursor-pointer"
-                        >
-                          {pdfBusy === inv.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Download className="w-4 h-4" />
+                        <div className="space-y-2">
+                          {isPayable(inv) && pendingPaymentFor(inv.id) && (
+                            <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                              {t("billing.pending_approval")}
+                            </p>
                           )}
-                          {t("billing.invoice_pdf")}
-                        </button>
+                          {isPayable(inv) && !pendingPaymentFor(inv.id) && canRequestPayment && (
+                            <button
+                              onClick={() => setRequestInvoice(inv)}
+                              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-bold cursor-pointer"
+                            >
+                              <Wallet className="w-4 h-4" />
+                              {t("billing.request_payment")}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleInvoicePdf(inv)}
+                            disabled={pdfBusy === inv.id}
+                            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-bold disabled:opacity-50 cursor-pointer"
+                          >
+                            {pdfBusy === inv.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                            {t("billing.invoice_pdf")}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -546,7 +585,15 @@ export default function BillingPage() {
                             <td className="px-6 py-4">
                               <p className="text-sm font-bold text-gray-900 dark:text-gray-100 capitalize">{p.gateway || "manual"}</p>
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{p.gateway_tran_id || "—"}</td>
+                            <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
+                              <p>{p.reference || p.gateway_tran_id || "—"}</p>
+                              {p.invoice_no && (
+                                <p className="text-[11px] text-gray-400 dark:text-gray-500">{p.invoice_no}</p>
+                              )}
+                              {p.status === "failed" && p.rejection_reason && (
+                                <p className="text-[11px] text-red-500">{p.rejection_reason}</p>
+                              )}
+                            </td>
                             <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-gray-100">{fmtMoney(p.amount)}</td>
                             <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{fmtDate(p.paid_at)}</td>
                             <td className="px-6 py-4">
@@ -673,6 +720,14 @@ export default function BillingPage() {
         </>
       )}
 
+      <PaymentRequestModal
+        open={requestInvoice !== null}
+        invoice={requestInvoice}
+        houseId={houseId}
+        onClose={() => setRequestInvoice(null)}
+        onSubmitted={loadData}
+      />
+
       {/* Confirmation modals */}
       <ConfirmationModal
         isOpen={action?.kind === "cancel"}
@@ -706,7 +761,7 @@ export default function BillingPage() {
       <ConfirmationModal
         isOpen={action?.kind === "reactivate"}
         onClose={() => setAction(null)}
-        onConfirm={() => runAction("v1/subscription/reactivate", {}, t("billing.reactivate"))}
+        onConfirm={() => runAction("v1/subscription/reactivate", {}, t("billing.reactivate_invoice_created"))}
         type="info"
         title={t("billing.reactivate")}
         message={t("billing.reactivate_confirm")}

@@ -9,9 +9,12 @@ There is no hosted checkout and no gateway webhook in this deployment.
 """
 
 import logging
+import mimetypes
+import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +32,8 @@ from app.models.payment import (
 )
 from app.models.payment_method import PaymentMethod, PAYMENT_METHOD_TYPES
 from app.models.user import User
-from app.services import entitlement, invoice_pdf
+from app.services import entitlement, invoice_pdf, payment_requests
+from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
 from config.settings import settings
 
@@ -64,14 +68,21 @@ def _invoice_payload(invoice: Invoice) -> dict:
 
 
 def _payment_payload(p: Payment) -> dict:
+    meta = p.payment_meta or {}
     return {
         "id": p.id,
         "invoice_id": p.invoice_id,
+        "invoice_no": p.invoice.invoice_no if p.invoice else None,
         "amount": float(p.amount),
         "currency": p.currency,
         "status": p.status,
         "gateway": p.gateway,
         "gateway_tran_id": p.gateway_tran_id,
+        "reference": meta.get("reference"),
+        "note": meta.get("note"),
+        "rejection_reason": meta.get("rejection_reason"),
+        "has_proof": bool(meta.get("proof_path")),
+        "proof_name": meta.get("proof_name"),
         "paid_at": p.paid_at,
         "created_at": p.created_at,
     }
@@ -207,6 +218,95 @@ async def list_payments(
     }
 
 
+def _payment_request_error(exc: "payment_requests.PaymentRequestError") -> HTTPException:
+    detail = {"code": exc.code, "message": exc.message}
+    if exc.fields:
+        detail["fields"] = exc.fields
+    return HTTPException(status_code=exc.status_code, detail=detail)
+
+
+@router.post("/payments/request", status_code=201)
+async def submit_payment_request(
+    request: Request,
+    invoice_id: int = Form(...),
+    method: str = Form("manual"),
+    amount: Optional[float] = Form(None),
+    reference: Optional[str] = Form(None),
+    note: Optional[str] = Form(None),
+    proof: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission("billing.request_payment")),
+):
+    """Submit an offline payment for admin approval (nothing is activated yet)."""
+    house_id = await _house_id(current_user, house_context)
+    invoice = (await db.execute(
+        select(Invoice).where(
+            Invoice.id == invoice_id,
+            Invoice.house_id == house_id,
+            Invoice.is_deleted == False,  # noqa: E712
+        )
+    )).scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    try:
+        payment = await payment_requests.submit_request(
+            db,
+            invoice,
+            house_id=house_id,
+            amount=amount,
+            method=method,
+            reference=reference,
+            note=note,
+            proof=proof,
+            submitted_by=current_user.id,
+        )
+    except payment_requests.PaymentRequestError as exc:
+        raise _payment_request_error(exc)
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="billing",
+        action="create",
+        record_id=payment.id,
+        record_identifier=invoice.invoice_no,
+        new_values={
+            "payment_request_id": payment.id,
+            "invoice_id": invoice.id,
+            "amount": float(payment.amount),
+            "channel": payment.gateway,
+            "reference": (payment.payment_meta or {}).get("reference"),
+            "has_proof": bool((payment.payment_meta or {}).get("proof_path")),
+        },
+        request=request,
+        status_code=201,
+    )
+    return {"success": True, "data": _payment_payload(payment)}
+
+
+@router.get("/payments/{payment_id}/proof")
+async def download_payment_proof(
+    payment_id: int,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_any_permission(["billing.view", "subscription.view"])),
+):
+    house_id = await _house_id(current_user, house_context)
+    payment = await payment_requests.get_payment_for_house(db, payment_id, house_id)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    path = payment_requests.proof_disk_path(payment)
+    if not path:
+        raise HTTPException(status_code=404, detail="No proof file attached")
+    meta = payment.payment_meta or {}
+    filename = meta.get("proof_name") or os.path.basename(path)
+    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type, filename=filename)
+
+
 class RefundRequest(BaseModel):
     amount: Optional[float] = None
     reason: Optional[str] = None
@@ -226,6 +326,8 @@ async def refund_payment(
     )).scalar_one_or_none()
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
+    if payment.status not in (PAYMENT_STATUS_SUCCEEDED, PAYMENT_STATUS_REFUNDED, "partially_refunded"):
+        raise HTTPException(status_code=400, detail="Only a completed payment can be refunded")
     if payment.status in (PAYMENT_STATUS_REFUNDED, "partially_refunded"):
         raise HTTPException(status_code=400, detail=f"Payment is already {payment.status}")
 

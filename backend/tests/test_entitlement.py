@@ -48,10 +48,11 @@ async def test_effective_status_trialing_before_end(db, house, plan):
     assert effective_status(sub, now=now_naive()) == "trialing"
 
 
-async def test_effective_status_trialing_after_end_is_active(db, house, plan):
+async def test_effective_status_trialing_after_end_is_expired(db, house, plan):
+    """The free tier is the trial: after it ends there is no paid time left."""
     sub = await make_sub(db, house.id, plan, status="trialing", trial_days=7)
     past = now_naive() + timedelta(days=10)
-    assert effective_status(sub, now=past) == "active"
+    assert effective_status(sub, now=past) == "expired"
 
 
 async def test_effective_status_past_due_within_grace(db, house, plan):
@@ -334,8 +335,9 @@ async def test_trial_end_is_exclusive(db, house, plan):
     assert sub.trial_end == trial_end
 
     assert effective_status(sub, now=trial_end - timedelta(microseconds=1)) == "trialing"
-    # At the exact trial end the plan becomes a normal active subscription.
-    assert effective_status(sub, now=trial_end) == "active"
+    # At the exact trial end the free tier is over; only an approved payment
+    # can make the subscription active again.
+    assert effective_status(sub, now=trial_end) == "expired"
 
 
 async def test_past_due_grace_period_end_is_exclusive(db, house, plan):

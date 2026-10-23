@@ -188,8 +188,12 @@ def effective_status(sub: HouseSubscription, now=None) -> str:
     now = now or now_naive()
     status_str = sub.status
     if status_str == SUBSCRIPTION_STATUS_TRALING:
-        if sub.trial_end and now >= sub.trial_end:
-            return SUBSCRIPTION_STATUS_ACTIVE
+        # The trial *is* the free tier: once it ends without an approved
+        # payment there is no paid period to fall back on, so access stops
+        # (no grace — grace belongs to a paid renewal, not to a free plan).
+        trial_end = sub.trial_end or sub.current_period_end
+        if trial_end is not None and now >= trial_end:
+            return "expired"
         return SUBSCRIPTION_STATUS_TRALING
     if status_str == SUBSCRIPTION_STATUS_ACTIVE:
         # Real-time expiry: the scheduler normally flips an overdue period to

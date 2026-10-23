@@ -18,7 +18,7 @@ import logging
 from datetime import timedelta
 from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,7 +27,7 @@ from app.models.subscription import HouseSubscription
 from app.models.invoice import (
     Invoice, INVOICE_STATUS_ISSUED, INVOICE_STATUS_UNPAID, INVOICE_STATUS_PAID,
 )
-from app.services.subscription_service import issue_invoice
+from app.services.subscription_service import issue_invoice, next_billing_period_start
 from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
@@ -85,7 +85,9 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
                 db, sub, sub.package,
                 billing_interval=sub.billing_interval,
                 description=f"Renewal - {sub.package.name} ({sub.billing_interval})",
-                period_start=sub.current_period_end,
+                # A lapsed subscription must not be billed for a period that
+                # already ended; the helper clamps the start to now.
+                period_start=next_billing_period_start(sub),
             )
             stats["renewals_issued"] += 1
             await _notify(sub.house_id, "invoice_issued", invoice=invoice, sub=sub)
@@ -116,7 +118,9 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
         .options(selectinload(HouseSubscription.package))
         .where(
             HouseSubscription.is_deleted == False,  # noqa: E712
-            HouseSubscription.status.in_(["active", "trialing"]),
+            # Only a *paid* period goes past_due. A trial that ended has no
+            # paid time and no payment grace — it expires (step 2b).
+            HouseSubscription.status == "active",
             HouseSubscription.current_period_end < now,
             HouseSubscription.grace_period_end.is_(None),
         )
@@ -148,6 +152,34 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
         stats["marked_past_due"] += 1
         logger.info("billing: house %s subscription %s -> past_due", sub.house_id, sub.id)
         await _notify(sub.house_id, "past_due", sub=sub)
+
+    # ---- 2b. free tier ended without an approved payment --------------------
+    result = await db.execute(
+        select(HouseSubscription)
+        .options(selectinload(HouseSubscription.package))
+        .where(
+            HouseSubscription.is_deleted == False,  # noqa: E712
+            HouseSubscription.status == "trialing",
+            # A legacy trial may still carry a longer current_period_end; the
+            # trial_end is what the access gate checks, so expire on that.
+            or_(
+                and_(
+                    HouseSubscription.trial_end.is_not(None),
+                    HouseSubscription.trial_end < now,
+                ),
+                and_(
+                    HouseSubscription.trial_end.is_(None),
+                    HouseSubscription.current_period_end < now,
+                ),
+            ),
+        )
+    )
+    for sub in result.scalars().all():
+        sub.status = "expired"
+        sub.updated_at = now
+        stats["expired"] += 1
+        logger.info("billing: house %s subscription %s free tier ended -> expired", sub.house_id, sub.id)
+        await _notify(sub.house_id, "expired", sub=sub)
 
     # ---- 3. expire past grace period ----------------------------------------
     result = await db.execute(

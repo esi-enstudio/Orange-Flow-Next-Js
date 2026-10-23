@@ -19,7 +19,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
@@ -200,13 +200,30 @@ async def create_subscription(
     trial: bool = True,
     auto_renew: bool = True,
 ) -> HouseSubscription:
-    now = now_naive()
-    period_start = now
-    period_end = _add_interval(now, billing_interval)
-    trial_days = plan.trial_days or 0 if trial else 0
-    trial_end = period_start + timedelta(days=trial_days) if trial_days else None
+    """Start a plan on its free tier.
 
-    status = "trialing" if trial_days > 0 else "active"
+    The plan's ``trial_days`` *is* the initial validity: the subscription is
+    ``trialing`` only for that many days and owns no paid time yet. Without a
+    free tier the house is blocked (``expired``) until an admin approves its
+    first payment — a plan never starts with a free paid period.
+
+    Paid access always begins at the payment approval time (see
+    :func:`mark_invoice_paid`), not at plan selection.
+    """
+    now = now_naive()
+    trial_days = max(0, plan.trial_days or 0) if trial else 0
+    period_start = now
+    if trial_days > 0:
+        period_end = now + timedelta(days=trial_days)
+        trial_start = now
+        trial_end = period_end
+        status = "trialing"
+    else:
+        # No free tier: no access until a payment is approved.
+        period_end = now
+        trial_start = None
+        trial_end = None
+        status = "expired"
 
     sub = HouseSubscription(
         house_id=house_id,
@@ -216,7 +233,7 @@ async def create_subscription(
         end_date=period_end,
         current_period_start=period_start,
         current_period_end=period_end,
-        trial_start=period_start if trial_days else None,
+        trial_start=trial_start,
         trial_end=trial_end,
         grace_period_end=None,
         cancel_at_period_end=False,
@@ -527,18 +544,26 @@ async def mark_invoice_paid(
     invoice: Invoice,
     gateway_tran_id: Optional[str] = None,
     changed_via: str = "webhook",
+    approved_at=None,
 ):
     """Server-side authoritative invoice payment + subscription activation.
 
-    If the paid invoice covers a period after the current one, the
-    subscription cycle is rolled forward (renewal); otherwise the
-    subscription is simply activated.
+    The paid period is decided here, not by the invoice's provisional dates:
+
+    - **First paid activation** starts at the approval time, so the free tier
+      is never silently extended by an invoice issued weeks earlier.
+    - **Renewal** extends from the current period end (unused paid time is
+      never lost); if that end already passed, it starts at the approval time.
+
+    The invoice is refreshed to the period the payment actually bought, so the
+    invoice, PDF and subscription always agree. ``approved_at`` defaults to
+    now (Bangladesh Standard Time) and is the *admin approval* timestamp.
     """
     if invoice.status == INVOICE_STATUS_PAID:
         return invoice.subscription  # idempotent when already paid
-    now = now_naive()
+    paid_at = now_naive() if approved_at is None else approved_at
     invoice.status = INVOICE_STATUS_PAID
-    invoice.paid_at = now
+    invoice.paid_at = paid_at
     if gateway_tran_id:
         invoice.gateway_tran_id = gateway_tran_id
 
@@ -547,19 +572,50 @@ async def mark_invoice_paid(
         # standalone/manual invoice (no attached subscription): just mark paid
         await db.commit()
         return None
-    is_renewal = bool(
-        sub
-        and sub.current_period_end
-        and invoice.billing_period_start
-        and invoice.billing_period_start >= sub.current_period_end
-    )
-    if is_renewal:
-        sub = await renew_period(
-            db, sub, changed_via=changed_via,
-            period_start=invoice.billing_period_start,
-            period_end=invoice.billing_period_end,
+
+    prior_paid = (await db.execute(
+        select(func.count(Invoice.id)).where(
+            Invoice.subscription_id == sub.id,
+            Invoice.id != invoice.id,
+            Invoice.status == INVOICE_STATUS_PAID,
+            Invoice.is_deleted == False,  # noqa: E712
         )
+    )).scalar_one()
+    is_renewal = bool(prior_paid) or sub.status in ("active", "past_due")
+
+    if is_renewal and sub.current_period_end and sub.current_period_end > paid_at:
+        period_start = sub.current_period_end
     else:
-        sub = await activate(db, sub, changed_via=changed_via)
+        period_start = paid_at
+    period_end = _add_interval(period_start, sub.billing_interval)
+
+    # The invoice was issued at plan selection with a provisional period; the
+    # approved payment buys exactly [period_start, period_end).
+    invoice.billing_period_start = period_start
+    invoice.billing_period_end = period_end
+
+    old_status = sub.status
+    old_end = sub.current_period_end
+    sub.current_period_start = period_start
+    sub.current_period_end = period_end
+    sub.end_date = period_end
+    sub.status = "active"
+    sub.cancel_at_period_end = False
+    sub.cancelled_at = None
+    sub.cancelled_by = None
+    sub.grace_period_end = None
+    sub.updated_at = now_naive()
+    await _log(
+        db, sub,
+        "renewed" if is_renewal else "activated",
+        changed_via=changed_via,
+        old_status=old_status,
+        new_status="active",
+        old_period_end=old_end,
+        new_period_end=period_end,
+        amount=invoice.total,
+    )
     await db.commit()
+    await db.refresh(sub)
+    await _sync_house_state(db, sub.house_id)
     return sub

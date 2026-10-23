@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Plus, Search, Settings2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Paperclip, Plus, Search, Settings2, XCircle } from "lucide-react";
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -26,6 +26,25 @@ interface AdminSub {
   grace_period_end?: string | null;
   auto_renew: boolean;
   cancel_at_period_end: boolean;
+  created_at?: string | null;
+}
+
+interface AdminPayment {
+  id: number;
+  house_id: number;
+  house_name?: string | null;
+  invoice_id: number;
+  invoice_no?: string | null;
+  amount: number;
+  currency: string;
+  status: string;
+  gateway?: string | null;
+  gateway_tran_id?: string | null;
+  reference?: string | null;
+  note?: string | null;
+  rejection_reason?: string | null;
+  has_proof?: boolean;
+  paid_at?: string | null;
   created_at?: string | null;
 }
 
@@ -99,8 +118,18 @@ export default function AdminSubscriptionsPage() {
   const [confirm, setConfirm] = useState<{ kind: string; subId?: number; invNo?: string; invId?: number; status?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [pendingPayments, setPendingPayments] = useState<AdminPayment[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [approveTarget, setApproveTarget] = useState<AdminPayment | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<AdminPayment | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [proofBusy, setProofBusy] = useState<number | null>(null);
+
   const canView = hasPermission("subscription.manage");
   const canManage = hasPermission("billing.manage");
+  const canApprove = hasPermission("billing.approve_payment");
+  const canReject = hasPermission("billing.reject_payment");
+  const canSeePending = hasPermission("payments.manage");
 
   const handleInvoicePdf = async (invoiceId: number, invoiceNo: string) => {
     try {
@@ -182,6 +211,75 @@ export default function AdminSubscriptionsPage() {
     loadDetail(id);
   };
 
+  const fetchPending = useCallback(async () => {
+    if (!canSeePending) return;
+    setPendingLoading(true);
+    try {
+      const res = await apiClient.get("v1/admin/payments?status=pending&per_page=50");
+      setPendingPayments((res.data as Paginated<AdminPayment>).data || []);
+    } catch {
+      /* the endpoint is permission-gated; keep the panel quiet on failure */
+    } finally {
+      setPendingLoading(false);
+    }
+  }, [canSeePending]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    fetchPending();
+  }, [authLoading, fetchPending]);
+
+  const approvePayment = async () => {
+    if (!approveTarget) return;
+    setBusy(true);
+    try {
+      await apiClient.post(`v1/admin/payments/${approveTarget.id}/approve`);
+      toast.success(t("subscriptions.approve_success"));
+      setApproveTarget(null);
+      setDetail({});
+      await fetchPending();
+      await fetchRows();
+    } catch (err: any) {
+      toast.error(err?.message || t("pricing.something_went_wrong"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rejectPayment = async () => {
+    if (!rejectTarget) return;
+    setBusy(true);
+    try {
+      await apiClient.post(`v1/admin/payments/${rejectTarget.id}/reject`, {
+        reason: rejectReason.trim() || null,
+      });
+      toast.success(t("subscriptions.reject_success"));
+      setRejectTarget(null);
+      setRejectReason("");
+      await fetchPending();
+    } catch (err: any) {
+      toast.error(err?.message || t("pricing.something_went_wrong"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openProof = async (payment: AdminPayment) => {
+    setProofBusy(payment.id);
+    try {
+      const res = await apiClient.get(`v1/admin/payments/${payment.id}/proof`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    } catch {
+      toast.error(t("subscriptions.proof_missing"));
+    } finally {
+      setProofBusy(null);
+    }
+  };
+
   const markPaid = async () => {
     if (!confirm?.invId) return;
     setBusy(true);
@@ -228,6 +326,97 @@ export default function AdminSubscriptionsPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t("subscriptions.description")}</p>
         </div>
       </div>
+
+      {/* Pending manual payment approvals */}
+      {canSeePending && (
+        <div className="rounded-3xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 overflow-hidden">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-5 sm:px-6 py-4 border-b border-gray-100 dark:border-slate-800">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-gray-100">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                {t("subscriptions.pending_payments")}
+                {pendingPayments.length > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400 text-[11px] font-bold">
+                    {pendingPayments.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                {t("subscriptions.pending_payments_desc")}
+              </p>
+            </div>
+          </div>
+          {pendingLoading ? (
+            <div className="divide-y divide-gray-50 dark:divide-slate-800">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-5 py-4 animate-pulse">
+                  <div className="space-y-2 flex-1">
+                    <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                    <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                  </div>
+                  <div className="h-8 w-24 bg-gray-100 dark:bg-slate-800 rounded-lg" />
+                </div>
+              ))}
+            </div>
+          ) : pendingPayments.length === 0 ? (
+            <p className="px-5 sm:px-6 py-6 text-sm text-gray-400">{t("subscriptions.pending_empty")}</p>
+          ) : (
+            <div className="divide-y divide-gray-50 dark:divide-slate-800">
+              {pendingPayments.map((p) => (
+                <div key={p.id} className="flex flex-col lg:flex-row lg:items-center gap-3 px-5 sm:px-6 py-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                      {p.invoice_no || `#${p.invoice_id}`} · {fmtMoney(p.amount)}
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      {p.house_name || `#${p.house_id}`} · {t("subscriptions.method")}: {p.gateway || "—"}
+                      {p.reference ? ` · ${t("subscriptions.reference")}: ${p.reference}` : ""}
+                    </p>
+                    {p.note && <p className="text-[11px] text-gray-400 mt-0.5">{p.note}</p>}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {p.has_proof && (
+                      <button
+                        type="button"
+                        onClick={() => openProof(p)}
+                        disabled={proofBusy === p.id}
+                        className="inline-flex items-center gap-1.5 min-h-10 px-3 py-2 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        {proofBusy === p.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Paperclip className="w-3.5 h-3.5" />
+                        )}
+                        {t("subscriptions.view_proof")}
+                      </button>
+                    )}
+                    {canApprove && (
+                      <button
+                        type="button"
+                        onClick={() => setApproveTarget(p)}
+                        className="inline-flex items-center gap-1.5 min-h-10 px-3.5 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {t("subscriptions.approve")}
+                      </button>
+                    )}
+                    {canReject && (
+                      <button
+                        type="button"
+                        onClick={() => { setRejectTarget(p); setRejectReason(""); }}
+                        className="inline-flex items-center gap-1.5 min-h-10 px-3.5 py-2 rounded-lg text-xs font-bold bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 cursor-pointer"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        {t("subscriptions.reject")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -436,6 +625,35 @@ export default function AdminSubscriptionsPage() {
         confirmText={t("subscriptions.mark_paid")}
         loading={busy}
       />
+      <ConfirmationModal
+        isOpen={!!approveTarget}
+        onClose={() => setApproveTarget(null)}
+        onConfirm={approvePayment}
+        type="info"
+        title={t("subscriptions.approve")}
+        message={t("subscriptions.approve_confirm", { id: approveTarget?.id ?? "" })}
+        confirmText={t("subscriptions.approve")}
+        loading={busy}
+      />
+      <ConfirmationModal
+        isOpen={!!rejectTarget}
+        onClose={() => { setRejectTarget(null); setRejectReason(""); }}
+        onConfirm={rejectPayment}
+        type="danger"
+        title={t("subscriptions.reject")}
+        message={t("subscriptions.reject_confirm", { id: rejectTarget?.id ?? "" })}
+        confirmText={t("subscriptions.reject")}
+        loading={busy}
+      >
+        <textarea
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          rows={2}
+          maxLength={500}
+          placeholder={t("subscriptions.reject_reason")}
+          className="w-full mt-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
+        />
+      </ConfirmationModal>
       <ConfirmationModal
         isOpen={confirm?.kind === "status"}
         onClose={() => setConfirm(null)}

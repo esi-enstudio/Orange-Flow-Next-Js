@@ -240,7 +240,14 @@ async def select_plan(
         billing_interval=payload.billing_interval,
         changed_by=current_user.id, trial=payload.trial, auto_renew=payload.auto_renew,
     )
-    invoice = await subsvc.issue_invoice(db, sub, plan, billing_interval=payload.billing_interval)
+    # The first invoice covers the first *paid* period (after the free tier),
+    # not the free tier itself. Nothing is activated until an admin approves
+    # the payment; approval then starts the paid period at that moment.
+    invoice = await subsvc.issue_invoice(
+        db, sub, plan,
+        billing_interval=payload.billing_interval,
+        period_start=subsvc.next_billing_period_start(sub),
+    )
     return {
         "success": True,
         "subscription": await _serialize_subscription(sub),
@@ -294,14 +301,27 @@ async def reactivate_subscription(
     house_context: Optional[int] = Depends(get_house_context),
     current_user: User = Depends(has_permission("subscription.edit")),
 ):
+    """Start a reactivation by issuing the invoice to pay.
+
+    Reactivation is a paid transition: the subscription only becomes active
+    after an admin approves the payment. Issuing the invoice here (instead of
+    flipping the status) removes the old free-reactivation hole.
+    """
     house_id = await _get_house_id(current_user, house_context, require=True)
     sub = await _get_subscription_for_house(db, house_id)
     if sub.status not in ("cancelled", "expired"):
         raise HTTPException(status_code=400, detail=f"Cannot reactivate from status '{sub.status}'. Use change-plan instead.")
-    await subsvc.reactivate(db, sub, changed_by=current_user.id)
-    invoice = await subsvc.issue_invoice(db, sub, sub.package)
+    if not sub.package:
+        raise HTTPException(status_code=400, detail="Subscription has no plan assigned")
+    invoice = await subsvc.issue_invoice(
+        db, sub, sub.package, billing_interval=sub.billing_interval,
+        description=f"Reactivation - {sub.package.name} ({sub.billing_interval})",
+        period_start=subsvc.next_billing_period_start(sub),
+    )
     return {
         "success": True,
+        "awaiting_payment": True,
+        "message": "Invoice issued. Submit the payment for admin approval to reactivate.",
         "subscription": await _serialize_subscription(await entitlement.get_house_subscription(db, house_id)),
         "invoice": _invoice_payload(invoice),
     }

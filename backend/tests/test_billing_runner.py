@@ -176,6 +176,21 @@ async def test_paid_current_period_invoice_does_not_buy_free_month(db, house, pl
     assert sub.current_period_end == end
 
 
+async def test_trial_end_without_approved_payment_expires(db, house, plan, recorded_notifications):
+    """The free tier is the trial: no grace period once it ends unpaid."""
+    end = now_naive() - timedelta(days=1)
+    sub = await make_sub(
+        db, house.id, plan, status="trialing", trial_days=7,
+        start=end - timedelta(days=7), end=end,
+    )
+    stats = await run_billing_cycle(db)
+    assert stats["expired"] == 1
+    assert stats["marked_past_due"] == 0
+    await db.refresh(sub)
+    assert sub.status == "expired"
+    assert (house.id, "expired") in recorded_notifications
+
+
 async def test_expire_past_grace(db, house, plan, recorded_notifications):
     grace = now_naive() - timedelta(days=1)
     sub = await make_sub(

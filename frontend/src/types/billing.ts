@@ -92,12 +92,19 @@ export interface Invoice {
 export interface Payment {
   id: number;
   invoice_id: number;
+  invoice_no?: string | null;
   amount: number;
   currency: string;
   status: string;
   /** Manual payment channel: cash | manual | bank | bkash | nagad | ... */
   gateway?: string | null;
   gateway_tran_id?: string | null;
+  /** Reference / transaction ID supplied by the tenant. */
+  reference?: string | null;
+  note?: string | null;
+  rejection_reason?: string | null;
+  has_proof?: boolean;
+  proof_name?: string | null;
   paid_at?: string | null;
   created_at?: string | null;
 }

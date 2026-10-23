@@ -33,7 +33,12 @@ from app.models.invoice import (
     INVOICE_STATUS_UNPAID,
     INVOICE_STATUS_VOID,
 )
-from app.models.payment import Payment, PAYMENT_STATUS_SUCCEEDED
+from app.models.payment import (
+    Payment,
+    PAYMENT_STATUS_SUCCEEDED,
+    PAYMENT_STATUS_PENDING,
+    PAYMENT_STATUS_FAILED,
+)
 from app.models.subscription import HouseSubscription
 from app.services import subscription_service as subsvc
 from app.utils.timezone import now_naive, to_bst_naive
@@ -240,6 +245,24 @@ async def pay_invoice_manually(
         gateway_tran_id=tran_id,
         changed_via="admin_cash" if gateway == CASH_GATEWAY else "admin",
     )
+    # A direct admin recording supersedes any tenant request still waiting on
+    # this invoice; leaving it pending would let it be approved twice.
+    superseded = (await db.execute(
+        select(Payment).where(
+            Payment.invoice_id == invoice.id,
+            Payment.id != payment.id,
+            Payment.status == PAYMENT_STATUS_PENDING,
+            Payment.is_deleted == False,  # noqa: E712
+        )
+    )).scalars().all()
+    for pending in superseded:
+        meta = dict(pending.payment_meta or {})
+        meta["superseded_by_payment_id"] = payment.id
+        meta["rejection_reason"] = "Invoice was paid directly by an administrator"
+        pending.status = PAYMENT_STATUS_FAILED
+        pending.payment_meta = meta
+    if superseded:
+        await db.commit()
     await db.refresh(payment)
     invoice, payment = await _generate_paid_invoice_pdf(db, invoice, payment)
     logger.info(

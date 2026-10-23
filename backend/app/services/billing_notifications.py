@@ -22,7 +22,14 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_KINDS = ("invoice_issued", "payment_succeeded", "trial_ending", "past_due", "expired")
+SUPPORTED_KINDS = (
+    "invoice_issued",
+    "payment_succeeded",
+    "payment_rejected",
+    "trial_ending",
+    "past_due",
+    "expired",
+)
 
 
 def _amount(value) -> str:
@@ -57,6 +64,17 @@ def build_message(kind: str, house: House, invoice=None, sub=None) -> tuple:
             f" Thank you! Your subscription is active.\n\n"
             f"আমরা আপনার {plan} সাবস্ক্রিপশনের জন্য {amount} পেমেন্ট পেয়েছি। ধন্যবাদ! "
             f"আপনার সাবস্ক্রিপশন সক্রিয় রয়েছে।\n\n— OrangeFlow"
+        )
+    elif kind == "payment_rejected":
+        amount = _amount(invoice.total if invoice else 0)
+        subj = f"[OrangeFlow] Payment not approved — {plan}"
+        text = (
+            f"Dear {house.name},\n\n"
+            f"Your payment of {amount} could not be approved. "
+            f"The invoice remains open — please check the reference/proof and "
+            f"submit a new payment request.\n\n"
+            f"আপনার {amount} পেমেন্টটি অনুমোদন করা যায়নি। ইনভয়েসটি খোলা আছে — "
+            f"রেফারেন্স/প্রমাণ যাচাই করে নতুন পেমেন্ট রিকোয়েস্ট submit করুন।\n\n— OrangeFlow"
         )
     elif kind == "trial_ending":
         text_end = (sub.trial_end.strftime("%d %b %Y") if sub and sub.trial_end else "soon")

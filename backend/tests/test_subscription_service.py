@@ -41,17 +41,21 @@ async def test_create_subscription_trial(db, house, plan):
     assert sub.trial_end is not None
     assert sub.house_id == house.id
     assert sub.package_id == plan.id
-    assert sub.current_period_end > sub.current_period_start
+    # The plan's free tier IS the initial validity (no free paid month/year).
+    assert sub.current_period_end == sub.trial_end
+    assert sub.current_period_end - sub.current_period_start == timedelta(days=plan.trial_days)
     assert sub.auto_renew is True
     logs = await _logs(db)
     assert logs[-1].change_type == "created"
     assert logs[-1].to_status == "trialing"
 
 
-async def test_create_subscription_no_trial(db, house, plan):
+async def test_create_subscription_no_trial_blocks_until_payment(db, house, plan):
+    """No free tier means no access; a plan never starts with a free paid period."""
     sub = await create_subscription(db, house.id, plan, trial=False)
-    assert sub.status == "active"
+    assert sub.status == "expired"
     assert sub.trial_end is None
+    assert sub.current_period_end == sub.current_period_start
 
 
 async def test_plan_price(db, plan):

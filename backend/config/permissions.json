@@ -511,6 +511,9 @@
         "billing.refund",
         "billing.manage",
         "billing.cash_payment",
+        "billing.request_payment",
+        "billing.approve_payment",
+        "billing.reject_payment",
         "billing.export",
         "billing.settings"
       ]
@@ -606,6 +609,7 @@
         "plans.view",
         "payments.view",
         "billing.edit",
+        "billing.request_payment",
         "whatsapp.contact.view",
         "whatsapp.contact.create",
         "whatsapp.contact.edit",
@@ -663,6 +667,7 @@
         "plans.view",
         "payments.view",
         "billing.edit",
+        "billing.request_payment",
         "whatsapp.contact.view",
         "whatsapp.contact.create",
         "whatsapp.contact.edit",

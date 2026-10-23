@@ -1324,6 +1324,26 @@ trust. `payments.gateway` now stores the manual channel (`cash`, `manual`,
 `bank`, ...). The obsolete `payment_attempts` / `webhook_events` tables are
 dropped by `_migrate_remove_payment_gateway_artifacts()` in `init_db()`.
 
+### Free tier and approval-based paid periods
+
+- **Free tier is the default validity** — selecting a plan starts the
+  subscription on the plan's `trial_days` (`current_period_end == trial_end`).
+  A plan never starts with a free paid month/year. After the free tier ends
+  without an approved payment the subscription expires (no payment grace on a
+  free tier).
+- **Tenant payment requests** — `POST /api/v1/billing/payments/request`
+  (`billing.request_payment`, multipart: `invoice_id`, `method`, `amount`,
+  `reference`, `note`, `proof`) stores a `Payment(status="pending")` under
+  `backend/app/services/payment_requests.py`. Nothing is activated.
+- **Admin approval** — `POST /api/v1/admin/payments/{id}/approve`
+  (`billing.approve_payment`) marks the invoice paid and activates the plan for
+  **one interval starting at the approval time** (monthly = 1 month, yearly =
+  1 year). A session renewal extends the existing `current_period_end` instead,
+  so early payments never lose paid time. `POST .../reject`
+  (`billing.reject_payment`) marks the request failed and keeps the invoice open.
+- Paid proof files live under `private_uploads/payment_proofs/{house_id}/` and
+  are streamed only through the authenticated proof endpoints.
+
 When a manual payment completes, the invoice PDF is rendered and stored under
 `private_uploads/invoices/` (`app/services/invoice_pdf.py`, path kept on
 `invoices.pdf_path`). Download it from the billing page or via
