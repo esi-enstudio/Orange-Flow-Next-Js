@@ -4404,6 +4404,7 @@ export const translations = {
       contexts: {
         ga_live: "GA Live",
         activation_report: "Activation Report",
+        active_sso: "Active SSO",
       },
       manage: {
         title: "Manage Contexts",
@@ -4417,7 +4418,7 @@ export const translations = {
         active: "Active",
         inactive: "Inactive",
         sort_label: "Order",
-        hint: "Contexts define which reports rules can be configured for. Built-in contexts (GA Live, Activation Report) are system-protected and cannot be deleted.",
+        hint: "Contexts define which reports rules can be configured for. Built-in contexts (GA Live, Activation Report, Active SSO) are system-protected and cannot be deleted.",
         fields: {
           context_key: "Context Key",
           name_en: "Name (English)",
@@ -4540,7 +4541,7 @@ export const translations = {
         steps_title: "How It Works",
         notes_title: "Important Notes",
         features: {
-          f1: { title: "Context Selection", desc: "Left sidebar shows all available report contexts (e.g. GA Live, Activation Report). Rules are scoped per context." },
+          f1: { title: "Context Selection", desc: "Left sidebar shows all available report contexts (e.g. GA Live, Activation Report, Active SSO). Rules are scoped per context." },
           f2: { title: "Role Tabs", desc: "Choose which role's rule to define: HOUSE (global), SUPERVISOR, RSO, or BP." },
           f3: { title: "Product Code Exclusion", desc: "Union of all active rules in the context — these product codes are removed globally from achievement calculations." },
           f4: { title: "Retailer Type Exclusion", desc: "Per-role: only from this role's active rule. Retailers of these types are excluded from achievement." },
@@ -9118,6 +9119,7 @@ employees: "Employees",
       contexts: {
         ga_live: "GA Live",
         activation_report: "অ্যাক্টিভেশন রিপোর্ট",
+        active_sso: "অ্যাকটিভ এসএসও",
       },
       manage: {
         title: "কনটেক্সট পরিচালনা",
@@ -9131,7 +9133,7 @@ employees: "Employees",
         active: "সক্রিয়",
         inactive: "নিষ্ক্রিয়",
         sort_label: "ক্রম",
-        hint: "কনটেক্সট নির্ধারণ করে কোন রিপোর্টের জন্য রুল কনফিগার করা যাবে। বিল্ট-ইন কনটেক্সট (GA Live, অ্যাক্টিভেশন রিপোর্ট) সিস্টেম-সুরক্ষিত এবং মুছা যাবে না।",
+        hint: "কনটেক্সট নির্ধারণ করে কোন রিপোর্টের জন্য রুল কনফিগার করা যাবে। বিল্ট-ইন কনটেক্সট (GA Live, অ্যাক্টিভেশন রিপোর্ট, অ্যাকটিভ এসএসও) সিস্টেম-সুরক্ষিত এবং মুছা যাবে না।",
         fields: {
           context_key: "কনটেক্সট কী",
           name_en: "নাম (ইংরেজি)",
@@ -9254,7 +9256,7 @@ employees: "Employees",
         steps_title: "কীভাবে কাজ করে",
         notes_title: "গুরুত্বপূর্ণ নোট",
         features: {
-          f1: { title: "কনটেক্সট নির্বাচন", desc: "বাম সাইডবারে সব উপলব্ধ রিপোর্ট কনটেক্সট দেখায় (যেমন GA Live, অ্যাক্টিভেশন রিপোর্ট)। রুল প্রতি কনটেক্সটে আলাদাভাবে থাকে।" },
+          f1: { title: "কনটেক্সট নির্বাচন", desc: "বাম সাইডবারে সব উপলব্ধ রিপোর্ট কনটেক্সট দেখায় (যেমন GA Live, অ্যাক্টিভেশন রিপোর্ট, অ্যাকটিভ এসএসও)। রুল প্রতি কনটেক্সটে আলাদাভাবে থাকে।" },
           f2: { title: "ভূমিকা ট্যাব", desc: "কোন ভূমিকার রুল সংজ্ঞায়িত করতে চান তা বেছে নিন: HOUSE (বৈশ্বিক), SUPERVISOR, RSO বা BP।" },
           f3: { title: "প্রোডাক্ট কোড বাদ", desc: "কনটেক্সটের সব সক্রিয় রুলের ইউনিয়ন — এই প্রোডাক্ট কোডগুলো বৈশ্বিকভাবে অর্জন গণনা থেকে সরিয়ে ফেলা হয়।" },
           f4: { title: "রিটেইলার ধরন বাদ", desc: "প্রতি ভূমিকা: শুধুমাত্র এই ভূমিকার সক্রিয় রুল থেকে। এই ধরনের রিটেইলারদের অর্জন থেকে বাদ দেওয়া হয়।" },

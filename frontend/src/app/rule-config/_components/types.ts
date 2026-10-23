@@ -171,6 +171,12 @@ export const CONTEXT_META: Record<string, RuleContextMeta> = {
     active: "bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-500/30",
     chip: "bg-violet-100 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300",
   },
+  active_sso: {
+    icon: Target,
+    iconBg: "bg-cyan-50 dark:bg-cyan-500/10",
+    active: "bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-500/30",
+    chip: "bg-cyan-100 dark:bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
+  },
 };
 
 export const DEFAULT_CONTEXT_META: RuleContextMeta = {

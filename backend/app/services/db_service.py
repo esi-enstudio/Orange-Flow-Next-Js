@@ -1408,8 +1408,9 @@ async def _migrate_seed_rule_contexts():
     """Seed the built-in report rule contexts (idempotent).
 
     Contexts are system-level config shared across houses. The built-in ones
-    (GA Live, Activation Report) are marked is_system so they cannot be deleted;
-    further contexts may be created at runtime via the rule-config API.
+    (GA Live, Activation Report, Active SSO) are marked is_system so they cannot
+    be deleted; further contexts may be created at runtime via the rule-config
+    API.
     """
     try:
         async with engine.begin() as conn:
@@ -1418,7 +1419,8 @@ async def _migrate_seed_rule_contexts():
                      (context_key, name_en, name_bn, icon, sort_order, is_active, is_system, created_at, updated_at, is_deleted)
                    VALUES
                      ('ga_live', 'GA Live', 'GA Live', 'activity', 0, true, true, NOW(), NOW(), false),
-                     ('activation_report', 'Activation Report', 'অ্যাক্টিভেশন রিপোর্ট', 'bar-chart-3', 1, true, true, NOW(), NOW(), false)
+                     ('activation_report', 'Activation Report', 'অ্যাক্টিভেশন রিপোর্ট', 'bar-chart-3', 1, true, true, NOW(), NOW(), false),
+                     ('active_sso', 'Active SSO', 'অ্যাকটিভ এসএসও', 'target', 2, true, true, NOW(), NOW(), false)
                    ON CONFLICT (context_key) DO NOTHING"""
             ))
             logger.info("Seeded rule contexts")
