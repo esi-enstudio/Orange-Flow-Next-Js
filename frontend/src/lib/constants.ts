@@ -119,11 +119,11 @@ export const navItems: NavItem[] = [
     icon: Upload,
     color: "text-emerald-500",
     children: [
-      { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "imports.view" },
-      { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "imports.view" },
-      { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "imports.view" },
-      { title: "Scratch Card", translationKey: "nav.import_scratch_card", href: "/import/scratch-card", permission: "imports.view" },
-      { title: "SIM Issues", translationKey: "nav.import_sim_issue", href: "/import/sim-issues", permission: "imports.view" },
+      { title: "Activations", translationKey: "nav.import_activations", href: "/import/activations", permission: "activations.import" },
+      { title: "iTopUp Details", translationKey: "nav.import_itopup", href: "/import/itopup-details", permission: "itopup.import" },
+      { title: "Live Activations", translationKey: "nav.import_live_activations", href: "/import/live-activations", permission: "live_activations.import" },
+      { title: "Scratch Card", translationKey: "nav.import_scratch_card", href: "/import/scratch-card", permission: "scratch_card.import" },
+      { title: "SIM Issues", translationKey: "nav.import_sim_issue", href: "/import/sim-issues", permission: "sim_issues.import" },
       { title: "SC Serials", translationKey: "nav.import_sc_serials", href: "/import/sc-serials", permission: "scratch_card_serials.view" },
     ]
   },
