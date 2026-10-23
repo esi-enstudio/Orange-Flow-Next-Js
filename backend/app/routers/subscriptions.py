@@ -143,6 +143,7 @@ async def get_entitlements(
         access_message=access_payload.get("message"),
         access_action=access_payload.get("action"),
         house_name=getattr(house, "name", None),
+        house_code=getattr(house, "code", None),
         plan_name=access_payload.get("plan_name"),
         plan_status=access_payload.get("plan_status"),
         plan_end_date=access_payload.get("plan_end_date"),

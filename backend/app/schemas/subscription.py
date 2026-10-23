@@ -98,6 +98,7 @@ class EntitlementsSchema(BaseModel):
     # select_plan | renew | contact_admin
     access_action: Optional[str] = None
     house_name: Optional[str] = None
+    house_code: Optional[str] = None
     plan_name: Optional[str] = None
     plan_status: Optional[str] = None
     plan_end_date: Optional[datetime] = None

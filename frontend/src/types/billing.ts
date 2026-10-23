@@ -67,6 +67,7 @@ export interface Entitlements {
   /** Suggested next step: select_plan | renew | contact_admin. */
   access_action?: string | null;
   house_name?: string | null;
+  house_code?: string | null;
   plan_name?: string | null;
   plan_status?: string | null;
   plan_end_date?: string | null;
@@ -156,6 +157,7 @@ export interface HouseAccessBlock {
   code: HouseAccessCode;
   houseId?: number | null;
   houseName?: string | null;
+  houseCode?: string | null;
   planName?: string | null;
   planStatus?: string | null;
   planEndDate?: string | null;

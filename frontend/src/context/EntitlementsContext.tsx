@@ -94,6 +94,7 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
       code: entitlements.access_code as HouseAccessCode,
       houseId: entitlements.house_id ?? null,
       houseName: entitlements.house_name ?? null,
+      houseCode: entitlements.house_code ?? null,
       planName: entitlements.plan_name ?? null,
       planStatus: entitlements.plan_status ?? null,
       planEndDate: entitlements.plan_end_date ?? null,

@@ -145,12 +145,17 @@ export function SubscriptionGate({ children }: { children?: ReactNode }) {
   const config = BLOCK_KEYS[block.code] ?? BLOCK_KEYS.SUBSCRIPTION_REQUIRED;
   const tone = TONE[config.tone];
   const Icon = config.icon;
-  const houseLabel = block.houseName || t("common.access_blocked_this_house");
+  const houseName = block.houseName || t("common.access_blocked_this_house");
+  const houseCode = block.houseCode;
+  const houseLabel = houseCode && block.houseName ? `${block.houseName} (${houseCode})` : houseName;
   const expiredOn = fmtDate(block.planEndDate);
 
   const details: { label: string; value: string }[] = [];
-  if (block.houseName) {
-    details.push({ label: t("common.access_blocked_house"), value: block.houseName });
+  if (block.houseName || block.houseCode) {
+    const houseValue = block.houseName && block.houseCode
+      ? `${block.houseName} (${block.houseCode})`
+      : (block.houseName || block.houseCode || "");
+    details.push({ label: t("common.access_blocked_house"), value: houseValue });
   }
   if (block.planName) {
     details.push({ label: t("common.access_blocked_plan"), value: block.planName });

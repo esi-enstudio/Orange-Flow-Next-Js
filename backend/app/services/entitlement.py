@@ -269,7 +269,9 @@ def access_block_payload(house, sub, code: str, now=None) -> dict:
 
     house_id = getattr(house, "id", None)
     house_name = getattr(house, "name", None)
-    label = f'"{house_name}"' if house_name else "This house"
+    house_code = getattr(house, "code", None)
+    house_display = f"{house_name} ({house_code})" if (house_name and house_code) else (house_name or house_code)
+    label = f'"{house_display}"' if house_display else "This house"
 
     if code == ACCESS_CODE_HOUSE_INACTIVE:
         message = (
@@ -292,6 +294,7 @@ def access_block_payload(house, sub, code: str, now=None) -> dict:
         "action": ACCESS_ACTION_BY_CODE.get(code, "contact_admin"),
         "house_id": house_id,
         "house_name": house_name,
+        "house_code": house_code,
         "plan_status": status,
         "plan_name": plan.name if plan is not None else None,
         "plan_end_date": end_date.isoformat() if end_date is not None else None,

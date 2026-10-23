@@ -262,19 +262,23 @@ async def test_access_block_payload_names_house_and_plan(db, house, plan):
     assert payload["action"] == "renew"
     assert payload["house_id"] == house.id
     assert payload["house_name"] == house.name
+    assert payload["house_code"] == house.code
     assert payload["plan_name"] == plan.name
     assert payload["plan_status"] == "expired"
     assert payload["days_remaining"] == 0
     assert house.name in payload["message"]
+    assert house.code in payload["message"]
 
 
 async def test_access_block_payload_without_plan(house):
     payload = access_block_payload(house, None, ACCESS_CODE_NO_PLAN)
     assert payload["action"] == "select_plan"
+    assert payload["house_code"] == house.code
     assert payload["plan_name"] is None
     assert payload["plan_status"] is None
     assert payload["days_remaining"] is None
     assert "No plan is assigned" in payload["message"]
+    assert house.code in payload["message"]
 
 
 async def test_no_plan_grants_no_modules(db, house, plan):
