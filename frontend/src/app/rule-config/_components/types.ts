@@ -74,6 +74,24 @@ export const GA_LIVE_BP_COLUMNS = [
   { id: "own", labelKey: "columns.own" },
 ] as const;
 
+/**
+ * Page sections of the Active SSO report. The report has one RSO table, so
+ * "all" is a global rule and "rso" scopes to that table.
+ */
+export const ACTIVE_SSO_SECTIONS = ["all", "rso"] as const;
+export type ActiveSsoSection = (typeof ACTIVE_SSO_SECTIONS)[number];
+
+/**
+ * Metric columns of the Active SSO "RSO Target vs Achievement · Retailer
+ * Count" table a rule can target. Mirrors
+ * `RULE_COLUMN_SCOPES[("active_sso", "rso")]` on the backend.
+ */
+export const ACTIVE_SSO_COLUMNS = [
+  { id: "achieved", labelKey: "columns.achieved" },
+  { id: "day_0", labelKey: "columns.day_0" },
+  { id: "day_1", labelKey: "columns.day_1" },
+] as const;
+
 /** Split a stored `column_key` ("ach,market_ga" | "all") into its column keys. */
 export function parseColumnKeys(columnKey?: string | null): string[] {
   if (!columnKey) return [];

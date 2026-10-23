@@ -20,6 +20,9 @@ from app.models.rso_target import RSOTarget
 from app.models.user import User
 from app.utils.access_control import is_admin_user
 
+from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
+from app.services.rule_config_service import get_effective_rule_conditions
+from app.utils.activation_rules import exclude_clause
 from app.services.active_lso_report_service import (
     employee_options,
     employee_name_map,
@@ -41,6 +44,16 @@ from app.services.active_lso_report_service import (
 logger = logging.getLogger("app.services.ActiveSsoReport")
 
 DEFAULT_ACTIVE_SSO_ACTIVATIONS = 2
+
+# Rule context + section this report reads. The table only has RSO rows, so the
+# section rule's target role is always RSO.
+RULE_CONTEXT = "active_sso"
+RULE_SECTION = "rso"
+RULE_ROLE = "RSO"
+# Columns the rule form exposes for this context/section. ``achieved`` is the
+# "Achieved" column; ``day_0`` / ``day_1`` are the "0 Activation" and
+# "1 Activation" buckets. Other day buckets fall back to the section-level rule.
+RULE_COLUMN_KEYS = ("achieved", "day_0", "day_1")
 
 
 def build_sso_count_keys(activations_threshold: int) -> tuple:
@@ -176,6 +189,12 @@ class ActiveSsoReportService:
         self.prev_activations_threshold = DEFAULT_ACTIVE_SSO_ACTIVATIONS
         self.count_keys = build_sso_count_keys(DEFAULT_ACTIVE_SSO_ACTIVATIONS)
 
+        # (section, column) -> effective rule conditions. A missing column entry
+        # falls back to the section entry, so day buckets without their own rule
+        # still honour the section/global-column rule.
+        self._conditions: Dict[Tuple[str, Optional[str]], dict] = {}
+        self._excluded_retailers: Dict[str, set[int]] = {}
+
     async def _load_thresholds(self) -> None:
         target_month = date(self.start_date.year, self.start_date.month, 1)
         self.activations_threshold = await get_active_sso_thresholds(
@@ -186,9 +205,84 @@ class ActiveSsoReportService:
         )
         self.count_keys = build_sso_count_keys(self.activations_threshold)
 
+    async def _load_rule_conditions(self) -> None:
+        """Load active_sso rules for the RSO section and its scoped columns.
+
+        ``column_key=None`` loads the section-level rule (used for included
+        employees); each column loads its own rule set, which always includes
+        the section/global-column rules plus any rule scoped to that column.
+        """
+        self._conditions[(RULE_SECTION, None)] = await get_effective_rule_conditions(
+            self.db, self.house_id, RULE_CONTEXT, RULE_ROLE, apply_to=RULE_SECTION
+        )
+        for column_key in RULE_COLUMN_KEYS:
+            self._conditions[(RULE_SECTION, column_key)] = await get_effective_rule_conditions(
+                self.db,
+                self.house_id,
+                RULE_CONTEXT,
+                RULE_ROLE,
+                apply_to=RULE_SECTION,
+                column_key=column_key,
+            )
+
+    def _conditions_for(self, column_key: Optional[str] = None) -> dict:
+        """Rule conditions for a column, falling back to the section rule."""
+        return (
+            self._conditions.get((RULE_SECTION, column_key))
+            or self._conditions.get((RULE_SECTION, None))
+            or {}
+        )
+
+    async def _selected_employee_db_ids(self) -> List[int]:
+        """Employee ids from the section rule's ``included_employee_ids``.
+
+        Rule rows store ``Employee.id``; re-check house + Active so a stale id
+        (resigned or another house) cannot widen the section.
+        """
+        employee_ids = self._conditions_for(None).get("included_employee_ids") or []
+        if not employee_ids:
+            return []
+        res = await self.db.execute(
+            select(Employee.id).where(
+                Employee.house_id == self.house_id,
+                Employee.status == "Active",
+                Employee.id.in_(employee_ids),
+            )
+        )
+        return [r[0] for r in res.all()]
+
+    async def _load_excluded_retailers_by_tag(self, tag_name: str) -> set[int]:
+        if tag_name not in self._excluded_retailers:
+            self._excluded_retailers[tag_name] = await get_active_retailer_ids_for_marking(
+                self.db, self.house_id, tag_name
+            )
+        return self._excluded_retailers[tag_name]
+
+    async def _excluded_retailer_ids_for_column(self, column_key: str) -> set[int]:
+        """Retailers whose active markings match the column rule's exclusions.
+
+        Every retailer counted here belongs to an RSO, so — unlike the GA Live
+        and Activation Report sections — there is no owned-retailer exemption:
+        subtracting the section's own retailers would make a retailer-type
+        exclusion a guaranteed no-op.
+        """
+        excluded: set[int] = set()
+        for tag in self._conditions_for(column_key).get("excluded_retailer_types") or []:
+            excluded |= await self._load_excluded_retailers_by_tag(tag)
+        return excluded
+
+    def _effective_excluded_codes(self, column_key: str) -> set[str]:
+        return set(self._conditions_for(column_key).get("excluded_product_codes") or [])
+
     async def build_dashboard(self) -> dict:
         await self._load_thresholds()
+        await self._load_rule_conditions()
         emps = await self._get_rso_employees()
+
+        selected_emp_ids = await self._selected_employee_db_ids()
+        if selected_emp_ids:
+            selected = set(selected_emp_ids)
+            emps = [e for e in emps if e.id in selected]
         if not emps:
             return self._empty_result()
 
@@ -211,11 +305,16 @@ class ActiveSsoReportService:
         all_retailer_ids = list(retailer_map.keys())
         cur_map = await self._get_activation_map(all_retailer_ids, self.start_date, self.end_date)
         prev_map = await self._get_activation_map(all_retailer_ids, self.prev_month_start, self.prev_month_end)
+        column_maps, column_excluded = await self._build_column_rule_data(
+            all_retailer_ids, cur_map
+        )
 
         rows = []
         for emp in emps:
             rid_list = [rid for rid, eid in retailer_map.items() if eid == emp.id]
-            counts = self._compute_retailer_counts(rid_list, cur_map, prev_map)
+            counts = self._compute_retailer_counts(
+                rid_list, cur_map, prev_map, column_maps, column_excluded
+            )
             row = self._make_row(emp, name_map, sup_map, sup_names, target_map, counts)
             rows.append(row)
 
@@ -297,7 +396,42 @@ class ActiveSsoReportService:
                 mapping[rid] = sr_to_rso[sr]
         return mapping
 
-    async def _get_activation_map(self, retailer_ids: Sequence[int], start: date, end: date) -> Dict[int, int]:
+    async def _build_column_rule_data(
+        self, retailer_ids: Sequence[int], cur_map: Dict[int, int]
+    ) -> Tuple[Dict[str, Dict[int, int]], Dict[str, set[int]]]:
+        """Per-column activation maps and excluded retailer ids.
+
+        Column rules can exclude different product codes, so each column needs
+        its own activation counts. Identical code sets share one query. Day
+        buckets without their own rule (e.g. ``day_2`` when the threshold is 3)
+        fall back to the section rule via :meth:`_conditions_for`.
+        """
+        column_keys = ["achieved"] + [k for k in self.count_keys if k.startswith("day_")]
+        column_maps: Dict[str, Dict[int, int]] = {}
+        column_excluded: Dict[str, set[int]] = {}
+        map_cache: Dict[frozenset, Dict[int, int]] = {}
+
+        for column_key in column_keys:
+            codes = frozenset(self._effective_excluded_codes(column_key))
+            if not codes:
+                column_maps[column_key] = cur_map
+            else:
+                if codes not in map_cache:
+                    map_cache[codes] = await self._get_activation_map(
+                        retailer_ids, self.start_date, self.end_date, set(codes)
+                    )
+                column_maps[column_key] = map_cache[codes]
+            column_excluded[column_key] = await self._excluded_retailer_ids_for_column(column_key)
+
+        return column_maps, column_excluded
+
+    async def _get_activation_map(
+        self,
+        retailer_ids: Sequence[int],
+        start: date,
+        end: date,
+        excluded_product_codes: Optional[set[str]] = None,
+    ) -> Dict[int, int]:
         if not retailer_ids:
             return {}
         q = (
@@ -313,29 +447,53 @@ class ActiveSsoReportService:
             )
             .group_by(Activation.retailer_id)
         )
+        if excluded_product_codes:
+            clause = exclude_clause(Activation, excluded_product_codes)
+            if clause is not None:
+                q = q.where(clause)
         rows = (await self.db.execute(q)).all()
         return {r[0]: int(r[1] or 0) for r in rows}
 
-    def _compute_retailer_counts(self, rid_list: Sequence[int], cur_map: Dict[int, int],
-                                  prev_map: Dict[int, int]) -> dict:
+    def _compute_retailer_counts(
+        self,
+        rid_list: Sequence[int],
+        cur_map: Dict[int, int],
+        prev_map: Dict[int, int],
+        column_maps: Optional[Dict[str, Dict[int, int]]] = None,
+        column_excluded: Optional[Dict[str, set[int]]] = None,
+    ) -> dict:
+        column_maps = column_maps or {}
+        column_excluded = column_excluded or {}
+
+        def column_rids(column_key: str) -> List[int]:
+            excluded = column_excluded.get(column_key) or set()
+            return [rid for rid in rid_list if rid not in excluded]
+
         counts = {k: 0 for k in self.count_keys}
-        counts["active"] = 0
         counts["retailer_count"] = len(rid_list)
+
+        # "Achieved" has its own retailer universe and activation map.
+        achieved_map = column_maps.get("achieved", cur_map)
+        counts["active"] = sum(
+            1
+            for rid in column_rids("achieved")
+            if achieved_map.get(rid, 0) >= self.activations_threshold
+        )
+
+        # Each "N Activation" bucket is counted under its own rule.
+        for i in range(self.activations_threshold):
+            key = f"day_{i}"
+            bucket_map = column_maps.get(key, cur_map)
+            counts[key] = sum(
+                1 for rid in column_rids(key) if bucket_map.get(rid, 0) == i
+            )
+
+        # Previous-month flags stay raw (no rule applies to last month's data).
         for rid in rid_list:
-            cur_count = cur_map.get(rid, 0)
-            prev_count = prev_map.get(rid, 0)
-
-            is_active = cur_count >= self.activations_threshold
-            if is_active:
-                counts["active"] += 1
-            else:
-                bucket = min(cur_count, self.activations_threshold - 1)
-                counts[f"day_{bucket}"] += 1
-
-            prev_active = prev_count >= self.prev_activations_threshold
+            prev_active = prev_map.get(rid, 0) >= self.prev_activations_threshold
             if not prev_active:
                 counts["inactive_last_month"] += 1
-                if is_active:
+                if cur_map.get(rid, 0) >= self.activations_threshold:
                     counts["reactivated"] += 1
         return counts
 
@@ -432,6 +590,7 @@ class ActiveSsoReportService:
 
     async def get_inactive_retailers(self, employee_id: int) -> List[dict]:
         await self._load_thresholds()
+        await self._load_rule_conditions()
         emp = (await self.db.execute(
             select(Employee).where(Employee.id == employee_id)
         )).scalars().first()
@@ -440,10 +599,19 @@ class ActiveSsoReportService:
 
         retailer_map = await self._get_retailer_emp_map([emp.id])
         rids = [rid for rid, eid in retailer_map.items() if eid == emp.id]
+        excluded_rids = await self._excluded_retailer_ids_for_column("achieved")
+        if excluded_rids:
+            rids = [rid for rid in rids if rid not in excluded_rids]
         if not rids:
             return []
 
-        cur_map = await self._get_activation_map(rids, self.start_date, self.end_date)
+        # Align the modal/export with the Achieved column's rule.
+        cur_map = await self._get_activation_map(
+            rids,
+            self.start_date,
+            self.end_date,
+            self._effective_excluded_codes("achieved"),
+        )
         prev_map = await self._get_activation_map(rids, self.prev_month_start, self.prev_month_end)
 
         retailer_info = {}
@@ -491,7 +659,13 @@ class ActiveSsoReportService:
 
     async def get_all_inactive_retailers_grouped(self) -> List[dict]:
         await self._load_thresholds()
+        await self._load_rule_conditions()
         emps = await self._get_rso_employees()
+
+        selected_emp_ids = await self._selected_employee_db_ids()
+        if selected_emp_ids:
+            selected = set(selected_emp_ids)
+            emps = [e for e in emps if e.id in selected]
         if not emps:
             return []
 
@@ -512,7 +686,18 @@ class ActiveSsoReportService:
 
         retailer_map = await self._get_retailer_emp_map(emp_ids)
         all_retailer_ids = list(retailer_map.keys())
-        cur_map = await self._get_activation_map(all_retailer_ids, self.start_date, self.end_date)
+        excluded_rids = await self._excluded_retailer_ids_for_column("achieved")
+        if excluded_rids:
+            retailer_map = {
+                rid: eid for rid, eid in retailer_map.items() if rid not in excluded_rids
+            }
+            all_retailer_ids = list(retailer_map.keys())
+        cur_map = await self._get_activation_map(
+            all_retailer_ids,
+            self.start_date,
+            self.end_date,
+            self._effective_excluded_codes("achieved"),
+        )
         prev_map = await self._get_activation_map(all_retailer_ids, self.prev_month_start, self.prev_month_end)
 
         all_rids = list(retailer_map.keys())

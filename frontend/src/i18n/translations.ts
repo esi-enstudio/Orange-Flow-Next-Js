@@ -4348,6 +4348,8 @@ export const translations = {
       columns: {
         all: "All Columns",
         achieved: "Achieved",
+        day_0: "0 Activation",
+        day_1: "1 Activation",
         ach: "Ach",
         market_ga: "Market GA",
         own_ga: "Own GA",
@@ -9063,6 +9065,8 @@ employees: "Employees",
       columns: {
         all: "সব কলাম",
         achieved: "অর্জিত",
+        day_0: "০ অ্যাকটিভেশন",
+        day_1: "১ অ্যাকটিভেশন",
         ach: "আচ",
         market_ga: "মার্কেট জিএ",
         own_ga: "নিজস্ব জিএ",

@@ -5,12 +5,25 @@ import { AlertCircle, Check, Columns3, LayoutGrid, Loader2, Power, Save, Trash2 
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import EntitySelector, { type SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
-import { GA_LIVE_BP_COLUMNS, GA_LIVE_RSO_COLUMNS, GA_LIVE_SECTIONS, RULE_COLUMNS, RULE_SECTIONS, ROLE_STYLE, parseColumnKeys, serializeColumnKeys, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
+import { ACTIVE_SSO_COLUMNS, ACTIVE_SSO_SECTIONS, GA_LIVE_BP_COLUMNS, GA_LIVE_RSO_COLUMNS, GA_LIVE_SECTIONS, RULE_COLUMNS, RULE_SECTIONS, ROLE_STYLE, parseColumnKeys, serializeColumnKeys, type EmployeeOption, type OptionsData, type Role, type RuleType } from "./types";
 
-/** GA Live sections that expose metric columns a rule can be scoped to. */
-const GA_LIVE_SECTION_COLUMN_IDS: Record<string, readonly string[]> = {
-  rsos: GA_LIVE_RSO_COLUMNS.map((c) => c.id),
-  bps: GA_LIVE_BP_COLUMNS.map((c) => c.id),
+interface ColumnOption {
+  readonly id: string;
+  readonly labelKey: string;
+}
+
+/**
+ * Sections that expose metric columns a rule can be scoped to, per context.
+ * Keep in sync with `RULE_COLUMN_SCOPES` in `backend/app/routers/rule_config.py`.
+ */
+const CONTEXT_SECTION_COLUMNS: Record<string, Record<string, readonly ColumnOption[]>> = {
+  ga_live: {
+    rsos: GA_LIVE_RSO_COLUMNS,
+    bps: GA_LIVE_BP_COLUMNS,
+  },
+  active_sso: {
+    rso: ACTIVE_SSO_COLUMNS,
+  },
 };
 
 interface RuleFormPanelProps {
@@ -119,26 +132,30 @@ export default function RuleFormPanel({
 
   const selectedEmpCount = draft.included_employee_ids.length;
 
-  // GA Live's RSO and BP Sections let one rule target several metric columns
-  // at once (Ach, Market GA, Own GA for RSOs; Ach, Own for BPs).
-  const isColumnScoped =
-    contextKey === "ga_live" &&
-    (draft.apply_to === "rsos" || draft.apply_to === "bps");
-  const scopedColumns =
-    draft.apply_to === "bps" ? GA_LIVE_BP_COLUMNS : GA_LIVE_RSO_COLUMNS;
+  // GA Live's RSO/BP sections and Active SSO's RSO section let one rule target
+  // several metric columns at once.
+  const scopedColumns = CONTEXT_SECTION_COLUMNS[contextKey]?.[draft.apply_to] ?? [];
+  const isColumnScoped = scopedColumns.length > 0;
   const columnItems: SelectorItem[] = scopedColumns.map((c) => ({
     id: c.id,
     label: t(`rule_config.${c.labelKey}`),
   }));
+  const sectionOptions =
+    contextKey === "ga_live"
+      ? GA_LIVE_SECTIONS
+      : contextKey === "active_sso"
+        ? ACTIVE_SSO_SECTIONS
+        : RULE_SECTIONS;
 
   const handleApplyToChange = (nextApply: string) => {
     setDraft((d) => {
-      if (contextKey !== "ga_live") return { ...d, apply_to: nextApply };
       // Keep the metric-column scope valid for the section the rule now
       // targets: a scope that no longer exists there is rejected by the API
       // (422) or, on an already-saved rule, silently stops the rule from ever
       // matching its section.
-      const allowed = GA_LIVE_SECTION_COLUMN_IDS[nextApply] ?? [];
+      const allowed = (CONTEXT_SECTION_COLUMNS[contextKey]?.[nextApply] ?? []).map(
+        (c) => c.id
+      );
       const scope = allowed.length
         ? d.column_scope.filter((k) => allowed.includes(k))
         : [];
@@ -265,7 +282,7 @@ export default function RuleFormPanel({
           </span>
         </label>
 
-        {(contextKey === "activation_report" || contextKey === "ga_live") && (
+        {(contextKey === "activation_report" || contextKey === "ga_live" || contextKey === "active_sso") && (
           <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
               {t("rule_config.fields.apply_to")}
@@ -278,7 +295,7 @@ export default function RuleFormPanel({
                 disabled={!canWrite}
                 className="w-full pl-9 pr-10 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer disabled:opacity-50"
               >
-                {(contextKey === "ga_live" ? GA_LIVE_SECTIONS : RULE_SECTIONS).map((s) => (
+                {sectionOptions.map((s) => (
                   <option key={s} value={s}>{t(`rule_config.sections.${s}`)}</option>
                 ))}
               </select>
