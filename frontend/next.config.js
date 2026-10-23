@@ -6,6 +6,9 @@ const nextConfig = {
     root: __dirname,
   },
   experimental: {
+    // Opt this app into security-driven Next.js upgrade guidance so the CLI
+    // keeps recommending patched releases for published security advisories.
+    agentUpgrade: "security",
     // Turbopack keeps a persistent dev cache under `.next/dev`. If the dev
     // server is killed mid-write (OOM kill, terminal closed, `.next` removed
     // while it runs) that cache can be left half-written: PostCSS then emits
