@@ -9,8 +9,10 @@ import {
   CreditCard,
   Download,
   Loader2,
+  Pencil,
   Receipt,
   RefreshCw,
+  Trash2,
   Wallet,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
@@ -76,6 +78,7 @@ export default function BillingPage() {
   const [busy, setBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState<number | null>(null);
   const [requestInvoice, setRequestInvoice] = useState<Invoice | null>(null);
+  const [editingMethodId, setEditingMethodId] = useState<number | null>(null);
 
   // Payment method form
   const [methodForm, setMethodForm] = useState({
@@ -615,14 +618,51 @@ export default function BillingPage() {
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-4">{t("billing.manual_pay_note")}</p>
 
                 {methods.map((m) => (
-                  <div key={m.id} className="mb-3 rounded-xl border border-gray-100 dark:border-slate-800 p-4 text-sm">
-                    <p className="font-bold text-gray-900 dark:text-gray-100 capitalize">{m.label || m.method_type}</p>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                      {[m.bank_name, m.account_name, m.account_number, m.bkash_number || m.nagad_number]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    {m.instructions && <p className="text-[11px] text-gray-400 mt-1">{m.instructions}</p>}
+                  <div key={m.id} className="mb-3 rounded-xl border border-gray-100 dark:border-slate-800 p-4 text-sm flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-gray-900 dark:text-gray-100 capitalize">{m.label || m.method_type}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                        {[m.bank_name, m.account_name, m.account_number, m.bkash_number || m.nagad_number]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                      {m.instructions && <p className="text-[11px] text-gray-400 mt-1">{m.instructions}</p>}
+                    </div>
+                    {hasPermission("billing.edit") && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMethodId(m.id);
+                            setMethodForm({
+                              method_type: m.method_type || "bank",
+                              label: m.label || "",
+                              bank_name: m.bank_name || "",
+                              account_name: m.account_name || "",
+                              account_number: m.account_number || "",
+                              routing_number: m.routing_number || "",
+                              bkash_number: m.bkash_number || "",
+                              nagad_number: m.nagad_number || "",
+                              instructions: m.instructions || "",
+                            });
+                          }}
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer"
+                          title="Edit"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAction({ kind: "delete_method", id: m.id, no: m.label || m.method_type });
+                          }}
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-slate-800 cursor-pointer"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -632,8 +672,25 @@ export default function BillingPage() {
                       e.preventDefault();
                       setBusy(true);
                       try {
-                        await apiClient.post("v1/billing/payment-methods", methodForm, { headers: houseHeader });
-                        toast.success(t("billing.payment_method_saved"));
+                        if (editingMethodId) {
+                          await apiClient.put(`v1/billing/payment-methods/${editingMethodId}`, methodForm, { headers: houseHeader });
+                          toast.success("Payment method updated successfully");
+                        } else {
+                          await apiClient.post("v1/billing/payment-methods", methodForm, { headers: houseHeader });
+                          toast.success(t("billing.payment_method_saved"));
+                        }
+                        setEditingMethodId(null);
+                        setMethodForm({
+                          method_type: "bank",
+                          label: "",
+                          bank_name: "",
+                          account_name: "",
+                          account_number: "",
+                          routing_number: "",
+                          bkash_number: "",
+                          nagad_number: "",
+                          instructions: "",
+                        });
                         await loadData();
                       } catch (err: any) {
                         toast.error(err?.message || t("pricing.something_went_wrong"));
@@ -704,14 +761,38 @@ export default function BillingPage() {
                       rows={2}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-700 dark:text-gray-200"
                     />
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50"
-                    >
-                      {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
-                      {t("billing.save_payment_method")}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {editingMethodId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMethodId(null);
+                            setMethodForm({
+                              method_type: "bank",
+                              label: "",
+                              bank_name: "",
+                              account_name: "",
+                              account_number: "",
+                              routing_number: "",
+                              bkash_number: "",
+                              nagad_number: "",
+                              instructions: "",
+                            });
+                          }}
+                          className="px-4 py-2.5 min-h-[44px] bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-bold hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={busy}
+                        className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50 cursor-pointer"
+                      >
+                        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                        {editingMethodId ? "Update Payment Method" : t("billing.save_payment_method")}
+                      </button>
+                    </div>
                   </form>
                 )}
               </div>
@@ -779,13 +860,40 @@ export default function BillingPage() {
         loading={busy}
       />
       <ConfirmationModal
-        isOpen={action?.kind === "resume"}
+        isOpen={action?.kind === "delete_method"}
         onClose={() => setAction(null)}
-        onConfirm={() => runAction("v1/subscription/resume", {}, t("billing.resume"))}
-        type="info"
-        title={t("billing.resume")}
-        message={t("billing.resume_confirm")}
-        confirmText={t("billing.resume")}
+        onConfirm={async () => {
+          if (!action?.id) return;
+          setBusy(true);
+          try {
+            await apiClient.delete(`v1/billing/payment-methods/${action.id}`, { headers: houseHeader });
+            toast.success("Payment method deleted successfully");
+            if (editingMethodId === action.id) {
+              setEditingMethodId(null);
+              setMethodForm({
+                method_type: "bank",
+                label: "",
+                bank_name: "",
+                account_name: "",
+                account_number: "",
+                routing_number: "",
+                bkash_number: "",
+                nagad_number: "",
+                instructions: "",
+              });
+            }
+            setAction(null);
+            await loadData();
+          } catch (err: any) {
+            toast.error(err?.message || "Failed to delete payment method");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        type="danger"
+        title="Delete Payment Method"
+        message={`Are you sure you want to delete payment method "${action?.no || ""}"?`}
+        confirmText="Delete"
         loading={busy}
       />
     </div>

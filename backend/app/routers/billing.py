@@ -377,6 +377,26 @@ async def create_payment_method(
     if payload.method_type not in PAYMENT_METHOD_TYPES:
         raise HTTPException(status_code=400, detail=f"method_type must be one of {PAYMENT_METHOD_TYPES}")
     house_id = await _house_id(current_user, house_context)
+
+    # Check for duplicate payment method
+    query = select(PaymentMethod).where(
+        PaymentMethod.house_id == house_id,
+        PaymentMethod.method_type == payload.method_type,
+        PaymentMethod.is_deleted == False,  # noqa: E712
+    )
+    if payload.account_number:
+        query = query.where(PaymentMethod.account_number == payload.account_number)
+    elif payload.bkash_number:
+        query = query.where(PaymentMethod.bkash_number == payload.bkash_number)
+    elif payload.nagad_number:
+        query = query.where(PaymentMethod.nagad_number == payload.nagad_number)
+    elif payload.label:
+        query = query.where(PaymentMethod.label == payload.label)
+
+    existing = (await db.execute(query)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A payment method with these details already exists for this house.")
+
     method = PaymentMethod(
         house_id=house_id,
         gateway="cash" if payload.method_type == "cash" else "manual",
@@ -396,6 +416,78 @@ async def create_payment_method(
     await db.commit()
     await db.refresh(method)
     return {"success": True, "id": method.id}
+
+
+@router.put("/payment-methods/{method_id}")
+async def update_payment_method(
+    method_id: int,
+    payload: PaymentMethodRequest,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission("billing.edit")),
+):
+    if payload.method_type not in PAYMENT_METHOD_TYPES:
+        raise HTTPException(status_code=400, detail=f"method_type must be one of {PAYMENT_METHOD_TYPES}")
+    house_id = await _house_id(current_user, house_context)
+
+    method = await db.get(PaymentMethod, method_id)
+    if not method or method.is_deleted or method.house_id != house_id:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+
+    # Check for duplicate if fields changed
+    query = select(PaymentMethod).where(
+        PaymentMethod.house_id == house_id,
+        PaymentMethod.method_type == payload.method_type,
+        PaymentMethod.is_deleted == False,  # noqa: E712
+        PaymentMethod.id != method_id,
+    )
+    if payload.account_number:
+        query = query.where(PaymentMethod.account_number == payload.account_number)
+    elif payload.bkash_number:
+        query = query.where(PaymentMethod.bkash_number == payload.bkash_number)
+    elif payload.nagad_number:
+        query = query.where(PaymentMethod.nagad_number == payload.nagad_number)
+    elif payload.label:
+        query = query.where(PaymentMethod.label == payload.label)
+
+    existing = (await db.execute(query)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A payment method with these details already exists for this house.")
+
+    method.method_type = payload.method_type
+    method.gateway = "cash" if payload.method_type == "cash" else "manual"
+    method.label = payload.label
+    method.bank_name = payload.bank_name
+    method.account_name = payload.account_name
+    method.account_number = payload.account_number
+    method.routing_number = payload.routing_number
+    method.bkash_number = payload.bkash_number
+    method.nagad_number = payload.nagad_number
+    method.instructions = payload.instructions
+    method.updated_at = now_naive()
+
+    await db.commit()
+    await db.refresh(method)
+    return {"success": True, "id": method.id}
+
+
+@router.delete("/payment-methods/{method_id}")
+async def delete_payment_method(
+    method_id: int,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission("billing.edit")),
+):
+    house_id = await _house_id(current_user, house_context)
+    method = await db.get(PaymentMethod, method_id)
+    if not method or method.is_deleted or method.house_id != house_id:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+
+    method.is_deleted = True
+    method.deleted_at = now_naive()
+    method.deleted_by = current_user.id
+    await db.commit()
+    return {"success": True, "message": "Payment method deleted successfully"}
 
 
 # ---------------------------------------------------------------------------
