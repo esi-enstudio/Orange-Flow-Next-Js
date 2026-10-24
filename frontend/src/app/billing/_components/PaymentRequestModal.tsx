@@ -108,6 +108,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
   const isMfs = MFS_METHODS.has(method);
   const isBank = method === "bank";
   const needsReference = REFERENCE_REQUIRED.has(method);
+  const isCash = method === "cash";
 
   const validate = (): Record<string, string> => {
     const errors: Record<string, string> = {};
@@ -349,7 +350,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
             </div>
           )}
 
-          <div>
+          <div style={{display: isCash ? 'none' : 'block'}}>
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
               {t("billing.payment_date")} <span className="text-red-500">*</span>
             </label>
