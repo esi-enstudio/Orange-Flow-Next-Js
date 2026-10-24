@@ -46,6 +46,8 @@ from app.models.payment import (
     PAYMENT_STATUS_FAILED,
     PAYMENT_STATUS_NEEDS_INFO,
 )
+from app.models.house import House
+from app.services import notifications as notification_service
 from app.services import subscription_service as subsvc
 from app.utils.timezone import now_naive
 
@@ -157,9 +159,13 @@ def _normalize_mobile(value: Optional[str]) -> Optional[str]:
 
 
 def _validate_payment_date(value):
-    """A claimed payment date must be a real, recent, non-future date."""
+    """The claimed payment date is required: a real, recent, non-future date."""
     if value is None or value == "":
-        return None
+        raise PaymentRequestError(
+            "Payment date is required",
+            code="PAYMENT_DATE_REQUIRED",
+            fields={"payment_date": "Select the date the payment was made"},
+        )
     if isinstance(value, datetime):
         parsed = value.date()
     elif isinstance(value, date):
@@ -558,6 +564,34 @@ async def submit_request(
         db.add(needs_info)
         await db.commit()
         await db.refresh(needs_info)
+
+    # Money is waiting for review: notify the platform owner (super admins) in
+    # the header bell. Best-effort — a notification failure never undoes a
+    # submitted request.
+    house = await db.get(House, house_id)
+    house_name = house.name if house is not None else f"House #{house_id}"
+    await notification_service.notify_super_admins(
+        db,
+        type=notification_service.TYPE_PAYMENT_REQUEST,
+        title="Payment request awaiting approval",
+        message=(
+            f"{house_name} submitted {claimed} {invoice.currency} for invoice "
+            f"{invoice.invoice_no} ({channel})"
+        ),
+        link=notification_service.LINK_PAYMENT_REVIEW,
+        house_id=house_id,
+        record_id=payment.id,
+        payload={
+            "payment_id": payment.id,
+            "invoice_id": invoice.id,
+            "invoice_no": invoice.invoice_no,
+            "house_id": house_id,
+            "house_name": house_name,
+            "amount": str(claimed),
+            "currency": invoice.currency,
+            "method": channel,
+        },
+    )
     return payment
 
 

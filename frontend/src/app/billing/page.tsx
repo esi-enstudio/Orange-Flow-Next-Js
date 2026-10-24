@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Building2,
@@ -41,6 +41,10 @@ const STATUS_BADGE: Record<string, string> = {
   past_due: "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400",
   cancelled: "bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-slate-400",
   void: "bg-gray-100 text-gray-400 dark:bg-slate-800 dark:text-slate-500",
+  needs_info: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
+  pending: "bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400",
+  failed: "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400",
+  succeeded: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
 };
 
 function Badge({ status }: { status?: string | null }) {
@@ -58,6 +62,24 @@ function Badge({ status }: { status?: string | null }) {
 
 const fmtDate = (v?: string | null) => (v ? String(v).slice(0, 10) : "—");
 const fmtMoney = (n: number) => `৳${Number(n).toLocaleString()}`;
+
+// "24 Oct 2026, 07:15 PM" — tenants read the review note with its timestamp.
+const fmtDateTime12 = (v?: string | null) => {
+  if (!v) return "";
+  const parsed = new Date(String(v));
+  if (Number.isNaN(parsed.getTime())) return "";
+  const date = parsed.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const time = parsed.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return `${date}, ${time}`;
+};
 
 export default function BillingPage() {
   const router = useRouter();
@@ -584,7 +606,8 @@ export default function BillingPage() {
                       </thead>
                       <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
                         {payments.map((p) => (
-                          <tr key={p.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
+                          <Fragment key={p.id}>
+                          <tr className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
                             <td className="px-6 py-4">
                               <p className="text-sm font-bold text-gray-900 dark:text-gray-100 capitalize">{p.gateway || "manual"}</p>
                             </td>
@@ -603,6 +626,27 @@ export default function BillingPage() {
                               <Badge status={p.status} />
                             </td>
                           </tr>
+                          {p.status === "needs_info" && p.info_request_reason && (
+                            <tr className="bg-amber-50/60 dark:bg-amber-500/5">
+                              <td colSpan={5} className="px-2 py-1">
+                                <div className="rounded-lg border border-amber-200/70 dark:border-amber-500/20 px-3 py-2.5">
+                                  <p className="text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                                    {t("billing.needs_info_note_title")}
+                                  </p>
+                                  <p className="mt-0.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                                    {p.info_request_reason}
+                                  </p>
+                                  <p className="mt-1 text-[10px] text-amber-600/80 dark:text-amber-400/70">
+                                    {t("billing.needs_info_resubmit_hint")}
+                                    {p.info_requested_at
+                                      ? ` · ${fmtDateTime12(p.info_requested_at)}`
+                                      : ""}
+                                  </p>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          </Fragment>
                         ))}
                       </tbody>
                     </table>

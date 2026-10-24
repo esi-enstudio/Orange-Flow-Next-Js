@@ -63,6 +63,8 @@ interface PaymentRow {
   has_proof?: boolean;
   proof_name?: string | null;
   submitted_by?: number | null;
+  submitted_by_name?: string | null;
+  submitted_by_role?: string | null;
   submitted_at?: string | null;
   sender_number?: string | null;
   bank_name?: string | null;
@@ -76,6 +78,7 @@ interface ReviewEvent {
   action: string;
   at?: string | null;
   by?: number | null;
+  by_name?: string | null;
   reason?: string | null;
 }
 
@@ -111,9 +114,40 @@ interface PaymentSummary {
   total_approved_amount: number;
 }
 
-const fmtDate = (v?: string | null) => (v ? String(v).slice(0, 10) : "—");
-const fmtDateTime = (v?: string | null) =>
-  v ? String(v).replace("T", " ").slice(0, 16) : "—";
+// Reviewers read dates, not ISO strings: "24 October 2026".
+const parseDateValue = (v?: string | null): Date | null => {
+  if (!v) return null;
+  const raw = String(v);
+  const parsed = new Date(raw.length <= 10 ? `${raw.slice(0, 10)}T00:00:00` : raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const fmtLongDate = (v?: string | null) => {
+  const parsed = parseDateValue(v);
+  if (!parsed) return "—";
+  return parsed.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+};
+
+// "24 Oct 2026, 07:04 PM" — 12-hour clock with an explicit meridiem.
+const fmtDateTime12 = (v?: string | null) => {
+  const parsed = parseDateValue(v);
+  if (!parsed) return "—";
+  const date = parsed.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const time = parsed.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return `${date}, ${time}`;
+};
 const fmtMoney = (n?: number | null) =>
   n === null || n === undefined ? "—" : `৳${Number(n).toLocaleString()}`;
 
@@ -380,7 +414,11 @@ export default function AdminPaymentsPage() {
       const res = await apiClient.get(`v1/admin/payments/${payment.id}/proof`, {
         responseType: "blob",
       });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      // The blob type decides how the new tab renders it — without the server
+      // content-type the browser shows raw bytes as text.
+      const contentType =
+        (res.headers?.["content-type"] as string | undefined) || "application/octet-stream";
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: contentType }));
       window.open(url, "_blank", "noopener,noreferrer");
       setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
     } catch {
@@ -437,18 +475,27 @@ export default function AdminPaymentsPage() {
               <Field label={t("admin_payments.plan")} value={d.plan_name || "—"} />
               <Field label={t("admin_payments.invoice")} value={d.invoice_no || "—"} />
               <Field label={t("admin_payments.expected")} value={fmtMoney(d.expected_amount)} />
-              <Field label={t("admin_payments.submitted")} value={fmtDateTime(d.submitted_at)} />
+              <Field label={t("admin_payments.submitted_at")} value={fmtDateTime12(d.submitted_at)} />
               <Field
                 label={t("admin_payments.period")}
-                value={`${fmtDate(d.billing_period_start)} → ${fmtDate(d.billing_period_end)}`}
+                value={`${fmtLongDate(d.billing_period_start)} → ${fmtLongDate(d.billing_period_end)}`}
               />
               <Field label={t("admin_payments.subscription_status")} value={d.subscription_status || "—"} />
-              <Field label={t("admin_payments.payment_date")} value={fmtDate(d.payment_date)} />
+              <Field label={t("admin_payments.payment_date")} value={fmtLongDate(d.payment_date)} />
               <Field label={t("admin_payments.sender_number")} value={d.sender_number || "—"} />
               <Field label={t("admin_payments.bank_name")} value={d.bank_name || "—"} />
               <Field label={t("admin_payments.depositor_name")} value={d.depositor_name || "—"} />
               <Field label={t("admin_payments.note")} value={d.note || "—"} />
-              <Field label={t("admin_payments.submitted_by")} value={d.submitted_by ? `#${d.submitted_by}` : "—"} />
+              <Field
+                label={t("admin_payments.submitted_by")}
+                value={
+                  d.submitted_by_name
+                    ? `${d.submitted_by_name}${d.submitted_by_role ? ` (${d.submitted_by_role})` : ""}`
+                    : d.submitted_by
+                      ? `#${d.submitted_by}`
+                      : "—"
+                }
+              />
             </div>
 
             {d.has_proof && (
@@ -478,8 +525,10 @@ export default function AdminPaymentsPage() {
                   {d.review_history.map((ev, idx) => (
                     <li key={`${ev.action}-${idx}`} className="text-xs text-gray-600 dark:text-gray-300">
                       <span className="font-bold capitalize">{ev.action.replace("_", " ")}</span>
-                      <span className="text-gray-400"> · {fmtDateTime(ev.at)}</span>
-                      {ev.by ? <span className="text-gray-400"> · #{ev.by}</span> : null}
+                      <span className="text-gray-400"> · {fmtDateTime12(ev.at)}</span>
+                      {ev.by_name || ev.by ? (
+                        <span className="text-gray-400"> · {ev.by_name || `#${ev.by}`}</span>
+                      ) : null}
                       {ev.reason ? (
                         <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{ev.reason}</p>
                       ) : null}
@@ -808,7 +857,7 @@ export default function AdminPaymentsPage() {
                       </td>
                       <td className="px-2 py-1">
                         <div className="px-2 py-3 text-sm text-gray-600 dark:text-gray-300">
-                          {fmtDateTime(p.submitted_at || p.created_at)}
+                          {fmtDateTime12(p.submitted_at || p.created_at)}
                         </div>
                       </td>
                       <td className="px-2 py-1">

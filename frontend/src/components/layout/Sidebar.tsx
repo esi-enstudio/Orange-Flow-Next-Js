@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useBrand } from "@/context/BrandContext";
 import { useFullscreen } from "@/context/FullscreenContext";
+import { SIDEBAR_BADGE_ROUTES, useNotifications } from "@/context/NotificationsContext";
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -36,6 +37,7 @@ export function Sidebar({ isOpen, onClose, focusMode, revealed }: SidebarProps) 
   const [openNested, setOpenNested] = useState<string | null>(null);
   const { brand } = useBrand();
   const { setSidebarHovering } = useFullscreen();
+  const { count: unreadNotifications } = useNotifications();
 
   // Filter items based on permissions - use memo to prevent mutation of constant
   const filteredNavItems = React.useMemo(() => {
@@ -285,6 +287,11 @@ function filterChildren(children: any[]): any[] {
                                   : "bg-gray-300 dark:bg-slate-700 group-hover/item:bg-primary-300"
                               )} />
                               <span className="flex-1">{child.translationKey ? t(child.translationKey) : child.title}</span>
+                              {SIDEBAR_BADGE_ROUTES[child.href] && unreadNotifications > 0 && (
+                                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                                </span>
+                              )}
                             </Link>
                           );
                         })}

@@ -104,6 +104,9 @@ export interface Payment {
   reference?: string | null;
   note?: string | null;
   rejection_reason?: string | null;
+  /** Reviewer's message when a payment was flagged as needing more information. */
+  info_request_reason?: string | null;
+  info_requested_at?: string | null;
   has_proof?: boolean;
   proof_name?: string | null;
   paid_at?: string | null;

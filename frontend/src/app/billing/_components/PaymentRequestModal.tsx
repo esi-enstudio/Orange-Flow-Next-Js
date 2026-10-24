@@ -8,10 +8,60 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { cn } from "@/lib/utils";
 import type { Invoice } from "@/types/billing";
 
-const METHODS = ["bkash", "nagad", "rocket", "bank", "cash", "mobilebanking", "manual"] as const;
-const MFS_METHODS = new Set(["bkash", "nagad", "rocket", "mobilebanking"]);
-const REFERENCE_REQUIRED = new Set(["bkash", "nagad", "rocket", "bank", "mobilebanking"]);
+const METHODS = ["bkash", "nagad", "rocket", "bank", "cash"] as const;
+const METHOD_LABEL_KEYS: Record<string, string> = {
+  bkash: "billing.method_bkash",
+  nagad: "billing.method_nagad",
+  rocket: "billing.method_rocket",
+  bank: "billing.method_bank",
+  cash: "billing.method_cash",
+};
+const MFS_METHODS = new Set(["bkash", "nagad", "rocket"]);
+const REFERENCE_REQUIRED = new Set(["bkash", "nagad", "rocket", "bank"]);
 const BD_MOBILE_RE = /^01[3-9]\d{8}$/;
+
+// Payment proofs are phone screenshots: they must stay readable, so the image
+// is only re-encoded above this size, and never below a 2400px long edge.
+const PROOF_MAX_DIMENSION = 2400;
+const PROOF_COMPRESS_THRESHOLD = 500 * 1024;
+
+async function compressProofImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.size <= PROOF_COMPRESS_THRESHOLD) {
+    return file;
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    const longestEdge = Math.max(bitmap.width, bitmap.height);
+    const scale = Math.min(1, PROOF_MAX_DIMENSION / longestEdge);
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    // JPEG has no alpha channel: paint white first so a transparent PNG does
+    // not turn into black boxes.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.85)
+    );
+    if (!blob || blob.size >= file.size) return file;
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "payment-proof";
+    return new File([blob], `${baseName}.jpg`, {
+      type: "image/jpeg",
+      lastModified: Date.now(),
+    });
+  } catch {
+    // An unsupported browser must never block the upload.
+    return file;
+  }
+}
 
 interface Props {
   open: boolean;
@@ -32,6 +82,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
   const [paymentDate, setPaymentDate] = useState("");
   const [note, setNote] = useState("");
   const [proof, setProof] = useState<File | null>(null);
+  const [proofBusy, setProofBusy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -47,6 +98,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
     setPaymentDate("");
     setNote("");
     setProof(null);
+    setProofBusy(false);
     setError(null);
     setFieldErrors({});
   }, [open, invoice]);
@@ -70,7 +122,9 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
     if (isBank && !depositorName.trim()) {
       errors.depositor_name = t("billing.depositor_name_required");
     }
-    if (paymentDate) {
+    if (!paymentDate) {
+      errors.payment_date = t("billing.payment_date_required");
+    } else {
       const picked = new Date(`${paymentDate}T00:00:00`);
       const today = new Date();
       today.setHours(23, 59, 59, 999);
@@ -102,7 +156,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
         form.append("bank_name", bankName.trim());
         form.append("depositor_name", depositorName.trim());
       }
-      if (paymentDate) form.append("payment_date", paymentDate);
+      form.append("payment_date", paymentDate);
       if (note.trim()) form.append("note", note.trim());
       if (proof) form.append("proof", proof);
 
@@ -177,7 +231,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
             >
               {METHODS.map((m) => (
                 <option key={m} value={m}>
-                  {m}
+                  {t(METHOD_LABEL_KEYS[m])}
                 </option>
               ))}
             </select>
@@ -295,26 +349,29 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
             </div>
           )}
 
-          {method !== "cash" && method !== "manual" && (
-            <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("billing.payment_date")}
-              </label>
-              <input
-                type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                max={new Date().toISOString().slice(0, 10)}
-                className={cn(
-                  "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 cursor-pointer",
-                  fieldErrors.payment_date ? "border-red-400" : "border-gray-200 dark:border-slate-700"
-                )}
-              />
-              {fieldErrors.payment_date && (
-                <p className="text-xs text-red-500 mt-1">{fieldErrors.payment_date}</p>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+              {t("billing.payment_date")} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="date"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+              max={new Date().toISOString().slice(0, 10)}
+              required
+              className={cn(
+                "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 cursor-pointer",
+                fieldErrors.payment_date ? "border-red-400" : "border-gray-200 dark:border-slate-700"
               )}
-            </div>
-          )}
+            />
+            {fieldErrors.payment_date ? (
+              <p className="text-xs text-red-500 mt-1">{fieldErrors.payment_date}</p>
+            ) : (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                {t("billing.payment_date_hint")}
+              </p>
+            )}
+          </div>
 
           <div>
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
@@ -334,13 +391,41 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
               {t("billing.proof_optional")}
             </label>
             <label className="flex items-center gap-2.5 min-h-11 px-3.5 py-2.5 rounded-xl border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/40 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
-              <Upload className="w-4 h-4 shrink-0 text-gray-400" />
-              <span className="truncate">{proof ? proof.name : t("billing.proof_hint")}</span>
+              {proofBusy ? (
+                <Loader2 className="w-4 h-4 shrink-0 text-gray-400 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4 shrink-0 text-gray-400" />
+              )}
+              <span className="truncate">
+                {proof ? proof.name : t("billing.proof_hint")}
+              </span>
+              {proof && !proofBusy && (
+                <span className="ml-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500">
+                  {proof.size >= 1024 * 1024
+                    ? `${(proof.size / (1024 * 1024)).toFixed(1)} MB`
+                    : `${Math.max(1, Math.round(proof.size / 1024))} KB`}
+                </span>
+              )}
               <input
                 type="file"
                 accept=".jpg,.jpeg,.png,.webp,.pdf"
                 className="sr-only"
-                onChange={(e) => setProof(e.target.files?.[0] ?? null)}
+                onChange={async (e) => {
+                  const picked = e.target.files?.[0] ?? null;
+                  if (!picked) {
+                    setProof(null);
+                    return;
+                  }
+                  setProofBusy(true);
+                  const optimized = await compressProofImage(picked);
+                  setProof(optimized);
+                  setProofBusy(false);
+                  setFieldErrors((prev) => {
+                    if (!prev.proof) return prev;
+                    const { proof: _removed, ...rest } = prev;
+                    return rest;
+                  });
+                }}
               />
             </label>
             {fieldErrors.proof && <p className="text-xs text-red-500 mt-1">{fieldErrors.proof}</p>}
@@ -359,7 +444,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
           <button
             type="button"
             onClick={submit}
-            disabled={submitting}
+            disabled={submitting || proofBusy}
             className="flex-1 inline-flex items-center justify-center gap-2 min-h-11 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 cursor-pointer"
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}

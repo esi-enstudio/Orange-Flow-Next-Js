@@ -82,6 +82,9 @@ def _payment_payload(p: Payment) -> dict:
         "method": meta.get("method") or p.gateway,
         "note": meta.get("note"),
         "rejection_reason": meta.get("rejection_reason"),
+        # What the reviewer asked for before a corrected request can be made.
+        "info_request_reason": meta.get("info_request_reason"),
+        "info_requested_at": meta.get("info_requested_at"),
         "has_proof": bool(meta.get("proof_path")),
         "proof_name": meta.get("proof_name"),
         "sender_number": payment_requests.mask_mobile(meta.get("sender_number")),

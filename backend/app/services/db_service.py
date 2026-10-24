@@ -47,6 +47,7 @@ import app.models.ga_report_event
 import app.models.ga_report_template
 import app.models.ga_report_target
 import app.models.database_backup
+import app.models.notification
 
 logger = logging.getLogger(__name__)
 

@@ -98,6 +98,7 @@ from app.routers.system_logs import router as system_logs_router
 from app.routers.plans import router as plans_router
 from app.routers.subscriptions import router as subscriptions_router
 from app.routers.billing import router as billing_router
+from app.routers.notifications import router as notifications_router
 from app.routers.admin_billing import router as admin_billing_router
 from app.routers.deploy import router as deploy_router
 from app.routers.database_backups import router as database_backups_router
@@ -167,6 +168,7 @@ app.include_router(system_logs_router)
 app.include_router(plans_router)
 app.include_router(subscriptions_router)
 app.include_router(billing_router)
+app.include_router(notifications_router)
 app.include_router(admin_billing_router)
 app.include_router(deploy_router)
 app.include_router(database_backups_router)

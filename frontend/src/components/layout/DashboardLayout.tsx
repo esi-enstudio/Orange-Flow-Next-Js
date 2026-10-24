@@ -2,7 +2,7 @@
 
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
-import { Bell, Search, Loader2, CloudDownload, Minimize2 } from "lucide-react";
+import { Search, Loader2, CloudDownload, Minimize2 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/context/AuthContext";
 import { usePathname } from "next/navigation";
@@ -14,6 +14,8 @@ import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useFullscreen } from "@/context/FullscreenContext";
 import { FullscreenControls } from "./FullscreenControls";
+import { NotificationBell } from "./NotificationBell";
+import { NotificationsProvider } from "@/context/NotificationsContext";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user } = useAuth();
@@ -45,6 +47,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <NotificationsProvider>
     <div className="flex min-h-screen bg-[#F8FAFC] dark:bg-slate-950 transition-colors duration-300">
       <Sidebar
         isOpen={isSidebarOpen}
@@ -97,10 +100,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 <ThemeToggle />
                 <FullscreenControls />
                
-               <button className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl transition-all relative">
-                 <Bell className="w-5 h-5" />
-                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"></span>
-               </button>
+               <NotificationBell />
             </div>
 
             <div className="hidden md:block h-8 w-[1px] bg-gray-100 dark:bg-slate-800 mx-1"></div>
@@ -149,5 +149,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </button>
       )}
     </div>
+    </NotificationsProvider>
   );
 }

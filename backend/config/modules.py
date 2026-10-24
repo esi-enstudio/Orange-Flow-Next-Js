@@ -35,6 +35,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/v1/plans", None),
     ("/api/v1/subscription", None),
     ("/api/v1/billing", None),
+    ("/api/v1/notifications", None),  # per-user feed (own rows only), platform-wide
     ("/api/v1/payments", None),
     ("/api/v1/invoices", None),
     ("/api/v1/invoice", None),

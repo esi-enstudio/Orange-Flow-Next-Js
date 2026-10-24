@@ -522,6 +522,29 @@ def _payment_review_history(payment: Payment) -> list[dict]:
     return sorted(events, key=lambda e: str(e.get("at") or ""))
 
 
+async def _actor_labels(db: AsyncSession, ids) -> dict[int, dict]:
+    """Map user ids to ``{name, role}`` for the review trail.
+
+    The trail stores ids only; a reviewer needs to read who submitted and who
+    decided, so the detail endpoint resolves them in one query.
+    """
+    wanted = {int(i) for i in ids if i}
+    if not wanted:
+        return {}
+    users = (await db.execute(
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.id.in_(wanted))
+    )).scalars().all()
+    return {
+        user.id: {
+            "name": user.name or f"#{user.id}",
+            "role": user.roles[0].name if user.roles else None,
+        }
+        for user in users
+    }
+
+
 def _payment_row(payment: Payment) -> dict:
     meta = payment.payment_meta or {}
     invoice = payment.invoice
@@ -683,7 +706,19 @@ async def admin_payment_detail(
     data = _payment_row(payment)
     invoice = payment.invoice
     sub = invoice.subscription if invoice else None
+    meta = payment.payment_meta or {}
+    history = _payment_review_history(payment)
+    actors = await _actor_labels(db, [
+        meta.get("submitted_by"),
+        meta.get("info_requested_by"),
+        meta.get("rejected_by"),
+        meta.get("approved_by"),
+    ])
+    for event in history:
+        event["by_name"] = (actors.get(event.get("by")) or {}).get("name")
     data.update({
+        "submitted_by_name": (actors.get(meta.get("submitted_by")) or {}).get("name"),
+        "submitted_by_role": (actors.get(meta.get("submitted_by")) or {}).get("role"),
         "invoice_status": invoice.status if invoice else None,
         "invoice_due_date": invoice.due_date if invoice else None,
         "billing_period_start": invoice.billing_period_start if invoice else None,
@@ -691,7 +726,7 @@ async def admin_payment_detail(
         "plan_interval": sub.billing_interval if sub else None,
         "subscription_status": sub.status if sub else None,
         "subscription_period_end": sub.current_period_end if sub else None,
-        "review_history": _payment_review_history(payment),
+        "review_history": history,
         "refunds": [
             {
                 "id": r.id,

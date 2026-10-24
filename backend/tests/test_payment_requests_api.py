@@ -19,6 +19,10 @@ from app.routers import admin_billing, billing
 from app.routers.deps import get_current_user, get_db, get_house_context
 from app.services import payment_requests
 from app.services.subscription_service import create_subscription, issue_invoice, next_billing_period_start
+from app.utils.timezone import now_naive
+
+# A tenant payment request must always state when the payment was made.
+PAYMENT_DATE = now_naive().date().isoformat()
 
 
 @pytest.fixture(autouse=True)
@@ -106,6 +110,7 @@ async def test_tenant_submits_payment_request(db, house, plan):
         res = await client.post(
             "/api/v1/billing/payments/request",
             data={
+                "payment_date": PAYMENT_DATE,
                 "invoice_id": str(invoice.id),
                 "method": "bkash",
                 "reference": "BK-77",
@@ -129,6 +134,25 @@ async def test_tenant_submits_payment_request(db, house, plan):
     assert invoice.status == INVOICE_STATUS_ISSUED  # not paid by submitting
 
 
+async def test_payment_date_is_required_on_submission(db, house, plan):
+    user = await make_user(
+        db, role_name="Manager", username="no-date-manager",
+        permissions=["billing.request_payment"],
+    )
+    _, invoice = await _invoice(db, house, plan)
+
+    async with build_client(billing.router, db, user, house_context=house.id) as client:
+        res = await client.post(
+            "/api/v1/billing/payments/request",
+            data={"invoice_id": str(invoice.id), "method": "cash"},
+        )
+
+    assert res.status_code == 400, res.text
+    detail = res.json()["detail"]
+    assert detail["code"] == "PAYMENT_DATE_REQUIRED"
+    assert detail["fields"]["payment_date"]
+
+
 async def test_tenant_cannot_pay_another_houses_invoice(db, house, plan):
     await make_user(
         db, role_name="Distributor2", username="other-manager",
@@ -144,7 +168,7 @@ async def test_tenant_cannot_pay_another_houses_invoice(db, house, plan):
     async with build_client(billing.router, db, user, house_context=house.id) as client:
         res = await client.post(
             "/api/v1/billing/payments/request",
-            data={"invoice_id": str(invoice.id), "method": "cash"},
+            data={"payment_date": PAYMENT_DATE, "invoice_id": str(invoice.id), "method": "cash"},
         )
 
     assert res.status_code == 404
@@ -169,6 +193,7 @@ async def test_admin_approval_activates_and_starts_period(db, house, plan):
         submitted = await client.post(
             "/api/v1/billing/payments/request",
             data={
+                "payment_date": PAYMENT_DATE,
                 "invoice_id": str(invoice.id),
                 "method": "bank",
                 "reference": "BANK-1",
@@ -203,7 +228,7 @@ async def test_admin_rejection_leaves_invoice_open(db, house, plan):
     async with build_client(billing.router, db, tenant, house_context=house.id) as client:
         submitted = await client.post(
             "/api/v1/billing/payments/request",
-            data={"invoice_id": str(invoice.id), "method": "cash"},
+            data={"payment_date": PAYMENT_DATE, "invoice_id": str(invoice.id), "method": "cash"},
         )
     payment_id = submitted.json()["data"]["id"]
 
@@ -233,7 +258,7 @@ async def test_reject_without_a_reason_is_refused(db, house, plan):
     async with build_client(billing.router, db, tenant, house_context=house.id) as client:
         submitted = await client.post(
             "/api/v1/billing/payments/request",
-            data={"invoice_id": str(invoice.id), "method": "cash"},
+            data={"payment_date": PAYMENT_DATE, "invoice_id": str(invoice.id), "method": "cash"},
         )
     payment_id = submitted.json()["data"]["id"]
 
@@ -257,7 +282,7 @@ async def _approved_payment(db, house, plan, username: str = "refund-tenant"):
     async with build_client(billing.router, db, tenant, house_context=house.id) as client:
         submitted = await client.post(
             "/api/v1/billing/payments/request",
-            data={"invoice_id": str(invoice.id), "method": "cash"},
+            data={"payment_date": PAYMENT_DATE, "invoice_id": str(invoice.id), "method": "cash"},
         )
     payment_id = submitted.json()["data"]["id"]
     async with build_client(admin_billing.router, db, admin) as client:
@@ -330,7 +355,7 @@ async def test_non_billing_role_cannot_submit(db, house, plan):
     async with build_client(billing.router, db, rso, house_context=house.id) as client:
         res = await client.post(
             "/api/v1/billing/payments/request",
-            data={"invoice_id": str(invoice.id), "method": "cash"},
+            data={"payment_date": PAYMENT_DATE, "invoice_id": str(invoice.id), "method": "cash"},
         )
 
     assert res.status_code == 403
@@ -346,7 +371,7 @@ async def test_approve_requires_billing_approve_permission(db, house, plan):
     async with build_client(billing.router, db, tenant, house_context=house.id) as client:
         submitted = await client.post(
             "/api/v1/billing/payments/request",
-            data={"invoice_id": str(invoice.id), "method": "cash"},
+            data={"payment_date": PAYMENT_DATE, "invoice_id": str(invoice.id), "method": "cash"},
         )
     payment_id = submitted.json()["data"]["id"]
 
@@ -354,3 +379,35 @@ async def test_approve_requires_billing_approve_permission(db, house, plan):
         res = await client.post(f"/api/v1/admin/payments/{payment_id}/approve")
 
     assert res.status_code == 403
+
+
+async def test_tenant_sees_the_info_request_reason(db, house, plan):
+    """The reviewer's message must reach the tenant, not just the badge."""
+    tenant = await make_user(
+        db, role_name="Distributor", username="need-info-tenant",
+        permissions=["billing.request_payment", "billing.view"],
+    )
+    admin = await make_user(db, role_name="Admin", username="need-info-admin")
+    _, invoice = await _invoice(db, house, plan)
+
+    async with build_client(billing.router, db, tenant, house_context=house.id) as client:
+        submitted = await client.post(
+            "/api/v1/billing/payments/request",
+            data={"payment_date": PAYMENT_DATE, "invoice_id": str(invoice.id), "method": "cash"},
+        )
+    payment_id = submitted.json()["data"]["id"]
+
+    async with build_client(admin_billing.router, db, admin) as client:
+        flagged = await client.post(
+            f"/api/v1/admin/payments/{payment_id}/request-info",
+            json={"reason": "Share the bkash screenshot"},
+        )
+    assert flagged.status_code == 200, flagged.text
+
+    async with build_client(billing.router, db, tenant, house_context=house.id) as client:
+        listed = await client.get("/api/v1/billing/payments")
+
+    row = next(p for p in listed.json()["data"] if p["id"] == payment_id)
+    assert row["status"] == "needs_info"
+    assert row["info_request_reason"] == "Share the bkash screenshot"
+    assert row["info_requested_at"]

@@ -79,6 +79,7 @@ async def test_submit_request_creates_pending_payment_without_activating(db, hou
         note="sent from manager number",
         proof=_proof(),
         submitted_by=11,
+        payment_date=now_naive().date(),
     )
 
     assert payment.status == PAYMENT_STATUS_PENDING
@@ -93,10 +94,10 @@ async def test_submit_request_creates_pending_payment_without_activating(db, hou
 
 async def test_duplicate_pending_request_is_rejected(db, house, plan):
     _, invoice = await _first_invoice(db, house, plan)
-    await payment_requests.submit_request(db, invoice, house_id=house.id, method="cash")
+    await payment_requests.submit_request(db, invoice, house_id=house.id, method="cash", payment_date=now_naive().date())
 
     with pytest.raises(PaymentRequestError) as exc:
-        await payment_requests.submit_request(db, invoice, house_id=house.id, method="cash")
+        await payment_requests.submit_request(db, invoice, house_id=house.id, method="cash", payment_date=now_naive().date())
     assert exc.value.code == "PAYMENT_ALREADY_PENDING"
     assert exc.value.status_code == 409
 
@@ -105,7 +106,8 @@ async def test_amount_must_match_invoice(db, house, plan):
     _, invoice = await _first_invoice(db, house, plan)
     with pytest.raises(PaymentRequestError) as exc:
         await payment_requests.submit_request(
-            db, invoice, house_id=house.id, method="bank", amount=1
+            db, invoice, house_id=house.id, method="bank", amount=1,
+            payment_date=now_naive().date(),
         )
     assert exc.value.code == "PAYMENT_AMOUNT_MISMATCH"
 
@@ -113,7 +115,8 @@ async def test_amount_must_match_invoice(db, house, plan):
 async def test_approval_starts_monthly_period_at_approval_time(db, house, plan):
     sub, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
 
     before = now_naive()
@@ -145,6 +148,7 @@ async def test_approval_starts_yearly_period(db, house, plan):
     payment = await payment_requests.submit_request(
         db, invoice, house_id=house.id, method="bank", reference="BANK-YEAR-1",
         bank_name="Dutch-Bangla Bank", depositor_name="Test House",
+        payment_date=now_naive().date(),
     )
     await payment_requests.approve_request(db, payment, approved_by=1)
     await db.refresh(sub)
@@ -164,7 +168,8 @@ async def test_early_renewal_extends_current_expiry(db, house, plan):
     old_end = sub.current_period_end
     renewal = await issue_invoice(db, sub, plan, period_start=next_billing_period_start(sub))
     payment = await payment_requests.submit_request(
-        db, renewal, house_id=house.id, method="cash"
+        db, renewal, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
     await payment_requests.approve_request(db, payment, approved_by=1)
     await db.refresh(sub)
@@ -177,7 +182,8 @@ async def test_early_renewal_extends_current_expiry(db, house, plan):
 async def test_rejection_keeps_invoice_open(db, house, plan):
     sub, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
 
     rejected = await payment_requests.reject_request(
@@ -195,6 +201,7 @@ async def test_rejection_keeps_invoice_open(db, house, plan):
     again = await payment_requests.submit_request(
         db, invoice, house_id=house.id, method="bkash", reference="BK-2",
         sender_number="01712345678",
+        payment_date=now_naive().date(),
     )
     assert again.status == PAYMENT_STATUS_PENDING
 
@@ -205,7 +212,8 @@ async def test_direct_admin_payment_supersedes_a_pending_request(db, house, plan
 
     _, invoice = await _first_invoice(db, house, plan)
     pending = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
 
     await pay_invoice_manually(db, invoice, recorded_by=1)
@@ -218,7 +226,8 @@ async def test_direct_admin_payment_supersedes_a_pending_request(db, house, plan
 async def test_approving_a_rejected_payment_is_refused(db, house, plan):
     _, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
     await payment_requests.reject_request(db, payment, rejected_by=2, reason="no match")
 
@@ -230,7 +239,8 @@ async def test_approving_a_rejected_payment_is_refused(db, house, plan):
 async def test_approval_is_idempotent(db, house, plan):
     sub, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
     await payment_requests.approve_request(db, payment, approved_by=1)
     await db.refresh(sub)
@@ -249,6 +259,7 @@ async def test_duplicate_transaction_reference_is_rejected(db, house, plan):
     await payment_requests.submit_request(
         db, first_invoice, house_id=house.id, method="bkash", reference="BK 12345",
         sender_number="01712345678",
+        payment_date=now_naive().date(),
     )
 
     _, second_invoice = await _first_invoice(db, house, plan)
@@ -257,6 +268,7 @@ async def test_duplicate_transaction_reference_is_rejected(db, house, plan):
         await payment_requests.submit_request(
             db, second_invoice, house_id=house.id, method="bkash", reference="bk12345",
             sender_number="01712345678",
+            payment_date=now_naive().date(),
         )
 
     assert exc.value.code == "DUPLICATE_TRANSACTION_REFERENCE"
@@ -273,6 +285,7 @@ async def test_reference_is_required_for_mobile_banking_and_bank(db, house, plan
                 sender_number="01712345678",
                 bank_name="Dutch-Bangla Bank",
                 depositor_name="Test House",
+                payment_date=now_naive().date(),
             )
         assert exc.value.code == "REFERENCE_REQUIRED"
 
@@ -282,7 +295,8 @@ async def test_mfs_requires_a_valid_sender_number(db, house, plan):
 
     with pytest.raises(PaymentRequestError) as exc:
         await payment_requests.submit_request(
-            db, invoice, house_id=house.id, method="bkash", reference="BK-7788"
+            db, invoice, house_id=house.id, method="bkash", reference="BK-7788",
+            payment_date=now_naive().date(),
         )
     assert exc.value.code == "SENDER_NUMBER_REQUIRED"
 
@@ -290,6 +304,7 @@ async def test_mfs_requires_a_valid_sender_number(db, house, plan):
         await payment_requests.submit_request(
             db, invoice, house_id=house.id, method="bkash", reference="BK-7788",
             sender_number="0171234",
+            payment_date=now_naive().date(),
         )
     assert exc.value.code == "INVALID_SENDER_NUMBER"
 
@@ -297,6 +312,7 @@ async def test_mfs_requires_a_valid_sender_number(db, house, plan):
     payment = await payment_requests.submit_request(
         db, invoice, house_id=house.id, method="bkash", reference="BK-7788",
         sender_number="+880 1712345678",
+        payment_date=now_naive().date(),
     )
     assert payment.payment_meta["sender_number"] == "01712345678"
 
@@ -305,7 +321,8 @@ async def test_bank_requires_bank_and_depositor_details(db, house, plan):
     _, invoice = await _first_invoice(db, house, plan)
     with pytest.raises(PaymentRequestError) as exc:
         await payment_requests.submit_request(
-            db, invoice, house_id=house.id, method="bank", reference="BANK-77"
+            db, invoice, house_id=house.id, method="bank", reference="BANK-77",
+            payment_date=now_naive().date(),
         )
     assert exc.value.code == "BANK_DETAILS_REQUIRED"
     assert set((exc.value.fields or {}).keys()) == {"bank_name", "depositor_name"}
@@ -330,7 +347,8 @@ async def test_stale_payment_order_is_rejected(db, house, plan):
 
     with pytest.raises(PaymentRequestError) as exc:
         await payment_requests.submit_request(
-            db, invoice, house_id=house.id, method="cash"
+            db, invoice, house_id=house.id, method="cash",
+            payment_date=now_naive().date(),
         )
     assert exc.value.code == "PAYMENT_ORDER_EXPIRED"
     assert exc.value.status_code == 409
@@ -346,7 +364,8 @@ async def test_superseded_payment_order_is_rejected(db, house, plan):
 
     with pytest.raises(PaymentRequestError) as exc:
         await payment_requests.submit_request(
-            db, old_invoice, house_id=house.id, method="cash"
+            db, old_invoice, house_id=house.id, method="cash",
+            payment_date=now_naive().date(),
         )
     assert exc.value.code == "PAYMENT_ORDER_SUPERSEDED"
     assert exc.value.status_code == 409
@@ -355,7 +374,8 @@ async def test_superseded_payment_order_is_rejected(db, house, plan):
 async def test_cash_submission_needs_no_reference(db, house, plan):
     _, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
     assert payment.status == PAYMENT_STATUS_PENDING
     assert payment.transaction_reference_normalized is None
@@ -367,12 +387,14 @@ async def test_rejected_reference_can_be_resubmitted(db, house, plan):
     first = await payment_requests.submit_request(
         db, invoice, house_id=house.id, method="bkash", reference="BK-5555",
         sender_number="01712345678",
+        payment_date=now_naive().date(),
     )
     await payment_requests.reject_request(db, first, rejected_by=2, reason="not found")
 
     again = await payment_requests.submit_request(
         db, invoice, house_id=house.id, method="bkash", reference="bk-5555",
         sender_number="01712345678",
+        payment_date=now_naive().date(),
     )
     assert again.status == PAYMENT_STATUS_PENDING
     assert again.transaction_reference_normalized == "BK-5555"
@@ -382,7 +404,8 @@ async def test_approval_reverifies_amount_against_invoice(db, house, plan):
     """A submission-time amount is not trusted at approval time."""
     _, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
     payment.amount = Decimal(invoice.total) - Decimal("500.00")
     await db.commit()
@@ -400,7 +423,8 @@ async def test_second_payment_for_a_paid_invoice_is_closed_and_refused(db, house
 
     sub, invoice = await _first_invoice(db, house, plan)
     first = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
     await payment_requests.approve_request(db, first, approved_by=1)
     await db.refresh(sub)
@@ -435,7 +459,8 @@ async def test_second_payment_for_a_paid_invoice_is_closed_and_refused(db, house
 async def test_approval_idempotency_key_retry_never_extends_twice(db, house, plan):
     sub, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
 
     first = await payment_requests.approve_request(
@@ -461,7 +486,8 @@ async def test_proof_file_type_and_size_are_validated(db, house, plan):
     bad_type = _proof(filename="receipt.exe")
     with pytest.raises(PaymentRequestError) as exc:
         await payment_requests.submit_request(
-            db, invoice, house_id=house.id, method="cash", proof=bad_type
+            db, invoice, house_id=house.id, method="cash", proof=bad_type,
+            payment_date=now_naive().date(),
         )
     assert exc.value.code == "INVALID_PROOF_FILE"
 
@@ -473,6 +499,7 @@ async def test_proof_content_must_match_the_extension(db, house, plan):
         await payment_requests.submit_request(
             db, invoice, house_id=house.id, method="cash",
             proof=_proof(content=b"%PDF-1.4 not really a png"),
+            payment_date=now_naive().date(),
         )
     assert exc.value.code == "INVALID_PROOF_FILE"
 
@@ -480,7 +507,8 @@ async def test_proof_content_must_match_the_extension(db, house, plan):
 async def test_request_info_moves_pending_to_needs_info(db, house, plan):
     _, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
 
     flagged = await payment_requests.request_info(
@@ -498,7 +526,8 @@ async def test_request_info_moves_pending_to_needs_info(db, house, plan):
 async def test_request_info_cannot_re_flag_non_pending(db, house, plan):
     _, invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, invoice, house_id=house.id, method="cash"
+        db, invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
     await payment_requests.request_info(db, payment, requested_by=3, reason="blurry")
 
@@ -510,7 +539,8 @@ async def test_request_info_cannot_re_flag_non_pending(db, house, plan):
 async def test_reject_and_request_info_require_a_reason(db, house, plan):
     _, first_invoice = await _first_invoice(db, house, plan)
     payment = await payment_requests.submit_request(
-        db, first_invoice, house_id=house.id, method="cash"
+        db, first_invoice, house_id=house.id, method="cash",
+        payment_date=now_naive().date(),
     )
 
     for action in (payment_requests.reject_request, payment_requests.request_info):
@@ -533,6 +563,7 @@ async def test_can_resubmit_after_needs_info(db, house, plan):
     first = await payment_requests.submit_request(
         db, invoice, house_id=house.id, method="bkash", reference="OLD-BK-1",
         sender_number="01712345678",
+        payment_date=now_naive().date(),
     )
     await payment_requests.request_info(db, first, requested_by=3, reason="unclear")
     await db.refresh(first)
@@ -542,6 +573,7 @@ async def test_can_resubmit_after_needs_info(db, house, plan):
     second = await payment_requests.submit_request(
         db, invoice, house_id=house.id, method="bkash", reference="NEW-BK-2",
         sender_number="01712345678",
+        payment_date=now_naive().date(),
     )
     await db.refresh(first)
     assert second.status == PAYMENT_STATUS_PENDING
@@ -552,3 +584,16 @@ async def test_can_resubmit_after_needs_info(db, house, plan):
     await payment_requests.approve_request(db, second, approved_by=1)
     await db.refresh(invoice)
     assert invoice.status == INVOICE_STATUS_PAID
+
+
+async def test_payment_date_is_required(db, house, plan):
+    _, invoice = await _first_invoice(db, house, plan)
+
+    with pytest.raises(PaymentRequestError) as exc:
+        await payment_requests.submit_request(
+            db, invoice, house_id=house.id, method="cash", payment_date=None
+        )
+
+    assert exc.value.code == "PAYMENT_DATE_REQUIRED"
+    assert exc.value.status_code == 400
+    assert exc.value.fields["payment_date"]
