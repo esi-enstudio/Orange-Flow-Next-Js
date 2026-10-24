@@ -15,7 +15,7 @@ import pytest
 from fastapi import UploadFile
 
 from app.models.invoice import INVOICE_STATUS_ISSUED, INVOICE_STATUS_PAID
-from app.models.payment import PAYMENT_STATUS_FAILED, PAYMENT_STATUS_PENDING, PAYMENT_STATUS_SUCCEEDED
+from app.models.payment import PAYMENT_STATUS_FAILED, PAYMENT_STATUS_PENDING, PAYMENT_STATUS_SUCCEEDED, PAYMENT_STATUS_NEEDS_INFO
 from app.services import payment_requests
 from app.services.payment_requests import PaymentRequestError
 from app.services.subscription_service import (
@@ -243,3 +243,60 @@ async def test_proof_file_type_and_size_are_validated(db, house, plan):
             db, invoice, house_id=house.id, method="cash", proof=bad_type
         )
     assert exc.value.code == "INVALID_PROOF_FILE"
+
+
+async def test_request_info_moves_pending_to_needs_info(db, house, plan):
+    _, invoice = await _first_invoice(db, house, plan)
+    payment = await payment_requests.submit_request(
+        db, invoice, house_id=house.id, method="cash"
+    )
+
+    flagged = await payment_requests.request_info(
+        db, payment, requested_by=3, reason="Receipt is blurry"
+    )
+
+    assert flagged.status == PAYMENT_STATUS_NEEDS_INFO
+    assert flagged.payment_meta["info_requested_by"] == 3
+    assert flagged.payment_meta["info_request_reason"] == "Receipt is blurry"
+    # Invoice must stay open for a resubmit.
+    await db.refresh(invoice)
+    assert invoice.status == INVOICE_STATUS_ISSUED
+
+
+async def test_request_info_cannot_re_flag_non_pending(db, house, plan):
+    _, invoice = await _first_invoice(db, house, plan)
+    payment = await payment_requests.submit_request(
+        db, invoice, house_id=house.id, method="cash"
+    )
+    await payment_requests.request_info(db, payment, requested_by=3)
+
+    with pytest.raises(PaymentRequestError) as exc:
+        await payment_requests.request_info(db, payment, requested_by=3)
+    assert exc.value.code == "PAYMENT_NOT_PENDING"
+
+
+async def test_can_resubmit_after_needs_info(db, house, plan):
+    """A new payment request for the same invoice supersedes the needs_info one."""
+    from app.services.manual_payment import pay_invoice_manually
+
+    _, invoice = await _first_invoice(db, house, plan)
+    first = await payment_requests.submit_request(
+        db, invoice, house_id=house.id, method="bkash", reference="OLD-BK-1"
+    )
+    await payment_requests.request_info(db, first, requested_by=3, reason="unclear")
+    await db.refresh(first)
+    assert first.status == PAYMENT_STATUS_NEEDS_INFO
+
+    # A corrected submission is allowed and becomes the new pending payment.
+    second = await payment_requests.submit_request(
+        db, invoice, house_id=house.id, method="bkash", reference="NEW-BK-2"
+    )
+    await db.refresh(first)
+    assert second.status == PAYMENT_STATUS_PENDING
+    assert first.status == PAYMENT_STATUS_FAILED
+    assert first.payment_meta["rejection_reason"].startswith("A corrected payment request")
+
+    # The new pending payment can then be approved normally.
+    await payment_requests.approve_request(db, second, approved_by=1)
+    await db.refresh(invoice)
+    assert invoice.status == INVOICE_STATUS_PAID

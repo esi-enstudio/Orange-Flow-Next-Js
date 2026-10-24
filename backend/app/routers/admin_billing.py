@@ -23,7 +23,11 @@ from app.models.house import House
 from app.models.invoice import (
     Invoice, INVOICE_STATUS_PAID, INVOICE_STATUS_ISSUED, INVOICE_STATUS_UNPAID, INVOICE_STATUS_VOID,
 )
-from app.models.payment import Payment
+from app.models.payment import (
+    Payment,
+    PAYMENT_STATUS_SUCCEEDED,
+    PAYMENT_STATUS_REFUNDED,
+)
 from app.models.subscription import HouseSubscription
 from app.models.user import User
 from app.services import invoice_pdf, manual_payment, payment_requests
@@ -694,8 +698,63 @@ async def admin_reject_payment(
     return {"success": True, "payment": _admin_payment_payload(payment)}
 
 
-# ---------------------------------------------------------------------------
-# Legacy / anomalous subscriptions (fail-open audit surface)
+class RequestInfoPaymentRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/payments/{payment_id}/request-info")
+async def admin_request_info_payment(
+    payment_id: int,
+    payload: RequestInfoPaymentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("billing.approve_payment")),
+):
+    """Flag a pending payment as needing more information from the customer.
+
+    Moves the payment to the NEEDS_INFO state. The invoice stays open; when the
+    customer resubmits, the new pending payment supersedes this one.
+    """
+    payment = (await db.execute(
+        select(Payment).where(Payment.id == payment_id, Payment.is_deleted == False)  # noqa: E712
+    )).scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    try:
+        payment = await payment_requests.request_info(
+            db, payment, requested_by=current_user.id, reason=payload.reason
+        )
+    except payment_requests.PaymentRequestError as exc:
+        raise _payment_request_http_error(exc)
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="billing",
+        action="needs_info",
+        record_id=payment.id,
+        record_identifier=payment.invoice.invoice_no if payment.invoice else None,
+        old_values={"status": "pending"},
+        new_values={
+            "payment_id": payment.id,
+            "invoice_id": payment.invoice_id,
+            "amount": float(payment.amount),
+            "reason": payload.reason,
+        },
+        request=request,
+        status_code=200,
+    )
+    try:
+        from app.services.billing_notifications import notify_house
+
+        house = (await db.execute(select(House).where(House.id == payment.house_id))).scalar_one_or_none()
+        if house:
+            await notify_house(db, house, "payment_needs_info", invoice=payment.invoice)
+    except Exception as exc:
+        logger.warning("payment needs_info notification failed: %s", exc)
+    return {"success": True, "payment": _admin_payment_payload(payment)}
 # ---------------------------------------------------------------------------
 
 @router.get("/legacy-subscriptions")

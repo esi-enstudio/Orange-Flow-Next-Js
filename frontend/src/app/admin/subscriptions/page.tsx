@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Paperclip, Plus, Search, Settings2, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Paperclip, Plus, Search, Settings2, XCircle, AlertCircle } from "lucide-react";
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -29,24 +29,24 @@ interface AdminSub {
   created_at?: string | null;
 }
 
-interface AdminPayment {
-  id: number;
-  house_id: number;
-  house_name?: string | null;
-  invoice_id: number;
-  invoice_no?: string | null;
-  amount: number;
-  currency: string;
-  status: string;
-  gateway?: string | null;
-  gateway_tran_id?: string | null;
-  reference?: string | null;
-  note?: string | null;
-  rejection_reason?: string | null;
-  has_proof?: boolean;
-  paid_at?: string | null;
-  created_at?: string | null;
-}
+  interface AdminPayment {
+    id: number;
+    house_id: number;
+    house_name?: string | null;
+    invoice_id: number;
+    invoice_no?: string | null;
+    amount: number;
+    currency: string;
+    status: string;
+    gateway?: string | null;
+    gateway_tran_id?: string | null;
+    reference?: string | null;
+    note?: string | null;
+    rejection_reason?: string | null;
+    has_proof?: boolean;
+    paid_at?: string | null;
+    created_at?: string | null;
+  }
 
 interface SubDetail extends AdminSub {
   invoices: Array<{
@@ -122,12 +122,15 @@ export default function AdminSubscriptionsPage() {
   const [pendingLoading, setPendingLoading] = useState(false);
   const [approveTarget, setApproveTarget] = useState<AdminPayment | null>(null);
   const [rejectTarget, setRejectTarget] = useState<AdminPayment | null>(null);
+  const [requestInfoTarget, setRequestInfoTarget] = useState<AdminPayment | null>(null);
+  const [requestInfoReason, setRequestInfoReason] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [proofBusy, setProofBusy] = useState<number | null>(null);
 
   const canView = hasPermission("subscription.manage");
   const canManage = hasPermission("billing.manage");
   const canApprove = hasPermission("billing.approve_payment");
+  const canRequestInfo = hasPermission("billing.approve_payment");
   const canReject = hasPermission("billing.reject_payment");
   const canSeePending = hasPermission("payments.manage");
 
@@ -256,6 +259,24 @@ export default function AdminSubscriptionsPage() {
       toast.success(t("subscriptions.reject_success"));
       setRejectTarget(null);
       setRejectReason("");
+      await fetchPending();
+    } catch (err: any) {
+      toast.error(err?.message || t("pricing.something_went_wrong"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestInfoPayment = async () => {
+    if (!requestInfoTarget) return;
+    setBusy(true);
+    try {
+      await apiClient.post(`v1/admin/payments/${requestInfoTarget.id}/request-info`, {
+        reason: requestInfoReason.trim() || null,
+      });
+      toast.success(t("subscriptions.request_info_success"));
+      setRequestInfoTarget(null);
+      setRequestInfoReason("");
       await fetchPending();
     } catch (err: any) {
       toast.error(err?.message || t("pricing.something_went_wrong"));
@@ -398,6 +419,16 @@ export default function AdminSubscriptionsPage() {
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         {t("subscriptions.approve")}
+                      </button>
+                    )}
+                    {canRequestInfo && (
+                      <button
+                        type="button"
+                        onClick={() => { setRequestInfoTarget(p); setRequestInfoReason(""); }}
+                        className="inline-flex items-center gap-1.5 min-h-10 px-3 py-2 rounded-lg text-xs font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20 cursor-pointer"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {t("subscriptions.request_info")}
                       </button>
                     )}
                     {canReject && (
@@ -651,6 +682,25 @@ export default function AdminSubscriptionsPage() {
           rows={2}
           maxLength={500}
           placeholder={t("subscriptions.reject_reason")}
+          className="w-full mt-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
+        />
+      </ConfirmationModal>
+      <ConfirmationModal
+        isOpen={!!requestInfoTarget}
+        onClose={() => { setRequestInfoTarget(null); setRequestInfoReason(""); }}
+        onConfirm={requestInfoPayment}
+        type="info"
+        title={t("subscriptions.request_info")}
+        message={t("subscriptions.request_info_confirm", { id: requestInfoTarget?.id ?? "" })}
+        confirmText={t("subscriptions.request_info")}
+        loading={busy}
+      >
+        <textarea
+          value={requestInfoReason}
+          onChange={(e) => setRequestInfoReason(e.target.value)}
+          rows={2}
+          maxLength={500}
+          placeholder={t("subscriptions.request_info_reason")}
           className="w-full mt-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
         />
       </ConfirmationModal>

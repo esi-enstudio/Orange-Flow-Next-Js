@@ -42,6 +42,7 @@ from app.models.payment import (
     PAYMENT_STATUS_PENDING,
     PAYMENT_STATUS_SUCCEEDED,
     PAYMENT_STATUS_FAILED,
+    PAYMENT_STATUS_NEEDS_INFO,
 )
 from app.services import subscription_service as subsvc
 from app.utils.timezone import now_naive
@@ -165,6 +166,21 @@ async def pending_payment_for_invoice(
     )).scalar_one_or_none()
 
 
+async def _info_requested_for_invoice(
+    db: AsyncSession, invoice_id: int
+) -> Optional[Payment]:
+    return (await db.execute(
+        select(Payment)
+        .where(
+            Payment.invoice_id == invoice_id,
+            Payment.status == PAYMENT_STATUS_NEEDS_INFO,
+            Payment.is_deleted == False,  # noqa: E712
+        )
+        .order_by(Payment.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+
 async def submit_request(
     db: AsyncSession,
     invoice: Invoice,
@@ -190,12 +206,24 @@ async def submit_request(
         )
 
     existing = await pending_payment_for_invoice(db, invoice.id)
+    needs_info = await _info_requested_for_invoice(db, invoice.id)
     if existing is not None:
         raise PaymentRequestError(
             "A payment for this invoice is already awaiting approval",
             code="PAYMENT_ALREADY_PENDING",
             status_code=409,
         )
+
+    # Supersedes a payment that an admin flagged as needing more info: the
+    # customer's corrected submission makes the old one void, and the invoice
+    # remains open under the new pending request.
+    if needs_info is not None:
+        meta = dict(needs_info.payment_meta or {})
+        meta["rejection_reason"] = "A corrected payment request was submitted"
+        meta["superseded_by_payment_id"] = None  # set after the new payment commits
+        needs_info.status = PAYMENT_STATUS_FAILED
+        needs_info.payment_meta = meta
+        db.add(needs_info)
 
     expected = _money(invoice.total)
     claimed = expected if amount is None else _money(amount)
@@ -252,6 +280,15 @@ async def submit_request(
         "payment request submitted: payment=%s invoice=%s house=%s by=%s",
         payment.id, invoice.invoice_no, house_id, submitted_by,
     )
+
+    # Point the superseded needs_info payment at the new request.
+    if needs_info is not None:
+        nm = dict(needs_info.payment_meta or {})
+        nm["superseded_by_payment_id"] = payment.id
+        needs_info.payment_meta = nm
+        db.add(needs_info)
+        await db.commit()
+        await db.refresh(needs_info)
     return payment
 
 
@@ -268,6 +305,50 @@ async def _render_paid_invoice_pdf(db: AsyncSession, invoice: Invoice, payment: 
             await db.commit()
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("payment approval PDF failed (invoice=%s): %s", invoice.id, exc)
+
+
+async def _set_info_requested(
+    db: AsyncSession, payment: Payment, *, requested_by=None, reason: Optional[str] = None
+) -> Payment:
+    """Mark a pending payment as needing more info (reviewer -> customer)."""
+    if payment.status != PAYMENT_STATUS_PENDING:
+        raise PaymentRequestError(
+            "Only a pending payment can be flagged for more information",
+            code="PAYMENT_NOT_PENDING",
+            status_code=409,
+        )
+    reason = _clean_text(reason, 500)
+    meta = dict(payment.payment_meta or {})
+    meta.update({
+        "info_requested_by": requested_by,
+        "info_requested_at": now_naive().isoformat(),
+        "info_request_reason": reason,
+    })
+    payment.status = PAYMENT_STATUS_NEEDS_INFO
+    payment.payment_meta = meta
+    await db.commit()
+    await db.refresh(payment)
+    logger.info(
+        "payment needs_info: payment=%s invoice=%s house=%s by=%s",
+        payment.id, payment.invoice_id, payment.house_id, requested_by,
+    )
+    return payment
+
+
+async def request_info(
+    db: AsyncSession,
+    payment: Payment,
+    *,
+    requested_by: Optional[int] = None,
+    reason: Optional[str] = None,
+) -> Payment:
+    """Transition a pending payment to the NEEDS_INFO state.
+
+    The customer is expected to resubmit a corrected payment request for the
+    same invoice (handled by the router), which creates a new pending payment
+    and supersedes this one. The invoice itself stays open.
+    """
+    return await _set_info_requested(db, payment, requested_by=requested_by, reason=reason)
 
 
 async def approve_request(
@@ -289,7 +370,7 @@ async def approve_request(
             "subscription": payment.invoice.subscription if payment.invoice else None,
             "already_approved": True,
         }
-    if payment.status != PAYMENT_STATUS_PENDING:
+    if payment.status != PAYMENT_STATUS_PENDING and payment.status != PAYMENT_STATUS_NEEDS_INFO:
         raise PaymentRequestError(
             "Only a pending payment can be approved",
             code="PAYMENT_NOT_PENDING",

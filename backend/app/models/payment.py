@@ -6,6 +6,7 @@ from app.utils.timezone import now_naive
 
 PAYMENT_STATUS_SUCCEEDED = "succeeded"
 PAYMENT_STATUS_PENDING = "pending"
+PAYMENT_STATUS_NEEDS_INFO = "needs_info"
 PAYMENT_STATUS_FAILED = "failed"
 PAYMENT_STATUS_REFUNDED = "refunded"
 PAYMENT_STATUS_PARTIALLY_REFUNDED = "partially_refunded"

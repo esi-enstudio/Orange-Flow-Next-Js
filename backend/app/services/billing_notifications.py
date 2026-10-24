@@ -26,6 +26,7 @@ SUPPORTED_KINDS = (
     "invoice_issued",
     "payment_succeeded",
     "payment_rejected",
+    "payment_needs_info",
     "trial_ending",
     "past_due",
     "expired",
@@ -75,6 +76,17 @@ def build_message(kind: str, house: House, invoice=None, sub=None) -> tuple:
             f"submit a new payment request.\n\n"
             f"আপনার {amount} পেমেন্টটি অনুমোদন করা যায়নি। ইনভয়েসটি খোলা আছে — "
             f"রেফারেন্স/প্রমাণ যাচাই করে নতুন পেমেন্ট রিকোয়েস্ট submit করুন।\n\n— OrangeFlow"
+        )
+    elif kind == "payment_needs_info":
+        amount = _amount(invoice.total if invoice else 0)
+        subj = f"[OrangeFlow] Payment needs more info — {plan}"
+        text = (
+            f"Dear {house.name},\n\n"
+            f"Your payment for the {plan} subscription ({amount}) needs more "
+            f"information. Please check the reference/proof and resubmit a corrected "
+            f"payment request via the billing page.\n\n"
+            f"আপনার {plan} সাবস্ক্রিপশনের পেমেন্ট ({amount}) আরও তথ্য দরকার। "
+            f"রেফারেন্স/প্রুফ যাচাই করে বিলিং পৃষ্ঠায় থেকে সংশোধিত পেমেন্ট রিকোয়েস্ট জমা দিন।\n\n— OrangeFlow"
         )
     elif kind == "trial_ending":
         text_end = (sub.trial_end.strftime("%d %b %Y") if sub and sub.trial_end else "soon")
