@@ -711,7 +711,7 @@ export default function ActiveLsoReportPage() {
       case "achieved": return <span className="font-bold text-gray-900 dark:text-gray-100">{formatNumber(row.achieved)}</span>;
       case "ach_pct": return <span className="font-bold">{row.ach_pct.toFixed(2)}%</span>;
       case "remaining": return formatNumber(row.remaining);
-      case "drr": return formatNumber(row.drr);
+      case "drr": return formatNumber(Math.round(row.drr));
       case "daily_avg": return formatNumber(Math.round(row.daily_avg));
       case "projection": return <span className="font-semibold">{formatNumber(Math.round(row.projection))}</span>;
       case "proj_pct": return <span className="font-semibold">{(row.target > 0 ? (row.projection / row.target) * 100 : 0).toFixed(2)}%</span>;

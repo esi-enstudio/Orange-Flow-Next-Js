@@ -537,14 +537,17 @@ class ActiveSsoReportService:
             ag["target"] += r["target"]
             ag["achieved"] += r["achieved"]
             ag["remaining"] += r["remaining"]
+            ag["daily_avg"] += r["daily_avg"]
+            ag["projection"] += r["projection"]
+            ag["drr"] += r["drr"]
             rc = r["retailer_counts"]
             for k in ag["retailer_counts"]:
                 ag["retailer_counts"][k] += rc[k]
         ag["ach_pct"] = _r2(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
         ag["status"] = status_for_pct(ag["ach_pct"])
-        ag["daily_avg"] = _r1(ag["achieved"] / self.days_elapsed) if self.days_elapsed else 0.0
-        ag["projection"] = _r1(ag["daily_avg"] * self.total_days)
-        ag["drr"] = _drr(ag["remaining"], self.days_remaining)
+        ag["daily_avg"] = _r1(ag["daily_avg"])
+        ag["projection"] = float(ag["projection"])
+        ag["drr"] = int(ag["drr"])
         return ag
 
     def _supervisor_summary(self, rows: List[dict]) -> List[dict]:

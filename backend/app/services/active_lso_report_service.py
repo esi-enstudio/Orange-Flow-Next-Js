@@ -83,14 +83,15 @@ def rounded_daily_avg(value) -> int:
 def _drr(remaining, days_remaining) -> int:
     """Daily required rate, signed.
 
-    Positive when the target is still pending (rounded up), negative when the
-    target is already over-achieved (rounded away from zero), so over-achievers
-    show e.g. ``-15`` instead of ``0``.
+    Both positive and negative values use standard half-up rounding
+    (round()), so 7.5 → 8 and -7.5 → -8 (Python's round() uses
+    banker's rounding for .5 ties, but half-up is close enough for
+    display purposes here).
     """
     if not days_remaining:
         return 0
     ratio = remaining / days_remaining
-    return math.ceil(ratio) if ratio >= 0 else math.floor(ratio)
+    return int(math.floor(ratio + 0.5)) if ratio >= 0 else -int(math.floor(-ratio + 0.5))
 
 
 async def employee_options(db: AsyncSession, emp_ids: Sequence[int]) -> List[dict]:
@@ -638,14 +639,17 @@ class ActiveLsoReportService:
             ag["target"] += r["target"]
             ag["achieved"] += r["achieved"]
             ag["remaining"] += r["remaining"]
+            ag["daily_avg"] += r["daily_avg"]
+            ag["projection"] += r["projection"]
+            ag["drr"] += r["drr"]
             rc = r["retailer_counts"]
             for k in ag["retailer_counts"]:
                 ag["retailer_counts"][k] += rc[k]
         ag["ach_pct"] = _r2(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
         ag["status"] = status_for_pct(ag["ach_pct"])
-        ag["daily_avg"] = _r1(ag["achieved"] / self.days_elapsed) if self.days_elapsed else 0.0
-        ag["projection"] = float(rounded_daily_avg(ag["daily_avg"]) * self.total_days)
-        ag["drr"] = _drr(ag["remaining"], self.days_remaining)
+        ag["daily_avg"] = _r1(ag["daily_avg"])
+        ag["projection"] = float(ag["projection"])
+        ag["drr"] = int(ag["drr"])
         return ag
 
     def _supervisor_summary(self, rows: List[dict]) -> List[dict]:

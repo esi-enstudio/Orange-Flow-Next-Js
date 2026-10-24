@@ -467,9 +467,12 @@ async def main():
                     ngrok.set_auth_token(settings.NGROK_AUTH_TOKEN)
                 ngrok_cfg = conf.PyngrokConfig(request_timeout=30)
                 if settings.STATIC_DOMAIN:
+                    domain_val = settings.STATIC_DOMAIN
+                    if not domain_val.startswith("http"):
+                        domain_val = f"https://{domain_val}"
                     ngrok_tunnel = ngrok.connect(
                         8000,
-                        domain=settings.STATIC_DOMAIN,
+                        url=domain_val,
                         pyngrok_config=ngrok_cfg,
                     )
                 else:
