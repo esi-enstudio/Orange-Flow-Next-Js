@@ -12,7 +12,6 @@ from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
-from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
 from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.role import Role
@@ -219,19 +218,18 @@ async def export_ga_live_performance_excel(
         if r.employee_id:
             emp_retailer_map.setdefault(r.employee_id, set()).add(r.id)
 
-    bp_code_rows = await db.execute(
-        select(BpRetailerCode.bp_employee_id, BpRetailerCode.retailer_code)
-        .where(BpRetailerCode.house_id == house_id)
-    )
-    bp_code_map: dict[int, list[str]] = {}
-    all_bp_codes: set[str] = set()
-    for bp_emp_id, r_code in bp_code_rows.all():
-        bp_code_map.setdefault(bp_emp_id, []).append(r_code)
-        all_bp_codes.add(r_code)
-
     rso_list = [e for e in all_employees if e.employee_type == "rso"]
     bp_list = [e for e in all_employees if e.employee_type == "bp"]
     sup_list = [e for e in all_employees if e.employee_type == "supervisor"]
+
+    # A BP owns exactly one assisted retailer code, stored on the employee row
+    # (`employees.assisted_retailer_code`) — the single source of truth.
+    bp_code_map: dict[int, list[str]] = {}
+    all_bp_codes: set[str] = set()
+    for e in bp_list:
+        if e.assisted_retailer_code:
+            bp_code_map[e.id] = [e.assisted_retailer_code]
+            all_bp_codes.add(e.assisted_retailer_code)
 
     # ── Supervisor → RSO user mapping (filter by RSO role) ──
     sup_user_ids = [e.user_id for e in sup_list if e.user_id]

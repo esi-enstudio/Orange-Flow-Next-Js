@@ -12,7 +12,6 @@ from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.user import User
-from app.models.bp_retailer_code import BpRetailerCode
 from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.rso_target import RSOTarget
 from app.models.bp_target import BpTarget
@@ -410,17 +409,18 @@ class GaLiveQueryBuilder:
         if bp_selected:
             bp_emp_ids_all = [eid for eid in bp_emp_ids_all if eid in bp_selected]
 
-        # ── Load BP retailer codes ──
-        bp_code_rows = await self.db.execute(
-            select(BpRetailerCode.bp_employee_id, BpRetailerCode.retailer_code).where(
-                BpRetailerCode.house_id == self.house_id,
-            )
-        )
-        bp_retailer_code_map: dict[int, list[str]] = {}
-        all_bp_codes_for_house: set[str] = set()
-        for bp_emp_id, r_code in bp_code_rows.all():
-            bp_retailer_code_map.setdefault(bp_emp_id, []).append(r_code)
-            all_bp_codes_for_house.add(r_code)
+        # ── BP own retailer codes ──
+        # A BP owns exactly one assisted retailer code, stored on the employee
+        # (`employees.assisted_retailer_code`). That column is the single source
+        # of truth for BP own activations.
+        bp_own_code_map: dict[int, list[str]] = {
+            eid: [emp_id_to_code[eid]]
+            for eid, etype in emp_id_to_type.items()
+            if etype == "bp" and emp_id_to_code.get(eid)
+        }
+        all_bp_codes_for_house: set[str] = {
+            code for codes in bp_own_code_map.values() for code in codes
+        }
 
         emp_retailer_ids = {rid for rid, eid in retailer_employee_map.items() if eid and eid in emp_id_to_user}
         active_emp_retailers = set()
@@ -594,7 +594,7 @@ class GaLiveQueryBuilder:
             linked_bp_ids = sub_employee_ids & set(bp_emp_ids_all)
             linked_bp_codes: list[str] = []
             for bid in linked_bp_ids:
-                linked_bp_codes.extend(bp_retailer_code_map.get(bid, []))
+                linked_bp_codes.extend(bp_own_code_map.get(bid, []))
 
             sup_bp_today = 0
             if linked_bp_codes:
@@ -858,7 +858,7 @@ class GaLiveQueryBuilder:
         # ── Load month-to-date activation counts for BP remaining ──
         bp_mtd_code_counts: dict[str, int] = {}
         all_bp_codes_mtd: list[str] = list(set(
-            code for codes in bp_retailer_code_map.values() for code in codes
+            code for codes in bp_own_code_map.values() for code in codes
         ))
         if all_bp_codes_mtd and yesterday_for_mtd >= month_start:
             # The BP table's Ach column runs its own column-scoped rules (and
@@ -903,7 +903,7 @@ class GaLiveQueryBuilder:
         for bp_emp_id in bp_emp_ids_all:
             bp_info = emp_id_to_user.get(bp_emp_id)
             bp_uid = bp_info[0] if bp_info else None
-            bp_codes = bp_retailer_code_map.get(bp_emp_id, [])
+            bp_codes = bp_own_code_map.get(bp_emp_id, [])
             bp_total = 0
             if bp_codes:
                 # The Own column runs its own column-scoped rule so it can be
@@ -943,7 +943,7 @@ class GaLiveQueryBuilder:
         # ── Yesterday BP breakdown ──
         for b in bp_data:
             emp_id = b["employee_id"]
-            bp_codes = bp_retailer_code_map.get(emp_id, []) if emp_id else []
+            bp_codes = bp_own_code_map.get(emp_id, []) if emp_id else []
             b_code = b.get("assisted_code")
             if b_code and b_code not in bp_codes:
                 bp_codes.append(b_code)

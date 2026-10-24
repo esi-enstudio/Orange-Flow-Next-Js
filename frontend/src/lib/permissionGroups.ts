@@ -128,7 +128,6 @@ export const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
   bp_targets: "BP Targets",
   dms: "DMS Automation",
   app_settings: "App Settings",
-  bp_retailer_codes: "BP Retailer Codes",
   rule_config: "Rule Config",
   filters: "Filters",
   automation: "Automation",

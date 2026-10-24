@@ -36,7 +36,6 @@ const ROUTE_TITLE_MAP: Record<string, { en: string; bn: string }> = {
   "/import/supervisor-targets": { en: "Import Supervisor Targets", bn: "সুপারভাইজার টার্গেট ইম্পোর্ট" },
   "/database-backups": { en: "Database Backups", bn: "ডাটাবেস ব্যাকআপ" },
   "/restore-points": { en: "Restore Points", bn: "রিস্টোর পয়েন্ট" },
-  "/bp-retailer-codes": { en: "BP Retailer Codes", bn: "বিপি রিটেইলার কোড" },
   "/live-location/travel-history": { en: "Travel History", bn: "ভ্রমণ ইতিহাস" },
 };
 

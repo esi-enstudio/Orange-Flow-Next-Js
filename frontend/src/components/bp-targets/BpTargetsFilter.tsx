@@ -62,7 +62,7 @@ export default function BpTargetsFilter({ filters, onChange, onClear, defaultMon
   useEffect(() => {
     const params: Record<string, any> = {};
     if (filters.house_id) params.house_id = filters.house_id;
-    apiClient.get<BPItem[]>("bp-retailer-codes/bp-employees", { params }).then((res) => {
+    apiClient.get<BPItem[]>("employees/bp-list", { params }).then((res) => {
       if (res.data) setBpList(res.data);
     }).catch(() => {});
   }, [filters.house_id]);

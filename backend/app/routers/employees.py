@@ -9,14 +9,13 @@ from sqlalchemy import select, or_, and_, cast, Float, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.routers.deps import get_db, has_permission, get_current_user, get_house_context
+from app.routers.deps import get_db, has_permission, has_any_permission, get_current_user, get_house_context
 from app.schemas.employee import EmployeeSchema, EmployeeCreate, EmployeeSelfUpdate
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.employee import Employee
 from app.models.house import House
 from app.models.user import User, user_roles
 from app.models.retailer import Retailer
-from app.models.bp_retailer_code import BpRetailerCode
 from app.models.rso_target import RSOTarget
 from app.models.activation import Activation
 from app.models.live_activation import LiveActivation
@@ -457,36 +456,6 @@ async def get_employee_filter_options(
         "religions": religions,
     }
 
-async def sync_assisted_code_to_bp_retailer_codes(db: AsyncSession, employee: Employee):
-    """Auto-sync BP employee's assisted_retailer_code to bp_retailer_codes table."""
-    if not employee.assisted_retailer_code:
-        return
-    is_bp = employee.employee_type == "bp"
-    if not is_bp and employee.user_id:
-        user = await db.get(User, employee.user_id)
-        if user:
-            is_bp = any(r.name.lower() == "bp" for r in user.roles)
-    if not is_bp:
-        return
-    existing = await db.execute(
-        select(BpRetailerCode).where(
-            BpRetailerCode.bp_employee_id == employee.id,
-            BpRetailerCode.retailer_code == employee.assisted_retailer_code,
-        )
-    )
-    if existing.scalar_one_or_none():
-        return
-    try:
-        new_code = BpRetailerCode(
-            bp_employee_id=employee.id,
-            retailer_code=employee.assisted_retailer_code,
-            house_id=employee.house_id,
-        )
-        db.add(new_code)
-        await db.commit()
-    except Exception:
-        await db.rollback()
-
 async def _count_retailers(db: AsyncSession, emp_id: int) -> int:
     result = await db.execute(
         select(func.count()).select_from(Retailer).where(Retailer.employee_id == emp_id)
@@ -542,7 +511,6 @@ async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncS
     db.add(new_emp)
     await db.commit()
     await db.refresh(new_emp)
-    await sync_assisted_code_to_bp_retailer_codes(db, new_emp)
     # Auto-managed markings (BP / RSO) follow the assisted codes.
     await run_auto_marking_sync(db)
     if attachments:
@@ -624,7 +592,6 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
         emp.resigned_date = now_naive().strftime("%Y-%m-%d")
     await db.commit()
     await db.refresh(emp)
-    await sync_assisted_code_to_bp_retailer_codes(db, emp)
     # Auto-managed markings (BP / RSO) follow the assisted codes: a type change or a
     # resignation must drop the marking from this employee's assisted-code retailer.
     await run_auto_marking_sync(db)
@@ -1115,6 +1082,60 @@ async def _upsert_pivot_assignment(
     )
     db.add(row)
     return row
+
+
+@router.get("/bp-list")
+async def get_bp_list(
+    selected_house_id: Optional[int] = Query(None, alias="house_id"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        has_any_permission(["bp_targets.view", "reports.view"])
+    ),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    """Active BP employees for dropdowns/filters (BP Targets, GA Live)."""
+    is_admin = is_admin_user(current_user)
+    user_house_ids = [h.id for h in current_user.houses]
+
+    # `employee_type` is the authoritative BP marker. A BP employee may have no
+    # linked User account (user_id is nullable), so a role-only check would
+    # silently return nothing for those rows.
+    query = (
+        select(Employee)
+        .options(joinedload(Employee.user).selectinload(User.roles))
+        .where((Employee.status == "Active") | (Employee.status.is_(None)))
+    )
+
+    target_house_id = selected_house_id or house_id
+    if target_house_id:
+        query = query.where(Employee.house_id == target_house_id)
+    elif not is_admin:
+        if user_house_ids:
+            query = query.where(Employee.house_id.in_(user_house_ids))
+        else:
+            return []
+
+    result = await db.execute(query)
+    employees = result.unique().scalars().all()
+
+    bp_list = []
+    for emp in employees:
+        is_bp = (emp.employee_type or "").lower() == "bp"
+        if not is_bp and emp.user:
+            # Legacy fallback: rows created before employee_type was populated.
+            is_bp = any(r.name.lower() == "bp" for r in emp.user.roles)
+        if not is_bp:
+            continue
+        bp_list.append({
+            "id": emp.id,
+            "name": emp.employee_name or emp.dms_code,
+            "dms_code": emp.dms_code,
+            "employee_id": emp.employee_id,
+            "pool_number": emp.pool_number,
+        })
+
+    bp_list.sort(key=lambda e: e["name"] or e["employee_id"] or e["dms_code"] or "")
+    return bp_list
 
 
 @router.get("/rso-list")

@@ -33,7 +33,6 @@ import app.models.activity_log
 import app.models.app_setting
 import app.models.scratch_card_serial
 import app.models.lifting
-import app.models.bp_retailer_code
 import app.models.zoom_in
 import app.models.commission
 import app.models.product
@@ -1287,6 +1286,36 @@ async def _migrate_remove_payment_gateway_artifacts():
         logger.warning(f"Migration warning (remove payment gateway artifacts): {e}")
 
 
+async def _migrate_drop_bp_retailer_codes():
+    """Drop the obsolete ``bp_retailer_codes`` table.
+
+    A BP owns exactly one assisted retailer code, stored on
+    ``employees.assisted_retailer_code``. The separate assignment table and its
+    management page were removed, and every BP report now reads the employee
+    column directly. Dropping the table idempotently keeps an upgraded database
+    in line with the current models. The module's permission rows are removed too
+    — seeding only ever inserts, so a renamed/removed permission would otherwise
+    keep showing up in the Permissions UI.
+    """
+    statements = (
+        "DROP TABLE IF EXISTS bp_retailer_codes CASCADE",
+        "DELETE FROM roles_permissions WHERE permission_id IN "
+        "(SELECT id FROM permissions WHERE name LIKE 'bp_retailer_codes.%')",
+        "DELETE FROM permissions WHERE name LIKE 'bp_retailer_codes.%'",
+    )
+    try:
+        async with engine.begin() as conn:
+            for stmt in statements:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as exc:
+                    # Missing table (fresh DB) or a non-PostgreSQL test DB.
+                    logger.debug("Skipping (%s): %s", stmt, exc)
+        logger.info("Migration complete: obsolete bp_retailer_codes module removed")
+    except Exception as e:
+        logger.warning(f"Migration warning (drop bp_retailer_codes): {e}")
+
+
 async def _migrate_bts_own_plan_module():
     """BTS was promoted from a `data_import` sub-page to its own plan module `bts`.
 
@@ -2008,6 +2037,7 @@ async def init_db():
         await _migrate_subscription_package_live_uniqueness()
         await _migrate_billing_tables_extra()
         await _migrate_remove_payment_gateway_artifacts()
+        await _migrate_drop_bp_retailer_codes()
         await _migrate_billing_fail_closed()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()

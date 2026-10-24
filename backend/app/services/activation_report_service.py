@@ -15,7 +15,6 @@ from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
-from app.models.bp_retailer_code import BpRetailerCode
 from app.models.user import User
 from app.services.retailer_marking_service import (
     get_active_retailer_ids_for_marking,
@@ -495,13 +494,9 @@ class ActivationReportService:
         results = []
         for emp_id in emp_ids:
             target_val = target_map.get(emp_id, 0)
-            bp_code_rows = await self.db.execute(
-                select(BpRetailerCode.retailer_code).where(
-                    BpRetailerCode.bp_employee_id == emp_id,
-                    BpRetailerCode.house_id == self.house_id,
-                )
-            )
-            retailer_codes = [row[0] for row in bp_code_rows.all() if row[0]]
+            # A BP owns exactly one assisted retailer code on the employee row.
+            assisted_code = assisted_code_map.get(emp_id)
+            retailer_codes = [assisted_code] if assisted_code else []
             achievement = 0
             if retailer_codes:
                 q = select(func.count()).select_from(Activation).where(

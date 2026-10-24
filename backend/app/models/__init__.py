@@ -36,7 +36,6 @@ from app.models.user import user_houses, user_roles
 from app.models.todo import Todo
 
 from app.models.app_setting import AppSetting
-from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
 from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,

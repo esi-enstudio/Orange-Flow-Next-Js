@@ -25,7 +25,6 @@ from app.models.retailer import Retailer
 from app.models.employee import Employee
 from app.models.active_lso_config import ActiveLsoConfig
 from app.models.active_sso_config import ActiveSsoConfig
-from app.models.bp_retailer_code import BpRetailerCode
 from app.models.role import Role
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
@@ -1353,15 +1352,7 @@ async def get_employee_activation_details(
             if r.retailer_code and r.retailer_code not in retailer_codes:
                 retailer_codes.append(r.retailer_code)
     elif role_type == "bp":
-        bp_code_rows = await db.execute(
-            select(BpRetailerCode.retailer_code).where(
-                BpRetailerCode.house_id == target_house_id,
-                BpRetailerCode.bp_employee_id == employee_id,
-            )
-        )
-        for (code,) in bp_code_rows.all():
-            if code:
-                retailer_codes.append(code)
+        # A BP owns exactly one assisted retailer code on the employee row.
         if emp.assisted_retailer_code:
             retailer_codes.append(emp.assisted_retailer_code)
     else:

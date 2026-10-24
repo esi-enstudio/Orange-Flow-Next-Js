@@ -56,7 +56,6 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/users", "administration"),
     ("/api/houses", "houses"),  # GET stays exempt (plan visibility); mutations are gated
     ("/api/cv", "administration"),
-    ("/api/bp-retailer-codes", "administration"),
     ("/api/roles", "roles_permissions"),
     ("/api/permissions", "roles_permissions"),
 
@@ -69,6 +68,9 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/bts", "bts"),
     ("/api/v1/scratch-card-serials", "data_import"),
 
+    # BP dropdown/filter lookup used by BP Targets — belongs to the always-on
+    # administration surface, not the employee hub.
+    ("/api/employees/bp-list", "administration"),
     ("/api/employees", "employee_hub"),
     ("/api/v1/locations", "live_location"),
 

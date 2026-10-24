@@ -117,7 +117,7 @@ export default function BPTargetsPage() {
 
   useEffect(() => {
     if (modalOpen && modalHouseId) {
-      apiClient.get("bp-retailer-codes/bp-employees", {
+      apiClient.get("employees/bp-list", {
         params: { house_id: modalHouseId }
       }).then(res => setBpEmployees(res.data || [])).catch(() => {});
     }

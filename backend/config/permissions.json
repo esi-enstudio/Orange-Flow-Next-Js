@@ -246,12 +246,6 @@
         "deploy.manage"
       ]
     },
-    "bp_retailer_codes": {
-      "display_name": "BP Retailer Codes",
-      "permissions": [
-        "bp_retailer_codes.edit"
-      ]
-    },
     "rule_config": {
       "display_name": "Rule Config",
       "permissions": [

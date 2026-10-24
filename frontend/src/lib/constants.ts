@@ -298,7 +298,6 @@ export const navItems: NavItem[] = [
     children: [
       { title: "User Management", translationKey: "nav.users", href: "/users", permission: "users.view" },
       { title: "CV Management", translationKey: "nav.cv", href: "/cv", permission: "cv.view" },
-      { title: "BP Retailer Codes", translationKey: "nav.bp_retailer_codes", href: "/bp-retailer-codes", permission: "reports.view" },
       { title: "System Settings", translationKey: "nav.settings", href: "/settings", permission: "app_settings.manage" },
       { title: "Server Deploy", translationKey: "nav.deploy", href: "/deploy", permission: "app_settings.manage" },
       { title: "Backup & Restore", translationKey: "nav.database_backups", href: "/database-backups", permissions: ["database_backup.view", "database_backup.create", "database_backup.download", "database_backup.restore", "database_backup.delete"] },

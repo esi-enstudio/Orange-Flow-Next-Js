@@ -39,7 +39,6 @@ from app.models.commission import (
     StatementBatch, CampaignType, CampaignTransaction,
     FinancialEntry, CommissionAuditLog, CommissionStaging,
 )
-from app.models.bp_retailer_code import BpRetailerCode
 from app.models.bp_target import BpTarget
 from app.models.otp import OTP
 from app.models.zoom_in import (
