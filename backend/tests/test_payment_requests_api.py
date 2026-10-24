@@ -105,8 +105,19 @@ async def test_tenant_submits_payment_request(db, house, plan):
     async with build_client(billing.router, db, user, house_context=house.id) as client:
         res = await client.post(
             "/api/v1/billing/payments/request",
-            data={"invoice_id": str(invoice.id), "method": "bkash", "reference": "BK-77"},
-            files={"proof": ("receipt.png", b"png-bytes", "image/png")},
+            data={
+                "invoice_id": str(invoice.id),
+                "method": "bkash",
+                "reference": "BK-77",
+                "sender_number": "01712345678",
+            },
+            files={
+                "proof": (
+                    "receipt.png",
+                    b"\x89PNG\r\n\x1a\n" + b"\x00" * 16,
+                    "image/png",
+                )
+            },
         )
 
     assert res.status_code == 201, res.text
@@ -157,7 +168,13 @@ async def test_admin_approval_activates_and_starts_period(db, house, plan):
     async with build_client(billing.router, db, tenant, house_context=house.id) as client:
         submitted = await client.post(
             "/api/v1/billing/payments/request",
-            data={"invoice_id": str(invoice.id), "method": "bank", "reference": "BANK-1"},
+            data={
+                "invoice_id": str(invoice.id),
+                "method": "bank",
+                "reference": "BANK-1",
+                "bank_name": "Dutch-Bangla Bank",
+                "depositor_name": "Tenant Manager",
+            },
         )
     payment_id = submitted.json()["data"]["id"]
 
@@ -203,6 +220,107 @@ async def test_admin_rejection_leaves_invoice_open(db, house, plan):
     await db.refresh(sub)
     assert invoice.status == INVOICE_STATUS_ISSUED
     assert sub.status != "active"
+
+
+async def test_reject_without_a_reason_is_refused(db, house, plan):
+    tenant = await make_user(
+        db, role_name="Manager", username="tenant-reason",
+        permissions=["billing.request_payment"],
+    )
+    admin = await make_user(db, role_name="Admin", username="approver-reason")
+    _, invoice = await _invoice(db, house, plan)
+
+    async with build_client(billing.router, db, tenant, house_context=house.id) as client:
+        submitted = await client.post(
+            "/api/v1/billing/payments/request",
+            data={"invoice_id": str(invoice.id), "method": "cash"},
+        )
+    payment_id = submitted.json()["data"]["id"]
+
+    async with build_client(admin_billing.router, db, admin) as client:
+        res = await client.post(
+            f"/api/v1/admin/payments/{payment_id}/reject", json={}
+        )
+
+    assert res.status_code == 422
+    assert res.json()["detail"]["code"] == "REASON_REQUIRED"
+
+
+async def _approved_payment(db, house, plan, username: str = "refund-tenant"):
+    tenant = await make_user(
+        db, role_name="Manager", username=username,
+        permissions=["billing.request_payment"],
+    )
+    admin = await make_user(db, role_name="Admin", username=f"{username}-admin")
+    sub, invoice = await _invoice(db, house, plan)
+
+    async with build_client(billing.router, db, tenant, house_context=house.id) as client:
+        submitted = await client.post(
+            "/api/v1/billing/payments/request",
+            data={"invoice_id": str(invoice.id), "method": "cash"},
+        )
+    payment_id = submitted.json()["data"]["id"]
+    async with build_client(admin_billing.router, db, admin) as client:
+        approved = await client.post(f"/api/v1/admin/payments/{payment_id}/approve")
+    assert approved.status_code == 200, approved.text
+    return admin, payment_id, invoice
+
+
+async def test_refund_is_two_step_and_updates_payment_only_on_completion(db, house, plan):
+    admin, payment_id, invoice = await _approved_payment(db, house, plan)
+
+    async with build_client(admin_billing.router, db, admin) as client:
+        created = await client.post(
+            f"/api/v1/admin/payments/{payment_id}/refund",
+            json={"amount": float(invoice.total), "reason": "customer cancelled"},
+        )
+        assert created.status_code == 201, created.text
+        refund = created.json()["data"]
+        assert refund["status"] == "processing"
+
+        # The payment is still approved until the money is confirmed returned.
+        detail = await client.get(f"/api/v1/admin/payments/{payment_id}")
+        assert detail.json()["data"]["status"] == "succeeded"
+        assert detail.json()["data"]["refunds"][0]["status"] == "processing"
+
+        completed = await client.post(f"/api/v1/admin/refunds/{refund['id']}/complete")
+        assert completed.status_code == 200, completed.text
+        assert completed.json()["payment_status"] == "refunded"
+
+        detail = await client.get(f"/api/v1/admin/payments/{payment_id}")
+        assert detail.json()["data"]["status"] == "refunded"
+
+
+async def test_refund_requires_a_reason_and_cannot_exceed_the_payment(db, house, plan):
+    admin, payment_id, invoice = await _approved_payment(
+        db, house, plan, username="refund-tenant-2"
+    )
+
+    async with build_client(admin_billing.router, db, admin) as client:
+        no_reason = await client.post(
+            f"/api/v1/admin/payments/{payment_id}/refund", json={"amount": 10}
+        )
+        assert no_reason.status_code == 422
+        assert no_reason.json()["detail"]["code"] == "REASON_REQUIRED"
+
+        too_much = await client.post(
+            f"/api/v1/admin/payments/{payment_id}/refund",
+            json={"amount": float(invoice.total) + 100, "reason": "too much"},
+        )
+        assert too_much.status_code == 400
+
+        full = await client.post(
+            f"/api/v1/admin/payments/{payment_id}/refund",
+            json={"amount": float(invoice.total), "reason": "full refund"},
+        )
+        assert full.status_code == 201, full.text
+
+        # The whole amount is reserved, so a second refund is refused.
+        second = await client.post(
+            f"/api/v1/admin/payments/{payment_id}/refund",
+            json={"reason": "again"},
+        )
+        assert second.status_code == 400
 
 
 async def test_non_billing_role_cannot_submit(db, house, plan):

@@ -1247,6 +1247,64 @@ async def _migrate_billing_tables_extra():
         logger.warning(f"Migration warning (billing tables extra columns): {e}")
 
 
+async def _migrate_payment_transaction_reference():
+    """Add the transaction-reference dedupe columns/index and backfill them.
+
+    A payer-supplied reference (bKash TrxID / bank reference) is a *claim*, but
+    the same claim must never back two payments. The normalized column plus a
+    partial unique index is the database-level guard; ``payment_requests``
+    checks it first so the caller gets a structured 409 instead of an
+    IntegrityError. Runs after ``create_all`` because an existing table never
+    gets new columns/indexes from metadata alone.
+    """
+    try:
+        async with engine.begin() as conn:
+            for col_name, col_def in (
+                ("transaction_reference", "VARCHAR(120)"),
+                ("transaction_reference_normalized", "VARCHAR(120)"),
+            ):
+                result = await conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='payments' AND column_name='{col_name}'"
+                ))
+                if result.scalar():
+                    continue
+                await conn.execute(text(f"ALTER TABLE payments ADD COLUMN {col_name} {col_def}"))
+                logger.info(f"Migration: added payments.{col_name}")
+
+            # Backfill from the JSON metadata written by earlier versions.
+            await conn.execute(text(
+                "UPDATE payments SET "
+                "  transaction_reference = NULLIF(BTRIM(payment_meta->>'reference'), ''), "
+                "  transaction_reference_normalized = UPPER(REGEXP_REPLACE("
+                "      BTRIM(payment_meta->>'reference'), '\\s', '', 'g')) "
+                "WHERE transaction_reference IS NULL "
+                "  AND payment_meta->>'reference' IS NOT NULL"
+            ))
+
+            dupes = (await conn.execute(text(
+                "SELECT transaction_reference_normalized, COUNT(*) FROM payments "
+                "WHERE transaction_reference_normalized IS NOT NULL "
+                "  AND is_deleted = false AND status <> 'failed' "
+                "GROUP BY 1 HAVING COUNT(*) > 1"
+            ))).all()
+            if dupes:
+                logger.critical(
+                    "Duplicate payment transaction references found (unique index "
+                    "cannot be created until they are resolved): %s", dupes,
+                )
+
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_transaction_reference "
+                "ON payments (transaction_reference_normalized) "
+                "WHERE transaction_reference_normalized IS NOT NULL "
+                "  AND is_deleted = false AND status <> 'failed'"
+            ))
+            logger.info("Migration complete: payment transaction reference guard")
+    except Exception as e:
+        logger.warning(f"Migration warning (payment transaction reference guard): {e}")
+
+
 async def _migrate_remove_payment_gateway_artifacts():
     """Drop the obsolete online-payment tables/columns (manual payments only).
 
@@ -2036,6 +2094,7 @@ async def init_db():
         await _migrate_subscription_billing()
         await _migrate_subscription_package_live_uniqueness()
         await _migrate_billing_tables_extra()
+        await _migrate_payment_transaction_reference()
         await _migrate_remove_payment_gateway_artifacts()
         await _migrate_drop_bp_retailer_codes()
         await _migrate_billing_fail_closed()

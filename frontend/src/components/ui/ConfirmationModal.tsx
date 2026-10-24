@@ -18,6 +18,8 @@ interface ConfirmationModalProps {
   cancelText?: string;
   type?: ConfirmType;
   loading?: boolean;
+  /** Blocks the confirm action (e.g. a required reason is still too short). */
+  confirmDisabled?: boolean;
   /**
    * Tailwind z-index class for the overlay.
    *
@@ -41,6 +43,7 @@ export function ConfirmationModal({
   cancelText,
   type = "warning",
   loading = false,
+  confirmDisabled = false,
   zIndex = "z-[100]",
   children,
 }: ConfirmationModalProps) {
@@ -104,7 +107,7 @@ export function ConfirmationModal({
         <div className="p-5 pt-0 sm:p-6 sm:pt-0 flex flex-col gap-2.5 sm:gap-3">
           <button
             onClick={onConfirm}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
             className={cn(
               "w-full py-3.5 sm:py-4 rounded-2xl text-white font-bold transition-all shadow-lg active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
               current.btnBg

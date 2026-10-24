@@ -202,6 +202,26 @@ async def pay_invoice_manually(
         )
 
     tran_id = tran_id or f"CASH-{invoice.invoice_no}"
+
+    reference = (reference or "").strip() or None
+    reference_norm = re.sub(r"\s+", "", reference).upper() if reference else None
+    if reference_norm:
+        clash = (await db.execute(
+            select(Payment).where(
+                Payment.transaction_reference_normalized == reference_norm,
+                Payment.invoice_id != invoice.id,
+                Payment.status.in_([PAYMENT_STATUS_SUCCEEDED, PAYMENT_STATUS_PENDING]),
+                Payment.is_deleted == False,  # noqa: E712
+            )
+        )).scalar_one_or_none()
+        if clash is not None:
+            raise ManualPaymentError(
+                "This transaction reference is already recorded against another payment",
+                code="DUPLICATE_TRANSACTION_REFERENCE",
+                status_code=409,
+                fields={"reference": "Already used by payment #%s" % clash.id},
+            )
+
     payment = Payment(
         house_id=invoice.house_id,
         invoice_id=invoice.id,
@@ -211,6 +231,8 @@ async def pay_invoice_manually(
         status=PAYMENT_STATUS_SUCCEEDED,
         gateway=gateway,
         gateway_tran_id=tran_id,
+        transaction_reference=reference,
+        transaction_reference_normalized=reference_norm,
         paid_at=paid_at or now,
         payment_meta={
             "method": gateway,
@@ -223,9 +245,26 @@ async def pay_invoice_manually(
     try:
         await db.flush()
     except IntegrityError:
-        # A concurrent request already recorded this invoice. Treat the second
-        # click as idempotent instead of creating a duplicate payment.
+        # Either a concurrent request recorded this invoice already (idempotent
+        # second click) or the reference is duplicated. Only the first case is
+        # safe to treat as success.
         await db.rollback()
+        duplicate = None
+        if reference_norm:
+            duplicate = (await db.execute(
+                select(Payment).where(
+                    Payment.transaction_reference_normalized == reference_norm,
+                    Payment.invoice_id != invoice.id,
+                    Payment.is_deleted == False,  # noqa: E712
+                )
+            )).scalar_one_or_none()
+        if duplicate is not None:
+            raise ManualPaymentError(
+                "This transaction reference is already recorded against another payment",
+                code="DUPLICATE_TRANSACTION_REFERENCE",
+                status_code=409,
+                fields={"reference": "Already used by another payment"},
+            )
         fresh = (await db.execute(
             select(Invoice).where(Invoice.id == invoice.id)
         )).scalar_one_or_none()

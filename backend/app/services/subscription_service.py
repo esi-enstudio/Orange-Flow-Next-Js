@@ -59,6 +59,15 @@ async def _sync_house_state(db: AsyncSession, house_id: int) -> None:
         logger.warning("house billing sync failed for house %s: %s", house_id, exc)
 
 
+async def sync_house_state(db: AsyncSession, house_id: int) -> None:
+    """Public wrapper for the house billing-state sync.
+
+    Callers that kept an activation inside their own transaction (payment
+    approval) use this after committing.
+    """
+    await _sync_house_state(db, house_id)
+
+
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
@@ -74,6 +83,11 @@ def _add_interval(dt, billing_interval: str):
     import calendar
     day = min(dt.day, calendar.monthrange(year, month)[1])
     return dt.replace(year=year, month=month, day=day)
+
+
+def add_billing_interval(dt, billing_interval: str):
+    """Public wrapper around the calendar-interval helper."""
+    return _add_interval(dt, billing_interval)
 
 
 def plan_price(plan: SubscriptionPackage, billing_interval: str) -> Decimal:
@@ -545,6 +559,7 @@ async def mark_invoice_paid(
     gateway_tran_id: Optional[str] = None,
     changed_via: str = "webhook",
     approved_at=None,
+    commit: bool = True,
 ):
     """Server-side authoritative invoice payment + subscription activation.
 
@@ -558,6 +573,10 @@ async def mark_invoice_paid(
     The invoice is refreshed to the period the payment actually bought, so the
     invoice, PDF and subscription always agree. ``approved_at`` defaults to
     now (Bangladesh Standard Time) and is the *admin approval* timestamp.
+
+    ``commit=False`` keeps the whole activation inside the caller's transaction
+    (used by payment approval, which must be atomic with the payment row); the
+    caller is then responsible for committing and for the house-state sync.
     """
     if invoice.status == INVOICE_STATUS_PAID:
         return invoice.subscription  # idempotent when already paid
@@ -570,7 +589,10 @@ async def mark_invoice_paid(
     sub = invoice.subscription
     if sub is None:
         # standalone/manual invoice (no attached subscription): just mark paid
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         return None
 
     prior_paid = (await db.execute(
@@ -615,7 +637,10 @@ async def mark_invoice_paid(
         new_period_end=period_end,
         amount=invoice.total,
     )
-    await db.commit()
-    await db.refresh(sub)
-    await _sync_house_state(db, sub.house_id)
+    if commit:
+        await db.commit()
+        await db.refresh(sub)
+        await _sync_house_state(db, sub.house_id)
+    else:
+        await db.flush()
     return sub

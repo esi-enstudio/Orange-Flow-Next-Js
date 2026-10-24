@@ -20,6 +20,7 @@ const ROUTE_TITLE_MAP: Record<string, { en: string; bn: string }> = {
   "/billing": { en: "Billing & Subscriptions", bn: "বিলিং ও সাবস্ক্রিপশন" },
   "/admin/plans": { en: "Plan Management", bn: "প্ল্যান ব্যবস্থাপনা" },
   "/admin/subscriptions": { en: "Subscription Management", bn: "সাবস্ক্রিপশন ব্যবস্থাপনা" },
+  "/admin/payments": { en: "Payment Review", bn: "পেমেন্ট রিভিউ" },
   "/zoom-in/create": { en: "Create Zoom-In Event", bn: "নতুন জুম-ইন ইভেন্ট" },
   "/zoom-in/allocation": { en: "Zoom-In Allocation", bn: "জুম-ইন বরাদ্দ" },
   "/zoom-in/eligible-bts": { en: "Eligible BTS", bn: "যোগ্য বিটিএস" },

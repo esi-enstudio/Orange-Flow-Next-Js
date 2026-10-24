@@ -11,6 +11,7 @@ There is no hosted checkout and no gateway webhook in this deployment.
 import logging
 import mimetypes
 import os
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
@@ -26,10 +27,7 @@ from app.models.house import House
 from app.models.invoice import (
     Invoice, INVOICE_STATUS_ISSUED, INVOICE_STATUS_UNPAID,
 )
-from app.models.payment import (
-    Payment, Refund,
-    PAYMENT_STATUS_SUCCEEDED, PAYMENT_STATUS_REFUNDED,
-)
+from app.models.payment import Payment, PAYMENT_STATUS_SUCCEEDED
 from app.models.payment_method import PaymentMethod, PAYMENT_METHOD_TYPES
 from app.models.user import User
 from app.services import entitlement, invoice_pdf, payment_requests
@@ -64,6 +62,8 @@ def _invoice_payload(invoice: Invoice) -> dict:
         "paid_at": invoice.paid_at,
         "description": invoice.description,
         "created_at": invoice.created_at,
+        # Shown to the tenant as the payment-order deadline.
+        "submission_deadline": invoice.due_date,
     }
 
 
@@ -78,11 +78,17 @@ def _payment_payload(p: Payment) -> dict:
         "status": p.status,
         "gateway": p.gateway,
         "gateway_tran_id": p.gateway_tran_id,
-        "reference": meta.get("reference"),
+        "reference": p.transaction_reference or meta.get("reference"),
+        "method": meta.get("method") or p.gateway,
         "note": meta.get("note"),
         "rejection_reason": meta.get("rejection_reason"),
         "has_proof": bool(meta.get("proof_path")),
         "proof_name": meta.get("proof_name"),
+        "sender_number": payment_requests.mask_mobile(meta.get("sender_number")),
+        "bank_name": meta.get("bank_name"),
+        "depositor_name": meta.get("depositor_name"),
+        "payment_date": meta.get("payment_date"),
+        "submitted_at": meta.get("submitted_at"),
         "paid_at": p.paid_at,
         "created_at": p.created_at,
     }
@@ -233,6 +239,10 @@ async def submit_payment_request(
     amount: Optional[float] = Form(None),
     reference: Optional[str] = Form(None),
     note: Optional[str] = Form(None),
+    sender_number: Optional[str] = Form(None),
+    bank_name: Optional[str] = Form(None),
+    depositor_name: Optional[str] = Form(None),
+    payment_date: Optional[date] = Form(None),
     proof: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
     house_context: Optional[int] = Depends(get_house_context),
@@ -261,6 +271,10 @@ async def submit_payment_request(
             note=note,
             proof=proof,
             submitted_by=current_user.id,
+            sender_number=sender_number,
+            bank_name=bank_name,
+            depositor_name=depositor_name,
+            payment_date=payment_date,
         )
     except payment_requests.PaymentRequestError as exc:
         raise _payment_request_error(exc)
@@ -305,55 +319,6 @@ async def download_payment_proof(
     filename = meta.get("proof_name") or os.path.basename(path)
     media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     return FileResponse(path, media_type=media_type, filename=filename)
-
-
-class RefundRequest(BaseModel):
-    amount: Optional[float] = None
-    reason: Optional[str] = None
-
-
-@router.post("/payments/{payment_id}/refund")
-async def refund_payment(
-    payment_id: int,
-    payload: RefundRequest,
-    db: AsyncSession = Depends(get_db),
-    house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_permission("billing.refund")),
-):
-    house_id = await _house_id(current_user, house_context)
-    payment = (await db.execute(
-        select(Payment).where(Payment.id == payment_id, Payment.house_id == house_id)
-    )).scalar_one_or_none()
-    if not payment:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    if payment.status not in (PAYMENT_STATUS_SUCCEEDED, PAYMENT_STATUS_REFUNDED, "partially_refunded"):
-        raise HTTPException(status_code=400, detail="Only a completed payment can be refunded")
-    if payment.status in (PAYMENT_STATUS_REFUNDED, "partially_refunded"):
-        raise HTTPException(status_code=400, detail=f"Payment is already {payment.status}")
-
-    refund_amount = payload.amount or float(payment.amount)
-    if refund_amount <= 0:
-        raise HTTPException(status_code=400, detail="Refund amount must be greater than zero")
-    if refund_amount > float(payment.amount):
-        raise HTTPException(status_code=400, detail="Refund amount exceeds payment amount")
-
-    # Money is handed back outside the system; this endpoint records that the
-    # refund happened so the invoice/payment history stays accurate.
-    refund = Refund(
-        house_id=house_id,
-        payment_id=payment.id,
-        invoice_id=payment.invoice_id,
-        amount=refund_amount,
-        currency=payment.currency,
-        reason=payload.reason,
-        status="succeeded",
-        refunded_by=current_user.id,
-        refunded_at=now_naive(),
-    )
-    db.add(refund)
-    payment.status = PAYMENT_STATUS_REFUNDED if refund_amount >= float(payment.amount) else "partially_refunded"
-    await db.commit()
-    return {"success": True, "refund_id": refund.id, "status": refund.status}
 
 
 # ---------------------------------------------------------------------------

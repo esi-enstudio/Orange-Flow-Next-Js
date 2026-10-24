@@ -307,6 +307,74 @@ Key variables in `.env`:
 
 ---
 
+## Manual Payment System
+
+There is no hosted payment gateway. Money is received offline (bKash, Nagad,
+Rocket, bank transfer, cash) and **only an authorised admin's approval**
+activates or renews a plan.
+
+### Flow
+
+1. A house selects a plan (`/pricing`); the subscription starts on the plan's
+   free tier and the first paid invoice (the payment order) is issued.
+2. The tenant pays offline and submits the evidence on `/billing`
+   (`POST /api/v1/billing/payments/request`): method, transaction reference,
+   sender mobile number (mobile banking) or bank/depositor name (bank), payment
+   date, optional note and proof file. Nothing is activated.
+3. An admin reviews it on `/admin/payments`
+   (`GET /api/v1/admin/payments`): summary cards, search by order/reference/house,
+   filters (status, method, house, date range), detail panel with proof and
+   review history.
+4. The admin verifies the money in the real merchant/bank record and then
+   approves, rejects (reason required) or requests more information (reason
+   required). Approving is atomic and idempotent: payment status, invoice, the
+   paid period and the subscription change log commit in one transaction, with
+   the payment/invoice rows locked (`Idempotency-Key` supported on approve).
+
+### Rules enforced by the backend
+
+- Amount must equal the invoice total — re-checked again at approval.
+- A transaction reference may back only one payment (normalized,
+  case/whitespace-insensitive, partial unique index); rejected references are
+  released for correction.
+- Reference required for bKash/Nagad/Rocket/mobile banking/bank; sender number
+  required for mobile banking; bank + depositor name required for bank.
+- Payment date cannot be in the future or older than 90 days.
+- Stale orders (period ended more than one billing cycle ago) and superseded
+  orders (a newer open invoice exists) are refused.
+- Proof files: JPG/PNG/WebP/PDF, ≤ 10 MB, extension **and** magic bytes checked,
+  stored privately under `private_uploads/payment_proofs/{house_id}/` and
+  streamed only through authenticated endpoints.
+- Renewal before expiry extends `current_period_end`; after expiry the new
+  period starts at the approval time.
+- Refunds are admin-only and two-step: `POST /api/v1/admin/payments/{id}/refund`
+  records a `processing` refund, `POST /api/v1/admin/refunds/{id}/complete`
+  confirms the money was returned and updates the payment status. A refund is
+  never reported as done before it actually happened.
+- Every submission, approval, rejection, information request, refund and refund
+  completion writes an `activity_logs` row.
+
+### Permissions
+
+`billing.request_payment` (tenant submit), `payments.manage` (review queue),
+`billing.approve_payment`, `billing.reject_payment`, `billing.refund`,
+`subscription.manage` / `billing.manage` (subscription admin).
+
+### Operations
+
+- **Reconciliation:** on `/admin/payments` filter by date and status `succeeded`
+  and compare the approved amount with your bKash/Nagad/bank settlement. The
+  detail panel shows the payer's reference, sender/bank details and proof.
+- **Migration:** `_migrate_payment_transaction_reference()` runs on startup and
+  idempotently adds the reference columns/index and backfills them. It logs at
+  `CRITICAL` if historic duplicate references block the unique index — resolve
+  those rows before relying on the DB-level guard.
+- **Limitations:** no automatic verification of a transaction (a screenshot or
+  TrxID is a claim, not proof), no partial payments, and refunds do not change
+  the subscription period (they are recorded for accounting only).
+
+---
+
 ## i18n
 
 The platform supports **Bengali (BN)** and **English (EN)**. Language is selected via a UI toggle in the sidebar.

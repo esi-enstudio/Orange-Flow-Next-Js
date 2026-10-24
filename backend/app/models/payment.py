@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Numeric, Boolean, JSON, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, DateTime, Numeric, Boolean, JSON, ForeignKey, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 from app.models.base import Base
 from app.utils.timezone import now_naive
@@ -40,6 +40,12 @@ class Payment(Base):
     gateway = Column(String(32), nullable=False, default="cash")
     gateway_tran_id = Column(String(64), nullable=True)
 
+    # Transaction reference claimed by the payer (bKash TrxID, bank reference).
+    # ``transaction_reference_normalized`` is the dedupe key: uppercase with all
+    # whitespace removed, so "bk 123" and "BK123" collide as they should.
+    transaction_reference = Column(String(120), nullable=True)
+    transaction_reference_normalized = Column(String(120), nullable=True, index=True)
+
     paid_at = Column(DateTime, nullable=True)
     payment_meta = Column(JSON, nullable=True)  # recorded_by, reference, note
 
@@ -59,6 +65,21 @@ class Payment(Base):
     __table_args__ = (
         UniqueConstraint("gateway", "gateway_tran_id", name="uq_payment_gateway_tran_id"),
         Index("ix_payments_house_created", "house_id", "created_at"),
+        # One real transaction reference may only ever back one payment. Soft
+        # deleted rows are excluded so a removed record does not block reuse.
+        Index(
+            "uq_payment_transaction_reference",
+            "transaction_reference_normalized",
+            unique=True,
+            postgresql_where=text(
+                "transaction_reference_normalized IS NOT NULL "
+                "AND is_deleted = false AND status <> 'failed'"
+            ),
+            sqlite_where=text(
+                "transaction_reference_normalized IS NOT NULL "
+                "AND is_deleted = false AND status <> 'failed'"
+            ),
+        ),
     )
 
 

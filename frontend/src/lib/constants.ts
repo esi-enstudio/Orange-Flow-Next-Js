@@ -315,6 +315,7 @@ export const navItems: NavItem[] = [
       { title: "Pricing", translationKey: "nav.pricing", href: "/pricing", permission: "plans.view" },
       { title: "My Billing", translationKey: "nav.my_billing", href: "/billing", permissions: ["subscription.view", "billing.view", "payments.view"] },
       { title: "Subscriptions", translationKey: "nav.admin_subscriptions", href: "/admin/subscriptions", permissions: ["subscription.manage", "billing.manage"] },
+      { title: "Payment Review", translationKey: "nav.admin_payments", href: "/admin/payments", permissions: ["payments.manage", "billing.approve_payment", "billing.reject_payment"] },
       { title: "Plans", translationKey: "nav.admin_plans", href: "/admin/plans", permission: "plans.manage" },
     ]
   },

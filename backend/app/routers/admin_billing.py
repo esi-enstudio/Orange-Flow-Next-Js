@@ -8,13 +8,14 @@ hold subscription.view.
 import logging
 import mimetypes
 import os
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -25,8 +26,10 @@ from app.models.invoice import (
 )
 from app.models.payment import (
     Payment,
+    Refund,
     PAYMENT_STATUS_SUCCEEDED,
     PAYMENT_STATUS_REFUNDED,
+    PAYMENT_STATUS_PARTIALLY_REFUNDED,
 )
 from app.models.subscription import HouseSubscription
 from app.models.user import User
@@ -480,46 +483,230 @@ async def admin_list_invoices(
 # Payments
 # ---------------------------------------------------------------------------
 
+def _payment_review_history(payment: Payment) -> list[dict]:
+    """Append-only review trail reconstructed from the payment metadata.
+
+    The immutable source of truth for compliance is ``activity_logs``; this
+    list gives the reviewer the same timeline on the payment itself.
+    """
+    meta = payment.payment_meta or {}
+    events: list[dict] = []
+    if meta.get("submitted_at"):
+        events.append({
+            "action": "submitted",
+            "at": meta.get("submitted_at"),
+            "by": meta.get("submitted_by"),
+            "reason": None,
+        })
+    if meta.get("info_requested_at"):
+        events.append({
+            "action": "needs_info",
+            "at": meta.get("info_requested_at"),
+            "by": meta.get("info_requested_by"),
+            "reason": meta.get("info_request_reason"),
+        })
+    if meta.get("rejected_at"):
+        events.append({
+            "action": "rejected",
+            "at": meta.get("rejected_at"),
+            "by": meta.get("rejected_by"),
+            "reason": meta.get("rejection_reason"),
+        })
+    if meta.get("approved_at"):
+        events.append({
+            "action": "approved",
+            "at": meta.get("approved_at"),
+            "by": meta.get("approved_by"),
+            "reason": meta.get("approval_note"),
+        })
+    return sorted(events, key=lambda e: str(e.get("at") or ""))
+
+
+def _payment_row(payment: Payment) -> dict:
+    meta = payment.payment_meta or {}
+    invoice = payment.invoice
+    sub = invoice.subscription if invoice else None
+    plan = sub.package if sub and sub.package else None
+    return {
+        "id": payment.id,
+        "house_id": payment.house_id,
+        "house_name": payment.house.name if payment.house else None,
+        "house_code": payment.house.code if payment.house else None,
+        "invoice_id": payment.invoice_id,
+        "invoice_no": invoice.invoice_no if invoice else None,
+        "plan_name": plan.name if plan else None,
+        "expected_amount": float(invoice.total) if invoice else None,
+        "amount": float(payment.amount),
+        "currency": payment.currency,
+        "status": payment.status,
+        "gateway": payment.gateway,
+        "method": meta.get("method") or payment.gateway,
+        "gateway_tran_id": payment.gateway_tran_id,
+        "reference": payment.transaction_reference or meta.get("reference"),
+        "note": meta.get("note"),
+        "rejection_reason": meta.get("rejection_reason"),
+        "info_request_reason": meta.get("info_request_reason"),
+        "has_proof": bool(meta.get("proof_path")),
+        "proof_name": meta.get("proof_name"),
+        "submitted_by": meta.get("submitted_by"),
+        "submitted_at": meta.get("submitted_at"),
+        "sender_number": meta.get("sender_number"),
+        "bank_name": meta.get("bank_name"),
+        "depositor_name": meta.get("depositor_name"),
+        "payment_date": meta.get("payment_date"),
+        "paid_at": payment.paid_at,
+        "created_at": payment.created_at,
+    }
+
+
+@router.get("/payments/summary")
+async def admin_payments_summary(
+    house_id: Optional[int] = None,
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("payments.manage")),
+):
+    """Review dashboard counters (all time or filtered by house / period)."""
+    filters = [Payment.is_deleted == False]  # noqa: E712
+    if house_id:
+        filters.append(Payment.house_id == house_id)
+    if from_date:
+        filters.append(Payment.created_at >= datetime.combine(from_date, time.min))
+    if to_date:
+        filters.append(Payment.created_at <= datetime.combine(to_date, time.max))
+
+    rows = (await db.execute(
+        select(Payment.status, func.count(Payment.id), func.coalesce(func.sum(Payment.amount), 0))
+        .where(*filters)
+        .group_by(Payment.status)
+    )).all()
+    by_status = {status: {"count": int(count), "amount": float(amount)} for status, count, amount in rows}
+    approved = by_status.get(PAYMENT_STATUS_SUCCEEDED, {"count": 0, "amount": 0.0})
+    total_count = sum(v["count"] for v in by_status.values())
+
+    return {
+        "success": True,
+        "data": {
+            "total_submitted": total_count,
+            "pending_review": by_status.get("pending", {}).get("count", 0),
+            "needs_info": by_status.get("needs_info", {}).get("count", 0),
+            "approved": approved["count"],
+            "rejected": by_status.get("failed", {}).get("count", 0),
+            "refunded": by_status.get("refunded", {}).get("count", 0),
+            "total_approved_amount": approved["amount"],
+            "by_status": by_status,
+        },
+    }
+
+
 @router.get("/payments")
 async def admin_list_payments(
     page: int = 1,
     per_page: int = 20,
     status: Optional[str] = None,
     house_id: Optional[int] = None,
+    search: Optional[str] = None,
+    method: Optional[str] = None,
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("payments.manage")),
 ):
+    """Paginated payment queue with review-friendly search and filters."""
     filters = [Payment.is_deleted == False]  # noqa: E712
     if status:
         filters.append(Payment.status == status)
     if house_id:
         filters.append(Payment.house_id == house_id)
+    if method:
+        filters.append(Payment.gateway == method)
+    if from_date:
+        filters.append(Payment.created_at >= datetime.combine(from_date, time.min))
+    if to_date:
+        filters.append(Payment.created_at <= datetime.combine(to_date, time.max))
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        filters.append(or_(
+            Payment.transaction_reference.ilike(like),
+            Payment.gateway_tran_id.ilike(like),
+            Payment.invoice_id.in_(select(Invoice.id).where(Invoice.invoice_no.ilike(like))),
+            Payment.house_id.in_(select(House.id).where(House.name.ilike(like))),
+        ))
+
     per_page = max(1, min(per_page, 100))
     total = (await db.execute(select(func.count(Payment.id)).where(*filters))).scalar_one()
     result = await db.execute(
-        select(Payment).options(selectinload(Payment.house)).where(*filters).order_by(Payment.id.desc())
-        .offset((page - 1) * per_page).limit(per_page)
+        select(Payment)
+        .options(
+            selectinload(Payment.house),
+            selectinload(Payment.invoice)
+            .selectinload(Invoice.subscription)
+            .selectinload(HouseSubscription.package),
+        )
+        .where(*filters)
+        .order_by(Payment.id.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
     )
-    rows = []
-    for p in result.scalars().unique().all():
-        meta = p.payment_meta or {}
-        rows.append({
-            "id": p.id, "house_id": p.house_id, "house_name": p.house.name if p.house else None,
-            "invoice_id": p.invoice_id,
-            "invoice_no": p.invoice.invoice_no if p.invoice else None,
-            "amount": float(p.amount), "currency": p.currency, "status": p.status,
-            "gateway": p.gateway, "gateway_tran_id": p.gateway_tran_id,
-            "reference": meta.get("reference"), "note": meta.get("note"),
-            "rejection_reason": meta.get("rejection_reason"),
-            "has_proof": bool(meta.get("proof_path")),
-            "submitted_by": meta.get("submitted_by"),
-            "paid_at": p.paid_at, "created_at": p.created_at,
-        })
+    rows = [_payment_row(p) for p in result.scalars().unique().all()]
     total_pages = (total + per_page - 1) // per_page
     return {"success": True, "data": rows, "pagination": {
         "page": page, "per_page": per_page, "total": total,
         "total_pages": total_pages, "has_next": page < total_pages, "has_prev": page > 1,
     }}
+
+
+@router.get("/payments/{payment_id}")
+async def admin_payment_detail(
+    payment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("payments.manage")),
+):
+    """Full review view: order, payer evidence, proof and review history."""
+    payment = (await db.execute(
+        select(Payment)
+        .options(
+            selectinload(Payment.house),
+            selectinload(Payment.refunds),
+            selectinload(Payment.invoice)
+            .selectinload(Invoice.subscription)
+            .selectinload(HouseSubscription.package),
+        )
+        # Always show the reviewer the current state, never a cached instance.
+        .execution_options(populate_existing=True)
+        .where(Payment.id == payment_id, Payment.is_deleted == False)  # noqa: E712
+    )).scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    data = _payment_row(payment)
+    invoice = payment.invoice
+    sub = invoice.subscription if invoice else None
+    data.update({
+        "invoice_status": invoice.status if invoice else None,
+        "invoice_due_date": invoice.due_date if invoice else None,
+        "billing_period_start": invoice.billing_period_start if invoice else None,
+        "billing_period_end": invoice.billing_period_end if invoice else None,
+        "plan_interval": sub.billing_interval if sub else None,
+        "subscription_status": sub.status if sub else None,
+        "subscription_period_end": sub.current_period_end if sub else None,
+        "review_history": _payment_review_history(payment),
+        "refunds": [
+            {
+                "id": r.id,
+                "amount": float(r.amount),
+                "currency": r.currency,
+                "status": r.status,
+                "reason": r.reason,
+                "created_at": r.created_at,
+                "refunded_at": r.refunded_at,
+            }
+            for r in (payment.refunds or [])
+            if not r.is_deleted
+        ],
+    })
+    return {"success": True, "data": data}
 
 
 # ---------------------------------------------------------------------------
@@ -543,11 +730,18 @@ def _admin_payment_payload(payment: Payment) -> dict:
         "status": payment.status,
         "gateway": payment.gateway,
         "gateway_tran_id": payment.gateway_tran_id,
-        "reference": meta.get("reference"),
+        "reference": payment.transaction_reference or meta.get("reference"),
         "note": meta.get("note"),
         "rejection_reason": meta.get("rejection_reason"),
         "has_proof": bool(meta.get("proof_path")),
+        "proof_name": meta.get("proof_name"),
         "submitted_by": meta.get("submitted_by"),
+        "submitted_at": meta.get("submitted_at"),
+        "sender_number": meta.get("sender_number"),
+        "bank_name": meta.get("bank_name"),
+        "depositor_name": meta.get("depositor_name"),
+        "payment_date": meta.get("payment_date"),
+        "info_request_reason": meta.get("info_request_reason"),
         "paid_at": payment.paid_at,
         "created_at": payment.created_at,
     }
@@ -584,6 +778,7 @@ async def admin_download_payment_proof(
 async def admin_approve_payment(
     payment_id: int,
     request: Request,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("billing.approve_payment")),
 ):
@@ -592,6 +787,10 @@ async def admin_approve_payment(
     Approval time is authoritative: a first activation runs for one billing
     interval from now (monthly = 1 month, yearly = 1 year). A renewal extends
     the current period end instead, so approved early payments never lose time.
+
+    The payment and invoice rows are locked and the whole decision commits in
+    one transaction; an ``Idempotency-Key`` retry returns ``already_approved``
+    without extending the subscription twice.
     """
     payment = (await db.execute(
         select(Payment).where(Payment.id == payment_id, Payment.is_deleted == False)  # noqa: E712
@@ -601,7 +800,7 @@ async def admin_approve_payment(
 
     try:
         result = await payment_requests.approve_request(
-            db, payment, approved_by=current_user.id
+            db, payment, approved_by=current_user.id, idempotency_key=idempotency_key
         )
     except payment_requests.PaymentRequestError as exc:
         raise _payment_request_http_error(exc)
@@ -755,6 +954,265 @@ async def admin_request_info_payment(
     except Exception as exc:
         logger.warning("payment needs_info notification failed: %s", exc)
     return {"success": True, "payment": _admin_payment_payload(payment)}
+
+
+# ---------------------------------------------------------------------------
+# Refunds (admin only, two-step: record -> confirm the money was returned)
+# ---------------------------------------------------------------------------
+
+REFUND_ACTIVE_STATUSES = ("processing", "succeeded")
+
+
+class RefundCreateRequest(BaseModel):
+    amount: Optional[float] = None
+    reason: Optional[str] = None
+
+
+class RefundRejectRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+def _required_reason(reason: Optional[str]) -> str:
+    cleaned = (reason or "").strip()
+    if len(cleaned) < 3:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REASON_REQUIRED",
+                "message": "A reason is required for this action",
+                "fields": {"reason": "Enter at least 3 characters"},
+            },
+        )
+    return cleaned[:500]
+
+
+async def _reserved_refund_amount(
+    db: AsyncSession, payment_id: int, *, exclude_id: Optional[int] = None
+) -> Decimal:
+    """Amount already reserved by processing/succeeded refunds."""
+    query = select(func.coalesce(func.sum(Refund.amount), 0)).where(
+        Refund.payment_id == payment_id,
+        Refund.status.in_(REFUND_ACTIVE_STATUSES),
+        Refund.is_deleted == False,  # noqa: E712
+    )
+    if exclude_id is not None:
+        query = query.where(Refund.id != exclude_id)
+    return Decimal(str((await db.execute(query)).scalar_one() or 0)).quantize(Decimal("0.01"))
+
+
+def _refund_payload(refund: Refund) -> dict:
+    return {
+        "id": refund.id,
+        "payment_id": refund.payment_id,
+        "amount": float(refund.amount),
+        "currency": refund.currency,
+        "status": refund.status,
+        "reason": refund.reason,
+        "refunded_by": refund.refunded_by,
+        "refunded_at": refund.refunded_at,
+        "created_at": refund.created_at,
+    }
+
+
+@router.post("/payments/{payment_id}/refund", status_code=201)
+async def admin_create_refund(
+    payment_id: int,
+    payload: RefundCreateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("billing.refund")),
+):
+    """Record a refund that is being returned offline (status ``processing``).
+
+    The payment status only changes when the refund is confirmed complete, so a
+    refund is never reported as done before the money actually went back.
+    """
+    payment = (await db.execute(
+        select(Payment).where(Payment.id == payment_id, Payment.is_deleted == False)  # noqa: E712
+    )).scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    if payment.status not in (PAYMENT_STATUS_SUCCEEDED, PAYMENT_STATUS_PARTIALLY_REFUNDED):
+        raise HTTPException(
+            status_code=400,
+            detail="Only an approved payment can be refunded",
+        )
+
+    reason = _required_reason(payload.reason)
+    reserved = await _reserved_refund_amount(db, payment.id)
+    remaining = Decimal(payment.amount).quantize(Decimal("0.01")) - reserved
+    try:
+        amount = (
+            remaining if payload.amount is None
+            else Decimal(str(payload.amount)).quantize(Decimal("0.01"))
+        )
+    except (InvalidOperation, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_REFUND_AMOUNT",
+                "message": "Invalid refund amount",
+                "fields": {"amount": "Enter a valid amount"},
+            },
+        )
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Nothing left to refund on this payment")
+    if amount > remaining:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Refund exceeds the refundable amount ({remaining} {payment.currency})",
+        )
+
+    refund = Refund(
+        house_id=payment.house_id,
+        payment_id=payment.id,
+        invoice_id=payment.invoice_id,
+        amount=amount,
+        currency=payment.currency,
+        reason=reason,
+        status="processing",
+        refunded_by=current_user.id,
+    )
+    db.add(refund)
+    await db.commit()
+    await db.refresh(refund)
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="billing",
+        action="refund",
+        record_id=payment.id,
+        record_identifier=payment.invoice.invoice_no if payment.invoice else None,
+        new_values={
+            "refund_id": refund.id,
+            "payment_id": payment.id,
+            "amount": float(amount),
+            "currency": payment.currency,
+            "reason": reason,
+            "status": refund.status,
+        },
+        request=request,
+        status_code=201,
+    )
+    return {"success": True, "data": _refund_payload(refund)}
+
+
+@router.post("/refunds/{refund_id}/complete")
+async def admin_complete_refund(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("billing.refund")),
+):
+    """Confirm the money was actually returned; only now the payment changes."""
+    refund = (await db.execute(
+        select(Refund).where(Refund.id == refund_id, Refund.is_deleted == False)  # noqa: E712
+    )).scalar_one_or_none()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Refund not found")
+    if refund.status != "processing":
+        raise HTTPException(status_code=409, detail=f"Refund is already {refund.status}")
+
+    # Lock the payment row (bare id select: FOR UPDATE cannot sit on the
+    # eager-loaded outer joins), then read the fresh instance.
+    locked_id = (await db.execute(
+        select(Payment.id).where(Payment.id == refund.payment_id).with_for_update()
+    )).scalar_one_or_none()
+    if locked_id is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    payment = (await db.execute(
+        select(Payment).where(Payment.id == locked_id)
+    )).scalar_one()
+
+    refund.status = "succeeded"
+    refund.refunded_at = now_naive()
+    await db.flush()
+
+    total_refunded = Decimal(str((await db.execute(
+        select(func.coalesce(func.sum(Refund.amount), 0)).where(
+            Refund.payment_id == payment.id,
+            Refund.status == "succeeded",
+            Refund.is_deleted == False,  # noqa: E712
+        )
+    )).scalar_one() or 0)).quantize(Decimal("0.01"))
+    payment.status = (
+        PAYMENT_STATUS_REFUNDED
+        if total_refunded >= Decimal(payment.amount)
+        else PAYMENT_STATUS_PARTIALLY_REFUNDED
+    )
+    await db.commit()
+    await db.refresh(refund)
+    await db.refresh(payment)
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="billing",
+        action="refund_completed",
+        record_id=payment.id,
+        record_identifier=payment.invoice.invoice_no if payment.invoice else None,
+        new_values={
+            "refund_id": refund.id,
+            "payment_id": payment.id,
+            "amount": float(refund.amount),
+            "payment_status": payment.status,
+            "total_refunded": float(total_refunded),
+        },
+        request=request,
+        status_code=200,
+    )
+    return {
+        "success": True,
+        "data": _refund_payload(refund),
+        "payment_status": payment.status,
+    }
+
+
+@router.post("/refunds/{refund_id}/reject")
+async def admin_reject_refund(
+    refund_id: int,
+    payload: RefundRejectRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("billing.refund")),
+):
+    """Mark a refund attempt failed (e.g. the transfer bounced)."""
+    refund = (await db.execute(
+        select(Refund).where(Refund.id == refund_id, Refund.is_deleted == False)  # noqa: E712
+    )).scalar_one_or_none()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Refund not found")
+    if refund.status != "processing":
+        raise HTTPException(status_code=409, detail=f"Refund is already {refund.status}")
+
+    reason = _required_reason(payload.reason)
+    refund.status = "failed"
+    refund.reason = reason
+    await db.commit()
+    await db.refresh(refund)
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="billing",
+        action="refund_failed",
+        record_id=refund.payment_id,
+        new_values={
+            "refund_id": refund.id,
+            "payment_id": refund.payment_id,
+            "amount": float(refund.amount),
+            "reason": reason,
+        },
+        request=request,
+        status_code=200,
+    )
+    return {"success": True, "data": _refund_payload(refund)}
+
+
 # ---------------------------------------------------------------------------
 
 @router.get("/legacy-subscriptions")

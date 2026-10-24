@@ -9,6 +9,9 @@ import { cn } from "@/lib/utils";
 import type { Invoice } from "@/types/billing";
 
 const METHODS = ["bkash", "nagad", "rocket", "bank", "cash", "mobilebanking", "manual"] as const;
+const MFS_METHODS = new Set(["bkash", "nagad", "rocket", "mobilebanking"]);
+const REFERENCE_REQUIRED = new Set(["bkash", "nagad", "rocket", "bank", "mobilebanking"]);
+const BD_MOBILE_RE = /^01[3-9]\d{8}$/;
 
 interface Props {
   open: boolean;
@@ -23,6 +26,10 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
   const [method, setMethod] = useState<string>("bkash");
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
+  const [senderNumber, setSenderNumber] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [depositorName, setDepositorName] = useState("");
+  const [paymentDate, setPaymentDate] = useState("");
   const [note, setNote] = useState("");
   const [proof, setProof] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -34,6 +41,10 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
     setMethod("bkash");
     setAmount(invoice ? String(invoice.total) : "");
     setReference("");
+    setSenderNumber("");
+    setBankName("");
+    setDepositorName("");
+    setPaymentDate("");
     setNote("");
     setProof(null);
     setError(null);
@@ -42,8 +53,41 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
 
   if (!open || !invoice) return null;
 
+  const isMfs = MFS_METHODS.has(method);
+  const isBank = method === "bank";
+  const needsReference = REFERENCE_REQUIRED.has(method);
+
+  const validate = (): Record<string, string> => {
+    const errors: Record<string, string> = {};
+    if (!amount || Number(amount) <= 0) errors.amount = t("billing.amount_required");
+    if (needsReference && reference.trim().length < 4) {
+      errors.reference = t("billing.reference_required");
+    }
+    if (isMfs && !BD_MOBILE_RE.test(senderNumber.replace(/[^0-9]/g, ""))) {
+      errors.sender_number = t("billing.sender_number_invalid");
+    }
+    if (isBank && !bankName.trim()) errors.bank_name = t("billing.bank_name_required");
+    if (isBank && !depositorName.trim()) {
+      errors.depositor_name = t("billing.depositor_name_required");
+    }
+    if (paymentDate) {
+      const picked = new Date(`${paymentDate}T00:00:00`);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (picked.getTime() > today.getTime()) {
+        errors.payment_date = t("billing.payment_date_future");
+      }
+    }
+    return errors;
+  };
+
   const submit = async () => {
     if (!houseId) return;
+    const clientErrors = validate();
+    if (Object.keys(clientErrors).length > 0) {
+      setFieldErrors(clientErrors);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
@@ -53,6 +97,12 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
       form.append("method", method);
       form.append("amount", amount);
       if (reference.trim()) form.append("reference", reference.trim());
+      if (isMfs) form.append("sender_number", senderNumber.replace(/[^0-9]/g, ""));
+      if (isBank) {
+        form.append("bank_name", bankName.trim());
+        form.append("depositor_name", depositorName.trim());
+      }
+      if (paymentDate) form.append("payment_date", paymentDate);
       if (note.trim()) form.append("note", note.trim());
       if (proof) form.append("proof", proof);
 
@@ -159,12 +209,14 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
           <div>
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
               {t("billing.reference")}
+              {needsReference && <span className="text-red-500"> *</span>}
             </label>
             <input
               type="text"
               value={reference}
               onChange={(e) => setReference(e.target.value)}
               maxLength={120}
+              required={needsReference}
               placeholder="e.g. BKX1234567"
               className={cn(
                 "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
@@ -173,6 +225,96 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
             />
             {fieldErrors.reference && <p className="text-xs text-red-500 mt-1">{fieldErrors.reference}</p>}
           </div>
+
+          {isMfs && (
+            <div>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                {t("billing.sender_number")} <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="tel"
+                inputMode="tel"
+                value={senderNumber}
+                onChange={(e) => setSenderNumber(e.target.value)}
+                maxLength={14}
+                required
+                placeholder="01XXXXXXXXX"
+                className={cn(
+                  "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+                  fieldErrors.sender_number ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                )}
+              />
+              {fieldErrors.sender_number ? (
+                <p className="text-xs text-red-500 mt-1">{fieldErrors.sender_number}</p>
+              ) : (
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                  {t("billing.sender_number_hint")}
+                </p>
+              )}
+            </div>
+          )}
+
+          {isBank && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("billing.bank_name")} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                  maxLength={120}
+                  required
+                  className={cn(
+                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+                    fieldErrors.bank_name ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                  )}
+                />
+                {fieldErrors.bank_name && <p className="text-xs text-red-500 mt-1">{fieldErrors.bank_name}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("billing.depositor_name")} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={depositorName}
+                  onChange={(e) => setDepositorName(e.target.value)}
+                  maxLength={120}
+                  required
+                  className={cn(
+                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+                    fieldErrors.depositor_name ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                  )}
+                />
+                {fieldErrors.depositor_name && (
+                  <p className="text-xs text-red-500 mt-1">{fieldErrors.depositor_name}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {method !== "cash" && method !== "manual" && (
+            <div>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                {t("billing.payment_date")}
+              </label>
+              <input
+                type="date"
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                max={new Date().toISOString().slice(0, 10)}
+                className={cn(
+                  "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 cursor-pointer",
+                  fieldErrors.payment_date ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                )}
+              />
+              {fieldErrors.payment_date && (
+                <p className="text-xs text-red-500 mt-1">{fieldErrors.payment_date}</p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">

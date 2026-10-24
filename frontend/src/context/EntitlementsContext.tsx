@@ -107,6 +107,14 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
   const hasModule = useCallback(
     (key: string): boolean => {
       if (isSuperAdminUser(user)) return true;
+      // Base modules and platform-wide groups (billing & subscription) can never
+      // be granted by a plan, so they must never be gated here:
+      // `billing_group` is not in `allowed_modules`, and treating that as "not
+      // granted" hid Pricing / My Billing from every strict-plan tenant (e.g. a
+      // distributor with plans.view + billing.view). The backend already treats
+      // /api/v1/billing, /api/v1/subscription and /api/v1/plans as platform
+      // paths, so gating them in the UI only produced a dead menu entry.
+      if (BASE_MODULES.has(key) || isAlwaysReachable(key)) return true;
       if (!moduleGated || allowedModules === null) return true;
       return moduleEnabledForKeys(key, allowedModules);
     },

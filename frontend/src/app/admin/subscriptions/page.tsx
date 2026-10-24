@@ -675,15 +675,21 @@ export default function AdminSubscriptionsPage() {
         message={t("subscriptions.reject_confirm", { id: rejectTarget?.id ?? "" })}
         confirmText={t("subscriptions.reject")}
         loading={busy}
+        confirmDisabled={rejectReason.trim().length < 3}
       >
         <textarea
           value={rejectReason}
           onChange={(e) => setRejectReason(e.target.value)}
           rows={2}
           maxLength={500}
+          required
+          minLength={3}
           placeholder={t("subscriptions.reject_reason")}
           className="w-full mt-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
         />
+        <p className="mt-1.5 w-full text-left text-[11px] text-gray-500 dark:text-gray-400">
+          {t("subscriptions.reason_required_hint")}
+        </p>
       </ConfirmationModal>
       <ConfirmationModal
         isOpen={!!requestInfoTarget}
@@ -694,15 +700,21 @@ export default function AdminSubscriptionsPage() {
         message={t("subscriptions.request_info_confirm", { id: requestInfoTarget?.id ?? "" })}
         confirmText={t("subscriptions.request_info")}
         loading={busy}
+        confirmDisabled={requestInfoReason.trim().length < 3}
       >
         <textarea
           value={requestInfoReason}
           onChange={(e) => setRequestInfoReason(e.target.value)}
           rows={2}
           maxLength={500}
+          required
+          minLength={3}
           placeholder={t("subscriptions.request_info_reason")}
           className="w-full mt-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
         />
+        <p className="mt-1.5 w-full text-left text-[11px] text-gray-500 dark:text-gray-400">
+          {t("subscriptions.reason_required_hint")}
+        </p>
       </ConfirmationModal>
       <ConfirmationModal
         isOpen={confirm?.kind === "status"}
