@@ -423,6 +423,11 @@ async def _finalize_backup_records(
     source_file_name: Optional[str] = None,
 ) -> None:
     """Repair in-progress backup rows captured in a database snapshot."""
+    from app.models.base import Base
+
+    connection = await db.connection()
+    await connection.run_sync(Base.metadata.create_all)
+
     restored_size = os.path.getsize(restored_file_path)
     if restored_size <= 0:
         raise RuntimeError("Restored backup file is empty")

@@ -153,7 +153,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api}
+      - API_INTERNAL_URL=${API_INTERNAL_URL:-http://backend:8000}
       - NODE_ENV=production
       # `NEXT_PUBLIC_*` values are inlined by `next build`, so the browser key
       # must exist while the container runs `npm run build` — not only at
@@ -184,7 +185,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api}
+      - API_INTERNAL_URL=${API_INTERNAL_URL:-http://backend:8000}
       - NODE_ENV=development
       - WATCHPACK_POLLING=true
       # Dev-only: a key that allows localhost (falls back to the production key).

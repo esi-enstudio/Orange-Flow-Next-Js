@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
  * (the client guard falls back to the last-known localStorage state).
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+const API_BASE = `${process.env.API_INTERNAL_URL || "http://127.0.0.1:8000"}/api`;
 
 type Phase = "off" | "grace" | "enforced";
 
@@ -73,7 +73,13 @@ async function isSuperAdmin(token: string): Promise<boolean> {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (pathname === "/maintenance") return NextResponse.next();
+  if (
+    pathname === "/maintenance" ||
+    pathname === "/api" ||
+    pathname.startsWith("/api/")
+  ) {
+    return NextResponse.next();
+  }
 
   // Deploy verify probes (deploy.sh curls localhost:3000 for the <body check)
   // and health checks must never be redirected while maintenance is enforced.

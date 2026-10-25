@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const path = require("path");
+const backendOrigin = process.env.API_INTERNAL_URL || "http://127.0.0.1:8000";
 
 const nextConfig = {
   turbopack: {
@@ -27,6 +28,12 @@ const nextConfig = {
   async redirects() {
     return [
       { source: "/commercial/commission", destination: "/commission", permanent: true },
+    ];
+  },
+  async rewrites() {
+    return [
+      { source: "/api/:path*", destination: `${backendOrigin}/api/:path*` },
+      { source: "/uploads/:path*", destination: `${backendOrigin}/uploads/:path*` },
     ];
   },
 };

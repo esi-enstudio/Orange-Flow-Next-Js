@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import apiClient from "@/lib/api";
+import { getProfilePicUrl } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { 
   User, 
@@ -141,7 +142,7 @@ interface EmployeeProfile {
 }
 
 export default function ProfilePage() {
-  const { user, loading: authLoading, refreshStatus } = useAuth();
+  const { user, loading: authLoading, refreshStatus, updateUser } = useAuth();
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [empLoading, setEmpLoading] = useState(false);
@@ -171,7 +172,7 @@ export default function ProfilePage() {
         password: "",
         confirmPassword: ""
       });
-      setProfilePic(user.profile_pic ? `${process.env.NEXT_PUBLIC_API_URL?.replace("/api", "")}${user.profile_pic}` : null);
+      setProfilePic(getProfilePicUrl(user.profile_pic));
       fetchEmployeeProfile();
     }
   }, [user]);
@@ -240,7 +241,8 @@ export default function ProfilePage() {
     try {
       const response = await apiClient.post("auth/profile-pic", uploadData);
       const newPicUrl = response.data.url;
-      setProfilePic(`${process.env.NEXT_PUBLIC_API_URL?.replace("/api", "")}${newPicUrl}`);
+      setProfilePic(getProfilePicUrl(newPicUrl));
+      updateUser({ profile_pic: newPicUrl });
       toast.success(t('profile.toast_pic_updated'));
     } catch (err: any) {
       toast.error(t('profile.toast_pic_failed'));

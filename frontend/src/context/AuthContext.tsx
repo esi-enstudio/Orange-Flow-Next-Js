@@ -44,6 +44,7 @@ interface AuthContextType {
   login: (token: string) => Promise<void>;
   logout: () => void;
   refreshStatus: () => Promise<void>;
+  updateUser: (updates: Partial<User>) => void;
   hasPermission: (permission: string) => boolean;
   selectedHouse: { id: number } | null;
 }
@@ -148,6 +149,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/login");
   };
 
+  const updateUser = (updates: Partial<User>) => {
+    setUser((currentUser) => currentUser ? { ...currentUser, ...updates } : currentUser);
+  };
+
   // Protected route logic
   useEffect(() => {
     if (!loading && initialized !== null) {
@@ -196,6 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login, 
       logout, 
       refreshStatus,
+      updateUser,
       hasPermission,
       selectedHouse: user?.selected_house_id
         ? { id: user.selected_house_id }
