@@ -789,6 +789,28 @@ export const translations = {
       field_bp_number: "BP Number",
       field_dob: "Date of Birth",
       showing_results: "Showing {start} to {end} of {total} results",
+      guide: {
+        title: "Retailer List Guide",
+        overview: "The retailer list helps you manage retailer records, assign RSO ownership, and review core business details like territory, contact data, and retailer type.",
+        features_title: "Key features",
+        features: {
+          f1: { title: "Search and filter", desc: "Find a retailer by code, name, iTop number, or address and narrow the list by house or RSO." },
+          f2: { title: "Retailer details", desc: "Open a record to review the retailer's ownership, type, route, contact, and network information." },
+          f3: { title: "Import and export", desc: "Upload a bulk retailer list or export the current filtered set for reporting or sharing." },
+          f4: { title: "House visibility", desc: "Use the active house scope to focus on a single distribution outlet or compare across houses." },
+        },
+        steps_title: "Common workflows",
+        steps: {
+          s1: { title: "Review retailer records", desc: "Use the search box and filters to locate a retailer and inspect linked RSO or location details." },
+          s2: { title: "Import new data", desc: "Prepare your Excel list, upload it here, and verify the imported records before saving." },
+          s3: { title: "Share a report", desc: "Export the current filtered list when you need a spreadsheet for audits, updates, or handoff." },
+        },
+        notes_title: "Important notes",
+        notes: {
+          n1: { title: "House-safe access", desc: "You only see retailers from houses you are allowed to work in, and filters respect those permissions." },
+          n2: { title: "Data quality", desc: "Keep the retailer code, iTop, and contact details up to date so downstream activation and reporting remains accurate." },
+        },
+      },
     },
     houses: {
       title: "Distribution Houses",
@@ -3712,6 +3734,28 @@ export const translations = {
       product_breakdown: "Product Breakdown",
       total_products: "Total Products",
       itopup_same_holder: "Source and destination cannot be the same",
+      guide: {
+        title: "Stock Management Guide",
+        overview: "The stock module gives you a complete view of warehouse stock, employee stock, transfers, adjustments, and stock movement history across the selected house.",
+        features_title: "Key features",
+        features: {
+          f1: { title: "Summary overview", desc: "The top summary shows warehouse quantity, employee stock, and total value so you can see the immediate status." },
+          f2: { title: "Stock items", desc: "Review every product and its location split, including inventory counts and current totals for the active house." },
+          f3: { title: "Transfers and adjustments", desc: "Create stock movement records, transfer goods between locations, and log manual adjustments with reasons." },
+          f4: { title: "House and employee scope", desc: "Switch the active house and check per-employee stock when you need operational detail for a specific team." },
+        },
+        steps_title: "Common workflows",
+        steps: {
+          s1: { title: "Check stock status", desc: "Open the Summary or Stock Items tab to review balances, quantities, and product totals before making decisions." },
+          s2: { title: "Move stock", desc: "Use the transfer form to move products between warehouse and employee locations with a clear reason and validation." },
+          s3: { title: "Handle mismatch", desc: "Use adjustment entries for corrections, damaged goods, losses, or audit fixes to keep records accurate." },
+        },
+        notes_title: "Important notes",
+        notes: {
+          n1: { title: "House scoping", desc: "All stock data is filtered by the selected house, so make sure the correct house is active before creating or reviewing records." },
+          n2: { title: "Validation", desc: "Stock movements enforce quantity checks to prevent transfers and adjustments that exceed the available inventory." },
+        },
+      },
     },
     sales: {
       title: "Sales Management",
@@ -5698,6 +5742,28 @@ employees: "Employees",
       toast_load_failed: "Failed to load retailers",
       toast_export_success: "Export successful",
       toast_export_failed: "Export failed",
+      guide: {
+        title: "রিটেইলার তালিকা গাইড",
+        overview: "রিটেইলার তালিকা আপনাকে রিটেইলার রেকর্ড, RSO মালিকানা, আর আঞ্চলিক/কন্টাক্ট ডেটা দেখাশোনা করতে সাহায্য করে।",
+        features_title: "মূল বৈশিষ্ট্য",
+        features: {
+          f1: { title: "খোঁজ ও ফিল্টার", desc: "কোড, নাম, iTop নম্বর বা ঠিকানা দিয়ে রিটেইলার খুঁজুন এবং হাউস/RSO অনুযায়ী তালিকা সংকুচিত করুন।" },
+          f2: { title: "রিটেইলার ডিটেইল", desc: "রেকর্ড খুলে মালিক, ধরন, রুট, কন্টাক্ট এবং নেটওয়ার্ক তথ্য দেখুন।" },
+          f3: { title: "ইমপোর্ট ও এক্সপোর্ট", desc: "বাল্ক রিটেইলার তালিকা ইমপোর্ট করুন বা বর্তমান ফিল্টারড তালিকা এক্সপোর্ট করুন।" },
+          f4: { title: "হাউসভিত্তিক দৃশ্য", desc: "একটি হাউস বা সব হাউসের মধ্যে ফোকাস করে তথ্য দেখতে পারবেন।" },
+        },
+        steps_title: "সাধারণ কাজে ব্যবহৃত流程",
+        steps: {
+          s1: { title: "রেকর্ড যাচাই", desc: "সার্চ ও ফিল্টার ব্যবহার করে নির্দিষ্ট রিটেইলার খুঁজুন এবং সংশ্লিষ্ট তথ্য দেখুন।" },
+          s2: { title: "নতুন ডেটা ইমপোর্ট", desc: "এক্সেল ফাইল প্রস্তুত করে আপলোড করুন এবং সেভ করার আগে ডেটা যাচাই করুন।" },
+          s3: { title: "রিপোর্ট শেয়ার", desc: "কার্যকরী তালিকা এক্সপোর্ট করে অডিট, আপডেট বা হ্যান্ডঅফের জন্য ব্যবহার করুন।" },
+        },
+        notes_title: "গুরুত্বপূর্ণ নোট",
+        notes: {
+          n1: { title: "হাউস-নিরাপদ অ্যাক্সেস", desc: "শুধু আপনার অনুমোদিত হাউসের রিটেইলার দেখা যাবে।" },
+          n2: { title: "ডেটা গুণগত মান", desc: "কোড, iTop এবং কন্টাক্ট ডেটা আপডেট রাখলে রিপোর্ট ও অ্যাক্টিভেশন সঠিক থাকে।" },
+        },
+      },
     },
     houses: {
       title: "Distribution House",

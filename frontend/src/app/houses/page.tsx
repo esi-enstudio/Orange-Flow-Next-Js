@@ -14,6 +14,7 @@ import type { HouseFilters } from "@/types/house";
 import { defaultFilters } from "@/types/house";
 import HouseCard from "./_components/HouseCard";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import PageGuideModal from "@/components/PageGuideModal";
 import HouseFormModal from "./_components/HouseFormModal";
 
 
@@ -228,7 +229,10 @@ export default function HousesPage() {
     <div className="space-y-6 animate-in fade-in duration-500 p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 transition-colors">{t('houses.title')}</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 transition-colors">{t('houses.title')}</h1>
+            <PageGuideModal pageKey="houses" />
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t('houses.description')}</p>
         </div>
         <button

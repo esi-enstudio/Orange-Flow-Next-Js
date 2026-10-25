@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { motion, AnimatePresence } from "framer-motion";
+import PageGuideModal from "@/components/PageGuideModal";
 import {
   Warehouse,
   Package,
@@ -1417,9 +1418,12 @@ export default function StockPage() {
               <Warehouse className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight truncate">
-                {t("stock.title")}
-              </h1>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight truncate">
+                  {t("stock.title")}
+                </h1>
+                <PageGuideModal pageKey="stock" />
+              </div>
               <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">{t("stock.description")}</p>
             </div>
           </div>

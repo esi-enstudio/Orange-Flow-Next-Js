@@ -84,6 +84,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
   const [proof, setProof] = useState<File | null>(null);
   const [proofBusy, setProofBusy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submittedData, setSubmittedData] = useState<Record<string, string> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -99,6 +100,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
     setNote("");
     setProof(null);
     setProofBusy(false);
+    setSubmittedData(null);
     setError(null);
     setFieldErrors({});
   }, [open, invoice]);
@@ -164,9 +166,20 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
       await apiClient.post("v1/billing/payments/request", form, {
         headers: { "X-House-ID": String(houseId) },
       });
+      const nextSubmitted = {
+        method: t(METHOD_LABEL_KEYS[method] || "billing.method_bank"),
+        amount: `৳${Number(amount).toLocaleString()}`,
+        reference: reference.trim() || "—",
+        sender_number: isMfs ? senderNumber.replace(/[^0-9]/g, "") || "—" : "—",
+        bank_name: isBank ? bankName.trim() || "—" : "—",
+        depositor_name: isBank ? depositorName.trim() || "—" : "—",
+        payment_date: paymentDate || "—",
+        note: note.trim() || "—",
+        proof: proof?.name || "—",
+      };
+      setSubmittedData(nextSubmitted);
       toast.success(t("billing.request_submitted"));
       onSubmitted();
-      onClose();
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       if (detail && typeof detail === "object") {
@@ -214,244 +227,293 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
         </div>
 
         <div className="px-5 sm:px-6 py-5 space-y-4">
-          {error && (
-            <div className="flex items-start gap-2 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 px-3 py-2.5 text-sm text-red-600 dark:text-red-400">
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
+          {submittedData ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 dark:border-emerald-500/20 dark:bg-emerald-500/10 px-4 py-3">
+                <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{t("billing.request_submitted")}</p>
+                <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-1">{t("billing.pending_approval")}</p>
+              </div>
 
-          <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("billing.payment_method_label")}
-            </label>
-            <select
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-              className="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+              <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3 border-b border-gray-200 dark:border-slate-700 pb-2">
+                  <span className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("billing.invoice_ref", { no: invoice.invoice_no })}</span>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{submittedData.amount}</span>
+                </div>
+
+                {Object.entries({
+                  [t("billing.payment_method_label")]: submittedData.method,
+                  [t("billing.amount")]: submittedData.amount,
+                  [t("billing.reference")]: submittedData.reference,
+                  [t("billing.sender_number")]: submittedData.sender_number,
+                  [t("billing.bank_name")]: submittedData.bank_name,
+                  [t("billing.depositor_name")]: submittedData.depositor_name,
+                  [t("billing.payment_date")]: submittedData.payment_date,
+                  [t("billing.note")]: submittedData.note,
+                  [t("billing.proof")]: submittedData.proof,
+                }).map(([label, value]) => {
+                  if (value === "—") return null;
+                  return (
+                    <div key={label} className="flex flex-col gap-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</span>
+                      <span className="text-sm text-gray-900 dark:text-gray-100 break-words">{value}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full inline-flex items-center justify-center min-h-[44px] rounded-xl bg-primary-600 text-white text-sm font-bold hover:bg-primary-700 transition-colors cursor-pointer"
+              >
+                {t("common.close")}
+              </button>
+            </div>
+          ) : (
+            <>
+              {error && (
+                <div className="flex items-start gap-2 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 px-3 py-2.5 text-sm text-red-600 dark:text-red-400">
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("billing.payment_method_label")}
+                </label>
+                <select
+                  value={method}
+                  onChange={(e) => setMethod(e.target.value)}
+                  className="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                >
+                  {METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {t(METHOD_LABEL_KEYS[m])}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("billing.amount")} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className={cn(
+                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+                    fieldErrors.amount ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                  )}
+                />
+                {fieldErrors.amount ? (
+                  <p className="text-xs text-red-500 mt-1">{fieldErrors.amount}</p>
+                ) : (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">{t("billing.amount_hint")}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("billing.reference")}
+                  {needsReference && <span className="text-red-500"> *</span>}
+                </label>
+                <input
+                  type="text"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  maxLength={120}
+                  required={needsReference}
+                  placeholder="e.g. BKX1234567"
+                  className={cn(
+                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+                    fieldErrors.reference ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                  )}
+                />
+                {fieldErrors.reference && <p className="text-xs text-red-500 mt-1">{fieldErrors.reference}</p>}
+              </div>
+
+              {isMfs && (
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                    {t("billing.sender_number")} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    value={senderNumber}
+                    onChange={(e) => setSenderNumber(e.target.value)}
+                    maxLength={14}
+                    required
+                    placeholder="01XXXXXXXXX"
+                    className={cn(
+                      "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+                      fieldErrors.sender_number ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                    )}
+                  />
+                  {fieldErrors.sender_number ? (
+                    <p className="text-xs text-red-500 mt-1">{fieldErrors.sender_number}</p>
+                  ) : (
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                      {t("billing.sender_number_hint")}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {isBank && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                      {t("billing.bank_name")} <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      maxLength={120}
+                      required
+                      className={cn(
+                        "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+                        fieldErrors.bank_name ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                      )}
+                    />
+                    {fieldErrors.bank_name && <p className="text-xs text-red-500 mt-1">{fieldErrors.bank_name}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                      {t("billing.depositor_name")} <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={depositorName}
+                      onChange={(e) => setDepositorName(e.target.value)}
+                      maxLength={120}
+                      required
+                      className={cn(
+                        "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
+                        fieldErrors.depositor_name ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                      )}
+                    />
+                    {fieldErrors.depositor_name && (
+                      <p className="text-xs text-red-500 mt-1">{fieldErrors.depositor_name}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div style={{display: isCash ? 'none' : 'block'}}>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("billing.payment_date")} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  max={new Date().toISOString().slice(0, 10)}
+                  required
+                  className={cn(
+                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 cursor-pointer",
+                    fieldErrors.payment_date ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                  )}
+                />
+                {fieldErrors.payment_date ? (
+                  <p className="text-xs text-red-500 mt-1">{fieldErrors.payment_date}</p>
+                ) : (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                    {t("billing.payment_date_hint")}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("billing.note_optional")}
+                </label>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={2}
+                  maxLength={500}
+                  className="w-full rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 px-3.5 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("billing.proof_optional")}
+                </label>
+                <label className="flex items-center gap-2.5 min-h-11 px-3.5 py-2.5 rounded-xl border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/40 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
+                  {proofBusy ? (
+                    <Loader2 className="w-4 h-4 shrink-0 text-gray-400 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4 shrink-0 text-gray-400" />
+                  )}
+                  <span className="truncate">
+                    {proof ? proof.name : t("billing.proof_hint")}
+                  </span>
+                  {proof && !proofBusy && (
+                    <span className="ml-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500">
+                      {proof.size >= 1024 * 1024
+                        ? `${(proof.size / (1024 * 1024)).toFixed(1)} MB`
+                        : `${Math.max(1, Math.round(proof.size / 1024))} KB`}
+                    </span>
+                  )}
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.pdf"
+                    className="sr-only"
+                    onChange={async (e) => {
+                      const picked = e.target.files?.[0] ?? null;
+                      if (!picked) {
+                        setProof(null);
+                        return;
+                      }
+                      setProofBusy(true);
+                      const optimized = await compressProofImage(picked);
+                      setProof(optimized);
+                      setProofBusy(false);
+                      setFieldErrors((prev) => {
+                        if (!prev.proof) return prev;
+                        const next = { ...prev };
+                        delete next.proof;
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+                {fieldErrors.proof && <p className="text-xs text-red-500 mt-1">{fieldErrors.proof}</p>}
+              </div>
+            </>
+          )}
+        </div>
+
+        {!submittedData && (
+          <div className="sticky bottom-0 px-5 sm:px-6 py-4 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 flex flex-col-reverse sm:flex-row gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="min-h-11 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
             >
-              {METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {t(METHOD_LABEL_KEYS[m])}
-                </option>
-              ))}
-            </select>
+              {t("common.cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={submitting || proofBusy}
+              className="flex-1 inline-flex items-center justify-center gap-2 min-h-11 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 cursor-pointer"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {t("billing.submit_for_approval")}
+            </button>
           </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("billing.amount")} <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className={cn(
-                "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
-                fieldErrors.amount ? "border-red-400" : "border-gray-200 dark:border-slate-700"
-              )}
-            />
-            {fieldErrors.amount ? (
-              <p className="text-xs text-red-500 mt-1">{fieldErrors.amount}</p>
-            ) : (
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">{t("billing.amount_hint")}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("billing.reference")}
-              {needsReference && <span className="text-red-500"> *</span>}
-            </label>
-            <input
-              type="text"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              maxLength={120}
-              required={needsReference}
-              placeholder="e.g. BKX1234567"
-              className={cn(
-                "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
-                fieldErrors.reference ? "border-red-400" : "border-gray-200 dark:border-slate-700"
-              )}
-            />
-            {fieldErrors.reference && <p className="text-xs text-red-500 mt-1">{fieldErrors.reference}</p>}
-          </div>
-
-          {isMfs && (
-            <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("billing.sender_number")} <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="tel"
-                inputMode="tel"
-                value={senderNumber}
-                onChange={(e) => setSenderNumber(e.target.value)}
-                maxLength={14}
-                required
-                placeholder="01XXXXXXXXX"
-                className={cn(
-                  "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
-                  fieldErrors.sender_number ? "border-red-400" : "border-gray-200 dark:border-slate-700"
-                )}
-              />
-              {fieldErrors.sender_number ? (
-                <p className="text-xs text-red-500 mt-1">{fieldErrors.sender_number}</p>
-              ) : (
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-                  {t("billing.sender_number_hint")}
-                </p>
-              )}
-            </div>
-          )}
-
-          {isBank && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  {t("billing.bank_name")} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  maxLength={120}
-                  required
-                  className={cn(
-                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
-                    fieldErrors.bank_name ? "border-red-400" : "border-gray-200 dark:border-slate-700"
-                  )}
-                />
-                {fieldErrors.bank_name && <p className="text-xs text-red-500 mt-1">{fieldErrors.bank_name}</p>}
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  {t("billing.depositor_name")} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={depositorName}
-                  onChange={(e) => setDepositorName(e.target.value)}
-                  maxLength={120}
-                  required
-                  className={cn(
-                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
-                    fieldErrors.depositor_name ? "border-red-400" : "border-gray-200 dark:border-slate-700"
-                  )}
-                />
-                {fieldErrors.depositor_name && (
-                  <p className="text-xs text-red-500 mt-1">{fieldErrors.depositor_name}</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div style={{display: isCash ? 'none' : 'block'}}>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("billing.payment_date")} <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="date"
-              value={paymentDate}
-              onChange={(e) => setPaymentDate(e.target.value)}
-              max={new Date().toISOString().slice(0, 10)}
-              required
-              className={cn(
-                "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 cursor-pointer",
-                fieldErrors.payment_date ? "border-red-400" : "border-gray-200 dark:border-slate-700"
-              )}
-            />
-            {fieldErrors.payment_date ? (
-              <p className="text-xs text-red-500 mt-1">{fieldErrors.payment_date}</p>
-            ) : (
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-                {t("billing.payment_date_hint")}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("billing.note_optional")}
-            </label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              maxLength={500}
-              className="w-full rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 px-3.5 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("billing.proof_optional")}
-            </label>
-            <label className="flex items-center gap-2.5 min-h-11 px-3.5 py-2.5 rounded-xl border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/40 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
-              {proofBusy ? (
-                <Loader2 className="w-4 h-4 shrink-0 text-gray-400 animate-spin" />
-              ) : (
-                <Upload className="w-4 h-4 shrink-0 text-gray-400" />
-              )}
-              <span className="truncate">
-                {proof ? proof.name : t("billing.proof_hint")}
-              </span>
-              {proof && !proofBusy && (
-                <span className="ml-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500">
-                  {proof.size >= 1024 * 1024
-                    ? `${(proof.size / (1024 * 1024)).toFixed(1)} MB`
-                    : `${Math.max(1, Math.round(proof.size / 1024))} KB`}
-                </span>
-              )}
-              <input
-                type="file"
-                accept=".jpg,.jpeg,.png,.webp,.pdf"
-                className="sr-only"
-                onChange={async (e) => {
-                  const picked = e.target.files?.[0] ?? null;
-                  if (!picked) {
-                    setProof(null);
-                    return;
-                  }
-                  setProofBusy(true);
-                  const optimized = await compressProofImage(picked);
-                  setProof(optimized);
-                  setProofBusy(false);
-                  setFieldErrors((prev) => {
-                    if (!prev.proof) return prev;
-                    const { proof: _removed, ...rest } = prev;
-                    return rest;
-                  });
-                }}
-              />
-            </label>
-            {fieldErrors.proof && <p className="text-xs text-red-500 mt-1">{fieldErrors.proof}</p>}
-          </div>
-        </div>
-
-        <div className="sticky bottom-0 px-5 sm:px-6 py-4 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 flex flex-col-reverse sm:flex-row gap-2.5">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="min-h-11 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
-          >
-            {t("common.cancel")}
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={submitting || proofBusy}
-            className="flex-1 inline-flex items-center justify-center gap-2 min-h-11 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 cursor-pointer"
-          >
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {t("billing.submit_for_approval")}
-          </button>
-        </div>
+        )}
       </div>
     </div>
   );

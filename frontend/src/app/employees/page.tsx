@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
 import { useMemo } from "react";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import PageGuideModal from "@/components/PageGuideModal";
 import { motion, AnimatePresence } from "framer-motion";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -863,10 +864,13 @@ export default function EmployeesPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
         <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 font-mono tracking-tight flex items-center gap-2">
-              <Users2 className="w-5 h-5 md:w-6 md:h-6 text-primary-500" />
-              {t('employees.title')}
-            </h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 font-mono tracking-tight flex items-center gap-2">
+                <Users2 className="w-5 h-5 md:w-6 md:h-6 text-primary-500" />
+                {t('employees.title')}
+              </h1>
+              <PageGuideModal pageKey="employees" />
+            </div>
             <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-0.5 md:mt-1">{t('employees.description')}</p>
         </div>
         <div className="flex items-center gap-1.5 md:gap-2">

@@ -482,6 +482,7 @@ export default function AdminPaymentsPage() {
               />
               <Field label={t("admin_payments.subscription_status")} value={d.subscription_status || "—"} />
               <Field label={t("admin_payments.payment_date")} value={fmtLongDate(d.payment_date)} />
+              <Field label={t("billing.reference")} value={d.reference || d.gateway_tran_id || "—"} />
               <Field label={t("admin_payments.sender_number")} value={d.sender_number || "—"} />
               <Field label={t("admin_payments.bank_name")} value={d.bank_name || "—"} />
               <Field label={t("admin_payments.depositor_name")} value={d.depositor_name || "—"} />

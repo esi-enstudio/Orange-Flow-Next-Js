@@ -284,19 +284,19 @@ def _line_items_table(invoice: Invoice, styles: dict, paid_amount: float = 0, du
             ),
         ]
     )
-    # Add Paid Amount row
+    # Add paid status row
     rows.append(
         [
             Paragraph("", styles["cell"]),
-            Paragraph("<b>Paid Amount</b>", styles["cell"]),
+            Paragraph("<b>Paid</b>", styles["cell"]),
             Paragraph(f"{_money(paid_amount)} {_safe(invoice.currency or 'BDT')}", styles["total"]),
         ]
     )
-    # Add Due Amount row
+    # Add due status row
     rows.append(
         [
             Paragraph("", styles["cell"]),
-            Paragraph("<b>Due Amount</b>", styles["cell"]),
+            Paragraph("<b>Due</b>", styles["cell"]),
             Paragraph(f"{_money(due_amount)} {_safe(invoice.currency or 'BDT')}", styles["total"]),
         ]
     )
