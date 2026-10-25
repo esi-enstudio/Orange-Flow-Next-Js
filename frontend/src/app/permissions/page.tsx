@@ -216,7 +216,7 @@ function PermissionsManager() {
       .filter((group) => group.perms.length > 0 || titleOf(group).toLowerCase().includes(normalizedSearch));
   }, [groups, normalizedSearch, titleOf]);
 
-  const selectedCount = workingIds.size;
+  const selectedCount = allGroupPermIds.filter((id) => workingIds.has(id)).length;
 
   const togglePermission = (id: number) => {
     setWorkingIds((prev) => {
@@ -635,25 +635,30 @@ function PermissionsManager() {
             </div>
           )}
 
-          <div className="sticky bottom-4 z-30 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="w-2 h-2 rounded-full shrink-0 bg-primary-500" />
-              <p className="text-xs font-bold text-gray-700 dark:text-gray-200 capitalize truncate">
-                {t("permissions.editing_role", { role: selectedRole?.name || "" })}
-              </p>
+          <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-50 flex flex-col items-stretch gap-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-xl dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between sm:p-4 md:bottom-4">
+            <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-start">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-primary-500" />
+                <p className="truncate text-xs font-bold capitalize text-gray-700 dark:text-gray-200">
+                  {t("permissions.editing_role", { role: selectedRole?.name || "" })}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-lg bg-primary-50 px-2.5 py-1.5 text-[11px] font-bold tabular-nums text-primary-700 dark:bg-primary-500/10 dark:text-primary-300 sm:ml-2">
+                {t("permissions.selected_count", { count: selectedCount, total: allGroupPermIds.length })}
+              </span>
               {dirty && (
-                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase hidden sm:inline">
+                <span className="hidden text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400 sm:inline">
                   {t("permissions.unsaved")}
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 md:gap-3">
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto md:gap-3">
               {canSave && (
                 <button
                   type="button"
                   onClick={resetChanges}
                   disabled={!dirty || saving}
-                  className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 text-sm font-bold text-gray-500 dark:text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold text-gray-500 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-slate-800 cursor-pointer sm:px-5"
                 >
                   {t("common.cancel")}
                 </button>
@@ -666,7 +671,7 @@ function PermissionsManager() {
                     router.push("/roles");
                   }
                 }}
-                className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800 cursor-pointer sm:px-5"
               >
                 {t("permissions.back_to_roles")}
               </button>
@@ -674,7 +679,7 @@ function PermissionsManager() {
                 type="button"
                 onClick={handleSave}
                 disabled={!canSave || !dirty || saving}
-                className="inline-flex items-center justify-center gap-2 px-5 sm:px-7 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-primary-200 transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-40 dark:shadow-none cursor-pointer sm:col-span-1 sm:px-7"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 {t("permissions.save_changes")}
