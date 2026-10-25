@@ -312,29 +312,35 @@ class ActiveSsoReportService:
         column_maps, column_excluded = await self._build_column_rule_data(
             all_retailer_ids, cur_map
         )
-        # Retailers that became Active SSO for the first time on the latest day
-        # that actually carries data (up to that day NOT active, on it IS
-        # active), measured under the same "Achieved" column rule as the
-        # summary. Activation imports land a day late, so a calendar yesterday
-        # with no rows would otherwise report a permanent, misleading 0.
+        # Retailers that became Active SSO on YESTERDAY: their cumulative
+        # activations up to the day before yesterday were still below the
+        # threshold (0 or 1 activation at the default threshold of 2) and
+        # yesterday's activations pushed them to the threshold. Measured under
+        # the same "Achieved" column rule as the summary.
         yesterday = self.today - timedelta(days=1)
         achieved_codes = set(self._effective_excluded_codes("achieved"))
         achieved_excluded = column_excluded.get("achieved") or set()
         achieved_rids = [rid for rid in all_retailer_ids if rid not in achieved_excluded]
-        reference_date = await self._latest_activation_date(achieved_rids, yesterday)
-        day_before_reference = reference_date - timedelta(days=1)
-        up_to_day_before_map = await self._get_activation_map(
-            achieved_rids, self.start_date, day_before_reference, achieved_codes
-        )
-        up_to_reference_map = await self._get_activation_map(
-            achieved_rids, self.start_date, reference_date, achieved_codes
-        )
-        newly_active_yesterday = sum(
-            1
-            for rid in achieved_rids
-            if up_to_day_before_map.get(rid, 0) < self.activations_threshold
-            and up_to_reference_map.get(rid, 0) >= self.activations_threshold
-        )
+        # Yesterday clamped to the selected period: a past-month view is judged
+        # on its own last day; a period that has not started yet has no badge.
+        reference_date = min(yesterday, self.end_date)
+        newly_active_yesterday = 0
+        yesterday_date: Optional[str] = None
+        if reference_date >= self.start_date:
+            up_to_day_before_map = await self._get_activation_map(
+                achieved_rids, self.start_date, reference_date - timedelta(days=1),
+                achieved_codes,
+            )
+            up_to_reference_map = await self._get_activation_map(
+                achieved_rids, self.start_date, reference_date, achieved_codes
+            )
+            newly_active_yesterday = sum(
+                1
+                for rid in achieved_rids
+                if up_to_day_before_map.get(rid, 0) < self.activations_threshold
+                and up_to_reference_map.get(rid, 0) >= self.activations_threshold
+            )
+            yesterday_date = reference_date.isoformat()
 
         rows = []
         for emp in emps:
@@ -355,7 +361,7 @@ class ActiveSsoReportService:
             "period": self._period_info(),
             "count_keys": list(self.count_keys),
             "yesterday_active": newly_active_yesterday,
-            "yesterday_date": reference_date.isoformat(),
+            "yesterday_date": yesterday_date,
             "rows": rows,
             "summary": self._aggregate(rows),
             "supervisor_summary": self._supervisor_summary(rows),
@@ -482,21 +488,6 @@ class ActiveSsoReportService:
                 q = q.where(clause)
         rows = (await self.db.execute(q)).all()
         return {r[0]: int(r[1] or 0) for r in rows}
-
-    async def _latest_activation_date(
-        self, retailer_ids: Sequence[int], fallback: date
-    ) -> date:
-        """Latest activation date at or before ``fallback`` inside the period."""
-        if not retailer_ids or fallback < self.start_date:
-            return fallback
-        q = select(func.max(Activation.activation_date)).where(
-            Activation.house_id == self.house_id,
-            Activation.retailer_id.in_(list(set(retailer_ids))),
-            Activation.activation_date >= self.start_date,
-            Activation.activation_date <= fallback,
-        )
-        last = (await self.db.execute(q)).scalar()
-        return last or fallback
 
     def _compute_retailer_counts(
         self,
