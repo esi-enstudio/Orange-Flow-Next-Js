@@ -30,6 +30,7 @@ from app.models.rso_target import RSOTarget
 from app.models.user import User
 from app.services.transaction_report_service import non_zero_value_condition
 from app.utils.access_control import is_admin_user
+from app.utils.timezone import now_naive
 
 logger = logging.getLogger("app.services.ActiveLsoReport")
 
@@ -381,7 +382,10 @@ class ActiveLsoReportService:
         self.rso_id = rso_id
         self.status_filter = status_filter
 
-        self.today = date.today()
+        # Business "today" is Bangladesh Standard Time, never the container's
+        # UTC clock — otherwise the day rolls over 6 hours late and every
+        # elapsed/remaining day (and the yesterday badge) is off.
+        self.today = now_naive().date()
         self.total_days = (end_date - start_date).days + 1
         if end_date < self.today:
             self.days_elapsed = self.total_days
@@ -444,10 +448,27 @@ class ActiveLsoReportService:
         all_retailer_ids = list(retailer_map.keys())
         cur_map = await self._get_c2s_map(all_retailer_ids, self.start_date, self.end_date)
         prev_map = await self._get_c2s_map(all_retailer_ids, self.prev_month_start, self.prev_month_end)
-        # Retailers of this report's RSOs that were active yesterday (any C2S
-        # activity) — shown as a headline metric on the report image.
+        # Retailers that became Active LSO for the first time on the latest day
+        # that actually carries data (up to that day NOT active, on it IS
+        # active). DMS imports land a day late, so a calendar yesterday with no
+        # rows would otherwise report a permanent, misleading 0.
         yesterday = self.today - timedelta(days=1)
-        yday_map = await self._get_c2s_map(all_retailer_ids, yesterday, yesterday)
+        reference_date = await self._latest_data_date(all_retailer_ids, yesterday)
+        day_before_reference = reference_date - timedelta(days=1)
+        up_to_day_before_map = await self._get_c2s_map(
+            all_retailer_ids, self.start_date, day_before_reference
+        )
+        up_to_reference_map = await self._get_c2s_map(
+            all_retailer_ids, self.start_date, reference_date
+        )
+        newly_active = 0
+        for rid in all_retailer_ids:
+            pd, pa = up_to_day_before_map.get(rid, (0, 0.0))
+            cd, ca = up_to_reference_map.get(rid, (0, 0.0))
+            was_active = pd >= self.active_days and pa >= self.active_amount
+            now_active = cd >= self.active_days and ca >= self.active_amount
+            if not was_active and now_active:
+                newly_active += 1
 
         rows = []
         for emp in emps:
@@ -465,7 +486,8 @@ class ActiveLsoReportService:
             "success": True,
             "period": self._period_info(),
             "count_keys": list(self.count_keys),
-            "yesterday_active": sum(1 for days, _amt in yday_map.values() if days > 0),
+            "yesterday_active": newly_active,
+            "yesterday_date": reference_date.isoformat(),
             "rows": rows,
             "summary": self._aggregate(rows),
             "supervisor_summary": self._supervisor_summary(rows),
@@ -544,6 +566,28 @@ class ActiveLsoReportService:
                 # BP assisted code under this RSO's SR
                 mapping[rid] = sr_to_rso[sr]
         return mapping
+
+    async def _latest_data_date(self, retailer_ids: Sequence[int], fallback: date) -> date:
+        """Latest C2S report date at or before ``fallback`` inside the period.
+
+        The badge counts retailers that became active on the newest day that has
+        data, not on a calendar date the import has not reached yet.
+        """
+        if not retailer_ids or fallback < self.start_date:
+            return fallback
+        q = (
+            select(func.max(ITopUpDetail.report_date))
+            .where(
+                ITopUpDetail.house_id == self.house_id,
+                ITopUpDetail.report_type == REPORT_TYPE_C2S,
+                ITopUpDetail.retailer_id.in_(list(set(retailer_ids))),
+                ITopUpDetail.report_date >= self.start_date,
+                ITopUpDetail.report_date <= fallback,
+                non_zero_value_condition(),
+            )
+        )
+        last = (await self.db.execute(q)).scalar()
+        return last or fallback
 
     async def _get_c2s_map(self, retailer_ids: Sequence[int], start: date, end: date) -> Dict[int, Tuple[int, float]]:
         if not retailer_ids:
@@ -876,6 +920,7 @@ class ActiveLsoReportService:
             "period": self._period_info(),
             "count_keys": list(self.count_keys),
             "yesterday_active": 0,
+            "yesterday_date": None,
             "rows": [],
             "summary": self._blank_aggregate(),
             "supervisor_summary": [],

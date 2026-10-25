@@ -23,6 +23,7 @@ from app.utils.access_control import is_admin_user
 from app.services.retailer_marking_service import get_active_retailer_ids_for_marking
 from app.services.rule_config_service import get_effective_rule_conditions
 from app.utils.activation_rules import exclude_clause
+from app.utils.timezone import now_naive
 from app.services.active_lso_report_service import (
     employee_options,
     employee_name_map,
@@ -169,7 +170,10 @@ class ActiveSsoReportService:
         self.rso_id = rso_id
         self.status_filter = status_filter
 
-        self.today = date.today()
+        # Business "today" is Bangladesh Standard Time, never the container's
+        # UTC clock — otherwise the day rolls over 6 hours late and every
+        # elapsed/remaining day (and the yesterday badge) is off.
+        self.today = now_naive().date()
         self.total_days = (end_date - start_date).days + 1
         if end_date < self.today:
             self.days_elapsed = self.total_days
@@ -308,6 +312,29 @@ class ActiveSsoReportService:
         column_maps, column_excluded = await self._build_column_rule_data(
             all_retailer_ids, cur_map
         )
+        # Retailers that became Active SSO for the first time on the latest day
+        # that actually carries data (up to that day NOT active, on it IS
+        # active), measured under the same "Achieved" column rule as the
+        # summary. Activation imports land a day late, so a calendar yesterday
+        # with no rows would otherwise report a permanent, misleading 0.
+        yesterday = self.today - timedelta(days=1)
+        achieved_codes = set(self._effective_excluded_codes("achieved"))
+        achieved_excluded = column_excluded.get("achieved") or set()
+        achieved_rids = [rid for rid in all_retailer_ids if rid not in achieved_excluded]
+        reference_date = await self._latest_activation_date(achieved_rids, yesterday)
+        day_before_reference = reference_date - timedelta(days=1)
+        up_to_day_before_map = await self._get_activation_map(
+            achieved_rids, self.start_date, day_before_reference, achieved_codes
+        )
+        up_to_reference_map = await self._get_activation_map(
+            achieved_rids, self.start_date, reference_date, achieved_codes
+        )
+        newly_active_yesterday = sum(
+            1
+            for rid in achieved_rids
+            if up_to_day_before_map.get(rid, 0) < self.activations_threshold
+            and up_to_reference_map.get(rid, 0) >= self.activations_threshold
+        )
 
         rows = []
         for emp in emps:
@@ -327,6 +354,8 @@ class ActiveSsoReportService:
             "success": True,
             "period": self._period_info(),
             "count_keys": list(self.count_keys),
+            "yesterday_active": newly_active_yesterday,
+            "yesterday_date": reference_date.isoformat(),
             "rows": rows,
             "summary": self._aggregate(rows),
             "supervisor_summary": self._supervisor_summary(rows),
@@ -453,6 +482,21 @@ class ActiveSsoReportService:
                 q = q.where(clause)
         rows = (await self.db.execute(q)).all()
         return {r[0]: int(r[1] or 0) for r in rows}
+
+    async def _latest_activation_date(
+        self, retailer_ids: Sequence[int], fallback: date
+    ) -> date:
+        """Latest activation date at or before ``fallback`` inside the period."""
+        if not retailer_ids or fallback < self.start_date:
+            return fallback
+        q = select(func.max(Activation.activation_date)).where(
+            Activation.house_id == self.house_id,
+            Activation.retailer_id.in_(list(set(retailer_ids))),
+            Activation.activation_date >= self.start_date,
+            Activation.activation_date <= fallback,
+        )
+        last = (await self.db.execute(q)).scalar()
+        return last or fallback
 
     def _compute_retailer_counts(
         self,
@@ -767,6 +811,8 @@ class ActiveSsoReportService:
             "success": True,
             "period": self._period_info(),
             "count_keys": list(self.count_keys),
+            "yesterday_active": 0,
+            "yesterday_date": None,
             "rows": [],
             "summary": self._blank_aggregate(),
             "supervisor_summary": [],

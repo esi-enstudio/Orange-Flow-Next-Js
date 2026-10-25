@@ -119,6 +119,10 @@ interface ReportData {
   success: boolean;
   period: PeriodInfo;
   count_keys?: string[];
+  /** Retailers that became Active LSO on the latest day that has data */
+  yesterday_active?: number;
+  /** ISO date of that data day (null when the period has no data) */
+  yesterday_date?: string | null;
   rows: RsoRow[];
   summary: Summary;
   supervisor_summary: SupSummary[];
@@ -664,6 +668,12 @@ export default function ActiveLsoReportPage() {
 
   const period = data?.period;
   const summary = data?.summary;
+  const yesterdayDateLabel = data?.yesterday_date
+    ? new Date(`${data.yesterday_date}T00:00:00`).toLocaleDateString(
+        language === "bn" ? "bn-BD" : "en-GB",
+        { day: "2-digit", month: "short" }
+      )
+    : "";
   const rows = data?.rows || [];
   const supSummary = data?.supervisor_summary || [];
 
@@ -1017,6 +1027,17 @@ export default function ActiveLsoReportPage() {
                   label={t("active_lso_report.cards.achievement")}
                   value={formatNumber(summary.achieved)}
                   valueColor="text-emerald-600 dark:text-emerald-400"
+                  valueExtra={
+                    <span
+                      title={
+                        yesterdayDateLabel
+                          ? t("active_lso_report.yesterday_tooltip", { date: yesterdayDateLabel })
+                          : undefined
+                      }
+                    >
+                      {t("active_lso_report.yesterday_badge", { count: formatNumber(data.yesterday_active ?? 0) })}
+                    </span>
+                  }
                   subtitle={`${formatNumber(summary.retailer_count)} ${t("active_lso_report.summary.retailer_count")}`}
                 />
                 <KpiCard
