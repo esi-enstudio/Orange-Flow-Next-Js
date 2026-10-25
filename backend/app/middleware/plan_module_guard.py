@@ -87,6 +87,7 @@ _ALWAYS_EXEMPT_PREFIXES = (
     "/api/webhook",
     "/api/deploy",
     "/api/health",
+    "/api/v1/database-backups/restore-jobs",
 )
 
 # Read-only house views stay reachable so users can see why they are blocked

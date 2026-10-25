@@ -47,6 +47,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/shifts", None),  # helper used across modules; not a restricted module
     ("/api/v1/shifts", None),  # helper used across modules; not a restricted module
     ("/api/v1/location/update", None),  # device/macro ingest endpoint (no plan context)
+    ("/api/v1/database-backups/restore-jobs", None),  # owner-scoped status works during DB replacement
 
     # ---- module-bound prefixes (longest first) -------------------------------------
     ("/api/v1/database-backups", "administration"),

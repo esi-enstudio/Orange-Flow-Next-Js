@@ -4,23 +4,35 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
+from jose import JWTError, jwt
 
 from app.models.user import User
-from app.routers.deps import get_db, get_current_user, has_permission
+from app.routers.deps import get_db, get_current_user, has_permission, oauth2_scheme
 from app.services.database_backup_service import (
     BACKUP_DIR,
     create_uploaded_backup,
     delete_backup,
+    get_restore_job,
+    get_active_restore_job,
     get_backup_or_404,
     list_backups,
-    restore_backup,
+    start_restore_job,
     trigger_backup,
 )
 from app.utils.activity_logger import log_activity
+from config.settings import settings
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/database-backups", tags=["database-backups"])
+
+
+def _restore_job_owner_id(token: str) -> int:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return int(payload["sub"])
+    except (JWTError, KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
 
 
 @router.post("")
@@ -85,11 +97,7 @@ async def upload_and_restore_backup(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("database_backup.restore")),
 ):
-    """Upload a dump file from the user's computer and restore the database from it.
-
-    A fresh safety backup is taken automatically before restoring, then
-    pg_restore drops & recreates all objects from the uploaded dump.
-    """
+    """Upload a dump file, start its restore job and return its progress handle."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file selected")
     ext = os.path.splitext(file.filename)[1].lower()
@@ -100,25 +108,42 @@ async def upload_and_restore_backup(
         )
 
     backup = await create_uploaded_backup(db, file.filename, file, current_user.id)
-    result = await restore_backup(db, backup, current_user.id, current_user.name)
+    job = start_restore_job(
+        backup.file_path,
+        backup.file_name,
+        current_user.id,
+        current_user.name,
+        source_file_name=os.path.basename(file.filename).replace(" ", "_").replace("\\", "_").replace("/", "_")[:120],
+    )
+    return {"success": True, "job": job}
 
-    try:
-        await log_activity(
-            db=db,
-            user_id=current_user.id,
-            user_name=current_user.name,
-            module="database_backup",
-            action="restore",
-            record_id=backup.id,
-            record_identifier=backup.file_name,
-            new_values={
-                "restored_from_upload": backup.file_name,
-                "safety_file": result.get("safety_file"),
-            },
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("Failed to write upload-restore activity log")
-    return {"success": True, **result}
+
+@router.get("/restore-jobs/current")
+async def get_current_restore_job(
+    token: str = Depends(oauth2_scheme),
+):
+    user_id = _restore_job_owner_id(token)
+    return {"success": True, "job": get_active_restore_job(user_id)}
+
+
+@router.get("/restore-jobs/{job_id}")
+async def get_restore_job_status(
+    job_id: str,
+    token: str = Depends(oauth2_scheme),
+):
+    """Return progress for the caller's active restore without querying the DB.
+
+    The database is temporarily unavailable while pg_restore replaces its
+    tables, so this endpoint validates the signed token and job ownership
+    without loading the user record from PostgreSQL.
+    """
+    user_id = _restore_job_owner_id(token)
+
+    job = get_restore_job(job_id)
+    if not job or job["owner_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Restore job not found")
+    job.pop("owner_id", None)
+    return {"success": True, "job": job}
 
 
 @router.get("/{backup_id}/download")
@@ -155,28 +180,20 @@ async def restore_database_backup(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("database_backup.restore")),
 ):
-    """Restore the database from a backup file (destructive operation).
-
-    A fresh safety backup is taken automatically before restoring, then
-    pg_restore drops & recreates all objects from the selected dump.
-    """
+    """Start a destructive restore job after verifying the selected backup."""
     backup = await get_backup_or_404(db, backup_id)
-    result = await restore_backup(db, backup, current_user.id, current_user.name)
-
-    try:
-        await log_activity(
-            db=db,
-            user_id=current_user.id,
-            user_name=current_user.name,
-            module="database_backup",
-            action="restore",
-            record_id=backup.id,
-            record_identifier=backup.file_name,
-            new_values={"restored_from": backup.file_name, "safety_file": result.get("safety_file")},
+    if backup.status != "success":
+        raise HTTPException(
+            status_code=400,
+            detail="Only successfully finished backups can be restored",
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("Failed to write restore activity log")
-    return {"success": True, **result}
+    job = start_restore_job(
+        backup.file_path,
+        backup.file_name,
+        current_user.id,
+        current_user.name,
+    )
+    return {"success": True, "job": job}
 
 
 @router.delete("/{backup_id}")

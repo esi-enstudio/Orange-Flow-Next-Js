@@ -27,6 +27,28 @@ import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 type BackupStatus = "running" | "success" | "failed";
+type RestorePhase =
+  | "preparing_safety_backup"
+  | "removing_existing_objects"
+  | "reading_archive"
+  | "restoring"
+  | "finalizing"
+  | "completed"
+  | "failed";
+
+interface RestoreJob {
+  id: string;
+  file_name: string;
+  status: "running" | "success" | "failed";
+  phase: RestorePhase;
+  progress: number;
+  completed: number;
+  total: number;
+  current_item: string;
+  safety_file: string | null;
+  error: string | null;
+  warning?: string | null;
+}
 
 interface BackupItem {
   id: number;
@@ -83,6 +105,7 @@ interface BackupActionProps {
   canDownload: boolean;
   canRestore: boolean;
   canDelete: boolean;
+  restoreRunning: boolean;
   downloadingId: number | null;
   t: (p: string) => string;
   onDownload: (item: BackupItem) => void;
@@ -90,15 +113,18 @@ interface BackupActionProps {
   onDelete: (item: BackupItem) => void;
 }
 
-function BackupActions({ item, canDownload, canRestore, canDelete, downloadingId, t, onDownload, onRestore, onDelete }: BackupActionProps) {
+function BackupActions({ item, canDownload, canRestore, canDelete, restoreRunning, downloadingId, t, onDownload, onRestore, onDelete }: BackupActionProps) {
   return (
-    <div className={cn("flex items-center gap-2 justify-end", item.status === "success" ? "" : "opacity-40 pointer-events-none")}>
+    <div className="flex items-center gap-2 justify-end">
       {canDownload && (
         <button
           onClick={() => onDownload(item)}
           disabled={downloadingId === item.id || item.status !== "success"}
           title={t("database_backups.action_download")}
-          className="p-2 rounded-lg text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors cursor-pointer disabled:cursor-not-allowed"
+          className={cn(
+            "p-2 rounded-lg text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors cursor-pointer disabled:cursor-not-allowed",
+            item.status !== "success" && "opacity-45 pointer-events-none"
+          )}
         >
           {downloadingId === item.id ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -110,9 +136,12 @@ function BackupActions({ item, canDownload, canRestore, canDelete, downloadingId
       {canRestore && (
         <button
           onClick={() => onRestore(item)}
-          disabled={item.status !== "success"}
+          disabled={item.status !== "success" || restoreRunning}
           title={t("database_backups.action_restore")}
-          className="p-2 rounded-lg text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors cursor-pointer disabled:cursor-not-allowed"
+          className={cn(
+            "p-2 rounded-lg text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors cursor-pointer disabled:cursor-not-allowed",
+            item.status !== "success" && "opacity-45 pointer-events-none"
+          )}
         >
           <RotateCcw className="w-4 h-4" />
         </button>
@@ -191,11 +220,14 @@ export default function DatabaseBackupsPage() {
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<BackupItem | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [restoreJob, setRestoreJob] = useState<RestoreJob | null>(null);
+  const [restorePollError, setRestorePollError] = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState("");
   const [restoreError, setRestoreError] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -233,6 +265,12 @@ export default function DatabaseBackupsPage() {
     if (mounted && !authLoading && hasPermission("database_backup.view")) {
       const load = async () => {
         await Promise.resolve();
+        try {
+          const res = await apiClient.get("v1/database-backups/restore-jobs/current");
+          if (res.data.job) setRestoreJob(res.data.job as RestoreJob);
+        } catch {
+          toast.error(t("database_backups.restore_status_unavailable"));
+        }
         await fetchBackups(1);
       };
       void load();
@@ -252,14 +290,6 @@ export default function DatabaseBackupsPage() {
     };
   }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!mounted || authLoading || !hasPermission("database_backup.view")) return;
-    if (!data.some((item) => item.status === "running")) return;
-    const id = window.setInterval(() => {
-      void fetchBackups(page, true);
-    }, 3000);
-    return () => window.clearInterval(id);
-  }, [mounted, authLoading, hasPermission, data, page, fetchBackups]);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -353,13 +383,12 @@ export default function DatabaseBackupsPage() {
     setRestoring(true);
     setRestoreError(false);
     try {
-      await apiClient.post(`v1/database-backups/${restoreTarget.id}/restore`, null, {
-        timeout: 600000,
-      });
-      toast.success(t("database_backups.restore_success"));
+      const res = await apiClient.post(`v1/database-backups/${restoreTarget.id}/restore`);
+      setRestoreJob(res.data.job);
+      setRestorePollError(false);
+      toast.success(t("database_backups.restore_started"));
       setRestoreTarget(null);
       setRestoreConfirm("");
-      setTimeout(() => fetchBackups(1, true), 800);
     } catch (e) {
       const detail = (e as Error)?.message;
       toast.error(detail || t("database_backups.restore_failed"));
@@ -390,18 +419,25 @@ export default function DatabaseBackupsPage() {
       return;
     }
     setUploading(true);
+    setUploadProgress(0);
     setRestoreError(false);
     const formData = new FormData();
     formData.append("file", uploadFile);
     try {
-      await apiClient.post("v1/database-backups/upload-restore", formData, {
+      const res = await apiClient.post("v1/database-backups/upload-restore", formData, {
         timeout: 600000,
+        onUploadProgress: (event) => {
+          if (event.total) {
+            setUploadProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+          }
+        },
       });
-      toast.success(t("database_backups.restore_success"));
+      setRestoreJob(res.data.job);
+      setRestorePollError(false);
+      toast.success(t("database_backups.restore_started"));
       setUploadOpen(false);
       setUploadFile(null);
       setRestoreConfirm("");
-      setTimeout(() => fetchBackups(1, true), 800);
     } catch (e) {
       const detail = (e as Error)?.message;
       toast.error(detail || t("database_backups.restore_failed"));
@@ -409,6 +445,39 @@ export default function DatabaseBackupsPage() {
       setUploading(false);
     }
   };
+
+  const restoreJobId = restoreJob?.id;
+  const restoreJobStatus = restoreJob?.status;
+
+  useEffect(() => {
+    if (!restoreJobId || restoreJobStatus !== "running") return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const res = await apiClient.get(`v1/database-backups/restore-jobs/${restoreJobId}`);
+        if (stopped) return;
+        setRestorePollError(false);
+        const job = res.data.job as RestoreJob;
+        setRestoreJob(job);
+        if (job.status === "success") {
+          toast.success(t("database_backups.restore_success"));
+          setTimeout(() => void fetchBackups(1, true), 1500);
+        } else if (job.status === "failed") {
+          toast.error(job.error || t("database_backups.restore_failed"));
+        }
+      } catch {
+        setRestorePollError(true);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [restoreJobId, restoreJobStatus, t, fetchBackups]);
+
+  const safetyBackupRunning = restoreJob?.phase === "preparing_safety_backup";
 
   if (mounted && !authLoading && !hasPermission("database_backup.view")) {
     return <AccessDenied />;
@@ -453,7 +522,7 @@ export default function DatabaseBackupsPage() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
+                disabled={uploading || restoreJob?.status === "running"}
                 title={t("database_backups.restore_upload_title")}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-amber-700 dark:text-amber-400 text-sm font-medium hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -478,6 +547,115 @@ export default function DatabaseBackupsPage() {
           )}
         </div>
       </div>
+
+      {restoreJob && (
+        <section
+          aria-live="polite"
+          className={cn(
+            "rounded-2xl border p-4 sm:p-5",
+            restoreJob.status === "failed"
+              ? "border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20"
+              : restoreJob.status === "success"
+                ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                : "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20"
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {restoreJob.status === "running" ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-600" />
+                ) : restoreJob.status === "success" ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                ) : (
+                  <XCircle className="h-4 w-4 shrink-0 text-red-600" />
+                )}
+                <span className="truncate">{restoreJob.file_name}</span>
+              </div>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                {t(`database_backups.restore_phase_${restoreJob.phase}`)}
+              </p>
+            </div>
+            {restoreJob.status !== "running" && (
+              <button
+                onClick={() => setRestoreJob(null)}
+                className="min-h-10 rounded-lg px-3 py-1 text-sm text-gray-500 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+              >
+                {t("database_backups.restore_dismiss")}
+              </button>
+            )}
+          </div>
+          <div
+            className="mt-4 h-2.5 overflow-hidden rounded-full bg-white/80 dark:bg-slate-800"
+            role="progressbar"
+            aria-label={t("database_backups.restore_progress")}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={safetyBackupRunning ? undefined : restoreJob.progress}
+            aria-valuetext={
+              safetyBackupRunning
+                ? t("database_backups.restore_phase_preparing_safety_backup")
+                : t("database_backups.restore_percent", { percent: restoreJob.progress })
+            }
+          >
+            <div
+              className={cn(
+                "h-full rounded-full transition-[width] duration-500",
+                safetyBackupRunning && "w-1/3 animate-pulse",
+                restoreJob.status === "failed" ? "bg-red-500" : "bg-amber-500"
+              )}
+              style={safetyBackupRunning ? undefined : { width: `${restoreJob.progress}%` }}
+            />
+          </div>
+          <div className="mt-2 flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              {safetyBackupRunning
+                ? t("database_backups.restore_progress_estimate_pending")
+                : t("database_backups.restore_percent", { percent: restoreJob.progress })}
+            </span>
+            {restoreJob.total > 0 && (
+              <span>
+                {t("database_backups.restore_items_progress", {
+                  completed:
+                    restoreJob.status === "success"
+                      ? restoreJob.total
+                      : restoreJob.completed,
+                  total: restoreJob.total,
+                  remaining:
+                    restoreJob.status === "success"
+                      ? 0
+                      : Math.max(0, restoreJob.total - restoreJob.completed),
+                })}
+              </span>
+            )}
+          </div>
+          {restoreJob.current_item && (
+            <p className="mt-2 break-all text-xs text-gray-500 dark:text-gray-400">
+              {t("database_backups.restore_current_item")}: {restoreJob.current_item}
+            </p>
+          )}
+          {restorePollError && restoreJob.status === "running" && (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {t("database_backups.restore_connection_retrying")}
+            </p>
+          )}
+          {restoreJob.error && (
+            <p className="mt-2 break-words text-sm text-red-700 dark:text-red-300">{restoreJob.error}</p>
+          )}
+          {restoreJob.warning && (
+            <p className="mt-2 break-words text-sm text-amber-700 dark:text-amber-300">
+              {restoreJob.warning === "BACKUP_RECORD_CLEANUP_FAILED"
+                ? t("database_backups.restore_backup_record_warning")
+                : restoreJob.warning}
+            </p>
+          )}
+          {restoreJob.safety_file && (
+            <p className="mt-2 break-all text-xs text-gray-500 dark:text-gray-400">
+              {t("database_backups.restore_safety_file")}: {restoreJob.safety_file}
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Search + count */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -583,6 +761,7 @@ export default function DatabaseBackupsPage() {
                         canDownload={canDownload}
                         canRestore={canRestore}
                         canDelete={canDelete}
+                        restoreRunning={restoreJob?.status === "running"}
                         downloadingId={downloadingId}
                         t={t}
                         onDownload={handleDownload}
@@ -667,7 +846,7 @@ export default function DatabaseBackupsPage() {
                       {canRestore && (
                         <button
                           onClick={() => openRestore(item)}
-                          disabled={item.status !== "success"}
+                          disabled={item.status !== "success" || restoreJob?.status === "running"}
                           className="inline-flex items-center gap-2 flex-1 justify-center px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm font-semibold disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
                         >
                           <RotateCcw className="w-4 h-4" />
@@ -794,6 +973,20 @@ export default function DatabaseBackupsPage() {
         loading={uploading}
       >
         <div className="w-full mt-4">
+          {uploading && (
+            <div className="mb-4 text-left">
+              <div className="mb-1 flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>{t("database_backups.restore_upload_progress", { percent: uploadProgress })}</span>
+                <span>{uploadProgress}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800">
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-[width] duration-200"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
           {uploadFile && (
             <>
               <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5 text-left">
