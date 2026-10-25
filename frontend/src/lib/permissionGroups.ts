@@ -13,6 +13,13 @@ export interface PagePermissionGroup {
   parentTitle?: string;
   parentTranslationKey?: string;
   perms: PermissionItem[];
+  pages?: Array<{
+    title: string;
+    translationKey?: string;
+    href: string;
+    parentTitle?: string;
+    parentTranslationKey?: string;
+  }>;
 }
 
 const ACRONYM_WORDS = new Set(["ga", "dms", "sim", "otp", "ev", "bp", "sc", "lso", "sso"]);
@@ -291,5 +298,37 @@ export function buildPermissionGroups(allPerms: PermissionItem[]): PagePermissio
     });
   }
 
-  return groups;
+  const groupsByPermissions = new Map<string, PagePermissionGroup>();
+  const mergedGroups: PagePermissionGroup[] = [];
+
+  for (const group of groups) {
+    const signature = group.perms.map((perm) => perm.id).join(",");
+    if (!signature) {
+      mergedGroups.push(group);
+      continue;
+    }
+
+    const existing = groupsByPermissions.get(signature);
+    if (existing) {
+      existing.pages ??= [{
+        title: existing.title,
+        translationKey: existing.translationKey,
+        href: existing.href,
+        parentTitle: existing.parentTitle,
+        parentTranslationKey: existing.parentTranslationKey,
+      }];
+      existing.pages.push({
+        title: group.title,
+        translationKey: group.translationKey,
+        href: group.href,
+        parentTitle: group.parentTitle,
+        parentTranslationKey: group.parentTranslationKey,
+      });
+    } else {
+      groupsByPermissions.set(signature, group);
+      mergedGroups.push(group);
+    }
+  }
+
+  return mergedGroups;
 }

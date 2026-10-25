@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
+  Check,
   CheckSquare,
   Square,
   Search,
@@ -162,16 +163,17 @@ function PermissionsManager() {
   const groups = useMemo<PagePermissionGroup[]>(() => buildPermissionGroups(allPerms), [allPerms]);
 
   const allGroupPermIds = useMemo(
-    () =>
-      groups.reduce<number[]>((acc, g) => {
-        for (const p of g.perms) acc.push(p.id);
-        return acc;
-      }, []),
+    () => [...new Set(groups.flatMap((group) => group.perms.map((perm) => perm.id)))],
     [groups]
   );
 
   const titleOf = useCallback(
     (group: PagePermissionGroup): string => {
+      if (group.pages?.length) {
+        return group.pages
+          .map((page) => t(page.translationKey || "") || page.title)
+          .join(" / ");
+      }
       return t(group.translationKey || "") || group.title;
     },
     [t]
@@ -179,6 +181,18 @@ function PermissionsManager() {
 
   const parentOf = useCallback(
     (group: PagePermissionGroup): string => {
+      if (group.pages?.length) {
+        const parents = [...new Set(
+          group.pages
+            .map((page) =>
+              page.parentTitle
+                ? t(page.parentTranslationKey || "") || page.parentTitle
+                : ""
+            )
+            .filter(Boolean)
+        )];
+        return [...parents, ...group.pages.map((page) => page.href)].join(" · ");
+      }
       return t(group.parentTranslationKey || "") || group.parentTitle || "";
     },
     [t]
@@ -566,49 +580,49 @@ function PermissionsManager() {
                               const selected = workingIds.has(perm.id);
                               const labels = permissionLabels(perm.name);
                               return (
-                                <div
-                                key={perm.id}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => togglePermission(perm.id)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    togglePermission(perm.id);
-                                  }
-                                }}
-                                className={cn(
-                                  "w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left rounded-xl transition-all border cursor-pointer",
-                                  selected
-                                    ? "bg-primary-50/60 dark:bg-primary-500/[0.08] border-primary-200 dark:border-primary-500/20"
-                                    : "bg-white dark:bg-slate-900 border-transparent hover:border-gray-200 dark:hover:border-slate-700 hover:bg-gray-50/60 dark:hover:bg-slate-800/40"
-                                )}
-                              >
-                                  <span className="min-w-0 flex items-center gap-2.5">
+                                <button
+                                  key={perm.id}
+                                  type="button"
+                                  aria-pressed={selected}
+                                  aria-label={`${permissionLabel(perm.name)} (${perm.name})`}
+                                  onClick={() => togglePermission(perm.id)}
+                                  className={cn(
+                                    "group flex min-h-[68px] w-full items-center justify-between gap-3 rounded-xl border px-3.5 py-3 text-left transition-all duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900",
+                                    selected
+                                      ? "border-primary-200 bg-primary-50/70 shadow-sm shadow-primary-900/[0.03] dark:border-primary-500/30 dark:bg-primary-500/[0.08]"
+                                      : "border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50/80 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-800/50"
+                                  )}
+                                >
+                                  <span className="flex min-w-0 items-center gap-3">
                                     <span
                                       className={cn(
-                                        "inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md shrink-0",
+                                        "inline-flex h-7 shrink-0 items-center rounded-lg px-2 text-[10px] font-bold uppercase tracking-wider",
                                         ACTION_CHIP_STYLES[labels.kind]
                                       )}
                                     >
                                       {labels.kind}
                                     </span>
                                     <span className="min-w-0">
-                                      <span className="block text-sm font-medium text-gray-700 dark:text-gray-200 truncate">
+                                      <span className="block truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
                                         {permissionLabel(perm.name)}
                                       </span>
-                                      <span className="block text-[11px] font-mono text-gray-400 dark:text-gray-500 truncate">
+                                      <span className="mt-0.5 block truncate font-mono text-[11px] text-gray-500 dark:text-gray-400">
                                         {perm.name}
                                       </span>
                                     </span>
                                   </span>
-                                  <PermissionCheckbox
-                                    checked={selected}
-                                    indeterminate={false}
-                                    onToggle={() => togglePermission(perm.id)}
-                                    label={permissionLabel(perm.name)}
-                                  />
-                                </div>
+                                  <span
+                                    aria-hidden="true"
+                                    className={cn(
+                                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all duration-150",
+                                      selected
+                                        ? "border-primary-600 bg-primary-600 text-white shadow-sm"
+                                        : "border-gray-300 bg-white text-transparent group-hover:border-primary-400 dark:border-slate-600 dark:bg-slate-900 dark:group-hover:border-primary-500"
+                                    )}
+                                  >
+                                    <Check className="h-3.5 w-3.5 stroke-[3]" />
+                                  </span>
+                                </button>
                               );
                             })}
                           </div>
