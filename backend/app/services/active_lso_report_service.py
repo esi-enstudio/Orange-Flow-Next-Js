@@ -13,7 +13,6 @@ Retailer attribution: a retailer belongs to an RSO when either
    RSO's retailer base in this report.
 Only ENABLED ('Yes') retailers are counted.
 """
-import logging
 import math
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -31,8 +30,6 @@ from app.models.user import User
 from app.services.transaction_report_service import non_zero_value_condition
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
-
-logger = logging.getLogger("app.services.ActiveLsoReport")
 
 DEFAULT_ACTIVE_LSO_DAYS = 7
 DEFAULT_ACTIVE_LSO_AMOUNT = 500.0
@@ -808,8 +805,10 @@ class ActiveLsoReportService:
         """
         await self._load_thresholds()
 
+        # Scoped to this house: an employee id from another house must not
+        # resolve (it would leak that house's RSO details / retailer rows).
         emp = (await self.db.execute(
-            select(Employee).where(Employee.id == employee_id)
+            select(Employee).where(Employee.id == employee_id, Employee.house_id == self.house_id)
         )).scalars().first()
         if not emp:
             return []

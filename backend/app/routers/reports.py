@@ -28,6 +28,7 @@ from app.models.active_sso_config import ActiveSsoConfig
 from app.models.role import Role
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
+from app.utils.timezone import now_naive
 from app.services.whatsapp_service_client import whatsapp_service_client, WhatsAppServiceError
 from app.services.whatsapp_token import resolve_house_wa_target
 from app.services.Automation.activation_excel import export_activations_excel
@@ -2141,7 +2142,9 @@ async def _resolve_active_lso_scope(db, current_user, house_id, manager_id, supe
 
 
 def _resolve_active_lso_period(start_date, end_date):
-    today = date.today()
+    # Business "today" is Bangladesh Standard Time; the container clock is UTC
+    # and would roll the default period over 6 hours late.
+    today = now_naive().date()
     if not start_date and not end_date:
         start_date = date(today.year, today.month, 1)
         end_date = today
@@ -2353,17 +2356,12 @@ async def export_inactive_retailers(
     from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
     from datetime import datetime
 
-    resolved_house = house_id or house_ctx
+    # Same role-aware scope resolution as the report itself: the explicit
+    # ``house_id`` query parameter must never open another house's data.
+    resolved_house, _, _, _ = await _resolve_active_lso_scope(
+        db, current_user, house_id or house_ctx, None, None, None
+    )
     start_date, end_date = _resolve_active_lso_period(start_date, end_date)
-    if not resolved_house:
-        user_house_ids = [h.id for h in current_user.houses]
-        if not user_house_ids and is_admin_user(current_user):
-            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
-            resolved_house = first_house
-        else:
-            resolved_house = user_house_ids[0] if user_house_ids else None
-    if not resolved_house:
-        raise HTTPException(status_code=400, detail="No house context available.")
 
     service = ActiveLsoReportService(db, resolved_house, start_date, end_date)
     groups = await service.get_all_inactive_retailers_grouped()
@@ -2465,22 +2463,19 @@ async def export_inactive_retailers_single(
     from openpyxl.utils import get_column_letter
     from datetime import datetime
 
-    resolved_house = house_id or house_ctx
+    # Same role-aware scope resolution as the report itself: the explicit
+    # ``house_id`` query parameter must never open another house's data.
+    resolved_house, _, _, _ = await _resolve_active_lso_scope(
+        db, current_user, house_id or house_ctx, None, None, None
+    )
     start_date, end_date = _resolve_active_lso_period(start_date, end_date)
-    if not resolved_house:
-        user_house_ids = [h.id for h in current_user.houses]
-        if not user_house_ids and is_admin_user(current_user):
-            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
-            resolved_house = first_house
-        else:
-            resolved_house = user_house_ids[0] if user_house_ids else None
-    if not resolved_house:
-        raise HTTPException(status_code=400, detail="No house context available.")
 
     service = ActiveLsoReportService(db, resolved_house, start_date, end_date)
     retailers = await service.get_inactive_retailers(employee_id)
 
-    emp = (await db.execute(select(Employee).where(Employee.id == employee_id))).scalars().first()
+    emp = (await db.execute(
+        select(Employee).where(Employee.id == employee_id, Employee.house_id == resolved_house)
+    )).scalars().first()
     rso_name = ""
     dms_code = ""
     itop_number = ""
@@ -2582,17 +2577,12 @@ async def get_active_lso_inactive_retailers(
     current_user: User = Depends(has_permission("active_lso.view")),
     house_ctx: Optional[int] = Depends(get_house_context),
 ):
-    resolved_house = house_id or house_ctx
+    # Same role-aware scope resolution as the report itself: the explicit
+    # ``house_id`` query parameter must never open another house's data.
+    resolved_house, _, _, _ = await _resolve_active_lso_scope(
+        db, current_user, house_id or house_ctx, None, None, None
+    )
     start_date, end_date = _resolve_active_lso_period(start_date, end_date)
-    if not resolved_house:
-        user_house_ids = [h.id for h in current_user.houses]
-        if not user_house_ids and is_admin_user(current_user):
-            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
-            resolved_house = first_house
-        else:
-            resolved_house = user_house_ids[0] if user_house_ids else None
-    if not resolved_house:
-        raise HTTPException(status_code=400, detail="No house context available.")
     service = ActiveLsoReportService(db, resolved_house, start_date, end_date)
     retailers = await service.get_inactive_retailers(employee_id)
     return {"success": True, "data": retailers}

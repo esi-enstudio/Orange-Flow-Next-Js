@@ -33,8 +33,6 @@ import {
   Sparkles,
   Medal,
   PieChart as PieChartIcon,
-  ArrowUp,
-  ArrowDown,
   type LucideIcon,
 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
@@ -223,7 +221,6 @@ function KpiCard({
   valueColor,
   valueExtra,
   subtitle,
-  trend,
 }: {
   icon: LucideIcon;
   label: string;
@@ -231,7 +228,6 @@ function KpiCard({
   valueColor?: string;
   valueExtra?: React.ReactNode;
   subtitle?: string | React.ReactNode;
-  trend?: { dir: "up" | "down"; text: string };
 }) {
   return (
     <div className="group bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-shadow relative">
@@ -258,16 +254,6 @@ function KpiCard({
           <Icon className="w-5 h-5 text-primary-600 dark:text-primary-400" />
         </div>
       </div>
-      {trend && (
-        <div className="mt-3 flex items-center gap-1.5">
-          {trend.dir === "up" ? (
-            <ArrowUp className="w-3 h-3 text-emerald-500" />
-          ) : (
-            <ArrowDown className="w-3 h-3 text-rose-500" />
-          )}
-          <span className={`text-[11px] font-medium ${trend.dir === "up" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{trend.text}</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -279,13 +265,12 @@ function projectionStatus(achPct: number, projPct: number): string {
   return "behind";
 }
 
-function LeaderboardCard({ data, title, icon: Icon, color, t, subtitleKey }: {
+function LeaderboardCard({ data, title, icon: Icon, color, t }: {
   data: Array<{ name: string; achieved: number; target: number; ach_pct: number }>;
   title: string;
   icon: LucideIcon;
   color: string;
   t: (key: string) => string;
-  subtitleKey: string;
 }) {
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-5">
@@ -330,11 +315,6 @@ function LeaderboardCard({ data, title, icon: Icon, color, t, subtitleKey }: {
             </div>
           ))}
         </div>
-      )}
-      {subtitleKey && data.length > 0 && (
-        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3 border-t border-gray-100 dark:border-slate-800 pt-3">
-          {t(subtitleKey)}
-        </p>
       )}
     </div>
   );
@@ -495,6 +475,16 @@ export default function ActiveLsoReportPage() {
         next.startDate = toDateStr(new Date(y, m - 1, 1));
         next.endDate = endOfMonthStr(y, m);
       }
+      // Keep the month/year selectors in step with a manually picked start
+      // date: the Active LSO criteria modal reads and saves thresholds for
+      // that month, so they must not lag behind the report period.
+      if (patch.startDate) {
+        const [y, m] = patch.startDate.split("-").map(Number);
+        if (y && m) {
+          next.year = y;
+          next.month = m;
+        }
+      }
       return next;
     });
   };
@@ -556,7 +546,7 @@ export default function ActiveLsoReportPage() {
       const res = await apiClient.get(`reports/active-lso/retailers/${row.employee_id}`, { params });
       setInactiveRetailerModal((prev) => ({ ...prev, loading: false, data: res.data?.data || [] }));
     } catch {
-      toast.error(t("active_lso_report.messages.export_failed"));
+      toast.error(t("active_lso_report.messages.error"));
       setInactiveRetailerModal((prev) => ({ ...prev, loading: false }));
     }
   };
@@ -935,7 +925,7 @@ export default function ActiveLsoReportPage() {
             <select
               value={filters.year}
               onChange={(e) => updateFilter({ year: Number(e.target.value) })}
-              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
             >
               {Array.from({ length: 5 }, (_, i) => today.getFullYear() - 2 + i).map((y) => (
                 <option key={y} value={y}>{y}</option>
@@ -948,7 +938,7 @@ export default function ActiveLsoReportPage() {
               type="date"
               value={filters.startDate}
               onChange={(e) => updateFilter({ startDate: e.target.value })}
-              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
             />
           </div>
           <div>
@@ -957,7 +947,7 @@ export default function ActiveLsoReportPage() {
               type="date"
               value={filters.endDate}
               onChange={(e) => updateFilter({ endDate: e.target.value })}
-              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -1271,7 +1261,7 @@ export default function ActiveLsoReportPage() {
                     </h2>
                     <div className={`grid grid-cols-1 ${cards.length === 2 ? "md:grid-cols-1 lg:grid-cols-2" : ""} gap-4`}>
                       {cards.map((c) => (
-                        <LeaderboardCard key={c.title} data={c.data} title={c.title} icon={c.icon} color={c.color} t={t} subtitleKey="" />
+                        <LeaderboardCard key={c.title} data={c.data} title={c.title} icon={c.icon} color={c.color} t={t} />
                       ))}
                     </div>
                   </div>
