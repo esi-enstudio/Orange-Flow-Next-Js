@@ -29,6 +29,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     # ---- platform / always-allowed -------------------------------------------------
     ("/api/auth/", None),
     ("/admin/", None),
+    ("/api/v1/admin/monitoring", "live_monitor"),
     ("/api/v1/admin/", None),
     ("/api/admin/", None),
     ("/api/webhook/", None),
@@ -150,7 +151,7 @@ PLATFORM_PATHS = tuple(p for p, m in PATH_TO_MODULE if m is None)
 # the un-granted pages are blocked on the frontend route guard. Kept in sync by
 # the parity test (`backend/tests/test_plan_modules_parity.py`).
 MODULE_LEAF_ROUTES: dict = {
-    "live_monitor": ("/live-monitor",),
+    "live_monitor": ("/live-monitor", "/admin/monitoring"),
     "data_import": (
         "/import/activations",
         "/import/itopup-details",
@@ -231,6 +232,7 @@ LEAF_OWNER: dict = {
 LEAF_TO_API_PREFIXES: dict = {
     # ---- live_monitor ----
     "/live-monitor": ("/api/system-logs", "/api/otp"),
+    "/admin/monitoring": ("/api/v1/admin/monitoring",),
 
     # ---- data_import ----
     "/import/activations": ("/api/activations/import",),

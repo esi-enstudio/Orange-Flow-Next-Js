@@ -2,6 +2,7 @@ __pycache__/
 .env
 .git
 .venv
+backups/
 *.pyc
 *.pyo
 *.pyd

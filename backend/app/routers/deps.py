@@ -157,3 +157,5 @@ def has_any_permission(permissions: List[str]):
 
 def has_permission(required_permission: str):
     return has_any_permission([required_permission])
+
+require_permission = has_permission

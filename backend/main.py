@@ -104,6 +104,7 @@ from app.routers.deploy import router as deploy_router
 from app.routers.database_backups import router as database_backups_router
 from app.routers.restore_points import router as restore_points_router
 from app.routers.location import router as location_router
+from app.routers.monitoring import router as monitoring_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -174,6 +175,7 @@ app.include_router(deploy_router)
 app.include_router(database_backups_router)
 app.include_router(restore_points_router)
 app.include_router(location_router)
+app.include_router(monitoring_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -393,8 +395,22 @@ async def whatsapp_schedule_runner():
             logger.error(f"WhatsApp schedule runner error: {e}", exc_info=True)
         await asyncio.sleep(30)
 
-# ==========================================
-# 3. MAIN ENTRY POINT
+async def system_monitoring_scheduler():
+    """Dedicated loop that collects system metrics and updates monitoring alerts."""
+    from app.services.db_service import async_session
+    from app.services.monitoring_service import collect_and_store_metrics
+    from config.settings import settings as _settings
+    if getattr(_settings, "DISABLE_SCHEDULER", False):
+        return
+    logger.info("System Monitoring Scheduler started...")
+    await asyncio.sleep(20)
+    while True:
+        try:
+            async with async_session() as session:
+                await collect_and_store_metrics(session)
+        except Exception as e:
+            logger.error(f"System monitoring scheduler error: {e}", exc_info=True)
+        await asyncio.sleep(60)
 # ==========================================
 
 async def main():
@@ -497,6 +513,8 @@ async def main():
         if settings.BILLING_ENABLED:
             from app.services.billing_runner import billing_loop
             background_tasks.append(asyncio.create_task(billing_loop()))
+
+        background_tasks.append(asyncio.create_task(system_monitoring_scheduler()))
 
         logger.info("OrangeFlow API is Live on port 8000")
 

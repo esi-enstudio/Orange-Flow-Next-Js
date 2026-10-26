@@ -49,20 +49,38 @@ function leafRefs(item: NavItem): { title: string; translationKey?: string; href
 
 /** Full module tree derived from navItems — new pages/modules appear automatically. */
 export function buildPlanModuleTree(): PlanModuleGroup[] {
-  return navItems.map((item) => ({
-    moduleKey: moduleKeyOf(item),
-    title: item.title,
-    translationKey: item.translationKey,
-    href: item.href,
-    iconKey: item.translationKey,
-    children: leafRefs(item).map((leaf, i) => ({
-      key: `${moduleKeyOf(item)}-${i}-${leaf.href}`,
+  const groups = new Map<string, PlanModuleGroup>();
+
+  for (const item of navItems) {
+    const moduleKey = moduleKeyOf(item);
+    const leaves = leafRefs(item).map((leaf, i) => ({
+      key: `${moduleKey}-${i}-${leaf.href}`,
       translationKey: leaf.translationKey,
       href: leaf.href,
       permission: leaf.permission,
       permissions: leaf.permissions,
-    })),
-  }));
+    }));
+
+    // Several nav entries can belong to one module (e.g. "Live Monitor" and
+    // "System Monitoring" both live in the live_monitor module). The plan
+    // editor shows a single group per module, so merge their pages.
+    const existing = groups.get(moduleKey);
+    if (existing) {
+      existing.children.push(...leaves);
+      continue;
+    }
+
+    groups.set(moduleKey, {
+      moduleKey,
+      title: item.title,
+      translationKey: item.translationKey,
+      href: item.href,
+      iconKey: item.translationKey,
+      children: leaves,
+    });
+  }
+
+  return Array.from(groups.values());
 }
 
 /** All module keys offered by the system (groups), excluding base modules. */

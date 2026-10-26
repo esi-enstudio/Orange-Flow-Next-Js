@@ -121,7 +121,7 @@ services:
       - SYS_ADMIN
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /opt/Orange-Flow-Next-Js:/project
+      - .:/project
       - deploy_state:/app/state
       # Host SSH keys so `git pull` (git@github.com) can authenticate inside the
       # container. Read-only; the container never modifies host keys.
@@ -131,6 +131,7 @@ services:
     environment:
       - PORT=8100
       - PROJECT_DIR=/project
+      - HOST_PROJECT_DIR=${HOST_PROJECT_DIR:-${PWD}}
       - FRONTEND_DIR=/project/frontend
       - DEPLOY_STATE_DIR=/app/state
       - NODE_BIN=/usr/local/bin

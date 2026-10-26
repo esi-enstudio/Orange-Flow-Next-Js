@@ -36,6 +36,7 @@ import {
   LayoutGrid,
   RadioTower,
   MapPin,
+  ServerCog,
 } from "lucide-react";
 
 export interface NavItem {
@@ -102,6 +103,15 @@ export const navItems: NavItem[] = [
     icon: Activity,
     color: "text-rose-500",
     permissions: ["otp.view", "system_logs.view"],
+  },
+  {
+    title: "System Monitoring",
+    translationKey: "nav.system_monitoring",
+    moduleKey: "live_monitor",
+    href: "/admin/monitoring",
+    icon: ServerCog,
+    color: "text-rose-500",
+    permission: "monitoring.view",
   },
   {
     title: "Live Location",

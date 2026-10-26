@@ -526,6 +526,14 @@
         "payments.manage",
         "payments.refund"
       ]
+    },
+    "monitoring": {
+      "display_name": "System Monitoring",
+      "permissions": [
+        "monitoring.view",
+        "monitoring.manage",
+        "monitoring.alerts"
+      ]
     }
   },
   "default_roles": [

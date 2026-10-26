@@ -73,3 +73,5 @@ from app.models.database_backup import DatabaseBackup
 from app.models.restore_point import RestorePoint
 from app.models.notification import Notification
 from app.models.employee_location import EmployeeLiveLocation, EmployeeLocation
+from app.models.system_monitoring import SystemMetricSample, ContainerMetricSample, MonitoringAlert, AutomationJobRecord
+
