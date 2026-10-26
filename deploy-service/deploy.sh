@@ -136,12 +136,15 @@ cd "$PROJECT_DIR"
 # run, BEFORE pulling.
 #
 #  - deploy.sh itself -> self-restart below, so a bugfix reaches production
-#  - backend/Dockerfile, docker-compose.yml -> backend image needs rebuilding
+#  - backend/Dockerfile, docker-compose.yml, backend/requirements.txt ->
+#    backend image needs rebuilding (deps are baked into the image; backend
+#    source is bind-mounted, but Python packages are not)
 #  - deploy-service/* -> deploy-service runs server.js from its IMAGE, so a new
 #    server.js (e.g. the restore point endpoints) needs a rebuild + recreate
 PRE_PULL_MD5=$(md5sum "$PROJECT_DIR/deploy-service/deploy.sh" 2>/dev/null | awk '{print $1}')
 PRE_PULL_DOCKERFILE_MD5=$(md5sum "$PROJECT_DIR/backend/Dockerfile" 2>/dev/null | awk '{print $1}')
 PRE_PULL_COMPOSE_MD5=$(md5sum "$PROJECT_DIR/docker-compose.yml" 2>/dev/null | awk '{print $1}')
+PRE_PULL_REQS_MD5=$(md5sum "$PROJECT_DIR/backend/requirements.txt" 2>/dev/null | awk '{print $1}')
 PRE_PULL_DEPLOYSVC_MD5=$(cat "$PROJECT_DIR/deploy-service/server.js" \
   "$PROJECT_DIR/deploy-service/Dockerfile" \
   "$PROJECT_DIR/deploy-service/package.json" 2>/dev/null | md5sum | awk '{print $1}')
@@ -298,15 +301,17 @@ case "$FIS" in
   *) echo "    (deploy started at epoch START_TIME=$START_TIME)" ;;
 esac
 
-# ── Backend: rebuild image if Dockerfile/docker-compose changed ──────────────
+# ── Backend: rebuild image if Dockerfile/compose/requirements changed ───────
 # `docker restart` only restarts the existing container — it does NOT pick up
-# Dockerfile changes (e.g. adding apt packages). We snapshot the md5 of
-# Dockerfile and docker-compose.yml BEFORE git pull, compare AFTER, and rebuild
-# only when they actually changed. This keeps fast-path restarts fast (~1s)
-# while ensuring infra changes are applied.
+# Dockerfile changes (e.g. adding apt packages) or new Python packages from
+# requirements.txt. We snapshot the md5 of Dockerfile, docker-compose.yml and
+# requirements.txt BEFORE git pull, compare AFTER, and rebuild only when they
+# actually changed. This keeps fast-path restarts fast (~1s) while ensuring
+# infra/dependency changes are applied.
 NEED_BACKEND_REBUILD=false
 POST_PULL_DOCKERFILE_MD5=$(md5sum "$PROJECT_DIR/backend/Dockerfile" 2>/dev/null | awk '{print $1}')
 POST_PULL_COMPOSE_MD5=$(md5sum "$PROJECT_DIR/docker-compose.yml" 2>/dev/null | awk '{print $1}')
+POST_PULL_REQS_MD5=$(md5sum "$PROJECT_DIR/backend/requirements.txt" 2>/dev/null | awk '{print $1}')
 
 if [ -n "${PRE_PULL_DOCKERFILE_MD5:-}" ] && [ "$PRE_PULL_DOCKERFILE_MD5" != "${POST_PULL_DOCKERFILE_MD5:-}" ]; then
   echo "    Dockerfile changed — backend image rebuild required"
@@ -316,10 +321,14 @@ if [ -n "${PRE_PULL_COMPOSE_MD5:-}" ] && [ "$PRE_PULL_COMPOSE_MD5" != "${POST_PU
   echo "    docker-compose.yml changed — backend image rebuild required"
   NEED_BACKEND_REBUILD=true
 fi
+if [ -n "${PRE_PULL_REQS_MD5:-}" ] && [ "$PRE_PULL_REQS_MD5" != "${POST_PULL_REQS_MD5:-}" ]; then
+  echo "    backend/requirements.txt changed — backend image rebuild required"
+  NEED_BACKEND_REBUILD=true
+fi
 
 echo "--> Restarting backend (docker: orange_flow_backend)"
 if [ "$NEED_BACKEND_REBUILD" = true ]; then
-  echo "    Rebuilding backend image (Dockerfile or docker-compose.yml changed)..."
+  echo "    Rebuilding backend image (Dockerfile, docker-compose.yml or requirements.txt changed)..."
   if compose build backend; then
     echo "    Backend image rebuilt successfully"
   else

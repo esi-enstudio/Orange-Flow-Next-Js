@@ -95,6 +95,15 @@ else
   exit 1
 fi
 
+# Snapshot the files that require a backend image rebuild. Python packages and
+# apt dependencies are baked into the image, while backend source is bind-mounted
+# — so changing requirements.txt without rebuilding leaves the app crash-looping
+# on a missing module.
+PRE_PULL_DOCKERFILE_MD5=$(md5sum "$PROJECT_DIR/backend/Dockerfile" 2>/dev/null | awk '{print $1}')
+PRE_PULL_COMPOSE_MD5=$(md5sum "$PROJECT_DIR/docker-compose.yml" 2>/dev/null | awk '{print $1}')
+PRE_PULL_REQS_MD5=$(md5sum "$PROJECT_DIR/backend/requirements.txt" 2>/dev/null | awk '{print $1}')
+NEED_BACKEND_REBUILD=false
+
 # ── Step 1: Pull latest code ────────────────────────────────────────────────
 if [ "$PULL" = true ]; then
   echo ""
@@ -113,6 +122,25 @@ if [ "$PULL" = true ]; then
     exit 1
   fi
   echo "==> git pull successful"
+fi
+
+# Rebuild the backend image only when an input to that image changed. A plain
+# `docker restart` reuses the old image and cannot pick up new Python packages.
+POST_PULL_DOCKERFILE_MD5=$(md5sum "$PROJECT_DIR/backend/Dockerfile" 2>/dev/null | awk '{print $1}')
+POST_PULL_COMPOSE_MD5=$(md5sum "$PROJECT_DIR/docker-compose.yml" 2>/dev/null | awk '{print $1}')
+POST_PULL_REQS_MD5=$(md5sum "$PROJECT_DIR/backend/requirements.txt" 2>/dev/null | awk '{print $1}')
+
+if [ -n "${PRE_PULL_DOCKERFILE_MD5:-}" ] && [ "$PRE_PULL_DOCKERFILE_MD5" != "${POST_PULL_DOCKERFILE_MD5:-}" ]; then
+  echo "    Dockerfile changed — backend image rebuild required"
+  NEED_BACKEND_REBUILD=true
+fi
+if [ -n "${PRE_PULL_COMPOSE_MD5:-}" ] && [ "$PRE_PULL_COMPOSE_MD5" != "${POST_PULL_COMPOSE_MD5:-}" ]; then
+  echo "    docker-compose.yml changed — backend image rebuild required"
+  NEED_BACKEND_REBUILD=true
+fi
+if [ -n "${PRE_PULL_REQS_MD5:-}" ] && [ "$PRE_PULL_REQS_MD5" != "${POST_PULL_REQS_MD5:-}" ]; then
+  echo "    backend/requirements.txt changed — backend image rebuild required"
+  NEED_BACKEND_REBUILD=true
 fi
 
 # ── Step 2: Install deps + production build ────────────────────────────────
@@ -183,9 +211,23 @@ if ! docker restart orange_flow_frontend; then
   exit 4
 fi
 
-# Backend runs in Docker
+# Backend runs in Docker. Rebuild the image when its inputs changed; otherwise a
+# fast restart is enough.
 echo "--> Restarting backend (docker: orange_flow_backend)"
-if ! docker restart orange_flow_backend; then
+if [ "$NEED_BACKEND_REBUILD" = true ]; then
+  echo "    Rebuilding backend image (Dockerfile, docker-compose.yml or requirements.txt changed)..."
+  if ! docker compose -f "$PROJECT_DIR/docker-compose.yml" build backend; then
+    echo "ERROR: Backend image rebuild failed." >&2
+    write_status "failed" 5 "Backend image rebuild failed"
+    exit 5
+  fi
+  if ! docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d --no-deps backend; then
+    echo "ERROR: Failed to recreate backend container with the new image." >&2
+    write_status "failed" 5 "Backend container recreate failed"
+    exit 5
+  fi
+  echo "==> Backend recreated with the new image"
+elif ! docker restart orange_flow_backend; then
   echo "ERROR: Failed to restart backend container." >&2
   write_status "failed" 5 "Backend restart failed"
   exit 5
@@ -201,7 +243,9 @@ echo "============================================================"
 echo "  Deploy complete. Status:"
 echo "============================================================"
 if command -v orangeflow &>/dev/null; then
-  orangeflow status
+  # A non-zero exit here must not abort the deploy: the service checks below are
+  # authoritative, and a stale systemd unit reporting "inactive" is expected.
+  orangeflow status || true
 fi
 
 echo ""
