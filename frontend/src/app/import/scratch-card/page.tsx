@@ -91,7 +91,7 @@ export default function ImportScratchCardPage() {
       const form = new FormData();
       form.append("file", file);
       const token = Cookies.get("token");
-      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+      const baseURL = process.env.NEXT_PUBLIC_API_URL || "/api";
       const response = await fetch(`${baseURL}/scratch-card/import`, {
         method: "POST",
         body: form,

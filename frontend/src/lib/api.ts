@@ -2,14 +2,14 @@ import axios from "axios";
 import Cookies from "js-cookie";
 
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "/api",
   // 60s default: comfortably covers heavy DB writes/bulk ops. Long-running
   // operations (DMS automation, backups, large imports/exports) must override
   // this per-call with an explicit larger timeout.
   timeout: 60000,
 });
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export function resolveImageUrl(path: string | null | undefined): string | null {
   if (!path) return null;

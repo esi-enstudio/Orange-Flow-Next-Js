@@ -9,7 +9,7 @@ import axios from "@/lib/api";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 interface HouseOption {
   id: number; name: string; code: string;
