@@ -1059,7 +1059,7 @@ export default function ActiveSsoReportPage() {
                   label={t("active_sso_report.cards.daily_required")}
                   value={formatNumber(summary.drr)}
                   valueColor="text-purple-600 dark:text-purple-400"
-                  subtitle={t("active_sso_report.cards.per_day")}
+                  subtitle={t("active_sso_report.cards.days_left") + ": " + period.days_remaining}
                 />
                 <KpiCard
                   icon={Trophy}

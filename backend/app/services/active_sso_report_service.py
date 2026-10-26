@@ -175,15 +175,21 @@ class ActiveSsoReportService:
         # elapsed/remaining day (and the yesterday badge) is off.
         self.today = now_naive().date()
         self.total_days = (end_date - start_date).days + 1
+        # Only *completed* days count as elapsed — the current day is still in
+        # progress (and DMS data lands a day late), so it must never inflate
+        # the Daily Average divisor: on the 26th elapsed is 25, not 26.
         if end_date < self.today:
             self.days_elapsed = self.total_days
-            self.days_remaining = 0
         elif start_date > self.today:
             self.days_elapsed = 0
-            self.days_remaining = self.total_days
         else:
-            self.days_elapsed = (self.today - start_date).days + 1
-            self.days_remaining = (end_date - self.today).days
+            self.days_elapsed = (self.today - start_date).days
+        # Everything not elapsed is still available, **today included**: the
+        # current day keeps selling even though its DMS rows only land
+        # tomorrow, so Daily Required spreads the gap over it and the
+        # Remaining card counts it. ``days_elapsed + days_remaining`` always
+        # equals ``total_days``.
+        self.days_remaining = self.total_days - self.days_elapsed
 
         prev_month_last = date(start_date.year, start_date.month, 1) - timedelta(days=1)
         self.prev_month_start = prev_month_last.replace(day=1)
@@ -574,7 +580,6 @@ class ActiveSsoReportService:
             ag["remaining"] += r["remaining"]
             ag["daily_avg"] += r["daily_avg"]
             ag["projection"] += r["projection"]
-            ag["drr"] += r["drr"]
             rc = r["retailer_counts"]
             for k in ag["retailer_counts"]:
                 ag["retailer_counts"][k] += rc[k]
@@ -582,7 +587,11 @@ class ActiveSsoReportService:
         ag["status"] = status_for_pct(ag["ach_pct"])
         ag["daily_avg"] = _r1(ag["daily_avg"])
         ag["projection"] = float(ag["projection"])
-        ag["drr"] = int(ag["drr"])
+        # Derived from the totals, never summed row by row: adding already
+        # rounded per-RSO values drifts from the total (e.g. 3 x 14.4 rounds to
+        # 42 while 43.2 rounds to 43) and no longer matches Excel's
+        # =ROUND(total remainder / days left).
+        ag["drr"] = _drr(ag["remaining"], self.days_remaining)
         return ag
 
     def _supervisor_summary(self, rows: List[dict]) -> List[dict]:
@@ -668,8 +677,7 @@ class ActiveSsoReportService:
                 "itop_number": r[3] or "", "house_code": r[4],
             }
 
-        selling_days_left = self.days_remaining + 1
-        min_activations_needed = max(0, self.activations_threshold - selling_days_left)
+        min_activations_needed = max(0, self.activations_threshold - self.days_remaining)
 
         result = []
         for rid in rids:
@@ -756,8 +764,7 @@ class ActiveSsoReportService:
                     "itop_number": r[3] or "", "house_code": r[4],
                 }
 
-        selling_days_left = self.days_remaining + 1
-        min_activations_needed = max(0, self.activations_threshold - selling_days_left)
+        min_activations_needed = max(0, self.activations_threshold - self.days_remaining)
 
         groups = []
         for emp in emps:

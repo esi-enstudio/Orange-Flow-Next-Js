@@ -387,15 +387,21 @@ class ActiveLsoReportService:
         # elapsed/remaining day (and the yesterday badge) is off.
         self.today = now_naive().date()
         self.total_days = (end_date - start_date).days + 1
+        # Only *completed* days count as elapsed — the current day is still in
+        # progress (and DMS data lands a day late), so it must never inflate
+        # the Daily Average divisor: on the 26th elapsed is 25, not 26.
         if end_date < self.today:
             self.days_elapsed = self.total_days
-            self.days_remaining = 0
         elif start_date > self.today:
             self.days_elapsed = 0
-            self.days_remaining = self.total_days
         else:
-            self.days_elapsed = (self.today - start_date).days + 1
-            self.days_remaining = (end_date - self.today).days
+            self.days_elapsed = (self.today - start_date).days
+        # Everything not elapsed is still available, **today included**: the
+        # current day keeps selling even though its DMS rows only land
+        # tomorrow, so Daily Required spreads the gap over it and the
+        # Remaining card counts it. ``days_elapsed + days_remaining`` always
+        # equals ``total_days``.
+        self.days_remaining = self.total_days - self.days_elapsed
 
         prev_month_last = date(start_date.year, start_date.month, 1) - timedelta(days=1)
         self.prev_month_start = prev_month_last.replace(day=1)
@@ -488,10 +494,59 @@ class ActiveLsoReportService:
             "count_keys": list(self.count_keys),
             "yesterday_active": newly_active,
             "yesterday_date": reference_date.isoformat(),
+            "daily_trend": await self.get_daily_trend(all_retailer_ids),
             "rows": rows,
             "summary": self._aggregate(rows),
             "supervisor_summary": self._supervisor_summary(rows),
         }
+
+    async def get_daily_trend(self, retailer_ids: Sequence[int]) -> List[dict]:
+        """Distinct LSOs with C2S activity on every day of the period.
+
+        One point per calendar day. ``active`` is ``None`` for days that are
+        still in the future or newer than the latest imported DMS day — the
+        import lands a day late, so an unimported day must not be drawn as a
+        real zero (it would look like every LSO stopped selling overnight).
+        """
+        ids = list(set(retailer_ids))
+        trend_map: Dict[str, int] = {}
+        last_possible = min(self.end_date, self.today)
+        if ids:
+            q = (
+                select(
+                    ITopUpDetail.report_date,
+                    func.count(func.distinct(ITopUpDetail.retailer_id)),
+                )
+                .where(
+                    ITopUpDetail.house_id == self.house_id,
+                    ITopUpDetail.report_type == REPORT_TYPE_C2S,
+                    ITopUpDetail.retailer_id.in_(ids),
+                    ITopUpDetail.report_date >= self.start_date,
+                    ITopUpDetail.report_date <= last_possible,
+                    non_zero_value_condition(),
+                )
+                .group_by(ITopUpDetail.report_date)
+                .order_by(ITopUpDetail.report_date)
+            )
+            for report_date, count in (await self.db.execute(q)).all():
+                trend_map[report_date.isoformat()] = int(count or 0)
+
+        last_data_day = await self._latest_data_date(ids, last_possible)
+        return self._trend_series(trend_map, last_data_day)
+
+    def _trend_series(self, trend_map: Dict[str, int], last_data_day: date) -> List[dict]:
+        series: List[dict] = []
+        day = self.start_date
+        while day <= self.end_date:
+            ds = day.isoformat()
+            has_data = day <= last_data_day and day <= self.today
+            series.append({
+                "date": ds,
+                "active": trend_map.get(ds, 0) if has_data else None,
+                "is_future": not has_data,
+            })
+            day += timedelta(days=1)
+        return series
 
     # ------------------------------------------------------------------ #
     async def _get_rso_employees(self) -> List[Employee]:
@@ -693,6 +748,10 @@ class ActiveLsoReportService:
         ag["status"] = status_for_pct(ag["ach_pct"])
         ag["daily_avg"] = _r1(ag["daily_avg"])
         ag["projection"] = float(ag["projection"])
+        # The total is the sum of the per-RSO DRR values that are displayed in
+        # the column, so the table's math adds up exactly as the reader checks
+        # it. Deriving it from the totals instead (remaining / days left) would
+        # show 40 against a column that visibly sums to 42.
         ag["drr"] = int(ag["drr"])
         return ag
 
@@ -785,12 +844,12 @@ class ActiveLsoReportService:
 
         # Minimum days a retailer must already have to still have a chance
         # of becoming active before the month ends.
-        # Today is still a selling day, so we add 1 to days_remaining.
+        # Today is still a selling day, so ``days_remaining`` includes it and
+        # drops to 0 once the period is over.
         # e.g. threshold=7, 7 selling days left (incl today) -> need 0 already
         #      threshold=7, 6 selling days left (incl today) -> need 1 already
         #      threshold=7, 0 selling days left (month over) -> need 7 (nobody qualifies)
-        selling_days_left = self.days_remaining + 1
-        min_days_needed = max(0, self.active_days - selling_days_left)
+        min_days_needed = max(0, self.active_days - self.days_remaining)
 
         result = []
         for rid in rids:
@@ -869,8 +928,7 @@ class ActiveLsoReportService:
                     "itop_number": r[3] or "", "house_code": r[4],
                 }
 
-        selling_days_left = self.days_remaining + 1
-        min_days_needed = max(0, self.active_days - selling_days_left)
+        min_days_needed = max(0, self.active_days - self.days_remaining)
 
         groups = []
         for emp in emps:
@@ -921,6 +979,7 @@ class ActiveLsoReportService:
             "count_keys": list(self.count_keys),
             "yesterday_active": 0,
             "yesterday_date": None,
+            "daily_trend": [],
             "rows": [],
             "summary": self._blank_aggregate(),
             "supervisor_summary": [],

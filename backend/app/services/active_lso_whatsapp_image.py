@@ -36,7 +36,7 @@ Business rules mirror the dashboard page:
     * Ach      -> retailers that qualify as Active LSO for the month
     * %        -> Ach / Target, the value the page status is based on
     * Remain   -> Target - Ach (signed: negative when over-achieved)
-    * DRR      -> ceil(remaining / days_remaining), signed the same way
+    * DRR      -> ceil(remaining / days left, today included), signed the same way
     * Active   -> configured threshold: N+ distinct C2S days AND M+ BDT
     * YesterdayActive -> retailers of this report's RSOs with any C2S activity
                          yesterday

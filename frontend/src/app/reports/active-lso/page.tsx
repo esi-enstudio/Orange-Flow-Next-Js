@@ -37,6 +37,13 @@ import {
   ArrowDown,
   type LucideIcon,
 } from "lucide-react";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
@@ -123,6 +130,8 @@ interface ReportData {
   yesterday_active?: number;
   /** ISO date of that data day (null when the period has no data) */
   yesterday_date?: string | null;
+  /** Distinct LSOs with C2S activity per day; null = no data yet for that day */
+  daily_trend?: { date: string; active: number | null; is_future: boolean }[];
   rows: RsoRow[];
   summary: Summary;
   supervisor_summary: SupSummary[];
@@ -1071,7 +1080,7 @@ export default function ActiveLsoReportPage() {
                   label={t("active_lso_report.cards.daily_required")}
                   value={formatNumber(summary.drr)}
                   valueColor="text-purple-600 dark:text-purple-400"
-                  subtitle={t("active_lso_report.cards.per_day")}
+                  subtitle={t("active_lso_report.cards.days_left") + ": " + period.days_remaining}
                 />
                 <KpiCard
                   icon={Trophy}
@@ -1083,11 +1092,97 @@ export default function ActiveLsoReportPage() {
                 <KpiCard
                   icon={Sparkles}
                   label={t("active_lso_report.cards.expected_pct")}
-                  value={(summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0) + "%"}
+                  value={(summary.target > 0 ? (summary.projection / summary.target) * 100 : 0).toFixed(2) + "%"}
                   valueColor="text-amber-600 dark:text-amber-400"
                   subtitle={`${formatNumber(Math.round(summary.projection))} / ${formatNumber(summary.target)}`}
                 />
               </div>
+
+              {/* Daily LSO trend + Target vs Achievement */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
+                  <h2 className="font-bold text-base flex items-center gap-2 dark:text-gray-100">
+                    <Activity className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                    {t("active_lso_report.cards.daily_trend")}
+                  </h2>
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 mb-4">
+                    {t("active_lso_report.cards.daily_trend_desc")}
+                  </p>
+                  {(() => {
+                    const trend = (data.daily_trend || []).filter((d) => d.active !== null);
+                    if (trend.length === 0) {
+                      return (
+                        <div className="h-[240px] flex items-center justify-center">
+                          <p className="text-sm text-gray-400 dark:text-gray-500">{t("active_lso_report.messages.no_data")}</p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <ChartContainer
+                        config={{
+                          active: {
+                            label: t("active_lso_report.cards.daily_trend_series"),
+                            color: "var(--chart-2)",
+                          },
+                        } satisfies ChartConfig}
+                        className="aspect-auto h-[240px] w-full"
+                      >
+                        <AreaChart
+                          accessibilityLayer
+                          data={trend}
+                          margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis
+                            dataKey="date"
+                            tickLine={false}
+                            axisLine={false}
+                            tickMargin={8}
+                            minTickGap={24}
+                            tick={{ fontSize: 11, fill: "#9ca3af" }}
+                            tickFormatter={(v: string) =>
+                              new Date(`${v}T00:00:00`).toLocaleDateString(language === "bn" ? "bn-BD" : "en-GB", {
+                                day: "numeric",
+                                month: "short",
+                              })
+                            }
+                          />
+                          <YAxis
+                            allowDecimals={false}
+                            tickLine={false}
+                            axisLine={false}
+                            tickMargin={8}
+                            tick={{ fontSize: 11, fill: "#9ca3af" }}
+                          />
+                          <ChartTooltip
+                            cursor={{ stroke: "var(--color-active)", strokeOpacity: 0.35 }}
+                            content={
+                              <ChartTooltipContent
+                                indicator="dot"
+                                labelFormatter={(v) =>
+                                  new Date(`${String(v)}T00:00:00`).toLocaleDateString(language === "bn" ? "bn-BD" : "en-GB", {
+                                    weekday: "short",
+                                    day: "numeric",
+                                    month: "short",
+                                  })
+                                }
+                              />
+                            }
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="active"
+                            stroke="var(--color-active)"
+                            strokeWidth={2}
+                            fill="var(--color-active)"
+                            fillOpacity={0.15}
+                            dot={false}
+                          />
+                        </AreaChart>
+                      </ChartContainer>
+                    );
+                  })()}
+                </div>
 
               {/* Target vs Achievement */}
               <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-6">
@@ -1154,6 +1249,7 @@ export default function ActiveLsoReportPage() {
                     </div>
                   </div>
                 </div>
+              </div>
               </div>
 
               {/* Top Performers Leaderboard */}

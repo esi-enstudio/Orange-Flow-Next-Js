@@ -38,7 +38,7 @@ Business rules mirror the dashboard page:
     * Ach      -> retailers that qualify as Active SSO for the month
     * %        -> Ach / Target, the value the page status is based on
     * Remain   -> Target - Ach (signed: negative when over-achieved)
-    * DRR      -> ceil(remaining / days_remaining), signed the same way
+    * DRR      -> ceil(remaining / days left, today included), signed the same way
     * Active   -> configured threshold: N+ SIM activations in the period
     * Buckets  -> day_{n}: non-active retailers with exactly n SIM activations
                   (n below the threshold); Inactive Last Month / Reactivated:
