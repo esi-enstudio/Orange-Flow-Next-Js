@@ -114,7 +114,7 @@ export interface Payment {
 }
 
 export interface PaymentMethod {
-  id?: number;
+  id: number;
   method_type: string;
   label?: string | null;
   account_name?: string | null;
