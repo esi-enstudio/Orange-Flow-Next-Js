@@ -15,6 +15,7 @@ from app.services.database_backup_service import (
     get_restore_job,
     get_active_restore_job,
     get_backup_or_404,
+    get_latest_running_backup,
     list_backups,
     start_restore_job,
     trigger_backup,
@@ -54,7 +55,7 @@ async def create_backup(
     )
     return {
         "success": True,
-        "message": "Backup started. It runs in the background and will appear in the list once finished.",
+        "message": "Backup started. Live progress is available while it runs in the background.",
         "backup": {
             "id": record.id,
             "file_name": record.file_name,
@@ -89,6 +90,15 @@ async def list_all_backups(
         sort_by=sort_by,
         sort_order=sort_order,
     )
+
+
+@router.get("/current-job")
+async def get_current_backup_job(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("database_backup.view")),
+):
+    """Return the newest running backup with live progress, if any."""
+    return {"success": True, "job": await get_latest_running_backup(db)}
 
 
 @router.post("/upload-restore")

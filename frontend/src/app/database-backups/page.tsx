@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 type BackupStatus = "running" | "success" | "failed";
+type BackupPhase = "starting" | "dumping" | "finalizing" | "success" | "failed";
 type RestorePhase =
   | "preparing_safety_backup"
   | "removing_existing_objects"
@@ -50,6 +51,20 @@ interface RestoreJob {
   warning?: string | null;
 }
 
+interface BackupProgress {
+  id: number;
+  file_name: string;
+  status: BackupStatus;
+  phase: BackupPhase;
+  progress: number;
+  bytes_written: number;
+  estimated_bytes: number;
+  current_item: string;
+  error: string | null;
+  started_at: string | null;
+  updated_at: string | null;
+}
+
 interface BackupItem {
   id: number;
   file_name: string;
@@ -61,6 +76,7 @@ interface BackupItem {
   created_at: string | null;
   created_by: number | null;
   created_by_name?: string | null;
+  progress?: BackupProgress | null;
 }
 
 interface Pagination {
@@ -149,8 +165,12 @@ function BackupActions({ item, canDownload, canRestore, canDelete, restoreRunnin
       {canDelete && (
         <button
           onClick={() => onDelete(item)}
+          disabled={item.status === "running"}
           title={t("database_backups.action_delete")}
-          className="p-2 rounded-lg text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors cursor-pointer"
+          className={cn(
+            "p-2 rounded-lg text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors cursor-pointer disabled:cursor-not-allowed",
+            item.status === "running" && "opacity-45 pointer-events-none"
+          )}
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -222,6 +242,9 @@ export default function DatabaseBackupsPage() {
   const [restoring, setRestoring] = useState(false);
   const [restoreJob, setRestoreJob] = useState<RestoreJob | null>(null);
   const [restorePollError, setRestorePollError] = useState(false);
+  const [currentBackup, setCurrentBackup] = useState<BackupProgress | null>(null);
+  const [backupPollError, setBackupPollError] = useState(false);
+  const [watchBackup, setWatchBackup] = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState("");
   const [restoreError, setRestoreError] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -271,6 +294,16 @@ export default function DatabaseBackupsPage() {
         } catch {
           toast.error(t("database_backups.restore_status_unavailable"));
         }
+        try {
+          const res = await apiClient.get("v1/database-backups/current-job");
+          const job = (res.data?.job ?? null) as BackupProgress | null;
+          if (job?.status === "running") {
+            setCurrentBackup(job);
+            setWatchBackup(true);
+          }
+        } catch {
+          // The list below still renders; progress polling starts on create.
+        }
         await fetchBackups(1);
       };
       void load();
@@ -290,6 +323,39 @@ export default function DatabaseBackupsPage() {
     };
   }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!watchBackup || authLoading) return;
+    let stopped = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      try {
+        const res = await apiClient.get("v1/database-backups/current-job", { timeout: 15000 });
+        if (stopped) return;
+        setBackupPollError(false);
+        const job = (res.data?.job ?? null) as BackupProgress | null;
+        if (job) {
+          setCurrentBackup(job);
+          setData((prev) =>
+            prev.map((item) =>
+              item.id === job.id ? { ...item, status: job.status, progress: job } : item
+            )
+          );
+        } else {
+          setCurrentBackup(null);
+          setWatchBackup(false);
+          void fetchBackups(1, true);
+        }
+      } catch {
+        if (!stopped) setBackupPollError(true);
+      }
+      if (!stopped) timer = window.setTimeout(poll, 1200);
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [watchBackup, authLoading, fetchBackups]);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -298,6 +364,20 @@ export default function DatabaseBackupsPage() {
       toast.success(t("database_backups.backup_started"));
       const created = res.data?.backup;
       if (created?.id) {
+        const startedAt = created.created_at ?? new Date().toISOString();
+        setCurrentBackup({
+          id: created.id,
+          file_name: created.file_name,
+          status: "running",
+          phase: "starting",
+          progress: 0,
+          bytes_written: 0,
+          estimated_bytes: 0,
+          current_item: "",
+          error: null,
+          started_at: startedAt,
+          updated_at: startedAt,
+        });
         setData((prev) => {
           if (prev.some((x) => x.id === created.id)) return prev;
           return [
@@ -317,9 +397,15 @@ export default function DatabaseBackupsPage() {
           ];
         });
       }
-      setTimeout(() => fetchBackups(1, true), 500);
-    } catch {
-      toast.error(t("database_backups.backup_failed"));
+      setWatchBackup(true);
+      void fetchBackups(1, true);
+    } catch (e) {
+      const err = e as { response?: { status?: number }; message?: string };
+      toast.error(
+        err.response?.status === 409
+          ? t("database_backups.backup_already_running")
+          : err.message || t("database_backups.backup_failed")
+      );
     } finally {
       setCreating(false);
     }
@@ -534,19 +620,94 @@ export default function DatabaseBackupsPage() {
           {canCreate && (
             <button
               onClick={handleCreate}
-              disabled={creating}
+              disabled={creating || !!currentBackup}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 text-white text-sm font-semibold hover:bg-primary-600 transition-all shadow-sm hover:shadow-md active:scale-[0.98] disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              {creating ? (
+              {creating || currentBackup ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Database className="w-4 h-4" />
               )}
-              {creating ? t("database_backups.creating") : t("database_backups.create")}
+              {creating
+                ? t("database_backups.creating")
+                : currentBackup
+                  ? t("database_backups.backup_running_button")
+                  : t("database_backups.create")}
             </button>
           )}
         </div>
       </div>
+
+      {currentBackup && (
+        <section
+          aria-live="polite"
+          className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20 sm:p-5"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-600" />
+                <span className="truncate">{currentBackup.file_name}</span>
+              </div>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                {t(`database_backups.backup_phase_${currentBackup.phase}`)}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+              {currentBackup.progress}%
+            </span>
+          </div>
+          <div
+            className="mt-4 h-2.5 overflow-hidden rounded-full bg-white/80 dark:bg-slate-800"
+            role="progressbar"
+            aria-label={t("database_backups.backup_progress")}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={currentBackup.phase === "starting" ? undefined : currentBackup.progress}
+            aria-valuetext={
+              currentBackup.phase === "starting"
+                ? t("database_backups.backup_phase_starting")
+                : t("database_backups.backup_percent", { percent: currentBackup.progress })
+            }
+          >
+            <div
+              className={cn(
+                "h-full rounded-full bg-amber-500 transition-[width] duration-500",
+                currentBackup.phase === "starting" && "w-1/3 animate-pulse"
+              )}
+              style={currentBackup.phase === "starting" ? undefined : { width: `${Math.max(currentBackup.progress, 3)}%` }}
+            />
+          </div>
+          <div className="mt-2 flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              {currentBackup.phase === "starting"
+                ? t("database_backups.backup_progress_estimate_pending")
+                : t("database_backups.backup_percent", { percent: currentBackup.progress })}
+            </span>
+            {currentBackup.estimated_bytes > 0 && (
+              <span>
+                {t("database_backups.backup_bytes_progress", {
+                  written: formatBytes(currentBackup.bytes_written),
+                  total: formatBytes(currentBackup.estimated_bytes),
+                })}
+              </span>
+            )}
+          </div>
+          {currentBackup.current_item && (
+            <p className="mt-2 break-all text-xs text-gray-500 dark:text-gray-400">
+              {t("database_backups.backup_current_item")}: {currentBackup.current_item}
+            </p>
+          )}
+          {backupPollError && (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {t("database_backups.backup_connection_retrying")}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {t("database_backups.backup_progress_hint")}
+          </p>
+        </section>
+      )}
 
       {restoreJob && (
         <section
@@ -743,6 +904,19 @@ export default function DatabaseBackupsPage() {
                     </td>
                     <td className="px-2 py-1">
                       <StatusBadge status={item.status} t={t} />
+                      {item.status === "running" && item.progress && (
+                        <div className="mt-1.5 w-28">
+                          <div className="h-1.5 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-500/20">
+                            <div
+                              className="h-full rounded-full bg-amber-500 transition-[width] duration-500"
+                              style={{ width: `${Math.max(item.progress.progress, 3)}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                            {item.progress.progress}%
+                          </p>
+                        </div>
+                      )}
                       {item.status === "failed" && item.error_message && (
                         <p className="text-[11px] text-red-500 mt-1 max-w-[200px] truncate" title={item.error_message}>
                           {item.error_message}
@@ -811,7 +985,10 @@ export default function DatabaseBackupsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">{item.file_name}</p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      {formatDate(item.created_at)} · {item.status === "running" ? t("database_backups.size_pending") : formatBytes(item.file_size)}
+                      {formatDate(item.created_at)} ·{" "}
+                      {item.status === "running"
+                        ? `${t("database_backups.size_pending")}${item.progress ? ` · ${item.progress.progress}%` : ""}`
+                        : formatBytes(item.file_size)}
                     </p>
                   </div>
                   <StatusBadge status={item.status} t={t} />
@@ -839,6 +1016,20 @@ export default function DatabaseBackupsPage() {
                         <p className="font-medium text-gray-800 dark:text-gray-200">{formatDate(item.created_at)}</p>
                       </div>
                     </div>
+                    {item.status === "running" && item.progress && (
+                      <div className="mt-3">
+                        <div className="mb-1 flex justify-between text-[11px] text-gray-500 dark:text-gray-400">
+                          <span>{t(`database_backups.backup_phase_${item.progress.phase}`)}</span>
+                          <span>{item.progress.progress}%</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-500/20">
+                          <div
+                            className="h-full rounded-full bg-amber-500 transition-[width] duration-500"
+                            style={{ width: `${Math.max(item.progress.progress, 3)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                     {item.status === "failed" && item.error_message && (
                       <p className="text-[11px] text-red-500 mt-2 break-words">{item.error_message}</p>
                     )}
@@ -866,7 +1057,8 @@ export default function DatabaseBackupsPage() {
                       {canDelete && (
                         <button
                           onClick={() => setDeleteTarget(item)}
-                          className="inline-flex items-center gap-2 flex-1 justify-center px-4 py-3 rounded-xl bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 text-sm font-semibold transition-colors cursor-pointer"
+                          disabled={item.status === "running"}
+                          className="inline-flex items-center gap-2 flex-1 justify-center px-4 py-3 rounded-xl bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 text-sm font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Trash2 className="w-4 h-4" />
                           {t("database_backups.action_delete")}

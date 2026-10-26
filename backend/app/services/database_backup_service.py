@@ -27,25 +27,216 @@ BACKUP_DIR = "/app/backups"
 
 # Timestamp format used in backup file names
 TS_FMT = "%Y%m%d_%H%M%S"
+
+# Live backup progress is kept in memory and mirrored to disk so any worker
+# (and a page reload) can read it. Backup rows themselves stay in PostgreSQL.
+BACKUP_JOBS_DIR = os.path.join(BACKUP_DIR, ".backup-jobs")
+_BACKUP_HEARTBEAT_TIMEOUT = 60.0  # seconds without an update => interrupted
+_BACKUP_STARTUP_GRACE = 15.0      # let a just-created row publish its state file
+_BACKUP_PERSIST_INTERVAL = 0.5   # throttle state-file writes (seconds)
+_backup_jobs: dict[int, dict] = {}
+_backup_tasks: dict[int, asyncio.Task] = {}
+_backup_last_persisted: dict[int, float] = {}
+
 _restore_jobs: dict[str, dict] = {}
 _restore_tasks: dict[str, asyncio.Task] = {}
 _restore_last_persisted: dict[str, float] = {}
 _active_restore_job_id: Optional[str] = None
 _restore_lock_handle = None
 
+_TABLE_PROGRESS_RE = re.compile(r'pg_dump: dumping contents of table\s+"?([^"\n]+)"?')
+_PUBLIC_BACKUP_JOB_FIELDS = (
+    "id",
+    "file_name",
+    "status",
+    "phase",
+    "progress",
+    "bytes_written",
+    "estimated_bytes",
+    "current_item",
+    "error",
+    "started_at",
+    "updated_at",
+)
+
 
 def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
+
+def _backup_job_path(backup_id: int) -> str:
+    return os.path.join(BACKUP_JOBS_DIR, f"{backup_id}.json")
+
+
+def _persist_backup_job(backup_id: int, *, force: bool = False) -> None:
+    job = _backup_jobs.get(backup_id)
+    if not job:
+        return
+    now = monotonic()
+    if not force and now - _backup_last_persisted.get(backup_id, 0) < _BACKUP_PERSIST_INTERVAL:
+        return
+    os.makedirs(BACKUP_JOBS_DIR, mode=0o700, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix=f".{backup_id}.", suffix=".tmp", dir=BACKUP_JOBS_DIR)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as state_file:
+            json.dump(job, state_file)
+            state_file.flush()
+            os.fsync(state_file.fileno())
+        os.replace(temp_path, _backup_job_path(backup_id))
+        _backup_last_persisted[backup_id] = now
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+
+
+def _update_backup_job(backup_id: int, **updates) -> None:
+    job = _backup_jobs.get(backup_id)
+    if not job:
+        return
+    previous_phase = job.get("phase")
+    job.update(updates)
+    job["updated_at"] = now_naive().isoformat()
+    terminal = job.get("status") in ("success", "failed")
+    try:
+        _persist_backup_job(
+            backup_id,
+            force=terminal or job.get("phase") != previous_phase,
+        )
+    except OSError:
+        logger.exception("Could not persist progress for backup job %s", backup_id)
+
+
+def get_backup_job(backup_id: int) -> Optional[dict]:
+    job = _backup_jobs.get(backup_id)
+    if job:
+        return dict(job)
+    try:
+        with open(_backup_job_path(backup_id), encoding="utf-8") as state_file:
+            return json.load(state_file)
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not read backup progress for job %s", backup_id)
+        return None
+
+
+def _backup_job_is_alive(job: Optional[dict]) -> bool:
+    if not job or job.get("status") != "running":
+        return False
+    try:
+        updated_at = datetime.fromisoformat(job["updated_at"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (now_naive() - updated_at).total_seconds() <= _BACKUP_HEARTBEAT_TIMEOUT
+
+
+def backup_progress_payload(row: DatabaseBackup) -> Optional[dict]:
+    """Return a safe progress payload for a running backup row."""
+    job = get_backup_job(row.id)
+    if not job or job.get("status") != "running":
+        return None
+    payload = {key: job.get(key) for key in _PUBLIC_BACKUP_JOB_FIELDS}
+    payload["id"] = row.id
+    payload["file_name"] = job.get("file_name") or row.file_name
+    return payload
+
+
+async def reconcile_running_backups(db: AsyncSession) -> int:
+    """Mark backups that no longer have a live worker as failed.
+
+    A running row without a fresh heartbeat state file was interrupted (server
+    restart, killed worker, etc.) and would otherwise stay "running" forever.
+    """
+    rows = (
+        await db.execute(
+            select(DatabaseBackup).where(
+                DatabaseBackup.status == "running",
+                DatabaseBackup.is_deleted.is_(False),
+            )
+        )
+    ).scalars().all()
+    if not rows:
+        return 0
+
+    changed = 0
+    for row in rows:
+        task = _backup_tasks.get(row.id)
+        if task and not task.done():
+            continue
+        job = get_backup_job(row.id)
+        if _backup_job_is_alive(job):
+            continue
+        if row.created_at and (now_naive() - row.created_at).total_seconds() < _BACKUP_STARTUP_GRACE:
+            # The record is committed just before its first state file is
+            # written; do not fail a job that is still starting up.
+            continue
+
+        row.status = "failed"
+        row.error_message = (
+            "Backup was interrupted before it could finish (the server restarted "
+            "or the backup process stopped). Please create a new backup."
+        )
+        temp_path = (job or {}).get("temp_path")
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                logger.warning("Could not remove interrupted backup temp file %s", temp_path)
+        if row.id in _backup_jobs:
+            _update_backup_job(
+                row.id,
+                status="failed",
+                phase="failed",
+                progress=0,
+                current_item="",
+                error=row.error_message,
+            )
+        else:
+            try:
+                os.remove(_backup_job_path(row.id))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logger.warning("Could not remove stale backup job state %s", row.id)
+        changed += 1
+        logger.warning("Marked interrupted backup %s as failed", row.file_name)
+
+    if changed:
+        await db.commit()
+    return changed
 
 
 async def trigger_backup(db: AsyncSession, user_id: int, user_name: str) -> DatabaseBackup:
     """Create a 'running' record immediately, then run pg_dump in the background.
 
     Returns the record right away so the API does not block during the dump.
+    Live progress is exposed through ``backup_progress_payload`` and the
+    ``/database-backups/current-job`` endpoint.
     """
+    from fastapi import HTTPException
+
     _ensure_dir(BACKUP_DIR)
 
-    ts = datetime.now().strftime(TS_FMT)
+    await reconcile_running_backups(db)
+    already_running = (
+        await db.execute(
+            select(DatabaseBackup.id)
+            .where(
+                DatabaseBackup.status == "running",
+                DatabaseBackup.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+    ).scalar()
+    if already_running:
+        raise HTTPException(
+            status_code=409,
+            detail="A database backup is already running. Please wait for it to finish.",
+        )
+
+    ts = now_naive().strftime(TS_FMT)
     file_name = f"orange_flow_backup_{ts}.dump"
     file_path = os.path.join(BACKUP_DIR, file_name)
 
@@ -62,8 +253,26 @@ async def trigger_backup(db: AsyncSession, user_id: int, user_name: str) -> Data
     await db.commit()
     await db.refresh(record)
 
+    _backup_jobs[record.id] = {
+        "id": record.id,
+        "file_name": file_name,
+        "status": "running",
+        "phase": "starting",
+        "progress": 0,
+        "bytes_written": 0,
+        "estimated_bytes": 0,
+        "current_item": "",
+        "error": None,
+        "started_at": now_naive().isoformat(),
+        "updated_at": now_naive().isoformat(),
+        "temp_path": None,
+    }
+    try:
+        _persist_backup_job(record.id, force=True)
+    except OSError:
+        logger.exception("Could not persist initial progress for backup %s", record.id)
+
     from app.services.db_service import async_session as _session_maker
-    from app.utils.activity_logger import log_activity
 
     async def _run():
         # Work in a fresh session so commit/rollback doesn't clash with the
@@ -72,19 +281,63 @@ async def trigger_backup(db: AsyncSession, user_id: int, user_name: str) -> Data
             async with _session_maker() as s:
                 rec = await s.get(DatabaseBackup, record.id)
                 if not rec:
+                    _update_backup_job(
+                        record.id,
+                        status="failed",
+                        phase="failed",
+                        error="Backup record was removed before the dump started.",
+                    )
                     return
                 try:
-                    await _do_backup(s, rec)
+                    await _do_backup(
+                        s,
+                        rec,
+                        progress_callback=lambda **updates: _update_backup_job(record.id, **updates),
+                    )
+                except asyncio.CancelledError:
+                    logger.warning("Backup %s was cancelled by server shutdown", record.file_name)
+                    try:
+                        rec.status = "failed"
+                        rec.error_message = "Backup was interrupted because the server shut down."
+                        await s.commit()
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Could not persist cancelled backup state")
+                    _update_backup_job(
+                        record.id,
+                        status="failed",
+                        phase="failed",
+                        error="Backup was interrupted because the server shut down.",
+                    )
+                    raise
                 except Exception as e:  # noqa: BLE001
                     logger.exception("Backup %s failed", record.file_name)
                     rec.status = "failed"
                     rec.error_message = str(e)[:1000]
                     await s.commit()
+                    _update_backup_job(
+                        record.id,
+                        status="failed",
+                        phase="failed",
+                        error=rec.error_message,
+                    )
+        except asyncio.CancelledError:
+            raise
         except Exception:  # noqa: BLE001
             logger.exception("Backup finalization error")
+            _update_backup_job(
+                record.id,
+                status="failed",
+                phase="failed",
+                error="Backup finalization failed. Please try again.",
+            )
+        finally:
+            _backup_tasks.pop(record.id, None)
+            _backup_last_persisted.pop(record.id, None)
 
     try:
-        asyncio.get_running_loop().create_task(_run())
+        # Keep a strong reference: the event loop only holds weak references
+        # and an unreferenced task can be garbage-collected mid-dump.
+        _backup_tasks[record.id] = asyncio.get_running_loop().create_task(_run())
     except RuntimeError:
         # No running loop (e.g. called from a sync context) — run inline.
         await _run()
@@ -92,11 +345,86 @@ async def trigger_backup(db: AsyncSession, user_id: int, user_name: str) -> Data
     return record
 
 
-async def _do_backup(db: AsyncSession, record: DatabaseBackup) -> None:
-    """Run pg_dump in PostgreSQL custom-compressed format."""
+async def _expected_dump_size(db: AsyncSession, db_size: int) -> int:
+    """Best-effort expected dump size for byte-based progress."""
+    try:
+        last_size = (
+            await db.execute(
+                select(DatabaseBackup.file_size)
+                .where(
+                    DatabaseBackup.status == "success",
+                    DatabaseBackup.is_deleted.is_(False),
+                    DatabaseBackup.file_size > 0,
+                )
+                .order_by(DatabaseBackup.id.desc())
+                .limit(1)
+            )
+        ).scalar()
+    except Exception:  # noqa: BLE001
+        last_size = None
+    if last_size and last_size > 0:
+        return int(last_size)
+    # Custom-format dumps are usually ~30% of the logical database size.
+    return max(int(db_size * 0.35), 1024 * 1024)
+
+
+async def _do_backup(
+    db: AsyncSession,
+    record: DatabaseBackup,
+    progress_callback: Optional[Callable[..., None]] = None,
+) -> None:
+    """Run pg_dump in PostgreSQL custom-compressed format with live progress."""
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".dump", dir=BACKUP_DIR)
     os.close(tmp_fd)
+
+    def notify(**updates) -> None:
+        if not progress_callback:
+            return
+        try:
+            progress_callback(**updates)
+        except Exception:  # noqa: BLE001
+            logger.exception("Backup progress callback failed")
+
+    db_size = 0
+    total_tables = 0
+    expected_dump_bytes = 1024 * 1024
     try:
+        try:
+            db_size = int(
+                (
+                    await db.execute(text("SELECT pg_database_size(current_database())"))
+                ).scalar()
+                or 0
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("Could not estimate database size for backup progress")
+        try:
+            total_tables = int(
+                (
+                    await db.execute(
+                        text(
+                            "SELECT count(*) FROM information_schema.tables "
+                            "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') "
+                            "AND table_type = 'BASE TABLE'"
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("Could not count database tables for backup progress")
+        expected_dump_bytes = await _expected_dump_size(db, db_size)
+        await db.commit()
+
+        notify(
+            phase="starting",
+            progress=1,
+            bytes_written=0,
+            estimated_bytes=expected_dump_bytes,
+            current_item="",
+            temp_path=tmp_path,
+        )
+
         cmd = [
             "pg_dump",
             "-h", settings.DB_HOST,
@@ -104,6 +432,7 @@ async def _do_backup(db: AsyncSession, record: DatabaseBackup) -> None:
             "-U", settings.DB_USER,
             "-d", settings.DB_NAME,
             "-Fc",
+            "--verbose",
             "--no-owner",
             "--no-privileges",
             "-f", tmp_path,
@@ -113,27 +442,77 @@ async def _do_backup(db: AsyncSession, record: DatabaseBackup) -> None:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             env=env,
-            stdout=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await proc.communicate()
+
+        error_lines: list[str] = []
+        processed_tables = 0
+        current_item = ""
+
+        async def _consume_stderr() -> None:
+            nonlocal processed_tables, current_item
+            assert proc.stderr is not None
+            async for raw_line in proc.stderr:
+                line = raw_line.decode("utf-8", errors="replace").rstrip()
+                if len(error_lines) < 200 and "pg_dump: error" in line:
+                    error_lines.append(line[:2000])
+                match = _TABLE_PROGRESS_RE.search(line)
+                if match:
+                    processed_tables += 1
+                    current_item = match.group(1).strip()[:180]
+
+        reader = asyncio.create_task(_consume_stderr())
+        notify(phase="dumping", progress=3)
+        try:
+            while proc.returncode is None:
+                await asyncio.sleep(0.4)
+                try:
+                    written = os.path.getsize(tmp_path)
+                except OSError:
+                    written = 0
+                table_pct = (processed_tables / total_tables) if total_tables else 0.0
+                file_pct = min(written / expected_dump_bytes, 1.0) if expected_dump_bytes else 0.0
+                progress = min(95, 3 + int(round(max(table_pct, file_pct) * 92)))
+                notify(
+                    phase="dumping",
+                    progress=progress,
+                    bytes_written=written,
+                    estimated_bytes=expected_dump_bytes,
+                    current_item=current_item,
+                )
+            await proc.wait()
+            await reader
+        finally:
+            if not reader.done():
+                reader.cancel()
 
         if proc.returncode != 0:
-            err_msg = stderr.decode("utf-8", errors="replace").strip()
+            err_msg = "\n".join(error_lines).strip()
             raise RuntimeError(err_msg or "pg_dump exited with non-zero code")
 
         file_size = os.path.getsize(tmp_path)
         if file_size == 0:
             raise RuntimeError("pg_dump produced an empty backup")
 
+        notify(phase="finalizing", progress=97, bytes_written=file_size)
         shutil.move(tmp_path, record.file_path)
         os.chmod(record.file_path, 0o644)
         record.file_size = file_size
         record.pg_version = "custom-compressed"
         record.status = "success"
         record.error_message = None
-        logger.info("Backup created: %s (%d bytes)", record.file_name, file_size)
         await db.commit()
+        notify(
+            status="success",
+            phase="success",
+            progress=100,
+            bytes_written=file_size,
+            current_item="",
+            error=None,
+            temp_path=None,
+        )
+        logger.info("Backup created: %s (%d bytes)", record.file_name, file_size)
     except Exception:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -157,7 +536,7 @@ async def create_uploaded_backup(
 
     base = os.path.basename(original_name or "uploaded_backup.dump")
     safe_name = base.replace(" ", "_").replace("\\", "_").replace("/", "_")[:120]
-    ts = datetime.now().strftime(TS_FMT)
+    ts = now_naive().strftime(TS_FMT)
     file_name = f"upload_{ts}_{safe_name}"
     file_path = os.path.join(BACKUP_DIR, file_name)
 
@@ -607,7 +986,7 @@ async def restore_backup(
         raise HTTPException(status_code=404, detail="Backup file not found on disk")
 
     # 1) Pre-restore safety snapshot (synchronous so restore is aborted on failure)
-    ts = datetime.now().strftime(TS_FMT)
+    ts = now_naive().strftime(TS_FMT)
     safety = DatabaseBackup(
         file_name=f"pre_restore_safety_{ts}.dump",
         file_path=os.path.join(BACKUP_DIR, f"pre_restore_safety_{ts}.dump"),
@@ -760,6 +1139,41 @@ async def restore_backup(
     }
 
 
+async def get_latest_running_backup(db: AsyncSession) -> Optional[dict]:
+    """Return the newest running backup with its live progress, if any."""
+    await reconcile_running_backups(db)
+    row = (
+        await db.execute(
+            select(DatabaseBackup)
+            .where(
+                DatabaseBackup.status == "running",
+                DatabaseBackup.is_deleted.is_(False),
+            )
+            .order_by(DatabaseBackup.id.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+    if not row:
+        return None
+    payload = backup_progress_payload(row)
+    if payload:
+        return payload
+    # The worker exists but has not written its first state file yet.
+    return {
+        "id": row.id,
+        "file_name": row.file_name,
+        "status": "running",
+        "phase": "starting",
+        "progress": 0,
+        "bytes_written": 0,
+        "estimated_bytes": 0,
+        "current_item": "",
+        "error": None,
+        "started_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
 async def list_backups(
     db: AsyncSession,
     page: int = 1,
@@ -772,6 +1186,7 @@ async def list_backups(
     from sqlalchemy.orm import selectinload
 
     await _reconcile_interrupted_upload_rows(db)
+    await reconcile_running_backups(db)
     base_q = select(DatabaseBackup).where(DatabaseBackup.is_deleted.is_(False))
     if search:
         like = f"%{search}%"
@@ -807,6 +1222,7 @@ async def list_backups(
                 "created_at": r.created_at.isoformat() + "+06:00" if r.created_at else None,
                 "created_by": r.created_by,
                 "created_by_name": r.creator.name if r.creator else None,
+                "progress": backup_progress_payload(r),
             }
             for r in rows
         ],
@@ -834,6 +1250,12 @@ async def delete_backup(db: AsyncSession, backup: DatabaseBackup, user_id: int, 
     from fastapi import HTTPException
     from app.utils.activity_logger import log_activity
 
+    if backup.status == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="This backup is still running. Please wait for it to finish before deleting it.",
+        )
+
     old_values = {
         "file_name": backup.file_name,
         "file_size": backup.file_size,
@@ -849,6 +1271,15 @@ async def delete_backup(db: AsyncSession, backup: DatabaseBackup, user_id: int, 
             logger.error("Failed to remove backup file %s: %s", backup.file_path, e)
             await db.commit()
             raise HTTPException(status_code=500, detail="Backup record deleted but file removal failed")
+
+    _backup_jobs.pop(backup.id, None)
+    _backup_last_persisted.pop(backup.id, None)
+    try:
+        os.remove(_backup_job_path(backup.id))
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning("Could not remove backup job state for %s", backup.id)
 
     await db.commit()
     await log_activity(

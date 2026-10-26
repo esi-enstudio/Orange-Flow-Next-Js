@@ -2102,6 +2102,18 @@ async def init_db():
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()
         await _sync_retailer_markings_on_startup()
+        try:
+            # A backup task never survives a process restart. Fail any row
+            # still marked "running" unless another live worker keeps its
+            # heartbeat fresh, so the UI never shows a permanently running job.
+            from app.services.database_backup_service import reconcile_running_backups
+
+            async with async_session() as session:
+                repaired = await reconcile_running_backups(session)
+            if repaired:
+                logger.info("Marked %d interrupted backup(s) as failed on startup", repaired)
+        except Exception:
+            logger.exception("Could not reconcile interrupted database backups")
     except Exception as e:
         error_msg = str(e).lower()
         if "already exists" in error_msg:
