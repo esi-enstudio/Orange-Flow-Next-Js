@@ -61,6 +61,8 @@ from app.services.active_sso_report_service import ActiveSsoReportService
 from app.services.active_lso_report_service import rounded_daily_avg
 from app.services.report_image_kit import (
     HDR_BAND_H,
+    HDR_BOX_LABEL_F,
+    HDR_BOX_VALUE_F,
     HDR_META_F,
     HDR_TITLE_F,
     INK,
@@ -108,6 +110,10 @@ GAP = 8                  # minimum gap between sections
 # without dominating the wider sheet.
 HDR_H = round(HDR_BAND_H * header_scale(IMG_W))
 NOTE_H = 18              # caption line under the header (Active threshold)
+# "Active Yesterday" metric box (blue) in the header's right corner — same
+# treatment as the Active LSO image.
+YDAY_BG = "#EFF6FF"
+YDAY_INK = "#1D4ED8"
 
 # ── A4 pagination ──
 A4_SHORT_MM = 210
@@ -353,16 +359,38 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
 
 
 # ── Header ──
-def _render_header(draw, x, y, house_name, house_code, today) -> int:
+def _metric_box(draw, bx, by, box_w, box_h, label, value, bg, ink, fl, fv,
+                s: float = 1.0) -> None:
+    draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=round(9 * s),
+                           fill=bg, outline=ink, width=round(2 * s))
+    draw.text((bx + box_w / 2, by + round(17 * s)), label, font=fl, fill=ink, anchor="mm")
+    draw.text((bx + box_w / 2, by + round(52 * s)), value, font=fv, fill=ink, anchor="mm")
+
+
+def _render_header(draw, x, y, house_name, house_code, today,
+                   yesterday_active=0) -> int:
     # Standard header block scaled from the 800-wide reference (~1.48x on this
     # 1750-wide sheet) so the header keeps its standard size everywhere.
     s = header_scale(IMG_W)
+    x1 = x + INNER
     pad_x = round(16 * s)
     date_str = today.strftime("%d %B %Y")
     time_str = now_naive().strftime("%I:%M %p").lstrip("0").replace(" 0", " ")
 
+    # metric box (right): retailers active yesterday — measured first so the
+    # brand text can be kept clear of it
+    label, value = "Active Yesterday", fmt_num(yesterday_active)
+    fl = load_font(round(HDR_BOX_LABEL_F * s), True)
+    fv = load_font(round(HDR_BOX_VALUE_F * s), True)
+    box_w = int(max(round(220 * s), draw.textlength(label, font=fl) + round(40 * s),
+                    draw.textlength(value, font=fv) + round(40 * s)))
+    box_h = round(80 * s)
+    by = y + (HDR_H - box_h) // 2
+    bx = x1 - pad_x - box_w
+
+    # brand (left) — text column, vertically centred
     tx = x + pad_x
-    brand_max = INNER - 2 * pad_x
+    brand_max = bx - tx - round(10 * s)  # keep clear of the metric box
 
     draw.text((tx, y + round(46 * s)), "Active SSO Report",
               font=load_font(round(HDR_TITLE_F * s), True),
@@ -373,6 +401,8 @@ def _render_header(draw, x, y, house_name, house_code, today) -> int:
         font=f_meta, fill=INK, anchor="lm")
     draw.text((tx, y + round(88 * s)), f"Generated: {date_str}, {time_str}",
               font=f_meta, fill=INK, anchor="lm")
+
+    _metric_box(draw, bx, by, box_w, box_h, label, value, YDAY_BG, YDAY_INK, fl, fv, s)
     return y + HDR_H
 
 
@@ -517,6 +547,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict,
     """
     summary = dashboard.get("summary") or {}
     period = dashboard.get("period") or {}
+    yesterday_active = dashboard.get("yesterday_active") or 0
     count_keys = _count_keys(dashboard)
     rso_rows = _rso_rows(dashboard.get("rows") or [], count_keys)
     supervisor_rows = _supervisor_rows(dashboard.get("supervisor_summary") or [])
@@ -562,7 +593,8 @@ def _render_image(house_name: str, house_code: str, dashboard: dict,
         for op in ops:
             kind = op[0]
             if kind == "header":
-                y = _render_header(draw, cx, y, house_name, house_code, today)
+                y = _render_header(draw, cx, y, house_name, house_code, today,
+                                   yesterday_active)
             elif kind == "note":
                 y = _render_threshold_note(draw, cx, y, period)
             else:  # table op

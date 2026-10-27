@@ -9,7 +9,6 @@ import {
   FileSpreadsheet,
   Printer,
   Building2,
-  Calendar,
   Filter,
   RotateCcw,
   Clock,
@@ -38,6 +37,7 @@ import {
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
+import { DateRangePicker } from "@/components/date-picker";
 import { useLanguage } from "@/i18n/useLanguage";
 import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 
@@ -140,11 +140,9 @@ interface FilterOptions {
 interface FilterState {
   houseId: string;
   managerId: string;
+  /** Role-scoped defaults from the API — applied silently, no visible field. */
   supervisorId: string;
   rsoId: string;
-  status: string;
-  month: number;
-  year: number;
   startDate: string;
   endDate: string;
 }
@@ -159,6 +157,29 @@ function toDateStr(d: Date): string {
 
 function endOfMonthStr(year: number, month: number): string {
   return toDateStr(new Date(year, month, 0));
+}
+
+/** House the filters start with.
+ *
+ * When the house selector is actually usable (an admin with more than one
+ * house) it starts on "Select House" and the report stays empty until a house
+ * is picked. A role-scoped user, or an admin with a single house, has nothing
+ * to pick — their fixed house is used silently.
+ */
+function resolveDefaultHouseId(opts: FilterOptions | null): string {
+  if (!opts) return "";
+  if (opts.role_mode === "admin" && opts.houses.length > 1) return "";
+  return opts.defaults?.house_id ? String(opts.defaults.house_id) : "";
+}
+
+/** Calendar month the range starts in — the month the Active SSO threshold is configured for. */
+function monthYearOf(dateStr: string): { month: number; year: number } {
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) {
+    const now = new Date();
+    return { month: now.getMonth() + 1, year: now.getFullYear() };
+  }
+  return { month: d.getMonth() + 1, year: d.getFullYear() };
 }
 
 function formatNumber(n: number): string {
@@ -368,12 +389,12 @@ export default function ActiveSsoReportPage() {
     managerId: "",
     supervisorId: "",
     rsoId: "",
-    status: "",
-    month: today.getMonth() + 1,
-    year: today.getFullYear(),
     startDate: toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)),
     endDate: endOfMonthStr(today.getFullYear(), today.getMonth() + 1),
   });
+  // The table only reloads on Apply, so the filters behind the visible report
+  // are kept apart from the ones currently being edited.
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(filters);
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -388,9 +409,6 @@ export default function ActiveSsoReportPage() {
   const [wsModalOpen, setWsModalOpen] = useState(false);
 
   const initializedRef = useRef(false);
-  const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const permissionOk = !authLoading && hasPermission("active_sso.view");
 
   // Report delivery is shared with the Live Activations schedulers; either
   // permission unlocks the WhatsApp/Telegram schedule module (mirrors the API).
@@ -411,12 +429,16 @@ export default function ActiveSsoReportPage() {
     if (f.managerId) p.manager_id = f.managerId;
     if (f.supervisorId) p.supervisor_id = f.supervisorId;
     if (f.rsoId) p.rso_id = f.rsoId;
-    if (f.status) p.status = f.status;
     return p;
   }, []);
 
   const fetchData = useCallback(
     async (f: FilterState, silent = false) => {
+      // The report is house-scoped: no house means nothing to show.
+      if (!f.houseId) return;
+      // A half-picked range (start chosen, end still pending) is not a period
+      // yet — keep the current report instead of firing an invalid request.
+      if (!f.startDate || !f.endDate) return;
       if (!silent) setLoading(true);
       setError(false);
       try {
@@ -432,56 +454,65 @@ export default function ActiveSsoReportPage() {
     [buildParams]
   );
 
-  // Load filter options once
+  // Load filter options once, then run the first report with them.
   useEffect(() => {
-    if (!authLoading && hasPermission("active_sso.view")) {
-      apiClient
-        .get("reports/active-sso/filters")
-        .then((res) => {
-          const opts = res.data as FilterOptions;
-          setFilterOptions(opts);
-          const d = opts.defaults || {};
-          setFilters((prev) => {
-            const next: FilterState = {
-              ...prev,
-              houseId: d.house_id ? String(d.house_id) : prev.houseId,
-              managerId: d.manager_id ? String(d.manager_id) : "",
-              supervisorId: d.supervisor_id ? String(d.supervisor_id) : "",
-              rsoId: d.rso_id ? String(d.rso_id) : "",
-            };
-            return next;
-          });
-          initializedRef.current = true;
-        })
-        .catch(() => {
-          setError(true);
-          setLoading(false);
-        });
-    }
-  }, [authLoading, hasPermission]);
-
-  // Fetch whenever filters change (after options are loaded)
-  useEffect(() => {
-    if (initializedRef.current && permissionOk) {
-      if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
-      fetchTimerRef.current = setTimeout(() => fetchData(filters), 400);
-      return () => {
-        if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
-      };
-    }
-  }, [filters, permissionOk, fetchData]);
+    if (authLoading || !hasPermission("active_sso.view") || initializedRef.current) return;
+    apiClient
+      .get("reports/active-sso/filters")
+      .then((res) => {
+        const opts = res.data as FilterOptions;
+        setFilterOptions(opts);
+        const d = opts.defaults || {};
+        const next: FilterState = {
+          ...filters,
+          houseId: resolveDefaultHouseId(opts),
+          managerId: "",
+          supervisorId: d.supervisor_id ? String(d.supervisor_id) : "",
+          rsoId: d.rso_id ? String(d.rso_id) : "",
+        };
+        setFilters(next);
+        setAppliedFilters(next);
+        initializedRef.current = true;
+        // No house yet (admin with several houses) — show the empty prompt
+        // instead of silently loading some other house's report.
+        if (next.houseId) fetchData(next);
+        else setLoading(false);
+      })
+      .catch(() => {
+        setError(true);
+        setLoading(false);
+      });
+  }, [authLoading, hasPermission, filters, fetchData]);
 
   const updateFilter = (patch: Partial<FilterState>) => {
-    setFilters((prev) => {
-      const next = { ...prev, ...patch };
-      if (patch.month !== undefined || patch.year !== undefined) {
-        const m = patch.month ?? prev.month;
-        const y = patch.year ?? prev.year;
-        next.startDate = toDateStr(new Date(y, m - 1, 1));
-        next.endDate = endOfMonthStr(y, m);
-      }
-      return next;
-    });
+    setFilters((prev) => ({ ...prev, ...patch }));
+  };
+
+  // Everything the filter bar offers is a draft until Apply is pressed.
+  const applyFilters = () => {
+    if (!filters.houseId) {
+      toast.error(t("active_sso_report.messages.select_house"));
+      return;
+    }
+    if (!filters.startDate || !filters.endDate) {
+      toast.error(t("common.date_range.select_range_first"));
+      return;
+    }
+    setAppliedFilters(filters);
+    fetchData(filters);
+  };
+
+  // Clearing the range falls back to the current month: the report needs a
+  // complete period, so an empty selection would just break the next request.
+  const updateDateRange = (range: { from: string | null; to: string | null }) => {
+    if (!range.from && !range.to) {
+      updateFilter({
+        startDate: toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)),
+        endDate: endOfMonthStr(today.getFullYear(), today.getMonth() + 1),
+      });
+      return;
+    }
+    updateFilter({ startDate: range.from ?? "", endDate: range.to ?? "" });
   };
 
   const handleManagerChange = (id: string) => {
@@ -495,30 +526,32 @@ export default function ActiveSsoReportPage() {
 
   const handleReset = () => {
     const d = filterOptions?.defaults || {};
-    setFilters((prev) => ({
-      ...prev,
-      houseId: d.house_id ? String(d.house_id) : "",
+    const next: FilterState = {
+      houseId: resolveDefaultHouseId(filterOptions),
       managerId: "",
       supervisorId: d.supervisor_id ? String(d.supervisor_id) : "",
       rsoId: d.rso_id ? String(d.rso_id) : "",
-      status: "",
-      month: today.getMonth() + 1,
-      year: today.getFullYear(),
       startDate: toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)),
       endDate: endOfMonthStr(today.getFullYear(), today.getMonth() + 1),
-    }));
+    };
+    setFilters(next);
+    setAppliedFilters(next);
+    if (next.houseId) {
+      fetchData(next);
+    } else {
+      setData(null);
+    }
   };
 
   const handleExport = async () => {
     if (!data) return;
     setExporting("xlsx");
     try {
-      const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
-      if (filters.houseId) params.house_id = filters.houseId;
-      if (filters.managerId) params.manager_id = filters.managerId;
-      if (filters.supervisorId) params.supervisor_id = filters.supervisorId;
-      if (filters.rsoId) params.rso_id = filters.rsoId;
-      if (filters.status) params.status = filters.status;
+      const params: Record<string, string> = { start_date: appliedFilters.startDate, end_date: appliedFilters.endDate };
+      if (appliedFilters.houseId) params.house_id = appliedFilters.houseId;
+      if (appliedFilters.managerId) params.manager_id = appliedFilters.managerId;
+      if (appliedFilters.supervisorId) params.supervisor_id = appliedFilters.supervisorId;
+      if (appliedFilters.rsoId) params.rso_id = appliedFilters.rsoId;
       const res = await apiClient.get("reports/active-sso/export", {
         params,
         responseType: "blob",
@@ -547,8 +580,8 @@ export default function ActiveSsoReportPage() {
   const handleShowInactiveRetailers = async (row: RsoRow) => {
     setInactiveRetailerModal({ open: true, employeeId: row.employee_id, rsoName: row.name, rsoCode: row.employee_code || row.dms_code || "", loading: true, data: [] });
     try {
-      const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
-      if (filters.houseId) params.house_id = filters.houseId;
+      const params: Record<string, string> = { start_date: appliedFilters.startDate, end_date: appliedFilters.endDate };
+      if (appliedFilters.houseId) params.house_id = appliedFilters.houseId;
       const res = await apiClient.get(`reports/active-sso/retailers/${row.employee_id}`, { params });
       setInactiveRetailerModal((prev) => ({ ...prev, loading: false, data: res.data?.data || [] }));
     } catch {
@@ -559,8 +592,8 @@ export default function ActiveSsoReportPage() {
 
   const handleExportInactiveRetailers = async () => {
     try {
-      const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
-      if (filters.houseId) params.house_id = filters.houseId;
+      const params: Record<string, string> = { start_date: appliedFilters.startDate, end_date: appliedFilters.endDate };
+      if (appliedFilters.houseId) params.house_id = appliedFilters.houseId;
       const res = await apiClient.get("reports/active-sso/retailers/export", {
         params,
         responseType: "blob",
@@ -582,8 +615,8 @@ export default function ActiveSsoReportPage() {
 
   const handleExportSingleRsoInactive = async (employeeId: number, rsoName: string) => {
     try {
-      const params: Record<string, string> = { start_date: filters.startDate, end_date: filters.endDate };
-      if (filters.houseId) params.house_id = filters.houseId;
+      const params: Record<string, string> = { start_date: appliedFilters.startDate, end_date: appliedFilters.endDate };
+      if (appliedFilters.houseId) params.house_id = appliedFilters.houseId;
       const res = await apiClient.get(`reports/active-sso/retailers/${employeeId}/export`, {
         params,
         responseType: "blob",
@@ -607,8 +640,9 @@ export default function ActiveSsoReportPage() {
     setShowConfig(true);
     setConfigLoading(true);
     try {
-      const params: Record<string, string> = { month: String(filters.month), year: String(filters.year) };
-      if (filters.houseId) params.house_id = filters.houseId;
+      const { month, year } = monthYearOf(appliedFilters.startDate);
+      const params: Record<string, string> = { month: String(month), year: String(year) };
+      if (appliedFilters.houseId) params.house_id = appliedFilters.houseId;
       const res = await apiClient.get("reports/active-sso/config", { params });
       const d = res.data?.data;
       if (d) {
@@ -630,15 +664,16 @@ export default function ActiveSsoReportPage() {
     }
     setSavingConfig(true);
     try {
+      const { month, year } = monthYearOf(appliedFilters.startDate);
       await apiClient.put("reports/active-sso/config", {
-        house_id: filters.houseId ? Number(filters.houseId) : undefined,
-        month: filters.month,
-        year: filters.year,
+        house_id: appliedFilters.houseId ? Number(appliedFilters.houseId) : undefined,
+        month,
+        year,
         activations_threshold: threshold,
       });
       toast.success(t("active_sso_report.config.save_success"));
       setShowConfig(false);
-      fetchData(filters);
+      fetchData(appliedFilters);
     } catch {
       toast.error(t("active_sso_report.config.save_failed"));
     } finally {
@@ -661,8 +696,6 @@ export default function ActiveSsoReportPage() {
 
   const mode = filterOptions?.role_mode || "admin";
   const lockedHouse = mode !== "admin";
-  const lockedSupervisor = mode === "supervisor" || mode === "rso";
-  const lockedRso = mode === "rso";
   const showManager = mode === "admin" && (filterOptions?.managers.length ?? 0) > 0;
 
   const period = data?.period;
@@ -688,6 +721,10 @@ export default function ActiveSsoReportPage() {
     const enMonths = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     return enMonths[m - 1] || "";
   };
+
+  // Threshold config is stored per calendar month, so the range's start month
+  // is what the config modal reads and writes.
+  const configPeriod = monthYearOf(appliedFilters.startDate);
 
   const selectClass =
     "pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer min-w-[150px] disabled:opacity-50 disabled:cursor-not-allowed";
@@ -781,7 +818,8 @@ export default function ActiveSsoReportPage() {
           {hasPermission("active_sso.config") && (
             <button
               onClick={openConfig}
-              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
+              disabled={!appliedFilters.houseId}
+              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title={t("active_sso_report.config.title")}
             >
               <Settings className="w-4 h-4" />
@@ -790,7 +828,7 @@ export default function ActiveSsoReportPage() {
           {canShare && (
             <button
               onClick={() => setWsModalOpen(true)}
-              disabled={!filters.houseId}
+              disabled={!appliedFilters.houseId}
               className="inline-flex items-center gap-2 p-2.5 rounded-lg border border-green-300 dark:border-green-500/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title={t("active_sso_report.actions.share")}
             >
@@ -798,7 +836,7 @@ export default function ActiveSsoReportPage() {
             </button>
           )}
           <button
-            onClick={() => fetchData(filters)}
+            onClick={() => fetchData(appliedFilters)}
             disabled={loading}
             className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50"
             title={t("active_sso_report.actions.refresh")}
@@ -821,7 +859,7 @@ export default function ActiveSsoReportPage() {
               <div className="relative">
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <select value={filters.houseId} onChange={(e) => updateFilter({ houseId: e.target.value })} className={selectClass}>
-                  <option value="">{t("active_sso_report.filters.all")}</option>
+                  <option value="">{t("common.select_house")}</option>
                   {filterOptions.houses.map((h) => (
                     <option key={h.id} value={h.id}>{h.name}</option>
                   ))}
@@ -843,114 +881,24 @@ export default function ActiveSsoReportPage() {
               </div>
             </div>
           )}
-          {filterOptions && filterOptions.supervisors.length > 0 && (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.supervisor")}</label>
-              <div className="relative">
-                <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <select
-                  value={filters.supervisorId}
-                  onChange={(e) => updateFilter({ supervisorId: e.target.value })}
-                  disabled={lockedSupervisor}
-                  className={selectClass}
-                >
-                  <option value="">{t("active_sso_report.filters.all")}</option>
-                  {filterOptions.supervisors.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-          {filterOptions && filterOptions.rsos.length > 0 && (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.rso")}</label>
-              <div className="relative">
-                <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <select
-                  value={filters.rsoId}
-                  onChange={(e) => updateFilter({ rsoId: e.target.value })}
-                  disabled={lockedRso}
-                  className={selectClass}
-                >
-                  <option value="">{t("active_sso_report.filters.all")}</option>
-                  {filterOptions.rsos.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-          {filterOptions && filterOptions.statuses.length > 0 && (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.status")}</label>
-              <div className="relative">
-                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <select value={filters.status} onChange={(e) => updateFilter({ status: e.target.value })} className={selectClass}>
-                  <option value="">{t("active_sso_report.filters.all")}</option>
-                  {filterOptions.statuses.map((s) => (
-                    <option key={s} value={s}>{t(`active_sso_report.status.${s}`)}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.month")}</label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <select
-                value={filters.month}
-                onChange={(e) => updateFilter({ month: Number(e.target.value) })}
-                className={selectClass}
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>{getMonthName(m)}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.year")}</label>
-            <select
-              value={filters.year}
-              onChange={(e) => updateFilter({ year: Number(e.target.value) })}
-              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              {Array.from({ length: 5 }, (_, i) => today.getFullYear() - 2 + i).map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.start_date")}</label>
-            <input
-              type="date"
-              value={filters.startDate}
-              onChange={(e) => updateFilter({ startDate: e.target.value })}
-              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("active_sso_report.filters.end_date")}</label>
-            <input
-              type="date"
-              value={filters.endDate}
-              onChange={(e) => updateFilter({ endDate: e.target.value })}
-              className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500"
+          <div className="w-full sm:w-auto sm:min-w-[240px]">
+            <DateRangePicker
+              label={t("common.date_range.label")}
+              value={{ from: filters.startDate || null, to: filters.endDate || null }}
+              onChange={updateDateRange}
             />
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => fetchData(filters)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
+              onClick={applyFilters}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors cursor-pointer"
             >
               <Filter className="w-4 h-4" />
               {t("active_sso_report.filters.apply")}
             </button>
             <button
               onClick={handleReset}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold shadow-sm transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold shadow-sm transition-colors cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
               {t("active_sso_report.filters.reset")}
@@ -994,6 +942,19 @@ export default function ActiveSsoReportPage() {
           </div>
           <SkeletonTable />
         </>
+      )}
+
+      {/* No house chosen yet — the report is house-scoped, so show a prompt
+          instead of some other house's numbers. */}
+      {!loading && !error && !data && !appliedFilters.houseId && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-10 text-center">
+          <div className="w-12 h-12 mx-auto rounded-xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center">
+            <Building2 className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+          </div>
+          <p className="mt-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
+            {t("active_sso_report.messages.select_house")}
+          </p>
+        </div>
       )}
 
       {/* Sections */}
@@ -1203,7 +1164,7 @@ export default function ActiveSsoReportPage() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">{t("active_sso_report.messages.no_data")}</p>
               </div>
             ) : (
-              <div className="overflow-auto max-h-[70vh] border-t border-gray-100 dark:border-slate-800">
+              <div className="overflow-x-auto border-t border-gray-100 dark:border-slate-800">
                 <table className="w-full text-xs text-gray-700 dark:text-gray-300 border-separate border-spacing-0 whitespace-nowrap">
                   <thead>
                     <tr>
@@ -1363,7 +1324,7 @@ export default function ActiveSsoReportPage() {
                 <div>
                   <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">{t("active_sso_report.config.title")}</h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {getMonthName(filters.month)} {filters.year}
+                    {getMonthName(configPeriod.month)} {configPeriod.year}
                     {filters.houseId && filterOptions ? ` · ${filterOptions.houses.find((h) => String(h.id) === filters.houseId)?.name ?? ""}` : ""}
                   </p>
                 </div>
@@ -1544,7 +1505,7 @@ export default function ActiveSsoReportPage() {
       {/* WhatsApp Report Delivery Modal */}
       <WhatsAppReportDeliveryModal
         open={wsModalOpen}
-        houseId={filters.houseId ? Number(filters.houseId) : null}
+        houseId={appliedFilters.houseId ? Number(appliedFilters.houseId) : null}
         reportType="active_sso"
         title={t("active_sso_report.whatsapp.title")}
         subtitle={t("active_sso_report.whatsapp.subtitle")}
