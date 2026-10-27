@@ -33,8 +33,8 @@ from app.services.active_lso_report_service import (
     _house_options,
     _manager_options,
     _employee_ids_by_type,
+    rounded_daily_avg,
     status_for_pct,
-    _r1,
     _r2,
     _drr,
     ROLE_RSO,
@@ -546,8 +546,10 @@ class ActiveSsoReportService:
         achieved = counts.get("active", 0)
         ach_pct = _r2(achieved / target * 100) if target else 0.0
         remaining = target - achieved
-        daily_avg = _r1(achieved / self.days_elapsed) if self.days_elapsed else 0.0
-        projection = _r1(daily_avg * self.total_days)
+        daily_avg = achieved / self.days_elapsed if self.days_elapsed else 0.0
+        # Projection is derived from the D.Avg exactly as displayed (whole
+        # number), so "D.Avg x period days" always reproduces this column.
+        projection = float(rounded_daily_avg(daily_avg) * self.total_days)
         drr = _drr(remaining, self.days_remaining)
 
         return {
@@ -578,15 +580,19 @@ class ActiveSsoReportService:
             ag["target"] += r["target"]
             ag["achieved"] += r["achieved"]
             ag["remaining"] += r["remaining"]
-            ag["daily_avg"] += r["daily_avg"]
-            ag["projection"] += r["projection"]
             rc = r["retailer_counts"]
             for k in ag["retailer_counts"]:
                 ag["retailer_counts"][k] += rc[k]
         ag["ach_pct"] = _r2(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
         ag["status"] = status_for_pct(ag["ach_pct"])
-        ag["daily_avg"] = _r1(ag["daily_avg"])
-        ag["projection"] = float(ag["projection"])
+        # Totals come from the aggregate achievement, never from the rounded
+        # per-RSO values: summing displayed values makes every row's 0.4 round
+        # to 0 and a house selling 5 a day reports D.Avg 0 (and Projection 0).
+        total_daily_avg = ag["achieved"] / self.days_elapsed if self.days_elapsed else 0.0
+        ag["daily_avg"] = float(rounded_daily_avg(total_daily_avg))
+        # Projection mirrors the printed D.Avg, so the card reads exactly
+        # ``D.Avg x period days`` (5 x 31 = 155, never 152).
+        ag["projection"] = float(ag["daily_avg"]) * self.total_days
         # Derived from the totals, never summed row by row: adding already
         # rounded per-RSO values drifts from the total (e.g. 3 x 14.4 rounds to
         # 42 while 43.2 rounds to 43) and no longer matches Excel's

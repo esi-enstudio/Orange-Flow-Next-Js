@@ -58,6 +58,7 @@ Image.MAX_IMAGE_PIXELS = None
 
 from app.models.house import House
 from app.services.active_sso_report_service import ActiveSsoReportService
+from app.services.active_lso_report_service import rounded_daily_avg
 from app.services.report_image_kit import (
     HDR_BAND_H,
     HDR_META_F,
@@ -247,7 +248,7 @@ def _metric_cells(src: dict) -> list:
         pct_2dp(achieved, target),
         fmt_num(src.get("remaining")),
         fmt_num(src.get("drr")),
-        fmt_num(src.get("daily_avg")),
+        fmt_num(rounded_daily_avg(_num(src.get("daily_avg")))),
         fmt_num(round(projection)),
         f"{proj_pct:.2f}%",
         _status_label(src.get("status")),

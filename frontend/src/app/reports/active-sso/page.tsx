@@ -721,7 +721,7 @@ export default function ActiveSsoReportPage() {
       case "ach_pct": return <span className="font-bold">{row.ach_pct.toFixed(2)}%</span>;
       case "remaining": return formatNumber(row.remaining);
       case "drr": return formatNumber(row.drr);
-      case "daily_avg": return formatNumber(row.daily_avg);
+      case "daily_avg": return formatNumber(Math.round(row.daily_avg));
       case "projection": return <span className="font-semibold">{formatNumber(Math.round(row.projection))}</span>;
       case "proj_pct": return <span className="font-semibold">{(row.target > 0 ? (row.projection / row.target) * 100 : 0).toFixed(2)}%</span>;
       case "status": return <StatusBadge status={row.status} />;
@@ -1050,7 +1050,7 @@ export default function ActiveSsoReportPage() {
                 <KpiCard
                   icon={Activity}
                   label={t("active_sso_report.cards.daily_average")}
-                  value={formatNumber(summary.daily_avg)}
+                  value={formatNumber(Math.round(summary.daily_avg))}
                   valueColor="text-blue-600 dark:text-blue-400"
                   subtitle={t("active_sso_report.days_elapsed") + ": " + period.days_elapsed}
                 />
@@ -1071,7 +1071,7 @@ export default function ActiveSsoReportPage() {
                 <KpiCard
                   icon={Sparkles}
                   label={t("active_sso_report.cards.expected_pct")}
-                  value={(summary.target > 0 ? Math.round((summary.projection / summary.target) * 100) : 0) + "%"}
+                  value={(summary.target > 0 ? (summary.projection / summary.target) * 100 : 0).toFixed(2) + "%"}
                   valueColor="text-amber-600 dark:text-amber-400"
                   subtitle={`${formatNumber(Math.round(summary.projection))} / ${formatNumber(summary.target)}`}
                 />
