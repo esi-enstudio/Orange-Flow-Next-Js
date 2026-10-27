@@ -25,6 +25,13 @@ REPORT_BUILDERS: dict[str, callable] = {}
 # their builder's default resolution.
 SCALE_AWARE_BUILDERS: dict[str, callable] = {}
 
+# Builders for report types that need more than the house context (e.g. one
+# RSO's list). Signature:
+#   async (db, house_id, *, report_params: dict, scale: int | None = None)
+# ``report_params`` carries the per-report context persisted on the schedule
+# (e.g. {"employee_id": 42}); ``scale`` mirrors SCALE_AWARE_BUILDERS.
+FILTERED_BUILDERS: dict[str, callable] = {}
+
 # Builders that also accept an ``orientation`` keyword ("portrait" | "landscape"),
 # letting the user pick a phone-friendly tall layout or a wider A4-landscape
 # layout with larger table fonts. Report types missing here ignore the requested
@@ -57,6 +64,7 @@ def get_report_title(report_type: str) -> str:
         "activation": "Activation Report",
         "recharge": "Recharge Report",
         "recharge_ev_secondary": "EV Secondary Report",
+        "active_sso_inactive_retailers": "Inactive Retailers (Active SSO)",
     }
     return titles.get(report_type, report_type.replace("_", " ").title())
 
@@ -88,6 +96,13 @@ def _register_all():
     SCALE_AWARE_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
 
     ORIENTATION_AWARE_BUILDERS["activation"] = build_activation_report_image
+
+    from app.services.active_sso_retailers_whatsapp_image import (
+        build_active_sso_inactive_retailers_image,
+    )
+
+    REPORT_BUILDERS["active_sso_inactive_retailers"] = build_active_sso_inactive_retailers_image
+    FILTERED_BUILDERS["active_sso_inactive_retailers"] = build_active_sso_inactive_retailers_image
 
     logger.info(f"Report builders registered: {list(REPORT_BUILDERS.keys())}")
 

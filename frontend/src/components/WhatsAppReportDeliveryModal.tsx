@@ -38,6 +38,13 @@ interface Props {
   open: boolean;
   houseId: number | null;
   reportType: string;
+  /**
+   * Per-report context for filtered report types (e.g. `{ employee_id }` for
+   * one RSO's inactive-retailer list). Sent with the preview, the direct send
+   * and the schedule so the delivered image is that slice, not the house-wide
+   * report.
+   */
+  reportParams?: Record<string, unknown>;
   title?: string;
   subtitle?: string;
   /** Offer the portrait/landscape image-layout picker (orientation-aware reports only). */
@@ -148,6 +155,7 @@ const REPORT_TITLES: Record<string, string> = {
   ga_live: "GA Live Report",
   active_lso: "Active LSO Report",
   active_sso: "Active SSO Report",
+  active_sso_inactive_retailers: "Inactive Retailers (Active SSO)",
   activation: "Activation Report",
   recharge: "Recharge Report",
   recharge_ev_secondary: "EV Secondary Report",
@@ -157,6 +165,7 @@ const REPORT_DEFAULT_CAPTIONS: Record<string, string> = {
   ga_live: "Daily GA Live Report",
   active_lso: "Daily Active LSO Report",
   active_sso: "Daily Active SSO Report",
+  active_sso_inactive_retailers: "Inactive Retailers List",
   activation: "Daily Activation Report",
   recharge: "Daily Recharge Report",
   recharge_ev_secondary: "Daily EV Secondary Report",
@@ -260,6 +269,7 @@ export default function WhatsAppReportDeliveryModal({
   open,
   houseId,
   reportType,
+  reportParams,
   title = "WhatsApp Report Delivery",
   subtitle = "Auto-send the report daily at a fixed time",
   supportsOrientation = false,
@@ -311,6 +321,9 @@ export default function WhatsAppReportDeliveryModal({
   const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
 
   const reportTitle = REPORT_TITLES[reportType] || reportType.replace(/_/g, " ");
+  // Stable identity for the per-report context, so the schedule list refresh
+  // below does not re-run on every render (callers pass an object literal).
+  const reportParamsKey = reportParams ? JSON.stringify(reportParams) : "";
 
   const closePreview = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -325,6 +338,7 @@ export default function WhatsAppReportDeliveryModal({
         params: {
           report_type: reportType,
           ...(supportsOrientation ? { orientation: form.orientation } : {}),
+          ...(reportParams ? { report_params: JSON.stringify(reportParams) } : {}),
         },
         headers: { "X-House-ID": String(houseId) },
         responseType: "blob",
@@ -362,7 +376,13 @@ export default function WhatsAppReportDeliveryModal({
         headers: hH,
       }),
       apiClient.get("/whatsapp-schedules", {
-        params: { house_id: houseId, report_type: reportType },
+        params: {
+          house_id: houseId,
+          report_type: reportType,
+          // Filtered report types group by their context (e.g. one RSO), so the
+          // list never mixes another slice's schedules in.
+          ...(reportParamsKey ? { report_params: reportParamsKey } : {}),
+        },
         headers: hH,
       }),
       apiClient.get("/telegram/status", { headers: hH }),
@@ -378,7 +398,7 @@ export default function WhatsAppReportDeliveryModal({
     setSchedules(schedulesRes.status === "fulfilled" ? schedulesRes.value.data?.data ?? [] : []);
     setTgStatus(tgRes.status === "fulfilled" ? tgRes.value.data : null);
     setDeliveryLogs(historyRes.status === "fulfilled" ? historyRes.value.data?.data ?? [] : []);
-  }, [houseId, reportType, showInactiveContacts]);
+  }, [houseId, reportType, showInactiveContacts, reportParamsKey]);
 
   useEffect(() => {
     if (open && houseId) {
@@ -794,6 +814,7 @@ export default function WhatsAppReportDeliveryModal({
             : "23:59",
         channel: form.channel,
         report_type: reportType,
+        ...(reportParams ? { report_params: reportParams } : {}),
         send_as: form.send_as,
         ...(supportsOrientation ? { orientation: form.orientation } : {}),
         caption: form.caption || null,
@@ -839,6 +860,7 @@ export default function WhatsAppReportDeliveryModal({
       const payload: Record<string, unknown> = {
         channel: form.channel,
         report_type: reportType,
+        ...(reportParams ? { report_params: reportParams } : {}),
         send_as: form.send_as,
         ...(supportsOrientation ? { orientation: form.orientation } : {}),
         caption: form.caption || null,

@@ -17,6 +17,7 @@ from app.services.whatsapp_service_client import (
 from app.services import telegram_service
 from app.services.telegram_service import TelegramError
 from app.services.report_builders import (
+    FILTERED_BUILDERS,
     ORIENTATION_AWARE_BUILDERS,
     SCALE_AWARE_BUILDERS,
     get_report_builder,
@@ -42,6 +43,29 @@ def normalize_orientation(orientation: str | None) -> str:
     return orientation if orientation in VALID_ORIENTATIONS else "portrait"
 
 
+def schedule_report_params(schedule) -> dict | None:
+    """Decode the per-report context persisted on a schedule (report_params)."""
+    raw = getattr(schedule, "report_params", None)
+    if not raw:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            f"Invalid report_params JSON on schedule "
+            f"{getattr(schedule, 'id', '?')}; ignoring it"
+        )
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def _params_key(report_type: str, report_params: dict | None) -> str | None:
+    """Cache discriminator for per-context report types (e.g. one RSO's list)."""
+    if report_type not in FILTERED_BUILDERS:
+        return None
+    return json.dumps(report_params or {}, sort_keys=True, default=str)
+
+
 async def get_report_image(
     db: AsyncSession,
     report_type: str,
@@ -49,6 +73,7 @@ async def get_report_image(
     *,
     scale: int | None = None,
     orientation: str | None = None,
+    report_params: dict | None = None,
 ) -> bytes | list[bytes]:
     """Build (or reuse a cached copy of) the report image for the house.
 
@@ -63,26 +88,40 @@ async def get_report_image(
     ``scale`` only affects report types registered in SCALE_AWARE_BUILDERS.
     ``orientation`` ("portrait" | "landscape") only affects report types
     registered in ORIENTATION_AWARE_BUILDERS.
+    ``report_params`` carries the per-report context for report types in
+    FILTERED_BUILDERS (e.g. ``{"employee_id": 42}`` for one RSO's list); it is
+    part of the cache key so different contexts never share an image.
     """
     day = _today_bst().date()
-    cache_scale = scale if report_type in SCALE_AWARE_BUILDERS else None
+    params_key = _params_key(report_type, report_params)
+    # Filtered builders are always scale-aware (they accept ``scale``), so their
+    # renders are cached per scale too — a light preview must never be reused as
+    # the full-resolution send image.
+    cache_scale = scale if (report_type in SCALE_AWARE_BUILDERS
+                            or report_type in FILTERED_BUILDERS) else None
     aware = report_type in ORIENTATION_AWARE_BUILDERS
     cache_orientation = normalize_orientation(orientation) if aware else None
     cached = report_image_cache.get(report_type, house_id, day, cache_scale,
-                                    cache_orientation)
+                                    cache_orientation, params_key=params_key)
     if cached is not None:
         return cached
 
-    kwargs = {"orientation": cache_orientation} if aware else {}
-    scaled_builder = SCALE_AWARE_BUILDERS.get(report_type) if scale is not None else None
-    if scaled_builder is not None:
-        image_bytes = await scaled_builder(db, house_id, scale=scale, **kwargs)
+    filtered_builder = FILTERED_BUILDERS.get(report_type)
+    if filtered_builder is not None:
+        image_bytes = await filtered_builder(
+            db, house_id, report_params=report_params or {}, scale=scale,
+        )
     else:
-        builder = get_report_builder(report_type)
-        image_bytes = await builder(db, house_id, **kwargs)
+        kwargs = {"orientation": cache_orientation} if aware else {}
+        scaled_builder = SCALE_AWARE_BUILDERS.get(report_type) if scale is not None else None
+        if scaled_builder is not None:
+            image_bytes = await scaled_builder(db, house_id, scale=scale, **kwargs)
+        else:
+            builder = get_report_builder(report_type)
+            image_bytes = await builder(db, house_id, **kwargs)
 
     report_image_cache.set(report_type, house_id, day, cache_scale, image_bytes,
-                           cache_orientation)
+                           cache_orientation, params_key=params_key)
     return image_bytes
 
 
@@ -545,6 +584,7 @@ async def send_direct_report(
     caption: str | None = None,
     send_as: str = "image",
     orientation: str | None = None,
+    report_params: dict | None = None,
 ) -> tuple[bool, str | None]:
     """Send a report image immediately without creating a schedule.
 
@@ -572,7 +612,8 @@ async def send_direct_report(
     # 1. Build the report image
     try:
         image_bytes = await get_report_image(db, report_type, house_id,
-                                             orientation=orientation)
+                                             orientation=orientation,
+                                             report_params=report_params)
     except ValueError as e:
         return False, f"Unknown report type: {report_type}"
     except Exception as e:
@@ -746,6 +787,7 @@ async def _send_telegram_report(
         image_bytes = await get_report_image(
             db, report_type, schedule.house_id,
             orientation=getattr(schedule, "orientation", None),
+            report_params=schedule_report_params(schedule),
         )
     except ValueError as e:
         _mark_run_status(schedule, triggered_by, "failed", f"Unknown report type: {report_type}")
@@ -879,6 +921,7 @@ async def _send_whatsapp_report(
         image_bytes = await get_report_image(
             db, report_type, schedule.house_id,
             orientation=getattr(schedule, "orientation", None),
+            report_params=schedule_report_params(schedule),
         )
     except ValueError as e:
         _mark_run_status(schedule, triggered_by, "failed", f"Unknown report type: {report_type}")

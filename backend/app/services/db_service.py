@@ -993,6 +993,23 @@ async def _migrate_whatsapp_schedule_orientation():
     except Exception as e:
         logger.warning(f"Migration warning (whatsapp schedule orientation): {e}")
 
+async def _migrate_whatsapp_schedule_report_params():
+    """Add report_params column to whatsapp_schedules (JSON context per report type)."""
+    try:
+        async with engine.begin() as conn:
+            exists = await conn.execute(text(
+                "SELECT to_regclass('public.whatsapp_schedules') IS NOT NULL AS exists"
+            ))
+            if not exists.scalar():
+                return
+            await conn.execute(text(
+                "ALTER TABLE whatsapp_schedules ADD COLUMN IF NOT EXISTS report_params TEXT"
+            ))
+            logger.info("Migration complete: whatsapp_schedules report_params ensured")
+    except Exception as e:
+        logger.warning(f"Migration warning (whatsapp schedule report_params): {e}")
+
+
 async def _migrate_ga_report_events_config():
     try:
         async with engine.begin() as conn:
@@ -2089,6 +2106,7 @@ async def init_db():
         await _migrate_whatsapp_schedule_time_window()
         await _migrate_whatsapp_schedule_send_as()
         await _migrate_whatsapp_schedule_orientation()
+        await _migrate_whatsapp_schedule_report_params()
         await _migrate_ga_report_events_config()
         await _migrate_house_whatsapp_columns()
         await _migrate_telegram_columns()

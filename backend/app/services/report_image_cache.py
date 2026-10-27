@@ -21,13 +21,16 @@ _lock = Lock()
 
 
 def _key(report_type: str, house_id: int, day, scale: int | None,
-         orientation: str | None) -> tuple:
-    return (str(report_type), int(house_id), str(day), scale, orientation)
+         orientation: str | None, params_key: str | None = None) -> tuple:
+    # ``params_key`` separates the builds of a per-context report type (e.g. one
+    # RSO's inactive-retailer list) that share the same report_type/house/day.
+    return (str(report_type), int(house_id), str(day), scale, orientation, params_key)
 
 
 def get(report_type: str, house_id: int, day, scale: int | None = None,
-        orientation: str | None = None) -> bytes | list[bytes] | None:
-    k = _key(report_type, house_id, day, scale, orientation)
+        orientation: str | None = None,
+        params_key: str | None = None) -> bytes | list[bytes] | None:
+    k = _key(report_type, house_id, day, scale, orientation, params_key)
     with _lock:
         item = _cache.get(k)
         if item is None:
@@ -40,8 +43,9 @@ def get(report_type: str, house_id: int, day, scale: int | None = None,
 
 
 def set(report_type: str, house_id: int, day, scale: int | None,
-        data: bytes | list[bytes], orientation: str | None = None) -> None:
-    k = _key(report_type, house_id, day, scale, orientation)
+        data: bytes | list[bytes], orientation: str | None = None,
+        params_key: str | None = None) -> None:
+    k = _key(report_type, house_id, day, scale, orientation, params_key)
     with _lock:
         if len(_cache) >= MAX_ENTRIES:
             _cache.pop(next(iter(_cache)))

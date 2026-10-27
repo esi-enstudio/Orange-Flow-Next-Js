@@ -27,6 +27,10 @@ class WhatsAppSchedule(Base):
     timezone_name = Column(String(50), nullable=True, default="Asia/Dhaka")  # schedule_time is interpreted in this zone
     caption = Column(Text, nullable=True)
     report_type = Column(String(50), nullable=False, default="ga_live", server_default="ga_live")  # ga_live | active_lso | active_sso | ...
+    # JSON context for report types that need more than the house (e.g.
+    # {"employee_id": 42} for a single RSO's inactive-retailer list). NULL for
+    # the house-wide reports.
+    report_params = Column(Text, nullable=True)
     send_as = Column(String(10), nullable=False, default="image", server_default="image")  # image | document | pdf
     orientation = Column(String(10), nullable=False, default="portrait", server_default="portrait")  # portrait | landscape
 

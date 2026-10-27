@@ -27,7 +27,6 @@ from app.services.whatsapp_schedule_service import (
     get_report_image,
     compose_report_png,
 )
-from app.services.report_builders import SCALE_AWARE_BUILDERS
 from app.services.whatsapp_token import resolve_house_wa_target
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
@@ -48,12 +47,93 @@ PREVIEW_SCALE = 4
 SCHEDULE_PERMISSIONS = ["live_activations.schedule", "reports.whatsapp_share"]
 
 ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation", "recharge",
-                        "recharge_ev_secondary")
+                        "recharge_ev_secondary", "active_sso_inactive_retailers")
+
+# Report types that render a slice of the data instead of the whole house. The
+# schedule/send must carry these keys in ``report_params`` (e.g. one RSO's
+# inactive-retailer list needs ``employee_id``).
+REQUIRED_REPORT_PARAMS = {
+    "active_sso_inactive_retailers": ("employee_id",),
+}
+
+# Optional context a filtered report type can carry. Only the *required* keys
+# identify a report's slice (used to group schedules); the optional ones (e.g.
+# the period the modal was showing) shape the render without splitting the list.
+OPTIONAL_REPORT_PARAMS = {
+    "active_sso_inactive_retailers": ("start_date", "end_date"),
+}
 
 
 def _validate_report_type_value(v: str) -> None:
     if v not in ALLOWED_REPORT_TYPES:
         raise ValueError(f"report_type must be one of {ALLOWED_REPORT_TYPES}")
+
+
+def _validate_report_params(report_type: str, params: Optional[dict]) -> Optional[dict]:
+    """Normalize the per-report context for a report type.
+
+    Returns ``None`` for house-wide reports (any incoming context is dropped so
+    one report type can never be rendered with another one's context) and the
+    normalized dict for a filtered report type, raising ``ValueError`` when a
+    required key is missing or invalid.
+    """
+    required = REQUIRED_REPORT_PARAMS.get(report_type)
+    if not required:
+        return None
+    supplied = params or {}
+    normalized: dict = {}
+    for key in required:
+        if isinstance(supplied.get(key), bool):
+            raise ValueError(f"report_params.{key} must be an integer for report_type '{report_type}'")
+        try:
+            value = int(supplied[key])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"report_params.{key} is required for report_type '{report_type}'")
+        if value <= 0:
+            raise ValueError(f"report_params.{key} must be a positive integer")
+        normalized[key] = value
+
+    for key in OPTIONAL_REPORT_PARAMS.get(report_type, ()):
+        raw = supplied.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            normalized[key] = date.fromisoformat(str(raw)).isoformat()
+        except ValueError:
+            raise ValueError(f"report_params.{key} must be an ISO date (YYYY-MM-DD)")
+
+    start, end = normalized.get("start_date"), normalized.get("end_date")
+    if bool(start) != bool(end):
+        raise ValueError("report_params.start_date and end_date must be provided together")
+    if start and end and start > end:
+        raise ValueError("report_params.start_date must not be after end_date")
+    return normalized
+
+
+def _matches_report_context(schedule, report_type: str, context: Optional[dict]) -> bool:
+    """Whether a schedule belongs to the given context.
+
+    Only the report type's *required* keys are compared, so a period the modal
+    happens to be showing never hides a schedule created for the same slice.
+    """
+    identity = REQUIRED_REPORT_PARAMS.get(report_type)
+    if not context or not identity:
+        return True
+    stored = _decode_report_params(getattr(schedule, "report_params", None)) or {}
+    return all(str(stored.get(key)) == str(context.get(key)) for key in identity)
+
+
+def _decode_report_params(raw: Optional[str]) -> Optional[dict]:
+    """Parse a ``report_params`` value coming from a query string (JSON object)."""
+    if not raw:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (ValueError, TypeError):
+        raise ValueError("report_params must be a JSON object")
+    if not isinstance(decoded, dict):
+        raise ValueError("report_params must be a JSON object")
+    return decoded
 
 
 def _validate_orientation_value(v: str) -> str:
@@ -70,6 +150,7 @@ class ScheduleCreate(BaseModel):
     end_time: Optional[str] = None  # interval: daily delivery window end ("HH:MM", inclusive)
     channel: str = "whatsapp"  # whatsapp | telegram
     report_type: str = "ga_live"  # ga_live | active_lso | active_sso | ...
+    report_params: Optional[dict] = None  # per-report context for filtered report types
     whatsapp_chat_id: Optional[str] = None  # legacy single recipient; falls back to target_ids
     whatsapp_chat_name: Optional[str] = None
     target_ids: Optional[list[str]] = None  # multi-recipient chat ids
@@ -150,6 +231,7 @@ class ScheduleUpdate(BaseModel):
     end_time: Optional[str] = None
     channel: Optional[str] = None
     report_type: Optional[str] = None
+    report_params: Optional[dict] = None
     whatsapp_chat_id: Optional[str] = None
     whatsapp_chat_name: Optional[str] = None
     target_ids: Optional[list[str]] = None
@@ -223,6 +305,7 @@ class DirectSendPayload(BaseModel):
     """Payload for sending a report immediately without creating a schedule."""
     channel: str = "whatsapp"  # whatsapp | telegram
     report_type: str = "ga_live"
+    report_params: Optional[dict] = None  # per-report context for filtered report types
     whatsapp_chat_id: Optional[str] = None  # legacy single recipient
     whatsapp_chat_name: Optional[str] = None
     whatsapp_chat_ids: Optional[list[str]] = None  # multi-recipient chat ids
@@ -293,6 +376,7 @@ def _serialize_schedule(s: WhatsAppSchedule) -> dict:
         "end_time": getattr(s, "end_time", None),
         "channel": getattr(s, "channel", "whatsapp") or "whatsapp",
         "report_type": getattr(s, "report_type", "ga_live") or "ga_live",
+        "report_params": _decode_report_params(getattr(s, "report_params", None)),
         "send_as": getattr(s, "send_as", "image") or "image",
         "orientation": getattr(s, "orientation", "portrait") or "portrait",
         "whatsapp_chat_id": s.whatsapp_chat_id,
@@ -375,6 +459,7 @@ def _validate_time_window(start_time: Optional[str], end_time: Optional[str]) ->
 async def list_schedules(
     house_id: Optional[int] = Query(None),
     report_type: Optional[str] = Query(None),
+    report_params: Optional[str] = Query(None),  # JSON context for filtered report types
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
 ):
@@ -400,7 +485,13 @@ async def list_schedules(
     query = query.order_by(WhatsAppSchedule.schedule_time.asc())
 
     result = await db.execute(query)
-    schedules = result.scalars().all()
+    schedules = list(result.scalars().all())
+    if report_type and report_params:
+        try:
+            context = _validate_report_params(report_type, _decode_report_params(report_params))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        schedules = [s for s in schedules if _matches_report_context(s, report_type, context)]
     return {
         "success": True,
         "data": [_serialize_schedule(s) for s in schedules],
@@ -447,6 +538,11 @@ async def create_schedule(
         chat_name = (house_row.telegram_chat_name if house_row else "") or "Telegram"
         ids_json, names_json = "", ""
 
+    try:
+        report_params = _validate_report_params(data.report_type or "ga_live", data.report_params)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     schedule = WhatsAppSchedule(
         house_id=house_context,
         schedule_type=schedule_type,
@@ -456,6 +552,7 @@ async def create_schedule(
         end_time=end_time,
         channel=channel,
         report_type=data.report_type or "ga_live",
+        report_params=json.dumps(report_params) if report_params else None,
         send_as=data.send_as or "image",
         orientation=data.orientation or "portrait",
         whatsapp_chat_id=chat_id or "-",
@@ -517,6 +614,7 @@ async def update_schedule(
         "end_time": schedule.end_time,
         "channel": getattr(schedule, "channel", "whatsapp") or "whatsapp",
         "report_type": getattr(schedule, "report_type", "ga_live") or "ga_live",
+        "report_params": _decode_report_params(getattr(schedule, "report_params", None)),
         "orientation": getattr(schedule, "orientation", "portrait") or "portrait",
         "whatsapp_chat_name": schedule.whatsapp_chat_name,
         "whatsapp_chat_id": schedule.whatsapp_chat_id,
@@ -549,6 +647,19 @@ async def update_schedule(
     if data.report_type is not None:
         schedule.report_type = data.report_type
         new_values["report_type"] = data.report_type
+    if data.report_params is not None or data.report_type is not None:
+        # Re-validate whenever the type changes too: a schedule can never keep
+        # context that does not belong to (or is missing for) its report type.
+        try:
+            report_params = _validate_report_params(
+                schedule.report_type, data.report_params
+                if data.report_params is not None
+                else _decode_report_params(getattr(schedule, "report_params", None)),
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        schedule.report_params = json.dumps(report_params) if report_params else None
+        new_values["report_params"] = report_params
     if data.send_as is not None:
         schedule.send_as = data.send_as
         new_values["send_as"] = data.send_as
@@ -674,6 +785,7 @@ async def duplicate_schedule(
         end_time=getattr(source, "end_time", None),
         channel=getattr(source, "channel", "whatsapp") or "whatsapp",
         report_type=getattr(source, "report_type", "ga_live") or "ga_live",
+        report_params=getattr(source, "report_params", None),
         orientation=getattr(source, "orientation", "portrait") or "portrait",
         whatsapp_chat_id=first_id,
         whatsapp_chat_name=first_name,
@@ -751,12 +863,18 @@ async def send_direct(
             raise HTTPException(status_code=400, detail="Select at least one WhatsApp group or contact")
 
     try:
+        report_params = _validate_report_params(data.report_type, data.report_params)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
         ok, error = await send_direct_report(
             db,
             user_id=current_user.id,
             user_name=current_user.name,
             house_id=house_context,
             report_type=data.report_type,
+            report_params=report_params,
             channel=data.channel,
             whatsapp_chat_id=data.whatsapp_chat_id,
             whatsapp_chat_name=data.whatsapp_chat_name,
@@ -796,6 +914,7 @@ async def send_direct(
 async def whatsapp_report_preview(
     report_type: str = Query("ga_live"),
     orientation: str = Query("portrait"),
+    report_params: Optional[str] = Query(None),  # JSON object for filtered report types
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
     house_context: int = Depends(require_house_context),
@@ -804,8 +923,9 @@ async def whatsapp_report_preview(
     try:
         _validate_report_type_value(report_type)
         _validate_orientation_value(orientation)
+        params = _validate_report_params(report_type, _decode_report_params(report_params))
     except ValueError as e:
-        # A bad report_type/orientation is client input, not a server fault.
+        # A bad report_type/orientation/report_params is client input, not a server fault.
         raise HTTPException(status_code=400, detail=str(e))
     await _verify_house_access(current_user, house_context)
 
@@ -816,8 +936,9 @@ async def whatsapp_report_preview(
         # for 60s so repeat previews and preview→send are instant.
         image_bytes = await get_report_image(
             db, report_type, house_context,
-            scale=PREVIEW_SCALE if report_type in SCALE_AWARE_BUILDERS else None,
+            scale=PREVIEW_SCALE,
             orientation=orientation,
+            report_params=params,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

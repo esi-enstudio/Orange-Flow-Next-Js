@@ -405,8 +405,11 @@ export default function ActiveSsoReportPage() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [configIsCustom, setConfigIsCustom] = useState(false);
   const [configForm, setConfigForm] = useState({ threshold: "2" });
-  const [inactiveRetailerModal, setInactiveRetailerModal] = useState<{open: boolean; employeeId: number; rsoName: string; rsoCode: string; loading: boolean; data: InactiveRetailer[];}>({open: false, employeeId: 0, rsoName: "", rsoCode: "", loading: false, data: []});
+  const [inactiveRetailerModal, setInactiveRetailerModal] = useState<{open: boolean; employeeId: number; rsoName: string; rsoItop: string; loading: boolean; data: InactiveRetailer[];}>({open: false, employeeId: 0, rsoName: "", rsoItop: "", loading: false, data: []});
   const [wsModalOpen, setWsModalOpen] = useState(false);
+  // Share source for the Inactive Retailers modal: opens the delivery modal
+  // bound to that RSO, so the attached image is the modal's list only.
+  const [retailerShare, setRetailerShare] = useState<{ open: boolean; employeeId: number; rsoName: string; rsoItop: string }>({ open: false, employeeId: 0, rsoName: "", rsoItop: "" });
 
   const initializedRef = useRef(false);
 
@@ -578,7 +581,7 @@ export default function ActiveSsoReportPage() {
   };
 
   const handleShowInactiveRetailers = async (row: RsoRow) => {
-    setInactiveRetailerModal({ open: true, employeeId: row.employee_id, rsoName: row.name, rsoCode: row.employee_code || row.dms_code || "", loading: true, data: [] });
+    setInactiveRetailerModal({ open: true, employeeId: row.employee_id, rsoName: row.name, rsoItop: row.itop_number || "", loading: true, data: [] });
     try {
       const params: Record<string, string> = { start_date: appliedFilters.startDate, end_date: appliedFilters.endDate };
       if (appliedFilters.houseId) params.house_id = appliedFilters.houseId;
@@ -1400,7 +1403,7 @@ export default function ActiveSsoReportPage() {
                   </h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {inactiveRetailerModal.rsoName}
-                    {inactiveRetailerModal.rsoCode && ` · ${inactiveRetailerModal.rsoCode}`}
+                    {inactiveRetailerModal.rsoItop && ` · ${inactiveRetailerModal.rsoItop}`}
                     {` · ${inactiveRetailerModal.data.length} ${t("active_sso_report.modal.retailers_found")}`}
                   </p>
                 </div>
@@ -1416,7 +1419,12 @@ export default function ActiveSsoReportPage() {
                       {t("active_sso_report.modal.export")}
                     </button>
                     <button
-                      onClick={() => setWsModalOpen(true)}
+                      onClick={() => setRetailerShare({
+                        open: true,
+                        employeeId: inactiveRetailerModal.employeeId,
+                        rsoName: inactiveRetailerModal.rsoName,
+                        rsoItop: inactiveRetailerModal.rsoItop,
+                      })}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors"
                     >
                       <Share2 className="w-3.5 h-3.5" />
@@ -1502,7 +1510,7 @@ export default function ActiveSsoReportPage() {
         </div>
       )}
 
-      {/* WhatsApp Report Delivery Modal */}
+      {/* WhatsApp Report Delivery Modal — house-wide Active SSO report */}
       <WhatsAppReportDeliveryModal
         open={wsModalOpen}
         houseId={appliedFilters.houseId ? Number(appliedFilters.houseId) : null}
@@ -1510,6 +1518,21 @@ export default function ActiveSsoReportPage() {
         title={t("active_sso_report.whatsapp.title")}
         subtitle={t("active_sso_report.whatsapp.subtitle")}
         onClose={() => setWsModalOpen(false)}
+      />
+
+      {/* WhatsApp Report Delivery Modal — the opened RSO's inactive retailer list only */}
+      <WhatsAppReportDeliveryModal
+        open={retailerShare.open}
+        houseId={appliedFilters.houseId ? Number(appliedFilters.houseId) : null}
+        reportType="active_sso_inactive_retailers"
+        reportParams={{
+          employee_id: retailerShare.employeeId,
+          start_date: appliedFilters.startDate,
+          end_date: appliedFilters.endDate,
+        }}
+        title={t("active_sso_report.whatsapp.retailers_title")}
+        subtitle={t("active_sso_report.whatsapp.retailers_subtitle", { name: retailerShare.rsoName })}
+        onClose={() => setRetailerShare((prev) => ({ ...prev, open: false }))}
       />
     </div>
   );
