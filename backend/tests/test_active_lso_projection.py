@@ -7,6 +7,8 @@ Projection of 53 for a 31-day month.
 """
 from datetime import date
 
+import pytest
+
 from app.models.employee import Employee
 from app.services.active_lso_report_service import (
     ActiveLsoReportService,
@@ -47,15 +49,26 @@ def test_rounded_daily_avg_mirrors_javascript_math_round():
 
 def test_row_projection_equals_rounded_daily_avg_times_period_days():
     svc = _service()
-    row = _row(svc, achieved=37)  # 37 / 22 = 1.7 -> displayed D.Avg 2
-    assert row["daily_avg"] == 1.7
+    row = _row(svc, achieved=37)  # 37 / 22 = 1.68 -> displayed D.Avg 2
+    assert row["daily_avg"] == pytest.approx(37 / 22)
+    assert row["projection"] == 2 * 31 == 62.0
+
+
+def test_daily_avg_is_rounded_once_not_twice():
+    # Regression: rounding to one decimal first turned 64 / 26 = 2.46 into 2.5,
+    # and the second round then printed D.Avg 3 instead of 2.
+    svc = _service()
+    svc.days_elapsed = 26
+    row = _row(svc, achieved=64)
+    assert rounded_daily_avg(row["daily_avg"]) == 2
     assert row["projection"] == 2 * 31 == 62.0
 
 
 def test_aggregate_projection_equals_rounded_daily_avg_times_period_days():
     svc = _service()
     aggregate = svc._aggregate([_row(svc, achieved=37)])
-    assert aggregate["daily_avg"] == 1.7
+    # Total column = sum of the printed per-RSO D.Avg values.
+    assert aggregate["daily_avg"] == 2.0
     assert aggregate["projection"] == 2 * 31 == 62.0
 
 
@@ -63,5 +76,5 @@ def test_supervisor_summary_uses_the_same_projection_rule():
     svc = _service()
     row = {**_row(svc, achieved=37), "supervisor_id": 7, "supervisor_name": "Supervisor A"}
     (sup,) = svc._supervisor_summary([row])
-    assert sup["daily_avg"] == 1.7
+    assert sup["daily_avg"] == 2.0
     assert sup["projection"] == 2 * 31 == 62.0

@@ -1061,7 +1061,7 @@ export default function ActiveLsoReportPage() {
                 <KpiCard
                   icon={Activity}
                   label={t("active_lso_report.cards.daily_average")}
-                  value={formatNumber(summary.daily_avg)}
+                  value={formatNumber(Math.round(summary.daily_avg))}
                   valueColor="text-blue-600 dark:text-blue-400"
                   subtitle={t("active_lso_report.days_elapsed") + ": " + period.days_elapsed}
                 />

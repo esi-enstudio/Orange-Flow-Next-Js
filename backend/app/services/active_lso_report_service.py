@@ -702,7 +702,10 @@ class ActiveLsoReportService:
         achieved = counts.get("active", 0)
         ach_pct = _r2(achieved / target * 100) if target else 0.0
         remaining = target - achieved
-        daily_avg = _r1(achieved / self.days_elapsed) if self.days_elapsed else 0.0
+        # Keep the raw quotient, never pre-round to one decimal: rounding twice
+        # would overstate the column (64 / 26 = 2.46 -> 2.5 -> D.Avg 3 instead
+        # of 2). The single half-up round happens where the value is displayed.
+        daily_avg = achieved / self.days_elapsed if self.days_elapsed else 0.0
         projection = float(rounded_daily_avg(daily_avg) * self.total_days)
         drr = _drr(remaining, self.days_remaining)
 
@@ -735,7 +738,6 @@ class ActiveLsoReportService:
             ag["target"] += r["target"]
             ag["achieved"] += r["achieved"]
             ag["remaining"] += r["remaining"]
-            ag["daily_avg"] += r["daily_avg"]
             ag["projection"] += r["projection"]
             ag["drr"] += r["drr"]
             rc = r["retailer_counts"]
@@ -743,7 +745,10 @@ class ActiveLsoReportService:
                 ag["retailer_counts"][k] += rc[k]
         ag["ach_pct"] = _r2(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
         ag["status"] = status_for_pct(ag["ach_pct"])
-        ag["daily_avg"] = _r1(ag["daily_avg"])
+        # The total is the sum of the D.Avg values the column actually prints,
+        # so the visible column adds up and Projection stays
+        # ``total_days x total D.Avg``.
+        ag["daily_avg"] = float(sum(rounded_daily_avg(r["daily_avg"]) for r in rows))
         ag["projection"] = float(ag["projection"])
         # The total is the sum of the per-RSO DRR values that are displayed in
         # the column, so the table's math adds up exactly as the reader checks

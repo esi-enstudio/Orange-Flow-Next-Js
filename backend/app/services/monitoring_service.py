@@ -1,7 +1,6 @@
 import logging
 import asyncio
 import os
-import psutil
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,8 +17,20 @@ from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
 
+try:
+    import psutil
+except ImportError:  # optional probe dependency — never take the whole API down for monitoring
+    psutil = None
+    logger.warning(
+        "psutil is not installed; system monitoring metrics collection is disabled. "
+        "Rebuild the backend image after requirements.txt changes."
+    )
+
 async def collect_and_store_metrics(db: AsyncSession):
     """Collect host and container metrics, evaluate thresholds, and store samples."""
+    if psutil is None:
+        # Monitoring is optional: skip silently (the import already warned once).
+        return
     try:
         # 1. Host System Metrics
         cpu_percent = psutil.cpu_percent(interval=1)
@@ -131,7 +142,8 @@ async def _get_docker_containers_stats() -> List[Dict[str, Any]]:
                     precpu_stats = stats.get("precpu_stats", {})
                     cpu_delta = cpu_stats.get("cpu_usage", {}).get("total_usage", 0) - precpu_stats.get("cpu_usage", {}).get("total_usage", 0)
                     system_delta = cpu_stats.get("system_cpu_usage", 0) - precpu_stats.get("system_cpu_usage", 0)
-                    online_cpus = cpu_stats.get("online_cpus", psutil.cpu_count(logical=True) or 1)
+                    default_cpus = (psutil.cpu_count(logical=True) if psutil else None) or 1
+                    online_cpus = cpu_stats.get("online_cpus", default_cpus)
                     if system_delta > 0 and cpu_delta > 0:
                         cpu_pct = round((cpu_delta / system_delta) * online_cpus * 100.0, 2)
 
