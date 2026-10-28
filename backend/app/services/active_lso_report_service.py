@@ -26,6 +26,7 @@ from app.models.house import House
 from app.models.itopup_detail import ITopUpDetail
 from app.models.retailer import Retailer
 from app.models.rso_target import RSOTarget
+from app.models.supervisor_assignment import SupervisorRSOAssignment
 from app.models.user import User
 from app.services.transaction_report_service import non_zero_value_condition
 from app.utils.access_control import is_admin_user
@@ -127,8 +128,11 @@ async def employee_name_map(db: AsyncSession, emp_ids: Sequence[int]) -> Dict[in
 async def supervisor_map(db: AsyncSession, emp_ids: Sequence[int], target_date: date) -> Dict[int, int]:
     """Map rso employee_id -> supervisor employee_id.
 
-    Priority: rso_targets.supervisor_id for the target month, then fallback to the
-    user parent chain (rso.user.parent -> supervisor employee).
+    Priority: rso_targets.supervisor_id for the target month, then the
+    supervisor_rso_assignments pivot (the source of truth for current team
+    membership — a member without a linked user account still belongs to their
+    supervisor), then the user parent chain
+    (rso.user.parent -> supervisor employee).
     """
     sup_map: Dict[int, int] = {}
     if not emp_ids:
@@ -144,6 +148,25 @@ async def supervisor_map(db: AsyncSession, emp_ids: Sequence[int], target_date: 
     )
     for eid, sid in (await db.execute(q)).all():
         sup_map[eid] = sid
+
+    missing = [eid for eid in emp_ids if eid not in sup_map]
+    if missing:
+        q = (
+            select(
+                SupervisorRSOAssignment.member_employee_id,
+                SupervisorRSOAssignment.supervisor_employee_id,
+            )
+            .join(
+                Employee,
+                Employee.id == SupervisorRSOAssignment.supervisor_employee_id,
+            )
+            .where(
+                SupervisorRSOAssignment.member_employee_id.in_(list(set(missing))),
+                Employee.employee_type == ROLE_SUPERVISOR,
+            )
+        )
+        for eid, sid in (await db.execute(q)).all():
+            sup_map[eid] = sid
 
     missing = [eid for eid in emp_ids if eid not in sup_map]
     if missing:
