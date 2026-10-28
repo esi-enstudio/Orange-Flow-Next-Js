@@ -16,6 +16,11 @@ DMS_PRERF_WAREHOUSE_NAME = "Banglalink Brahmanbaria Warehouse"
 DMS_PRERF_ITOPUP_PRODUCT_ID = 35
 DMS_PRERF_ITOPUP_PRODUCT_NAME = "i'top up"
 
+# Unit price of the i'top up product on the PreRF create page: the requisition
+# cash a request consumes is ``quantity * 0.9625`` — the 3.75% lifting discount
+# that the lifting module already uses to turn a remainder into an iTopUp value.
+DMS_PRERF_ITOPUP_UNIT_PRICE = 0.9625
+
 DMS_BANKS = [
     {"id": 1, "name": "BRAC Bank Ltd"},
     {"id": 2, "name": "Dutch Bangla Bank Ltd"},

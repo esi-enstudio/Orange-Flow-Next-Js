@@ -9,13 +9,21 @@ threshold note, then three tables flowing top to bottom —
     * SUPERVISOR SUMMARY — one row per supervisor (serial number, name, RSO /
       retailer counts and metrics), mirroring the page's Section C;
     * RSO TARGET VS ACHIEVEMENT · RETAILER COUNT — one row per RSO (serial
-      number, name, the Target vs Achievement metric columns and the Retailer
-      Count buckets: Retailers, one column per SIM-activation bucket, Inactive
-      Last Month, Reactivated), ending in a grand total row. The two column
-      groups sit under a grouped header band, exactly like the page table's
-      two-tier header. (The supervisor name is not repeated here — the
-      SUPERVISOR SUMMARY table above already groups every RSO under its
-      supervisor.)
+      number, name, the RSO's iTop number, the Target vs Achievement metric
+      columns and the Retailer Count columns: Retailers, one column per
+      SIM-activation bucket, Inactive Last Month, Reactivated), ending in a
+      grand total row. The two column groups sit under a grouped header band,
+      exactly like the page table's two-tier header. (The supervisor name is not
+      repeated here — the SUPERVISOR SUMMARY table above already groups every
+      RSO under its supervisor.)
+
+      This is the widest table on the sheet, so its headings are abbreviated —
+      Ach, Proj, "n GA" buckets, Inactive L.M, Re.Act — keeping the columns
+      narrow so the table still renders at a large font. The page itself keeps
+      the full wording.
+
+Every row — and the grand-total row — carries exactly one cell per column
+label, so a bucket value can never slide under the wrong header.
 
 Every table picks the largest font that fits the page width: columns are sized
 from their own content (labels, values and total row) and the whole table fits
@@ -99,11 +107,10 @@ IMG_W = 1750
 PAGE_PAD = 0             # no page margin — content is padded by CARD_PAD
 CARD_PAD = 10            # inner padding of the page content
 INNER = IMG_W - 2 * PAGE_PAD - 2 * CARD_PAD  # content width
-# Table fonts are sized against the former 1600-wide sheet's content width, so
-# the wider 1750 sheet never inflates the text — the same fitted font numbers
-# render slightly smaller here, while the drawn tables still stretch to the
-# full INNER width.
-PROBE_INNER = 1600 - 2 * PAGE_PAD - 2 * CARD_PAD  # 1580
+# Tables are fitted to the sheet's whole content width, so a table with few
+# (or short-headed) columns grows to a bigger font instead of leaving the sheet
+# half empty.
+TABLE_FIT_W = INNER
 GAP = 8                  # minimum gap between sections
 # Header band height, scaled from the kit's standard 800-wide header block
 # (header_scale(IMG_W) ~ 1.48 here) so the header keeps its standard size
@@ -125,12 +132,12 @@ CONTENT_H = PAGE_H - 2 * CARD_PAD - FOOTER_H
 
 # ── Fonts ──
 # Every table picks the largest font from FONT_MIN..FONT_MAX at which its
-# content-sized columns fit the page width with every cell visible; only when
-# the data is too wide for that (the 16-column RSO table with very long names)
-# do the customarily-flexible name columns give way, each keeping at least
-# NAME_MIN_W so names stay readable. The native RENDER_SCALE keeps everything
-# crisp.
-FONT_MAX = 15            # largest table font tried
+# content-sized columns fit the sheet's full content width with every cell
+# visible; only when the data is too wide for that (the 17-column RSO table of
+# a house with very long RSO names) do the customarily-flexible name columns
+# give way, each keeping at least NAME_MIN_W so names stay readable. The native
+# RENDER_SCALE keeps everything crisp.
+FONT_MAX = 24            # largest table font tried (the tables grow until they fit)
 FONT_MIN = 11            # smallest table font (used when a table is very wide)
 NAME_MIN_W = 120         # flexible name columns never shrink below this
 
@@ -161,6 +168,18 @@ SUPERVISOR_LABELS = ["#", "Supervisor", "RSOs", "Retailers", *A_LABELS]
 TAIL_LABELS = {
     "inactive_last_month": "Inactive Last Month",
     "reactivated": "Reactivated",
+}
+
+# ── RSO table headings ──
+# The RSO table is the widest one on the sheet (serial, RSO, iTop, the metric
+# group and the retailer-count group). Its headings are abbreviated so the
+# columns stay narrow and every cell keeps its own value at a larger font —
+# the full wording stays on the page itself.
+RSO_A_LABELS = ["Target", "Ach", "Ach %", "Remain", "DRR", "D.Avg",
+                "Proj", "Proj %", "Status"]
+RSO_TAIL_LABELS = {
+    "inactive_last_month": "Inactive L.M",
+    "reactivated": "Re.Act",
 }
 
 STATUS_LABELS = {
@@ -206,35 +225,42 @@ def _threshold_text(period: dict) -> str:
 
 
 def _count_keys(dashboard: dict) -> list[str]:
-    """Retailer-count bucket keys, mirroring buildBColKeys on the page."""
+    """Retailer-count bucket keys, mirroring buildBColKeys on the page.
+
+    The page's leading "Retailers" total column is not part of this key list:
+    it is rendered from the row's own ``retailer_count`` (see `_rso_rows`), so
+    keeping it here as well would add a second, empty "Retailers" cell and
+    shift every following bucket one column to the right.
+    """
     keys = dashboard.get("count_keys") or []
     if not keys:
         threshold = int(_num((dashboard.get("period") or {}).get(
             "activations_threshold")) or 2)
         keys = [f"day_{i}" for i in range(min(31, max(1, threshold)))] + \
             list(TAIL_LABELS)
-    return ["retailers", *keys]
+    return [k for k in keys if k != "retailers"]
 
 
 def _bucket_label(key: str) -> str:
-    """Bucket label — "n Activation" for bucket keys, like the page's colLabel."""
+    """Bucket heading — "n GA" for bucket keys (the page's colLabel, shortened)."""
     if key.startswith("day_"):
-        return f"{int(key[4:])} Activation"
+        return f"{int(key[4:])} GA"
     if key == "retailers":
         return "Retailers"
-    return TAIL_LABELS.get(key, key)
+    return RSO_TAIL_LABELS.get(key, key)
 
 
 def _rso_labels(count_keys: list[str]) -> list[str]:
-    return ["#", "RSO", *A_LABELS, *[_bucket_label(k) for k in count_keys]]
+    return ["#", "RSO", "iTop", *RSO_A_LABELS, "Retailers",
+            *[_bucket_label(k) for k in count_keys]]
 
 
 def _rso_band(count_keys: list[str]):
     """(start, span, title) markers for the RSO table's grouped header band."""
-    a_start = 2  # after the serial and RSO name columns
+    a_start = 3  # after the serial, RSO name and iTop columns
     return [
-        (a_start, len(A_LABELS), GROUP_A_TITLE),
-        (a_start + len(A_LABELS), len(count_keys), GROUP_B_TITLE),
+        (a_start, len(RSO_A_LABELS), GROUP_A_TITLE),
+        (a_start + len(RSO_A_LABELS), 1 + len(count_keys), GROUP_B_TITLE),
     ]
 
 
@@ -292,6 +318,7 @@ def _rso_rows(rows_in: list[dict], count_keys: list[str]) -> list[list]:
         rows.append([
             str(i + 1),
             str(r.get("name") or MUTED),
+            str(r.get("itop_number") or MUTED),
             *_metric_cells(r),
             fmt_num(r.get("retailer_count")),
             *[fmt_num(counts.get(k)) for k in count_keys],
@@ -304,6 +331,7 @@ def _grand_total(summary: dict, count_keys: list[str]) -> list:
     counts = summary.get("retailer_counts") or {}
     return [
         f"Grand Total ({int(_num(summary.get('rso_count')))} RSO)",
+        "",
         "",
         *_metric_cells(summary),
         fmt_num(summary.get("retailer_count")),
@@ -322,8 +350,9 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
     large as possible while only the flexible name columns give way — every
     number / status / bucket column keeps its exact content width.
 
-    Sized against PROBE_INNER — the content width of the former 1600-wide
-    sheet — so widening the sheet never inflates the text.
+    Sized against the sheet's whole content width (TABLE_FIT_W) and searching
+    up to FONT_MAX, so every table grows to the largest font its own column
+    widths allow instead of being pinned to one small size.
     Returns ``(size, f_head, f_cell, weights)``.
     """
     full = None
@@ -335,10 +364,10 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
                               total_row=total_row, total_span=total_span)
         fixed = sum(req) - sum(req[i] for i in name_cols)
         last = (candidate, req)
-        if sum(req) <= PROBE_INNER:
+        if sum(req) <= TABLE_FIT_W:
             full = last
             break
-        if flex is None and fixed + NAME_MIN_W * len(name_cols) <= PROBE_INNER:
+        if flex is None and fixed + NAME_MIN_W * len(name_cols) <= TABLE_FIT_W:
             flex = last
 
     size, req = full or flex or last
@@ -348,13 +377,13 @@ def _pick_table_font(labels, rows, total_row, total_span, name_cols):
         # width proportionally, so the rest of the table keeps its exact fit
         # (very long names ellipsize instead).
         name_req = sum(req[i] for i in name_cols)
-        name_avail = PROBE_INNER - (sum(req) - name_req)
+        name_avail = TABLE_FIT_W - (sum(req) - name_req)
         if name_req > name_avail and name_req > 0:
             scale = max(name_avail, 0) / name_req
             for i in name_cols:
                 req[i] = max(1, int(req[i] * scale))
-        if sum(req) > PROBE_INNER:  # rounding / merged-total-label safety
-            req = [max(1, int(r * PROBE_INNER / sum(req))) for r in req]
+        if sum(req) > TABLE_FIT_W:  # rounding / merged-total-label safety
+            req = [max(1, int(r * TABLE_FIT_W / sum(req))) for r in req]
     return size, f, f, req
 
 
@@ -569,7 +598,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict,
         tables.append({
             "title": TITLE_RSO, "labels": _rso_labels(count_keys),
             "rows": rso_rows, "total_row": _grand_total(summary, count_keys),
-            "total_span": 2, "band": _rso_band(count_keys), "name_cols": [1],
+            "total_span": 3, "band": _rso_band(count_keys), "name_cols": [1],
         })
 
     note_h = NOTE_H if _threshold_text(period) else 0
@@ -607,7 +636,7 @@ def _render_image(house_name: str, house_code: str, dashboard: dict,
                     y = _draw_group_band(draw, cx, y, INNER, weights, band, f_head)
                 # name columns read left-aligned, every other column centred
                 left_cols = [i for i, lb in enumerate(labels)
-                             if lb in ("RSO", "Supervisor")]
+                             if lb in ("RSO", "Supervisor", "iTop")]
                 draw_table(draw, cx, y, INNER, labels, chunk, weights=weights,
                            left_cols=left_cols, total_row=tro,
                            total_span=total_span, f_head=f_head, f_cell=f_cell,

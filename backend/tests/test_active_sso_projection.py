@@ -79,18 +79,25 @@ def test_aggregate_projection_equals_rounded_daily_avg_times_period_days():
     assert aggregate["projection"] == 2 * 31 == 62.0
 
 
-def test_aggregate_daily_avg_is_not_summed_from_rounded_rows():
-    # Regression: every RSO averaged 0.46/day, which the table prints as 0,
-    # so a sum of the printed values made the house cards read 0 / 0 while the
-    # house was actually selling 5 a day (5 x 31 = 155).
+def test_aggregate_daily_avg_is_the_sum_of_the_displayed_column():
+    # The grand total must equal the column the reader adds up: each RSO gets
+    # 12 / 26 = 0.46, printed as D.Avg 0, so the total row is 0 as well.
     svc = _service()
     svc.days_elapsed = 26
-    rows = [_row(svc, achieved=12) for _ in range(10)]  # 120 / 26 = 4.61 -> 5
+    rows = [_row(svc, achieved=12) for _ in range(10)]  # 4.61/day over the house
     assert sum(rounded_daily_avg(row["daily_avg"]) for row in rows) == 0
     aggregate = svc._aggregate(rows)
     assert aggregate["achieved"] == 120
-    assert aggregate["daily_avg"] == 5.0
-    assert aggregate["projection"] == 5 * 31 == 155.0
+    assert aggregate["daily_avg"] == 0.0
+    assert aggregate["projection"] == 0.0
+
+
+def test_aggregate_drr_is_the_sum_of_the_displayed_column():
+    svc = _service()
+    # 100 / 9 = 11.1 -> each row prints DRR 11
+    rows = [_row(svc, achieved=0) for _ in range(3)]
+    assert {row["drr"] for row in rows} == {11}
+    assert svc._aggregate(rows)["drr"] == 33
 
 
 def test_aggregate_projection_never_drifts_from_printed_daily_avg():

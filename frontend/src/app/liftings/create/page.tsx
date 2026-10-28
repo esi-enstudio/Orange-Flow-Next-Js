@@ -9,6 +9,7 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { Loader2, ClipboardList, Eye, Check, Pencil, X, Banknote, Building2, Package, Upload, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatLiftingAmount, formatPrice, roundPrice } from "@/lib/price";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 
 function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
@@ -218,8 +219,10 @@ export default function CreateLiftingPage() {
     };
 
     const totalSelectionAmount = useMemo(() => {
+        // Each line is rounded to the price precision first, so the total always
+        // equals the sum of the line totals as they are shown.
         return selectedProducts.reduce((sum, sp) => {
-            return sum + (sp.product.dd_lifting_price || 0) * sp.quantity;
+            return sum + roundPrice((sp.product.dd_lifting_price || 0) * sp.quantity);
         }, 0);
     }, [selectedProducts]);
 
@@ -470,13 +473,13 @@ export default function CreateLiftingPage() {
                                                             </div>
                                                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
                                                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                                                    MRP: {product.mrp.toLocaleString()}
+                                                                    MRP: {formatPrice(product.mrp, product.category)}
                                                                 </span>
                                                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                                                    DD: {product.dd_lifting_price.toLocaleString()}
+                                                                    DD: {formatPrice(product.dd_lifting_price, product.category)}
                                                                 </span>
                                                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                                                    Ret: {product.ret_lifting_price.toLocaleString()}
+                                                                    Ret: {formatPrice(product.ret_lifting_price, product.category)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -519,12 +522,12 @@ export default function CreateLiftingPage() {
                             {selectedProducts.map((sp) => (
                                 <div key={sp.product.id} className="flex justify-between gap-3">
                                     <span className="truncate">{sp.product.product_name} x {sp.quantity}</span>
-                                    <span className="font-mono shrink-0">{(sp.product.dd_lifting_price * sp.quantity).toLocaleString()}</span>
+                                    <span className="font-mono shrink-0">{formatLiftingAmount(sp.product.dd_lifting_price * sp.quantity)}</span>
                                 </div>
                             ))}
                             <div className="pt-2 mt-2 border-t border-primary-100 dark:border-primary-500/10 flex justify-between gap-3 font-bold text-gray-900 dark:text-gray-100">
                                 <span>Total Lifting Amount</span>
-                                <span className="font-mono shrink-0">{totalSelectionAmount.toLocaleString()}</span>
+                                <span className="font-mono shrink-0">{formatLiftingAmount(totalSelectionAmount)}</span>
                             </div>
                         </div>
                     </div>
@@ -698,7 +701,7 @@ export default function CreateLiftingPage() {
                                         Total Lifting Amount
                                     </p>
                                     <p className="text-lg sm:text-xl font-bold text-blue-700 dark:text-blue-300 font-mono">
-                                        {previewData.total_lifting_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {formatLiftingAmount(previewData.total_lifting_amount)}
                                     </p>
                                 </div>
                                 <div className="bg-emerald-50 dark:bg-emerald-500/10 rounded-xl p-3.5 sm:p-4 border border-emerald-100 dark:border-emerald-500/10">
@@ -706,7 +709,7 @@ export default function CreateLiftingPage() {
                                         Remaining Amount
                                     </p>
                                     <p className="text-lg sm:text-xl font-bold text-emerald-700 dark:text-emerald-300 font-mono">
-                                        {previewData.remaining_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {formatLiftingAmount(previewData.remaining_amount)}
                                     </p>
                                 </div>
                                 <div className="bg-purple-50 dark:bg-purple-500/10 rounded-xl p-3.5 sm:p-4 border border-purple-100 dark:border-purple-500/10">
@@ -714,7 +717,7 @@ export default function CreateLiftingPage() {
                                         iTopUp Amount
                                     </p>
                                     <p className="text-lg sm:text-xl font-bold text-purple-700 dark:text-purple-300 font-mono">
-                                        {previewData.itopup_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {formatLiftingAmount(previewData.itopup_amount)}
                                     </p>
                                 </div>
                             </div>
@@ -723,7 +726,7 @@ export default function CreateLiftingPage() {
                             <div className="flex items-center justify-between gap-3 px-3.5 py-3 sm:px-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-800">
                                 <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total Bank Deposit</span>
                                 <span className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100 font-mono text-right">
-                                    {Number(bankDeposit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    {formatLiftingAmount(bankDeposit || 0)}
                                 </span>
                             </div>
 
@@ -741,11 +744,11 @@ export default function CreateLiftingPage() {
                                                     <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono shrink-0">{p.product_code}</span>
                                                 </div>
                                                 <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                                                    {p.quantity} x {p.unit_price.toLocaleString()}
+                                                    {p.quantity} x {formatPrice(p.unit_price, p.category)}
                                                 </div>
                                             </div>
                                             <span className="text-sm font-bold text-gray-900 dark:text-gray-100 font-mono shrink-0">
-                                                {p.total_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                {formatLiftingAmount(p.total_price)}
                                             </span>
                                         </div>
                                     ))}
@@ -761,10 +764,10 @@ export default function CreateLiftingPage() {
                             <div className="px-3.5 py-3 sm:px-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-800">
                                 <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Calculation</h4>
                                 <div className="text-[11px] text-gray-500 dark:text-gray-400 space-y-1 font-mono break-words">
-                                    <div>Bank Deposit = {Number(bankDeposit || 0).toLocaleString()}</div>
-                                    <div>Total Lifting = {previewData.total_lifting_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-                                    <div>Remaining = Bank Deposit - Total Lifting = {previewData.remaining_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-                                    <div>iTopUp = Remaining / 0.9625 = {previewData.itopup_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                                    <div>Bank Deposit = {formatLiftingAmount(bankDeposit || 0)}</div>
+                                    <div>Total Lifting = {formatLiftingAmount(previewData.total_lifting_amount)}</div>
+                                    <div>Remaining = Bank Deposit - Total Lifting = {formatLiftingAmount(previewData.remaining_amount)}</div>
+                                    <div>iTopUp = Remaining / 0.9625 = {formatLiftingAmount(previewData.itopup_amount)}</div>
                                 </div>
                             </div>
                         </div>

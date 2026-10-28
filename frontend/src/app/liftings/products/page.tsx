@@ -9,6 +9,7 @@ import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Loader2, Plus, Search, Trash2, Pencil, Save, X, Upload, Download, FileDown, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatPrice } from "@/lib/price";
 
 type ProductCategory = "SIM" | "Scratch Card" | "Device" | "Other";
 type ProductStatus = "Active" | "Inactive";
@@ -412,7 +413,7 @@ export default function ProductsPage() {
                         </label>
                         <input
                             type="number"
-                            step="0.01"
+                            step="0.0001"
                             value={form.mrp}
                             onChange={(e) => setForm((s) => ({ ...s, mrp: e.target.value }))}
                             className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 outline-none transition-all text-sm"
@@ -425,7 +426,7 @@ export default function ProductsPage() {
                         </label>
                         <input
                             type="number"
-                            step="0.01"
+                            step="0.0001"
                             value={form.dd_lifting_price}
                             onChange={(e) => setForm((s) => ({ ...s, dd_lifting_price: e.target.value }))}
                             className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 outline-none transition-all text-sm"
@@ -438,7 +439,7 @@ export default function ProductsPage() {
                         </label>
                         <input
                             type="number"
-                            step="0.01"
+                            step="0.0001"
                             value={form.ret_lifting_price}
                             onChange={(e) => setForm((s) => ({ ...s, ret_lifting_price: e.target.value }))}
                             className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 outline-none transition-all text-sm"
@@ -618,9 +619,9 @@ export default function ProductsPage() {
                                                     {p.category}
                                                 </span>
                                             </td>
-                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.mrp.toLocaleString()}</td>
-                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.dd_lifting_price.toLocaleString()}</td>
-                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{p.ret_lifting_price.toLocaleString()}</td>
+                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatPrice(p.mrp, p.category)}</td>
+                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatPrice(p.dd_lifting_price, p.category)}</td>
+                                            <td className="px-2 py-1 text-right font-mono text-sm text-gray-700 dark:text-gray-300">{formatPrice(p.ret_lifting_price, p.category)}</td>
                                             <td className="px-2 py-1 text-center">
                                                 <span
                                                     className={cn(
@@ -704,15 +705,15 @@ export default function ProductsPage() {
                                                     )}
                                                     <div className="flex items-center justify-between gap-3">
                                                         <p className="text-[11px] font-bold text-gray-400 uppercase">MRP</p>
-                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{p.mrp.toLocaleString()}</p>
+                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatPrice(p.mrp, p.category)}</p>
                                                     </div>
                                                     <div className="flex items-center justify-between gap-3">
                                                         <p className="text-[11px] font-bold text-gray-400 uppercase">DD Price</p>
-                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{p.dd_lifting_price.toLocaleString()}</p>
+                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatPrice(p.dd_lifting_price, p.category)}</p>
                                                     </div>
                                                     <div className="flex items-center justify-between gap-3">
                                                         <p className="text-[11px] font-bold text-gray-400 uppercase">Ret Price</p>
-                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{p.ret_lifting_price.toLocaleString()}</p>
+                                                        <p className="text-xs font-mono font-medium text-gray-700 dark:text-gray-200 text-right">{formatPrice(p.ret_lifting_price, p.category)}</p>
                                                     </div>
                                                 </div>
                                                 {(canEdit || canDelete) && (

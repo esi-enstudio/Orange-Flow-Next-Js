@@ -140,11 +140,13 @@ interface FilterOptions {
 interface FilterState {
   houseId: string;
   managerId: string;
-  /** Role-scoped defaults from the API — applied silently, no visible field. */
   supervisorId: string;
   rsoId: string;
+  status: string;
   startDate: string;
   endDate: string;
+  month: number;
+  year: number;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -389,8 +391,11 @@ export default function ActiveSsoReportPage() {
     managerId: "",
     supervisorId: "",
     rsoId: "",
+    status: "",
     startDate: toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)),
     endDate: endOfMonthStr(today.getFullYear(), today.getMonth() + 1),
+    month: today.getMonth() + 1,
+    year: today.getFullYear(),
   });
   // The table only reloads on Apply, so the filters behind the visible report
   // are kept apart from the ones currently being edited.
@@ -534,8 +539,11 @@ export default function ActiveSsoReportPage() {
       managerId: "",
       supervisorId: d.supervisor_id ? String(d.supervisor_id) : "",
       rsoId: d.rso_id ? String(d.rso_id) : "",
+      status: "",
       startDate: toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)),
       endDate: endOfMonthStr(today.getFullYear(), today.getMonth() + 1),
+      month: today.getMonth() + 1,
+      year: today.getFullYear(),
     };
     setFilters(next);
     setAppliedFilters(next);
@@ -698,6 +706,9 @@ export default function ActiveSsoReportPage() {
   }
 
   const mode = filterOptions?.role_mode || "admin";
+  // The threshold config is stored per calendar month, so the range's start
+  // month is what the config modal reads and writes.
+  const configPeriod = monthYearOf(appliedFilters.startDate);
   const lockedHouse = mode !== "admin";
   const showManager = mode === "admin" && (filterOptions?.managers.length ?? 0) > 0;
 
@@ -727,7 +738,7 @@ export default function ActiveSsoReportPage() {
 
   // Threshold config is stored per calendar month, so the range's start month
   // is what the config modal reads and writes.
-  const configPeriod = monthYearOf(appliedFilters.startDate);
+  // (configPeriod already declared above)
 
   const selectClass =
     "pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer min-w-[150px] disabled:opacity-50 disabled:cursor-not-allowed";

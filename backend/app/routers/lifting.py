@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional, Tuple
 from datetime import date
 
@@ -31,6 +32,16 @@ router = APIRouter(prefix="/api/lifting", tags=["lifting"])
 
 TOPUP_DIVISOR = 0.9625
 
+# A scratch-card price is quoted to four decimals (e.g. 97.1465), so every
+# money value derived from a price is kept at the same precision instead of
+# carrying binary float noise (97.1465 * 3 = 291.4394999999999).
+MONEY_QUANTUM = Decimal("0.0001")
+
+
+def _r4(value) -> float:
+    """Round a money value to the lifting price precision (4 dp, half up)."""
+    return float(Decimal(str(value or 0)).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP))
+
 
 def _compute_lifting(
     *,
@@ -47,9 +58,9 @@ def _compute_lifting(
         product: Product = item["product"]
         quantity: int = item["quantity"]
 
-        dd_price = float(product.dd_lifting_price or 0.0)
-        line_total = dd_price * quantity
-        total_lifting_amount += line_total
+        dd_price = _r4(product.dd_lifting_price or 0.0)
+        line_total = _r4(dd_price * quantity)
+        total_lifting_amount = _r4(total_lifting_amount + line_total)
 
         computed_products.append(
             {
@@ -64,8 +75,8 @@ def _compute_lifting(
             }
         )
 
-    remaining_amount = float(total_bank_deposit) - float(total_lifting_amount)
-    itopup_amount = remaining_amount / TOPUP_DIVISOR if TOPUP_DIVISOR else 0.0
+    remaining_amount = _r4(float(total_bank_deposit) - float(total_lifting_amount))
+    itopup_amount = _r4(remaining_amount / TOPUP_DIVISOR) if TOPUP_DIVISOR else 0.0
 
     return {
         "total_lifting_amount": total_lifting_amount,
@@ -571,7 +582,7 @@ async def create_lifting(
         product: Product = item["product"]
         quantity: int = item["quantity"]
 
-        dd_price = float(product.dd_lifting_price or 0.0)
+        dd_price = _r4(product.dd_lifting_price or 0.0)
         record.products.append(
             LiftingProduct(
                 product_id=product.id,
@@ -579,7 +590,7 @@ async def create_lifting(
                 product_name=product.product_name,
                 quantity=quantity,
                 unit_price=dd_price,
-                total_price=dd_price * quantity,
+                total_price=_r4(dd_price * quantity),
             )
         )
 
@@ -672,7 +683,7 @@ async def update_lifting_record(
         for item in selected:
             product: Product = item["product"]
             quantity: int = item["quantity"]
-            dd_price = float(product.dd_lifting_price or 0.0)
+            dd_price = _r4(product.dd_lifting_price or 0.0)
             record.products.append(
                 LiftingProduct(
                     product_id=product.id,
@@ -680,13 +691,13 @@ async def update_lifting_record(
                     product_name=product.product_name,
                     quantity=quantity,
                     unit_price=dd_price,
-                    total_price=dd_price * quantity,
+                    total_price=_r4(dd_price * quantity),
                 )
             )
     elif lifting_data.total_bank_deposit is not None:
-        remaining = float(record.total_bank_deposit) - float(record.total_lifting_amount)
+        remaining = _r4(float(record.total_bank_deposit) - float(record.total_lifting_amount))
         record.remaining_amount = remaining
-        record.itopup_amount = remaining / TOPUP_DIVISOR if TOPUP_DIVISOR else 0.0
+        record.itopup_amount = _r4(remaining / TOPUP_DIVISOR) if TOPUP_DIVISOR else 0.0
 
     await db.commit()
     await db.refresh(record)

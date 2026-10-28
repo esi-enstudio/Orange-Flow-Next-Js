@@ -145,5 +145,6 @@ def test_summary_daily_required_follows_each_page_total_rule(freeze_today):
     sso = _sso()
     sso_rows = [_sso_row(sso, target=100, achieved=0) for _ in range(3)]
     assert {r["drr"] for r in sso_rows} == {33}
-    # Active SSO rounds the *total* gap instead: 300 / 3 = 100.
-    assert sso._aggregate(sso_rows)["drr"] == 100
+    # Active SSO follows the same rule: the total row is the sum of the
+    # displayed column: 3 x 33.
+    assert sso._aggregate(sso_rows)["drr"] == 99

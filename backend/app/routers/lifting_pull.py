@@ -26,11 +26,13 @@ from app.models.lifting import LiftingRecord
 from app.models.user import User
 from app.routers.deps import get_db, has_permission
 from app.schemas.lifting import (
+    LiftingPullFundsResponse,
     LiftingPullRequest,
     LiftingPullStartResponse,
     LiftingPullStatusResponse,
 )
 from app.services.Automation.Tasks.lifting_pull import (
+    check_lifting_pull_funds,
     floor_quantity,
     run_lifting_pre_rf_pull,
 )
@@ -77,29 +79,10 @@ def _ensure_house_access(current_user: User, house_id: int) -> None:
         )
 
 
-@router.get("/pull/options")
-async def get_pull_options(
-    current_user: User = Depends(has_permission("lifting.view")),
-):
-    """Bank list and fixed PreRF warehouse used by the create/edit form."""
-    return {
-        "banks": DMS_BANKS,
-        "warehouse": {
-            "id": DMS_PRERF_WAREHOUSE_ID,
-            "name": DMS_PRERF_WAREHOUSE_NAME,
-        },
-        "itopup_product_id": DMS_PRERF_ITOPUP_PRODUCT_ID,
-    }
-
-
-@router.post("/{record_id}/pull", response_model=LiftingPullStartResponse)
-async def start_lifting_pull(
-    record_id: int,
-    payload: LiftingPullRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("lifting.pull")),
-):
+async def _load_pullable_record(
+    db: AsyncSession, record_id: int, current_user: User
+) -> tuple[LiftingRecord, House]:
+    """Load a record and enforce every precondition shared by the pull endpoints."""
     result = await db.execute(
         select(LiftingRecord)
         .options(selectinload(LiftingRecord.house))
@@ -146,8 +129,7 @@ async def start_lifting_pull(
             detail="The lifting record has no bank deposit amount.",
         )
 
-    quantity = floor_quantity(float(record.itopup_amount or 0))
-    if quantity < 1:
+    if floor_quantity(float(record.itopup_amount or 0)) < 1:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="The lifting record's iTopUp amount is less than 1.",
@@ -158,6 +140,67 @@ async def start_lifting_pull(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Upload a bank deposit slip before pulling.",
         )
+
+    return record, house
+
+
+@router.get("/pull/options")
+async def get_pull_options(
+    current_user: User = Depends(has_permission("lifting.view")),
+):
+    """Bank list and fixed PreRF warehouse used by the create/edit form."""
+    return {
+        "banks": DMS_BANKS,
+        "warehouse": {
+            "id": DMS_PRERF_WAREHOUSE_ID,
+            "name": DMS_PRERF_WAREHOUSE_NAME,
+        },
+        "itopup_product_id": DMS_PRERF_ITOPUP_PRODUCT_ID,
+    }
+
+
+@router.post("/{record_id}/pull/funds", response_model=LiftingPullFundsResponse)
+async def get_lifting_pull_funds(
+    record_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("lifting.pull")),
+):
+    """Check the DMS cash-account balance before pulling.
+
+    A pull of N iTopUp consumes ``N * 0.9625`` of the distributor's cash
+    account. This reports whether that balance covers the record's own pull and
+    how much could be pulled if the whole balance is used.
+    """
+    record, house = await _load_pullable_record(db, record_id, current_user)
+
+    try:
+        summary = await check_lifting_pull_funds(
+            credentials=_house_credentials(house),
+            record={
+                "itopup_amount": float(record.itopup_amount or 0),
+                "bank_id": record.bank_id,
+                "bank_name": record.bank_name,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Could not read the DMS cash balance (record %s): %s", record.id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not read the DMS cash account balance: {exc}",
+        )
+
+    return LiftingPullFundsResponse(**summary)
+
+
+@router.post("/{record_id}/pull", response_model=LiftingPullStartResponse)
+async def start_lifting_pull(
+    record_id: int,
+    payload: LiftingPullRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("lifting.pull")),
+):
+    record, house = await _load_pullable_record(db, record_id, current_user)
 
     if payload.dry_run and not is_admin_user(current_user):
         raise HTTPException(
@@ -223,6 +266,8 @@ async def start_lifting_pull(
         "previous_pull_completed_at": previous_completed_at,
         "house_name": house.display_name or house.name,
         "house_code": house.code,
+        # Pull the whole DMS cash balance instead of the record's iTopUp amount.
+        "use_available_balance": bool(payload.use_available_balance),
     }
 
     job_id = pull_jobs.start_job(
@@ -245,6 +290,7 @@ async def start_lifting_pull(
             new_values={
                 "pull_status": "running",
                 "dry_run": payload.dry_run,
+                "use_available_balance": bool(payload.use_available_balance),
                 "bank_id": record.bank_id,
                 "bank_name": record.bank_name,
             },
@@ -351,6 +397,8 @@ async def _run_lifting_pull_job(
                         "rf_code": result.get("rf_code"),
                         "total_price": result.get("total_price"),
                         "requisition_sum": result.get("requisition_sum"),
+                        "pulled_quantity": result.get("pulled_quantity"),
+                        "available_amount": result.get("available_amount"),
                         "dry_run": dry_run,
                         "message": message,
                     },

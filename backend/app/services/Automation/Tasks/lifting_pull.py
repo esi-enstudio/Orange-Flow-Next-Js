@@ -3,14 +3,18 @@
 Flow (as specified by the business):
 1. Open /PreRF and read the Product Status column.
 2. Pending rows (or a latest Rejected row) block a new request.
-3. Otherwise open /PreRF/Create and fill:
-   - Warehouse 66 (Banglalink Brahmanbaria Warehouse)
-   - the lifting record's bank
-   - today's deposit date, the lifting bank deposit, the uploaded slip
-   - i'top up with the integer iTopUp quantity
-4. Read the calculated Total Price, paste it into the requisition amount and
+3. Otherwise open /PreRF/Create, pick the warehouse and bank, and check the
+   distributor's **Available Amount** on the cash account (the
+   "Payable -Cash Account" / ``…/PCA`` row):
+   - a pull of N iTopUp consumes ``N * 0.9625`` (the 3.75% lifting price), so
+     that balance must cover ``iTopUp * 0.9625``;
+   - the record may instead pull the whole balance, ``available / 0.9625``
+     iTopUp — the user explicitly agrees to that in the UI.
+4. Fill today's deposit date, the lifting bank deposit and the uploaded slip,
+   then add i'top up with the resolved integer quantity.
+5. Read the calculated Total Price, paste it into the requisition amount and
    verify the remaining requisition sum becomes zero.
-5. Save and wait for DMS's success confirmation.
+6. Save and wait for DMS's success confirmation.
 """
 
 from __future__ import annotations
@@ -30,12 +34,14 @@ from playwright.async_api import Page
 from app.constants.dms import (
     DMS_PRERF_CREATE_URL,
     DMS_PRERF_ITOPUP_PRODUCT_ID,
+    DMS_PRERF_ITOPUP_UNIT_PRICE,
     DMS_PRERF_URL,
     DMS_PRERF_WAREHOUSE_ID,
 )
 from app.core.session_manager import session_manager
 from app.services.Automation.dms_scraper import (
     evaluate_pre_rf_rows,
+    get_pre_rf_account_rows,
     get_pre_rf_rows,
 )
 from app.utils.timezone import now_naive
@@ -69,6 +75,142 @@ def _parse_number(raw: str) -> float:
         return float(cleaned)
     except Exception:
         return 0.0
+
+
+# ── DMS cash account balance ──
+# The requisition is paid from the distributor's "Payable -Cash Account", whose
+# DMS code always ends with ``/PCA`` (e.g. ``MYMVAI01/PCA``).
+CASH_ACCOUNT_CODE_SUFFIX = "/PCA"
+
+
+def pick_cash_account_row(rows: list[dict]) -> Optional[dict]:
+    """The Payable Cash Account row of the PreRF A/C table."""
+    for row in rows:
+        if (row.get("code") or "").upper().endswith(CASH_ACCOUNT_CODE_SUFFIX):
+            return row
+    for row in rows:
+        name = (row.get("name") or "").lower()
+        if "cash" in name and "payable" in name:
+            return row
+    for row in rows:
+        if "cash" in (row.get("name") or "").lower():
+            return row
+    return None
+
+
+async def read_prf_funds(page: Page) -> dict:
+    """Available requisition balance of the distributor's DMS cash account."""
+    rows = await get_pre_rf_account_rows(page)
+    if not rows:
+        raise LiftingPullError(
+            "The DMS account balance table was not found on the PreRF create page."
+        )
+    row = pick_cash_account_row(rows)
+    if row is None:
+        raise LiftingPullError(
+            "The DMS cash account (Payable -Cash Account) was not found on the "
+            "PreRF create page."
+        )
+    return {
+        "account_name": row.get("name") or "",
+        "account_code": row.get("code") or "",
+        "available_amount": round(float(row.get("available") or 0.0), 4),
+    }
+
+
+def _itopup_cash(quantity: int) -> float:
+    """Cash a requisition for ``quantity`` iTopUp consumes in DMS."""
+    return float(Decimal(quantity) * Decimal(str(DMS_PRERF_ITOPUP_UNIT_PRICE)))
+
+
+def _max_itopup_quantity(available_amount: float) -> int:
+    """Largest iTopUp quantity the available balance can pay for."""
+    unit = Decimal(str(DMS_PRERF_ITOPUP_UNIT_PRICE))
+    if unit <= 0:
+        return 0
+    return int(
+        (Decimal(str(available_amount or 0)) / unit).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+    )
+
+
+def pull_funds_summary(available_amount: float, itopup_amount: float) -> dict:
+    """Compare the record's iTopUp pull with the DMS cash balance.
+
+    DMS pays the i'top up product at the 3.75% lifting price, so a pull of N
+    iTopUp consumes ``N * 0.9625`` of the cash account. When the account holds
+    more than that, the whole balance can be pulled instead:
+    ``available / 0.9625`` iTopUp.
+    """
+    available = round(float(available_amount or 0), 4)
+    quantity = floor_quantity(itopup_amount)
+    required = round(_itopup_cash(quantity), 4)
+    max_quantity = _max_itopup_quantity(available)
+    return {
+        "available_amount": available,
+        "required_amount": required,
+        "itopup_quantity": quantity,
+        "sufficient": available >= required,
+        "extra_amount": round(max(0.0, available - required), 4),
+        "max_itopup_quantity": max_quantity,
+        "max_total_price": round(_itopup_cash(max_quantity), 4),
+    }
+
+
+def insufficient_balance_result(summary: dict) -> dict:
+    """Result for a pull the DMS cash balance cannot pay for.
+
+    Nothing has been typed into DMS at this point, so the pull stops and the UI
+    reports the exact shortfall instead of a generic failure.
+    """
+    available = summary["available_amount"]
+    required = summary["required_amount"]
+    shortfall = round(max(0.0, float(required) - float(available)), 4)
+    return {
+        "outcome": "insufficient_balance",
+        "message": (
+            "The DMS cash account does not have enough balance for this pull "
+            f"(available: {available}, required: {required}, "
+            f"short by: {shortfall}). "
+            "The process was stopped before any requisition was created."
+        ),
+        "available_amount": available,
+        "required_amount": required,
+        "shortfall_amount": shortfall,
+    }
+
+
+async def check_lifting_pull_funds(*, credentials: dict, record: dict) -> dict:
+    """Read the DMS cash balance and compare it with the record's iTopUp pull.
+
+    Runs standalone (before the pull job starts) so the UI can block a pull the
+    balance cannot pay for and offer to pull the whole available balance.
+    """
+    page: Optional[Page] = None
+    try:
+        page, _context = await session_manager.get_valid_page(credentials)
+        await page.goto(DMS_PRERF_CREATE_URL, wait_until="domcontentloaded", timeout=60000)
+        if "login" in (page.url or "").lower():
+            raise LiftingPullError("DMS session expired. Please reconnect the DMS session.")
+
+        funds = await read_prf_funds(page)
+        summary = pull_funds_summary(
+            funds["available_amount"], record.get("itopup_amount")
+        )
+        summary.update(
+            {
+                "account_name": funds["account_name"],
+                "account_code": funds["account_code"],
+            }
+        )
+        return summary
+    finally:
+        if page:
+            try:
+                await page.close()
+            except Exception:
+                pass
 
 
 def decode_deposit_slip(slip: Optional[str]) -> tuple[bytes, str, str]:
@@ -380,6 +522,8 @@ async def run_lifting_pre_rf_pull(
         "rf_status": None,
         "total_price": None,
         "requisition_sum": None,
+        "pulled_quantity": None,
+        "available_amount": None,
         "dry_run": dry_run,
     }
 
@@ -462,6 +606,57 @@ async def run_lifting_pre_rf_pull(
         await page.wait_for_selector("#BankId", state="attached", timeout=20000)
         await _select_bank(page, record.get("bank_id"), record.get("bank_name"))
 
+        # The requisition is paid from the DMS cash account: a pull of N iTopUp
+        # consumes N * 0.9625, so that balance must cover it. Read it with the
+        # form already settled, so the numbers match the requisition below.
+        funds = await read_prf_funds(page)
+        summary = pull_funds_summary(
+            funds["available_amount"], record.get("itopup_amount")
+        )
+        base_result["available_amount"] = summary["available_amount"]
+        _progress(
+            progress,
+            "checking_balance",
+            "Checking the DMS cash account balance...",
+            available_amount=summary["available_amount"],
+            required_amount=summary["required_amount"],
+            extra_amount=summary["extra_amount"],
+        )
+        if record.get("use_available_balance"):
+            # The user agreed to pull the whole available balance.
+            quantity = summary["max_itopup_quantity"]
+            if quantity < 1:
+                # An empty cash account cannot pay for anything: stop before the
+                # deposit/product form is filled, with the numbers the user
+                # needs to fix it.
+                base_result.update(insufficient_balance_result(summary))
+                _progress(
+                    progress,
+                    "insufficient_balance",
+                    base_result["message"],
+                    available_amount=base_result["available_amount"],
+                    required_amount=base_result["required_amount"],
+                    shortfall_amount=base_result["shortfall_amount"],
+                )
+                return base_result
+        else:
+            quantity = summary["itopup_quantity"]
+            if quantity < 1:
+                raise LiftingPullError("The iTopUp amount on this lifting record is less than 1.")
+            if not summary["sufficient"]:
+                # Not enough cash for this pull: stop here (nothing has been
+                # typed into DMS yet) and report the exact shortfall.
+                base_result.update(insufficient_balance_result(summary))
+                _progress(
+                    progress,
+                    "insufficient_balance",
+                    base_result["message"],
+                    available_amount=base_result["available_amount"],
+                    required_amount=base_result["required_amount"],
+                    shortfall_amount=base_result["shortfall_amount"],
+                )
+                return base_result
+
         _progress(progress, "filling_deposit", "Filling the bank deposit information...")
         today = now_naive().date().isoformat()
         # Real fill + blur so DMS's inline handlers (ValidateInput(event))
@@ -477,10 +672,6 @@ async def run_lifting_pre_rf_pull(
             "#DepositSlip",
             {"name": slip_name, "mimeType": slip_mime, "buffer": slip_bytes},
         )
-
-        quantity = floor_quantity(float(record.get("itopup_amount") or 0))
-        if quantity < 1:
-            raise LiftingPullError("The iTopUp amount on this lifting record is less than 1.")
 
         _progress(progress, "adding_product", "Adding the i'top up product...")
         await page.wait_for_selector("#Product", state="attached", timeout=20000)
@@ -609,6 +800,7 @@ async def run_lifting_pre_rf_pull(
                     ),
                     "total_price": total_price,
                     "requisition_sum": requisition_sum,
+                    "pulled_quantity": quantity,
                 }
             )
             return base_result
@@ -627,6 +819,7 @@ async def run_lifting_pre_rf_pull(
                     "message": "Dry run completed successfully. Save was not clicked.",
                     "total_price": total_price,
                     "requisition_sum": requisition_sum,
+                    "pulled_quantity": quantity,
                 }
             )
             return base_result
@@ -652,6 +845,7 @@ async def run_lifting_pre_rf_pull(
                         "message": "PreRF request created. Success confirmation was not visible, but the request appears in DMS.",
                         "total_price": total_price,
                         "requisition_sum": requisition_sum,
+                        "pulled_quantity": quantity,
                         "rf_code": rf_row.get("rf_code"),
                         "rf_date": rf_row.get("rf_date"),
                         "rf_status": rf_row.get("status"),
@@ -669,6 +863,7 @@ async def run_lifting_pre_rf_pull(
                 "message": "PreRF request created successfully.",
                 "total_price": total_price,
                 "requisition_sum": requisition_sum,
+                "pulled_quantity": quantity,
                 "rf_code": rf_row.get("rf_code"),
                 "rf_date": rf_row.get("rf_date"),
                 "rf_status": rf_row.get("status"),

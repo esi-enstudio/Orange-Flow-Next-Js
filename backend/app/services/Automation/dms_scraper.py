@@ -10,6 +10,65 @@ MAX_TABLE_PAGES = 50
 
 PRERF_LIST_URL = f"{DMS_BASE_URL}/PreRF"
 
+# The distributor account balances shown on the PreRF create page.
+PRERF_ACCOUNT_TABLE_ID = "accTable"
+
+
+def parse_dms_amount(raw) -> float:
+    """Parse a DMS money cell (``"5.3007"``, ``"1,234.56"``, empty) to float."""
+    cleaned = re.sub(r"[^0-9.\-]", "", str(raw or "").replace(",", ""))
+    try:
+        return float(cleaned)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def get_pre_rf_account_rows(page: Page) -> list[dict]:
+    """Read the A/C table on the PreRF create page (``#accTable``).
+
+    Each row is ``{"name", "code", "available"}`` — the account name, its
+    DMS code (e.g. ``MYMVAI01/PCA``) and the **Available Amount** the
+    distributor can still requisition from it. An empty list means the table
+    is not on the page.
+    """
+    try:
+        await page.wait_for_selector(
+            f"#{PRERF_ACCOUNT_TABLE_ID} tbody tr", state="attached", timeout=30000
+        )
+    except Exception:
+        return []
+
+    try:
+        raw_rows = await page.evaluate(
+            """(tableId) => {
+                const table = document.getElementById(tableId);
+                if (!table) return [];
+                const rows = [];
+                table.querySelectorAll('tbody tr').forEach(tr => {
+                    const cells = tr.querySelectorAll('td');
+                    if (cells.length < 3) return;
+                    rows.push({
+                        name: (cells[0].textContent || '').trim(),
+                        code: (cells[1].textContent || '').trim(),
+                        available: (cells[2].textContent || '').trim(),
+                    });
+                });
+                return rows;
+            }""",
+            PRERF_ACCOUNT_TABLE_ID,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Could not read the DMS A/C table: {e}") from e
+
+    return [
+        {
+            "name": (row.get("name") or "").strip(),
+            "code": (row.get("code") or "").strip(),
+            "available": parse_dms_amount(row.get("available")),
+        }
+        for row in (raw_rows or [])
+    ]
+
 
 def normalize_pre_rf_status(raw: str) -> str:
     """Return a canonical-ish status label for a PreRF Product Status cell."""

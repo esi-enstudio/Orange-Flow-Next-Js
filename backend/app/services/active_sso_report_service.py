@@ -628,24 +628,22 @@ class ActiveSsoReportService:
             ag["target"] += r["target"]
             ag["achieved"] += r["achieved"]
             ag["remaining"] += r["remaining"]
+            ag["projection"] += r["projection"]
+            ag["drr"] += r["drr"]
             rc = r["retailer_counts"]
             for k in ag["retailer_counts"]:
                 ag["retailer_counts"][k] += rc[k]
         ag["ach_pct"] = _r2(ag["achieved"] / ag["target"] * 100) if ag["target"] else 0.0
         ag["status"] = status_for_pct(ag["ach_pct"])
-        # Totals come from the aggregate achievement, never from the rounded
-        # per-RSO values: summing displayed values makes every row's 0.4 round
-        # to 0 and a house selling 5 a day reports D.Avg 0 (and Projection 0).
-        total_daily_avg = ag["achieved"] / self.days_elapsed if self.days_elapsed else 0.0
-        ag["daily_avg"] = float(rounded_daily_avg(total_daily_avg))
-        # Projection mirrors the printed D.Avg, so the card reads exactly
-        # ``D.Avg x period days`` (5 x 31 = 155, never 152).
-        ag["projection"] = float(ag["daily_avg"]) * self.total_days
-        # Derived from the totals, never summed row by row: adding already
-        # rounded per-RSO values drifts from the total (e.g. 3 x 14.4 rounds to
-        # 42 while 43.2 rounds to 43) and no longer matches Excel's
-        # =ROUND(total remainder / days left).
-        ag["drr"] = _drr(ag["remaining"], self.days_remaining)
+        # The total is the sum of the D.Avg values the column actually prints,
+        # so the visible column adds up and Projection stays
+        # ``total_days x total D.Avg``. Mirrors Active LSO: the reader checks
+        # the total row against the column above it.
+        ag["daily_avg"] = float(sum(rounded_daily_avg(r["daily_avg"]) for r in rows))
+        ag["projection"] = float(ag["projection"])
+        # The total is the sum of the per-RSO DRR values displayed in the
+        # column, so the table's math adds up exactly as the reader checks it.
+        ag["drr"] = int(ag["drr"])
         return ag
 
     def _supervisor_summary(self, rows: List[dict]) -> List[dict]:

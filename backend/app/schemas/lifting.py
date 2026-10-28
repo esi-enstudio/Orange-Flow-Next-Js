@@ -88,6 +88,25 @@ class LiftingPreviewResponse(BaseModel):
 
 class LiftingPullRequest(BaseModel):
     dry_run: bool = False
+    # Pull the whole DMS cash balance instead of the record's iTopUp amount.
+    use_available_balance: bool = False
+
+
+class LiftingPullFundsResponse(BaseModel):
+    """DMS cash-account balance check for one lifting record's pull."""
+
+    account_name: Optional[str] = None
+    account_code: Optional[str] = None
+    available_amount: float
+    # Cash the record's own iTopUp pull consumes (``quantity * 0.9625``).
+    required_amount: float
+    itopup_quantity: int
+    sufficient: bool
+    # Balance left over after the record's pull — the extra the user may pull.
+    extra_amount: float
+    # Largest pull the balance can pay for (``available / 0.9625``).
+    max_itopup_quantity: int
+    max_total_price: float
 
 
 class LiftingPullStartResponse(BaseModel):
@@ -105,13 +124,21 @@ class LiftingPullStatusResponse(BaseModel):
 
 
 class LiftingPullResult(BaseModel):
-    outcome: str  # created | blocked_pending | blocked_rejected | dry_run_ok | failed
+    # created | blocked_pending | blocked_rejected | dry_run_ok |
+    # insufficient_balance | failed
+    outcome: str
     message: str
     rf_code: Optional[str] = None
     rf_date: Optional[str] = None
     rf_status: Optional[str] = None
     total_price: Optional[float] = None
     requisition_sum: Optional[float] = None
+    pulled_quantity: Optional[int] = None
+    available_amount: Optional[float] = None
+    # Present on `insufficient_balance`: what the pull needed and how much the
+    # DMS cash account was short.
+    required_amount: Optional[float] = None
+    shortfall_amount: Optional[float] = None
     dry_run: bool = False
 
 

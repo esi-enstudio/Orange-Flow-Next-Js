@@ -16,10 +16,12 @@ import {
     Landmark,
     Loader2,
     RefreshCw,
+    Wallet,
     X,
     XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatLiftingAmount } from "@/lib/price";
 
 const DMS_PRERF_URL = "https://blkdms.banglalink.net/PreRF";
 const CONFIRMED_STATUSES = ["Confirmed", "Approved"];
@@ -52,6 +54,10 @@ type PullJobResult = {
     rf_status?: string | null;
     total_price?: number | null;
     requisition_sum?: number | null;
+    pulled_quantity?: number | null;
+    available_amount?: number | null;
+    required_amount?: number | null;
+    shortfall_amount?: number | null;
     dry_run?: boolean;
 };
 
@@ -60,6 +66,19 @@ type PullEvent = {
     msg: string;
     params?: Record<string, unknown>;
     ts?: number;
+};
+
+/** DMS cash-account balance check returned by ``POST lifting/{id}/pull/funds``. */
+type PullFunds = {
+    account_name?: string | null;
+    account_code?: string | null;
+    available_amount: number;
+    required_amount: number;
+    itopup_quantity: number;
+    sufficient: boolean;
+    extra_amount: number;
+    max_itopup_quantity: number;
+    max_total_price: number;
 };
 
 type Phase = "confirm" | "running" | "result";
@@ -90,6 +109,11 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
     const [events, setEvents] = useState<PullEvent[]>([]);
     const [result, setResult] = useState<PullJobResult | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [funds, setFunds] = useState<PullFunds | null>(null);
+    const [fundsLoading, setFundsLoading] = useState(false);
+    const [fundsError, setFundsError] = useState<string | null>(null);
+    const [fundsRetry, setFundsRetry] = useState(0);
+    const [useAvailable, setUseAvailable] = useState(false);
     const [elapsed, setElapsed] = useState(0);
     const startedAtRef = useRef<number | null>(null);
     const pollCancelledRef = useRef(false);
@@ -105,6 +129,11 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
             setEvents([]);
             setResult(null);
             setErrorMessage(null);
+            setFunds(null);
+            setFundsError(null);
+            setFundsLoading(false);
+            setFundsRetry(0);
+            setUseAvailable(false);
             setElapsed(0);
             startedAtRef.current = null;
             pollCancelledRef.current = false;
@@ -151,6 +180,43 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
         return list;
     }, [record, t]);
 
+    // Check the DMS cash-account balance before letting the pull start: a pull
+    // of N iTopUp consumes N x 0.9625 of that account.
+    useEffect(() => {
+        if (!open || recordId == null || issues.length > 0) {
+            setFunds(null);
+            setFundsLoading(false);
+            setFundsError(null);
+            return;
+        }
+        let cancelled = false;
+        setFundsLoading(true);
+        setFundsError(null);
+        setFunds(null);
+        setUseAvailable(false);
+        apiClient
+            .post(`lifting/${recordId}/pull/funds`, null, { timeout: 180000 })
+            .then((res) => {
+                if (!cancelled) setFunds(res.data as PullFunds);
+            })
+            .catch((err: any) => {
+                if (cancelled) return;
+                setFundsError(
+                    err?.response?.data?.detail || err?.message || t("liftings.pull.balance_failed")
+                );
+            })
+            .finally(() => {
+                if (!cancelled) setFundsLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, recordId, issues.length, fundsRetry]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // The DMS holds more than this pull needs: the user may pull the whole
+    // available balance instead.
+    const hasExtra = !!funds && funds.sufficient && funds.extra_amount > 0 && funds.max_itopup_quantity > funds.itopup_quantity;
+
     const stepLabel = (event: PullEvent) => {
         const key = `liftings.pull.steps.${event.code}`;
         const translated = t(key);
@@ -164,6 +230,7 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
         try {
             const res = await apiClient.post(`lifting/${record.id}/pull`, {
                 dry_run: isAdmin ? dryRun : false,
+                use_available_balance: useAvailable && hasExtra,
             });
             const newJobId = res.data?.job_id as string;
             if (!newJobId) {
@@ -274,6 +341,14 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
                 title: t("liftings.pull.rejected_title"),
             };
         }
+        if (outcome === "insufficient_balance") {
+            return {
+                icon: AlertTriangle,
+                color: "text-red-500",
+                bg: "bg-red-50 dark:bg-red-500/10",
+                title: t("liftings.pull.balance_short_title"),
+            };
+        }
         return {
             icon: XCircle,
             color: "text-red-500",
@@ -362,7 +437,10 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
                                             {t("liftings.pull.quantity")}
                                         </span>
                                         <span className="font-mono font-semibold text-gray-900 dark:text-gray-100">
-                                            {quantity.toLocaleString()}
+                                            {(useAvailable && hasExtra && funds
+                                                ? funds.max_itopup_quantity
+                                                : quantity
+                                            ).toLocaleString()}
                                         </span>
                                     </div>
                                     <div className="flex items-center justify-between gap-3 text-sm">
@@ -402,6 +480,119 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
                                         </div>
                                     )}
                                 </div>
+
+                                {issues.length === 0 && (
+                                    <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-3.5 space-y-2.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="flex items-center gap-2 text-sm font-bold text-gray-800 dark:text-gray-200">
+                                                <Wallet className="w-4 h-4 text-primary-500 shrink-0" />
+                                                {t("liftings.pull.balance_title")}
+                                            </p>
+                                            {fundsError && (
+                                                <button
+                                                    onClick={() => setFundsRetry((n) => n + 1)}
+                                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary-600 dark:text-primary-400 hover:underline cursor-pointer"
+                                                >
+                                                    <RefreshCw className="w-3 h-3" />
+                                                    {t("liftings.pull.balance_retry")}
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {fundsLoading ? (
+                                            <div className="space-y-2 animate-pulse">
+                                                <div className="h-3 w-40 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                                                <div className="h-3 w-52 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                                                <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                                                    {t("liftings.pull.balance_checking")}
+                                                </p>
+                                            </div>
+                                        ) : fundsError ? (
+                                            <p className="text-xs text-red-600 dark:text-red-300">{fundsError}</p>
+                                        ) : funds ? (
+                                            <>
+                                                {funds.account_name && (
+                                                    <div className="flex items-center justify-between gap-3 text-xs">
+                                                        <span className="text-gray-500 dark:text-gray-400">
+                                                            {t("liftings.pull.balance_account")}
+                                                        </span>
+                                                        <span className="font-mono font-semibold text-gray-800 dark:text-gray-200 text-right">
+                                                            {funds.account_name}
+                                                            {funds.account_code ? ` (${funds.account_code})` : ""}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center justify-between gap-3 text-xs">
+                                                    <span className="text-gray-500 dark:text-gray-400">
+                                                        {t("liftings.pull.balance_available")}
+                                                    </span>
+                                                    <span className="font-mono font-bold text-gray-900 dark:text-gray-100">
+                                                        {formatLiftingAmount(funds.available_amount)}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3 text-xs">
+                                                    <span className="text-gray-500 dark:text-gray-400">
+                                                        {t("liftings.pull.balance_required")}
+                                                    </span>
+                                                    <span className="font-mono font-bold text-gray-900 dark:text-gray-100">
+                                                        {formatLiftingAmount(funds.required_amount)}
+                                                    </span>
+                                                </div>
+
+                                                {!funds.sufficient ? (
+                                                    <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20">
+                                                        <p className="text-xs font-bold text-red-600 dark:text-red-300">
+                                                            {t("liftings.pull.balance_short_title")}
+                                                        </p>
+                                                        <p className="mt-1 text-[11px] text-red-600/90 dark:text-red-300/90">
+                                                            {t("liftings.pull.balance_short_hint", {
+                                                                amount: formatLiftingAmount(funds.required_amount - funds.available_amount),
+                                                            })}
+                                                        </p>
+                                                    </div>
+                                                ) : hasExtra ? (
+                                                    <>
+                                                        <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20">
+                                                            <p className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                                                                {t("liftings.pull.balance_extra_title")}
+                                                            </p>
+                                                            <p className="mt-1 text-[11px] text-amber-700/90 dark:text-amber-300/90">
+                                                                {t("liftings.pull.balance_extra_hint", {
+                                                                    amount: formatLiftingAmount(funds.extra_amount),
+                                                                    qty: funds.max_itopup_quantity.toLocaleString(),
+                                                                    total: formatLiftingAmount(funds.max_total_price),
+                                                                })}
+                                                            </p>
+                                                        </div>
+                                                        <label className="flex items-start gap-2.5 p-2.5 rounded-lg border border-gray-200 dark:border-slate-700 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={useAvailable}
+                                                                onChange={(e) => setUseAvailable(e.target.checked)}
+                                                                className="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                                                            />
+                                                            <span>
+                                                                <span className="block text-xs font-semibold text-gray-800 dark:text-gray-200">
+                                                                    {t("liftings.pull.balance_extra_toggle")}
+                                                                </span>
+                                                                <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                                                                    {t("liftings.pull.balance_extra_toggle_hint", {
+                                                                        qty: funds.max_itopup_quantity.toLocaleString(),
+                                                                    })}
+                                                                </span>
+                                                            </span>
+                                                        </label>
+                                                    </>
+                                                ) : (
+                                                    <p className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                                        {t("liftings.pull.balance_ok")}
+                                                    </p>
+                                                )}
+                                            </>
+                                        ) : null}
+                                    </div>
+                                )}
 
                                 {issues.length > 0 && (
                                     <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20">
@@ -525,6 +716,44 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
                                     </div>
                                 </div>
 
+                                {outcome === "insufficient_balance" && (
+                                    <div className="rounded-xl border border-red-100 dark:border-red-500/20 divide-y divide-red-100 dark:divide-red-500/20">
+                                        {result.available_amount != null && (
+                                            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs">
+                                                <span className="text-gray-500 dark:text-gray-400">
+                                                    {t("liftings.pull.balance_available")}
+                                                </span>
+                                                <span className="font-mono font-bold text-gray-900 dark:text-gray-100">
+                                                    {formatLiftingAmount(result.available_amount)}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {result.required_amount != null && (
+                                            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs">
+                                                <span className="text-gray-500 dark:text-gray-400">
+                                                    {t("liftings.pull.balance_required")}
+                                                </span>
+                                                <span className="font-mono font-bold text-gray-900 dark:text-gray-100">
+                                                    {formatLiftingAmount(result.required_amount)}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {result.shortfall_amount != null && (
+                                            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs">
+                                                <span className="text-gray-500 dark:text-gray-400">
+                                                    {t("liftings.pull.balance_short_by")}
+                                                </span>
+                                                <span className="font-mono font-bold text-red-600 dark:text-red-300">
+                                                    {formatLiftingAmount(result.shortfall_amount)}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <p className="px-3.5 py-2.5 text-[11px] text-red-600/90 dark:text-red-300/90">
+                                            {t("liftings.pull.balance_short_stopped")}
+                                        </p>
+                                    </div>
+                                )}
+
                                 {(result.rf_code || result.rf_date || result.rf_status) && (
                                     <div className="rounded-xl border border-gray-100 dark:border-slate-800 divide-y divide-gray-50 dark:divide-slate-800/60">
                                         {result.rf_code && (
@@ -572,6 +801,16 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
                                                 </span>
                                             </div>
                                         )}
+                                        {result.pulled_quantity != null && (
+                                            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
+                                                <span className="text-gray-500 dark:text-gray-400">
+                                                    {t("liftings.pull.pulled_quantity")}
+                                                </span>
+                                                <span className="font-mono font-semibold text-gray-900 dark:text-gray-100">
+                                                    {Number(result.pulled_quantity).toLocaleString()}
+                                                </span>
+                                            </div>
+                                        )}
                                         {result.requisition_sum != null && (
                                             <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
                                                 <span className="text-gray-500 dark:text-gray-400">
@@ -610,7 +849,7 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
                                 </button>
                                 <button
                                     onClick={handleStart}
-                                    disabled={starting || issues.length > 0}
+                                    disabled={starting || issues.length > 0 || !funds || !funds.sufficient}
                                     className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-primary-600 text-white hover:bg-primary-700 transition-all cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {starting && <Loader2 className="w-4 h-4 animate-spin" />}
