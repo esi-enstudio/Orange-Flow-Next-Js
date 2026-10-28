@@ -49,6 +49,7 @@
         "retailers.delete",
         "retailers.import",
         "retailers.export",
+        "retailers.sync",
         "retailers.marking"
       ]
     },

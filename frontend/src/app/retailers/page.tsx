@@ -29,6 +29,7 @@ import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import { useLanguage } from "@/i18n/useLanguage";
 import RetailerMasterFilter, { RetailerFilters, defaultFilters } from "@/components/retailers/RetailerMasterFilter";
+import { houseHeaders } from "@/app/retailers/retailer-marking/types";
 
 interface Retailer {
   id: number;
@@ -224,6 +225,29 @@ export default function RetailersPage() {
     }
   };
 
+  const handleDmsRetailerListExport = async () => {
+    if (!hasPermission("retailers.sync")) {
+      toast.error(t('retailers.no_sync_permission') || 'You do not have permission to sync retailer list from DMS');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const res = await apiClient.post("dms/retailer-list-export", {}, { headers: houseHeaders(selectedHouse) });
+      toast.success(t('retailers.toast_dms_export_success') || 'DMS retailer list export started');
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      let msg = "DMS export failed";
+      if (typeof detail === "string") {
+        msg = detail;
+      } else if (Array.isArray(detail)) {
+        msg = detail.map((e: any) => e.msg || "").filter(Boolean).join(", ");
+      }
+      toast.error(msg);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (!authLoading && !hasPermission("retailers.view")) {
     return <AccessDenied />;
   }
@@ -247,6 +271,15 @@ export default function RetailersPage() {
           >
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             {t('retailers.import_list')}
+          </button>
+          <button
+            onClick={handleDmsRetailerListExport}
+            disabled={!hasPermission("retailers.sync") || isExporting}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            style={{ cursor: hasPermission("retailers.sync") ? "pointer" : "not-allowed" }}
+          >
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {t('retailers.dms_export')}
           </button>
           <button
             onClick={handleExport}

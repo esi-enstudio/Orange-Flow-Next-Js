@@ -9,6 +9,7 @@ RECEIVE_SIM_FROM_RETAILER_URL = f"{DMS_BASE_URL}/ReceiveSimFrRetailerSubmitView"
 MAX_TABLE_PAGES = 50
 
 PRERF_LIST_URL = f"{DMS_BASE_URL}/PreRF"
+RETAILER_LIST_REPORT_URL = f"{DMS_BASE_URL}/RetailerListReport"
 
 # The distributor account balances shown on the PreRF create page.
 PRERF_ACCOUNT_TABLE_ID = "accTable"
@@ -297,6 +298,41 @@ async def get_receive_sim_from_retailer_list(page: Page, status_filter: str):
 
     except Exception as e:
         return None, f"❌ Scraping error: {str(e)}"
+
+
+async def download_retailer_list_excel(page: Page, temp_path: str):
+    """Navigate to the DMS Retailer List report and click the ``#Excel``
+    export button to download the full retailer list as an .xlsx file.
+
+    Writes the downloaded file to ``temp_path`` and returns ``(temp_path, None)``
+    on success or ``(None, error_message)`` on failure.
+    """
+    try:
+        await page.goto(RETAILER_LIST_REPORT_URL, wait_until="domcontentloaded", timeout=90000)
+
+        # Some DMS flows surface a SweetAlert; close it if present so it can't
+        # shadow the export button.
+        try:
+            swal = await page.query_selector(".swal2-container")
+            if swal and await swal.is_visible():
+                confirm_btn = await page.query_selector("button.swal2-confirm")
+                if confirm_btn:
+                    await confirm_btn.click()
+                    await asyncio.sleep(1)
+        except Exception:
+            pass
+
+        await page.wait_for_selector("#Excel", state="attached", timeout=30000)
+
+        async with page.expect_download(timeout=180000) as download_info:
+            await page.click("#Excel", no_wait_after=True)
+        download = await download_info.value
+        await download.save_as(temp_path)
+
+        return temp_path, None
+    except Exception as e:
+        return None, f"❌ DMS retailer list download failed: {str(e)}"
+
 
 async def get_smart_search_results(page: Page):
     """

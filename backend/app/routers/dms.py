@@ -25,6 +25,7 @@ from app.core.session_manager import session_manager
 from app.services.Automation.dms_scraper import (
     get_smart_search_results,
     get_receive_sim_from_retailer_list,
+    download_retailer_list_excel,
 )
 from app.services.Automation.Tasks.sim_issue import run_sim_issue_status, run_finalize_issue
 
@@ -1152,6 +1153,121 @@ async def issue_sims(
         total_failed=failed_count,
         results=results_list
     )
+
+
+@router.post("/retailer-list-export")
+async def download_retailer_list(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("retailers.sync")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    """Download the full retailer list from DMS RetailerListReport via Excel export.
+
+    - Requires ``retailers.sync`` permission.
+    - Accepts optional ``X-House-ID`` header for house scoping (admin bypass).
+    - Returns a JSON response with the count of processed retailers.
+    """
+    is_admin = is_admin_user(current_user)
+
+    if house_id is None and not is_admin:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids:
+            raise HTTPException(status_code=400, detail="Please select a house first (X-House-ID header required)")
+        # use first accessible house
+        house_id = user_house_ids[0]
+
+    # Resolve house: non-admin must have access, admin can use any
+    if house_id:
+        result = await db.execute(select(House).where(House.id == house_id))
+        house = result.scalar_one_or_none()
+        if not house:
+            raise HTTPException(status_code=404, detail="Distribution house not found.")
+        if not is_admin and house.id not in [h.id for h in current_user.houses]:
+            raise HTTPException(status_code=403, detail="You do not have access to this house")
+    else:
+        # admin path: default to first house — or you could raise 400; here we pick first
+        result = await db.execute(select(House).limit(1))
+        house = result.scalar_one_or_none()
+        if not house:
+            raise HTTPException(status_code=404, detail="No houses found")
+
+    if not house.dms_user or not house.dms_pass or not house.dms_house_id:
+        raise HTTPException(
+            status_code=400,
+            detail="DMS credentials are not configured for this distribution house. Please configure them in House Settings.",
+        )
+
+    credentials = {
+        "user": house.dms_user,
+        "pass": house.dms_pass,
+        "house_id": house.dms_house_id,
+        "house_name": house.name,
+        "code": house.code,
+    }
+
+    temp_dir = "temp_downloads"
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, f"retailer_list_{house.code}.xlsx")
+
+    # Download the Excel file from DMS via Playwright automation
+    try:
+        page, context = await session_manager.get_valid_page(credentials)
+        try:
+            result_path, error = await download_retailer_list_excel(page, temp_path)
+            if error:
+                raise HTTPException(status_code=500, detail=error)
+        finally:
+            # If the page came from a fresh context (not keepalive), close it
+            if context is not None:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Automation error: {str(e)}")
+
+    # Process the Excel through the existing import logic
+    from app.services.Automation.retailer_excel import process_retailer_excel
+
+    try:
+        count, proc_error = await process_retailer_excel(temp_path)
+        if proc_error:
+            logger.warning(f"Retailer list processing warning: {proc_error}")
+            return {
+                "message": f"Downloaded retailer list for {house.name} ({house.code}). Processing note: {proc_error}",
+                "count": count,
+                "house": house.name,
+                "house_code": house.code,
+            }
+
+        logger.info(f"✅ Retailer list synced for {house.name}: {count} retailers processed")
+        await log_activity(
+            db, current_user.id, current_user.name, "retailers", "import",
+            record_identifier=f"retailer_list_dms:{house.code}",
+            request=request, status_code=200,
+        )
+        return {
+            "message": f"Successfully downloaded and processed {count} retailers for {house.name} ({house.code})",
+            "count": count,
+            "house": house.name,
+            "house_code": house.code,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
+    finally:
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 
 async def _sim_issue_stream(payload: SIMIssueRequest, db: AsyncSession, current_user: User):
