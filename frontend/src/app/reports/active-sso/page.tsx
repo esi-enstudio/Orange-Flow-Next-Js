@@ -850,11 +850,11 @@ export default function ActiveSsoReportPage() {
             <button
               onClick={handleExportInactiveRetailers}
               disabled={!appliedFilters.houseId || downloadingInactive}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title={t("active_sso_report.actions.download_inactive")}
+              aria-label={t("active_sso_report.actions.download_inactive")}
             >
-              <Download className="w-4 h-4" />
-              {downloadingInactive ? "..." : t("active_sso_report.actions.download_inactive")}
+              <Download className={cn("w-4 h-4", downloadingInactive && "animate-pulse")} />
             </button>
           )}
           {canShare && (
