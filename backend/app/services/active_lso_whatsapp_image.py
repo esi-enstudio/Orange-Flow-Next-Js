@@ -642,21 +642,25 @@ def _render_image(house_name: str, house_code: str, dashboard: dict,
 
 
 async def build_active_lso_report_image(
-    db: AsyncSession, house_id: int, scale: int | None = None
+    db: AsyncSession, house_id: int, scale: int | None = None,
+    *, start_date: date | None = None, end_date: date | None = None,
 ) -> list[bytes]:
-    """Build the current month's Active LSO Report as PNG images.
+    """Build the Active LSO Report as PNG images.
 
     Returns one PNG per page, each inside the exact A4 landscape sheet (a page
     whose content does not fill it hugs its content). ``scale`` overrides the
     default RENDER_SCALE - used for fast, reduced-size preview renders. ``None``
-    produces the full-resolution send-quality images.
+    produces the full-resolution send-quality images. ``start_date`` /
+    ``end_date`` render an explicit period (e.g. what the report page is
+    printing); without them the current month is rendered.
     """
     today = now_naive().date()
-    start_date = today.replace(day=1)
-    if today.month == 12:
-        end_date = date(today.year + 1, 1, 1) - timedelta(days=1)
-    else:
-        end_date = date(today.year, today.month + 1, 1) - timedelta(days=1)
+    if not (start_date and end_date):
+        start_date = today.replace(day=1)
+        if today.month == 12:
+            end_date = date(today.year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end_date = date(today.year, today.month + 1, 1) - timedelta(days=1)
 
     svc = ActiveLsoReportService(db, house_id, start_date, end_date)
     dashboard = await svc.build_dashboard()

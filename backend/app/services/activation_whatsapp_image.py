@@ -571,18 +571,22 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
 async def build_activation_report_image(
     db: AsyncSession, house_id: int, scale: int | None = None,
     orientation: str = DEFAULT_ORIENTATION,
+    *, month: int | None = None, year: int | None = None,
 ) -> bytes:
-    """Build the current month's Activation Report as a PNG image.
+    """Build the Activation Report as a PNG image.
 
     ``scale`` overrides the default RENDER_SCALE - used for fast, reduced-size
     preview renders. ``None`` produces the full-resolution send-quality image.
     ``orientation`` is ``"portrait"`` (default) or ``"landscape"``; an unknown
-    value falls back to portrait.
+    value falls back to portrait. ``month`` / ``year`` render an explicit month
+    (e.g. what the report page is printing); without them the current month is
+    rendered.
     """
     orientation = orientation if orientation in ORIENTATIONS else DEFAULT_ORIENTATION
 
     today = now_naive().date()
-    svc = ActivationReportService(db, house_id, today.month, today.year, target_role="HOUSE")
+    svc = ActivationReportService(db, house_id, int(month or today.month),
+                                  int(year or today.year), target_role="HOUSE")
     dashboard = await svc.build_dashboard()
 
     result = await db.execute(select(House).where(House.id == house_id))

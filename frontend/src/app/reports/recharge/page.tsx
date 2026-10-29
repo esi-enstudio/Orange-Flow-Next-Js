@@ -9,7 +9,7 @@ import {
   RotateCcw, Download, Share2, Building2, Calendar,
   Zap, Clock, ArrowUp, ArrowDown, Medal,
   Trophy, PieChart, Activity, Sparkles,
-  ChevronDown, BatteryCharging,
+  ChevronDown, BatteryCharging, Printer,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis,
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import { exportRechargeReport } from "@/lib/export-recharge";
+import { printReportImage } from "@/lib/print-report-image";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
@@ -600,6 +601,7 @@ export default function RechargeDashboardPage() {
   const [activeTab, setActiveTab] = useState<"rso" | "supervisor">("rso");
   const [reportType, setReportType] = useState<"recharge" | "ev_secondary">(getStoredReportType);
   const [isDark, setIsDark] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [showReportDelivery, setShowReportDelivery] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -611,6 +613,24 @@ export default function RechargeDashboardPage() {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
   }, []);
+
+  // Prints in the WhatsApp delivery layout: the backend renders the report
+  // image for the selected month and variant, one page per A4 sheet.
+  const handlePrint = async () => {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      await printReportImage({
+        path: "reports/recharge/dashboard/print",
+        houseId: selectedHouseId ? Number(selectedHouseId) : null,
+        params: { month, year, report_type: reportType },
+      });
+    } catch {
+      toast.error(t("recharge_report.error_loading"));
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   const handleReportTypeChange = (type: "recharge" | "ev_secondary") => {
     setReportType(type);
@@ -798,6 +818,14 @@ export default function RechargeDashboardPage() {
             title={t("recharge_report.export_dashboard")}
           >
             <Download className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handlePrint}
+            disabled={printing || !data}
+            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            title={t("recharge_report.print")}
+          >
+            <Printer className={cn("w-4 h-4", printing && "animate-pulse")} />
           </button>
           {hasPermission("reports.whatsapp_share") && (
             <button

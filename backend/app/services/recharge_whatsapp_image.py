@@ -525,11 +525,17 @@ def _render_image(house_name: str, house_code: str, dashboard: dict, today: date
 
 
 async def _build(db: AsyncSession, house_id: int, report_type: str,
-                 scale: int | None) -> list[bytes]:
-    """Build the current month's report image for one report-type variant."""
+                 scale: int | None, *, month: int | None = None,
+                 year: int | None = None) -> list[bytes]:
+    """Build the report image for one report-type variant.
+
+    ``month`` / ``year`` render an explicit month (e.g. what the report page is
+    printing); without them the current month is rendered.
+    """
     variant = REPORT_TYPES[report_type]
     today = now_naive().date()
-    svc = RechargeReportService(db, house_id, today.month, today.year,
+    svc = RechargeReportService(db, house_id, int(month or today.month),
+                                int(year or today.year),
                                 variant["service_report_type"])
     dashboard = {
         "summary": await svc.get_summary(),
@@ -549,20 +555,24 @@ async def _build(db: AsyncSession, house_id: int, report_type: str,
 
 
 async def build_recharge_report_image(
-    db: AsyncSession, house_id: int, scale: int | None = None
+    db: AsyncSession, house_id: int, scale: int | None = None,
+    *, month: int | None = None, year: int | None = None,
 ) -> list[bytes]:
     """Total-recharge variant of the Recharge Report (report_type `recharge`).
 
     Returns one PNG per page (A4 landscape is the size cap; a page whose content
     does not fill it hugs its content). ``scale`` overrides the default
     RENDER_SCALE - used for fast, reduced-size preview renders. ``None`` produces
-    the full-resolution send-quality images.
+    the full-resolution send-quality images. ``month`` / ``year`` render an
+    explicit month; without them the current month is rendered.
     """
-    return await _build(db, house_id, "recharge", scale)
+    return await _build(db, house_id, "recharge", scale, month=month, year=year)
 
 
 async def build_recharge_ev_report_image(
-    db: AsyncSession, house_id: int, scale: int | None = None
+    db: AsyncSession, house_id: int, scale: int | None = None,
+    *, month: int | None = None, year: int | None = None,
 ) -> list[bytes]:
     """EV C2C variant of the Recharge Report (report_type `recharge_ev_secondary`)."""
-    return await _build(db, house_id, "recharge_ev_secondary", scale)
+    return await _build(db, house_id, "recharge_ev_secondary", scale,
+                        month=month, year=year)

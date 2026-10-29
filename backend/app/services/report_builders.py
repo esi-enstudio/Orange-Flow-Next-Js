@@ -38,6 +38,13 @@ FILTERED_BUILDERS: dict[str, callable] = {}
 # orientation and always render in their builder's default layout.
 ORIENTATION_AWARE_BUILDERS: dict[str, callable] = {}
 
+# Builders that can render an explicit period instead of "the current month",
+# so a print/preview can show the month or date range the report page is on.
+# DATE_PERIOD_BUILDERS accept ``start_date``/``end_date``; MONTH_PERIOD_BUILDERS
+# accept ``month``/``year``.
+DATE_PERIOD_BUILDERS: dict[str, callable] = {}
+MONTH_PERIOD_BUILDERS: dict[str, callable] = {}
+
 
 def register_builder(report_type: str):
     """Decorator to register a report builder function."""
@@ -97,6 +104,13 @@ def _register_all():
     SCALE_AWARE_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
 
     ORIENTATION_AWARE_BUILDERS["activation"] = build_activation_report_image
+
+    # Period-aware: render the report page's own month / date range.
+    DATE_PERIOD_BUILDERS["active_lso"] = build_active_lso_report_image
+    DATE_PERIOD_BUILDERS["active_sso"] = build_active_sso_report_image
+    MONTH_PERIOD_BUILDERS["activation"] = build_activation_report_image
+    MONTH_PERIOD_BUILDERS["recharge"] = build_recharge_report_image
+    MONTH_PERIOD_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
 
     from app.services.inactive_retailers_whatsapp_image import (
         build_active_lso_inactive_retailers_image,

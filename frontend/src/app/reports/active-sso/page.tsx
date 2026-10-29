@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { DateRangePicker } from "@/components/date-picker";
 import { useLanguage } from "@/i18n/useLanguage";
 import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
+import { printReportImage } from "@/lib/print-report-image";
 
 // ------------------------------------------------------------------ types
 interface PeriodInfo {
@@ -406,6 +407,7 @@ export default function ActiveSsoReportPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [exporting, setExporting] = useState<"xlsx" | null>(null);
   const [downloadingInactive, setDownloadingInactive] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -585,8 +587,22 @@ export default function ActiveSsoReportPage() {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  // Prints in the WhatsApp delivery layout: the backend renders the report
+  // image and the browser prints it one page per sheet.
+  const handlePrint = async () => {
+    if (!appliedFilters.houseId || printing) return;
+    setPrinting(true);
+    try {
+      await printReportImage({
+        path: "reports/active-sso/print",
+        houseId: Number(appliedFilters.houseId),
+        params: { start_date: appliedFilters.startDate, end_date: appliedFilters.endDate },
+      });
+    } catch {
+      toast.error(t("active_sso_report.messages.error"));
+    } finally {
+      setPrinting(false);
+    }
   };
 
   const handleShowInactiveRetailers = async (row: RsoRow) => {
@@ -829,11 +845,11 @@ export default function ActiveSsoReportPage() {
           {hasPermission("active_sso.print") && (
             <button
               onClick={handlePrint}
-              disabled={!data}
-              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+              disabled={!appliedFilters.houseId || printing || !data}
+              className="inline-flex items-center gap-2 p-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               title={t("active_sso_report.actions.print")}
             >
-              <Printer className="w-4 h-4" />
+              <Printer className={cn("w-4 h-4", printing && "animate-pulse")} />
             </button>
           )}
           {hasPermission("active_sso.config") && (

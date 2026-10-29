@@ -17,7 +17,9 @@ from app.services.whatsapp_service_client import (
 from app.services import telegram_service
 from app.services.telegram_service import TelegramError
 from app.services.report_builders import (
+    DATE_PERIOD_BUILDERS,
     FILTERED_BUILDERS,
+    MONTH_PERIOD_BUILDERS,
     ORIENTATION_AWARE_BUILDERS,
     SCALE_AWARE_BUILDERS,
     get_report_builder,
@@ -59,11 +61,18 @@ def schedule_report_params(schedule) -> dict | None:
     return decoded if isinstance(decoded, dict) else None
 
 
-def _params_key(report_type: str, report_params: dict | None) -> str | None:
-    """Cache discriminator for per-context report types (e.g. one RSO's list)."""
-    if report_type not in FILTERED_BUILDERS:
+def _params_key(report_type: str, report_params: dict | None,
+                period: dict | None = None) -> str | None:
+    """Cache discriminator for per-context / per-period report renders.
+
+    The context (e.g. one RSO's list) and the period (e.g. the month a print is
+    showing) both change the image, so both belong in the cache key; a report
+    without either keeps the plain per-day entry.
+    """
+    if report_type not in FILTERED_BUILDERS and not period:
         return None
-    return json.dumps(report_params or {}, sort_keys=True, default=str)
+    return json.dumps({"params": report_params or {}, "period": period or {}},
+                      sort_keys=True, default=str)
 
 
 async def get_report_image(
@@ -74,6 +83,7 @@ async def get_report_image(
     scale: int | None = None,
     orientation: str | None = None,
     report_params: dict | None = None,
+    period: dict | None = None,
 ) -> bytes | list[bytes]:
     """Build (or reuse a cached copy of) the report image for the house.
 
@@ -91,9 +101,12 @@ async def get_report_image(
     ``report_params`` carries the per-report context for report types in
     FILTERED_BUILDERS (e.g. ``{"employee_id": 42}`` for one RSO's list); it is
     part of the cache key so different contexts never share an image.
+    ``period`` ({start_date, end_date} or {month, year}) is honoured by the
+    report types in DATE_PERIOD_BUILDERS / MONTH_PERIOD_BUILDERS and is part of
+    the cache key too; omitting it renders the current month.
     """
     day = _today_bst().date()
-    params_key = _params_key(report_type, report_params)
+    params_key = _params_key(report_type, report_params, period)
     # Filtered builders are always scale-aware (they accept ``scale``), so their
     # renders are cached per scale too — a light preview must never be reused as
     # the full-resolution send image.
@@ -113,6 +126,13 @@ async def get_report_image(
         )
     else:
         kwargs = {"orientation": cache_orientation} if aware else {}
+        # Only builders registered as period-aware receive the period; every
+        # other builder keeps rendering the current month.
+        if period and report_type in DATE_PERIOD_BUILDERS:
+            kwargs.update(start_date=period.get("start_date"),
+                          end_date=period.get("end_date"))
+        elif period and report_type in MONTH_PERIOD_BUILDERS:
+            kwargs.update(month=period.get("month"), year=period.get("year"))
         scaled_builder = SCALE_AWARE_BUILDERS.get(report_type) if scale is not None else None
         if scaled_builder is not None:
             image_bytes = await scaled_builder(db, house_id, scale=scale, **kwargs)

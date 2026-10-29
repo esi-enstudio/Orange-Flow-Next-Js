@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import { exportActivationsReport } from "@/lib/export-activations";
-import { printActivationsReport } from "@/lib/print-report";
+import { printReportImage } from "@/lib/print-report-image";
 import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -738,6 +738,7 @@ export default function ActivationDashboardPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [printing, setPrinting] = useState(false);
   const [activeTab, setActiveTab] = useState<"rso" | "bp" | "supervisor">("rso");
   const [isDark, setIsDark] = useState(false);
   const [showReportDelivery, setShowReportDelivery] = useState(false);
@@ -820,22 +821,22 @@ export default function ActivationDashboardPage() {
     }
   };
 
-  const handlePrint = () => {
-    if (!data) return;
-    const house = houses.find(h => String(h.id) === selectedHouseId);
-    printActivationsReport({
-      summary: data.summary,
-      rso_performance: data.rso_performance,
-      bp_performance: data.bp_performance,
-      supervisor_performance: data.supervisor_performance,
-      house_name: house?.name || "All Houses",
-      house_code: house?.code || "",
-      month,
-      year,
-      month_name: getMonthName(month),
-      days_elapsed: data.summary.days_elapsed,
-      total_days: data.summary.total_days,
-    });
+  // Prints in the WhatsApp delivery layout: the backend renders the report
+  // image for the selected month and the browser prints it one page per sheet.
+  const handlePrint = async () => {
+    if (!data || printing) return;
+    setPrinting(true);
+    try {
+      await printReportImage({
+        path: "reports/activations/dashboard/print",
+        houseId: selectedHouseId ? Number(selectedHouseId) : null,
+        params: { month, year },
+      });
+    } catch {
+      toast.error(t("activation_report.export_failed"));
+    } finally {
+      setPrinting(false);
+    }
   };
 
   const getMonthName = (m: number) => {
@@ -915,10 +916,11 @@ export default function ActivationDashboardPage() {
           </button>
           <button
             onClick={handlePrint}
-            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            disabled={printing || !data}
+            className="inline-flex items-center justify-center p-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             title={t("activation_report.print")}
           >
-            <Printer className="w-4 h-4" />
+            <Printer className={cn("w-4 h-4", printing && "animate-pulse")} />
           </button>
           <div className="relative">
             <button

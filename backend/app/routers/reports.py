@@ -1614,6 +1614,40 @@ async def get_activation_dashboard(
     }
 
 
+@router.get("/reports/activations/dashboard/print")
+async def print_activation_dashboard(
+    month: int = Query(None, ge=1, le=12),
+    year: int = Query(None, ge=2020),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["reports.view", "activations.view"])),
+    house_id: Optional[int] = Depends(get_house_context),
+    q_house_id: Optional[int] = Query(None, alias="house_id"),
+):
+    """Print the Activation Report in the WhatsApp image layout."""
+    from fastapi.responses import HTMLResponse
+    from app.services.report_print_html import render_report_print_html
+
+    target_house_id = q_house_id or house_id
+    if q_house_id and not is_admin_user(current_user):
+        user_house_ids = [h.id for h in current_user.houses]
+        if q_house_id not in user_house_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this house")
+    if not target_house_id:
+        user_house_ids = [h.id for h in current_user.houses]
+        target_house_id = user_house_ids[0] if user_house_ids else None
+    if not target_house_id:
+        target_house_id = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+    if not target_house_id:
+        raise HTTPException(status_code=400, detail="No house context available. Please select a house.")
+
+    today = date.today()
+    document = await render_report_print_html(
+        db, "activation", target_house_id,
+        period={"month": month or today.month, "year": year or today.year},
+    )
+    return HTMLResponse(content=document)
+
+
 class ActivationWhatsAppSendPayload(BaseModel):
     whatsapp_chat_id: str
     whatsapp_chat_name: Optional[str] = None
@@ -1905,6 +1939,42 @@ async def get_recharge_dashboard(
         "daily_trend": daily_trend,
         "top_performers": top_performers,
     }
+
+
+@router.get("/reports/recharge/dashboard/print")
+async def print_recharge_dashboard(
+    month: int = Query(None, ge=1, le=12),
+    year: int = Query(None, ge=2020),
+    report_type: str = Query("recharge", pattern="^(recharge|ev_secondary)$"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["reports.view", "recharge_dashboard.view"])),
+    house_id: Optional[int] = Depends(get_house_context),
+    q_house_id: Optional[int] = Query(None, alias="house_id"),
+):
+    """Print the Recharge Report (either variant) in the WhatsApp image layout."""
+    from fastapi.responses import HTMLResponse
+    from app.services.report_print_html import render_report_print_html
+
+    target_house_id = q_house_id or house_id
+    if q_house_id and not is_admin_user(current_user):
+        user_house_ids = [h.id for h in current_user.houses]
+        if q_house_id not in user_house_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this house")
+    if not target_house_id:
+        user_house_ids = [h.id for h in current_user.houses]
+        target_house_id = user_house_ids[0] if user_house_ids else None
+    if not target_house_id:
+        target_house_id = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+    if not target_house_id:
+        raise HTTPException(status_code=400, detail="No house context available. Please select a house.")
+
+    today = date.today()
+    document = await render_report_print_html(
+        db, "recharge" if report_type == "recharge" else "recharge_ev_secondary",
+        target_house_id,
+        period={"month": month or today.month, "year": year or today.year},
+    )
+    return HTMLResponse(content=document)
 
 
 @router.get("/reports/recharge/dashboard/export")
@@ -2902,6 +2972,65 @@ async def active_sso_report(
         supervisor_id=supervisor_id, rso_id=rso_id, status_filter=status,
     )
     return await service.build_dashboard()
+
+
+@router.get("/reports/active-lso/print")
+async def print_active_lso_report(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_lso.print")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    """Print the report in the WhatsApp image layout (one PNG page per sheet)."""
+    from fastapi.responses import HTMLResponse
+    from app.services.report_print_html import render_report_print_html
+
+    # Same role-aware scope resolution as the report itself: the explicit
+    # ``house_id`` query parameter must never open another house's data.
+    resolved_house, _, _, _ = await _resolve_active_lso_scope(
+        db, current_user, house_id or house_ctx, None, None, None
+    )
+    start_date, end_date = _resolve_active_lso_period(start_date, end_date)
+
+    document = await render_report_print_html(
+        db, "active_lso", resolved_house,
+        period={"start_date": start_date, "end_date": end_date},
+    )
+    return HTMLResponse(content=document)
+
+
+@router.get("/reports/active-sso/print")
+async def print_active_sso_report(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("active_sso.print")),
+    house_ctx: Optional[int] = Depends(get_house_context),
+):
+    """Print the report in the WhatsApp image layout (one PNG page per sheet)."""
+    from fastapi.responses import HTMLResponse
+    from app.services.report_print_html import render_report_print_html
+
+    resolved_house = house_id or house_ctx
+    start_date, end_date = _resolve_active_sso_period(start_date, end_date)
+    if not resolved_house:
+        user_house_ids = [h.id for h in current_user.houses]
+        if not user_house_ids and is_admin_user(current_user):
+            first_house = (await db.execute(select(House.id).order_by(House.id).limit(1))).scalar()
+            resolved_house = first_house
+        else:
+            resolved_house = user_house_ids[0] if user_house_ids else None
+    if not resolved_house:
+        raise HTTPException(status_code=400, detail="No house context available.")
+
+    document = await render_report_print_html(
+        db, "active_sso", resolved_house,
+        period={"start_date": start_date, "end_date": end_date},
+    )
+    return HTMLResponse(content=document)
 
 
 @router.get("/reports/active-sso/retailers/export")

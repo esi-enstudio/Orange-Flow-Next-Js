@@ -1706,6 +1706,7 @@ export const translations = {
       },
     },
     recharge_report: {
+      print: "Print report",
       dashboard_title: "Recharge Dashboard (C2C)",
       dashboard_subtitle: "Monthly C2C recharge performance, target tracking and employee ranking",
       monthly_target: "Total Recharge Target",
@@ -6770,6 +6771,7 @@ employees: "Employees",
       },
     },
     recharge_report: {
+      print: "রিপোর্ট প্রিন্ট",
       dashboard_title: "রিচার্জ ড্যাশবোর্ড (C2C)",
       dashboard_subtitle: "মাসিক C2C রিচার্জ পারফরম্যান্স, টার্গেট ট্র্যাকিং এবং কর্মচারী র‌্যাঙ্কিং",
       monthly_target: "মোট রিচার্জ টার্গেট",
