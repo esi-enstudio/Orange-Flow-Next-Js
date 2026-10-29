@@ -1866,6 +1866,7 @@ export const translations = {
         print: "Print",
         view_inactive_retailers: "View Inactive Retailers",
         share: "Share on WhatsApp",
+        download_inactive: "Download Inactive Retailers",
       },
       whatsapp: {
         title: "Active LSO Report Delivery",
@@ -1996,6 +1997,7 @@ export const translations = {
         print: "Print",
         view_inactive_retailers: "View Inactive Retailers",
         share: "Share on WhatsApp",
+        download_inactive: "Download Inactive Retailers",
       },
       whatsapp: {
         title: "Active SSO Report Delivery",
@@ -6928,6 +6930,7 @@ employees: "Employees",
         print: "প্রিন্ট",
         view_inactive_retailers: "নিষ্ক্রিয় রিটেইলার দেখুন",
         share: "হোয়াটসঅ্যাপে শেয়ার",
+        download_inactive: "নিষ্ক্রিয় রিটেইলার ডাউনলোড",
       },
       whatsapp: {
         title: "অ্যাকটিভ এলএসও রিপোর্ট ডেলিভারি",
@@ -7058,6 +7061,7 @@ employees: "Employees",
         print: "প্রিন্ট",
         view_inactive_retailers: "নিষ্ক্রিয় রিটেইলার দেখুন",
         share: "হোয়াটসঅ্যাপে শেয়ার",
+        download_inactive: "নিষ্ক্রিয় রিটেইলার ডাউনলোড",
       },
       whatsapp: {
         title: "অ্যাকটিভ এসএসও রিপোর্ট ডেলিভারি",

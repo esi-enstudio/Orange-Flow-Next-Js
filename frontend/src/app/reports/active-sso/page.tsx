@@ -405,6 +405,7 @@ export default function ActiveSsoReportPage() {
   const [error, setError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [exporting, setExporting] = useState<"xlsx" | null>(null);
+  const [downloadingInactive, setDownloadingInactive] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -601,7 +602,11 @@ export default function ActiveSsoReportPage() {
     }
   };
 
+  // Downloads the whole house's inactive retailers as one Excel, grouped RSO by
+  // RSO (each group opens with its own header row and is separated by a blank
+  // row) — the same grouping the service builds for the export endpoint.
   const handleExportInactiveRetailers = async () => {
+    setDownloadingInactive(true);
     try {
       const params: Record<string, string> = { start_date: appliedFilters.startDate, end_date: appliedFilters.endDate };
       if (appliedFilters.houseId) params.house_id = appliedFilters.houseId;
@@ -621,6 +626,8 @@ export default function ActiveSsoReportPage() {
       toast.success(t("active_sso_report.messages.export_success"));
     } catch {
       toast.error(t("active_sso_report.messages.export_failed"));
+    } finally {
+      setDownloadingInactive(false);
     }
   };
 
@@ -837,6 +844,17 @@ export default function ActiveSsoReportPage() {
               title={t("active_sso_report.config.title")}
             >
               <Settings className="w-4 h-4" />
+            </button>
+          )}
+          {hasPermission("active_sso.view") && (
+            <button
+              onClick={handleExportInactiveRetailers}
+              disabled={!appliedFilters.houseId || downloadingInactive}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={t("active_sso_report.actions.download_inactive")}
+            >
+              <Download className="w-4 h-4" />
+              {downloadingInactive ? "..." : t("active_sso_report.actions.download_inactive")}
             </button>
           )}
           {canShare && (
@@ -1160,15 +1178,6 @@ export default function ActiveSsoReportPage() {
                 <span className="text-xs text-gray-400 dark:text-gray-500">
                   {formatNumber(summary?.rso_count ?? 0)} {t("active_sso_report.summary.rso_count")} · {formatNumber(summary?.retailer_count ?? 0)} {t("active_sso_report.summary.retailer_count")}
                 </span>
-                {rows.length > 0 && (
-                  <button
-                    onClick={handleExportInactiveRetailers}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    {t("active_sso_report.modal.export")}
-                  </button>
-                )}
               </div>
             </div>
 
