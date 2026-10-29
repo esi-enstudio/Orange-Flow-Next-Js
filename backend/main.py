@@ -35,6 +35,45 @@ console_handler.setFormatter(log_formatter)
 logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
 logger = logging.getLogger(__name__)
 
+
+# --- ngrok helpers ---
+def _read_ngrok_config_authtoken(config_path: str) -> Optional[str]:
+    """Return the ``authtoken`` saved in ngrok's config file, if any."""
+    try:
+        with open(config_path, "r", encoding="utf-8") as config_file:
+            for line in config_file:
+                key, _, value = line.partition(":")
+                if key.strip() == "authtoken":
+                    return value.strip().strip("\"'") or None
+    except OSError:
+        return None
+    return None
+
+
+def _ensure_ngrok_auth_token(ngrok, pyngrok_config, token: str) -> None:
+    """Make the ngrok agent use ``token``, tolerating an already-saved token.
+
+    ``pyngrok.set_auth_token`` shells out to ``ngrok config add-authtoken`` and
+    raises unless the agent answers "Authtoken saved" — but an agent whose
+    config file already holds a token answers "Authtoken already set in
+    configuration file: ...". Restarting a long-lived container always hit that
+    and aborted the whole tunnel, so the write is skipped when the saved token
+    already matches and "already set" is treated as success otherwise.
+    """
+    from pyngrok import conf
+
+    saved = _read_ngrok_config_authtoken(conf.get_config_path(pyngrok_config))
+    if saved == token:
+        logger.info("Ngrok authtoken already configured, reusing it.")
+        return
+    try:
+        ngrok.set_auth_token(token, pyngrok_config=pyngrok_config)
+    except Exception as error:
+        if "already set" not in str(error).lower():
+            raise
+        logger.info("Ngrok authtoken already configured, reusing it.")
+
+
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -479,9 +518,9 @@ async def main():
         if settings.START_NGROK:
             try:
                 from pyngrok import ngrok, conf
-                if settings.NGROK_AUTH_TOKEN:
-                    ngrok.set_auth_token(settings.NGROK_AUTH_TOKEN)
                 ngrok_cfg = conf.PyngrokConfig(request_timeout=30)
+                if settings.NGROK_AUTH_TOKEN:
+                    _ensure_ngrok_auth_token(ngrok, ngrok_cfg, settings.NGROK_AUTH_TOKEN)
                 if settings.STATIC_DOMAIN:
                     domain_val = settings.STATIC_DOMAIN
                     if not domain_val.startswith("http"):

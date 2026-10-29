@@ -65,6 +65,7 @@ def get_report_title(report_type: str) -> str:
         "recharge": "Recharge Report",
         "recharge_ev_secondary": "EV Secondary Report",
         "active_sso_inactive_retailers": "Inactive Retailers (Active SSO)",
+        "active_lso_inactive_retailers": "Inactive Retailers (Active LSO)",
     }
     return titles.get(report_type, report_type.replace("_", " ").title())
 
@@ -97,12 +98,15 @@ def _register_all():
 
     ORIENTATION_AWARE_BUILDERS["activation"] = build_activation_report_image
 
-    from app.services.active_sso_retailers_whatsapp_image import (
+    from app.services.inactive_retailers_whatsapp_image import (
+        build_active_lso_inactive_retailers_image,
         build_active_sso_inactive_retailers_image,
     )
 
     REPORT_BUILDERS["active_sso_inactive_retailers"] = build_active_sso_inactive_retailers_image
     FILTERED_BUILDERS["active_sso_inactive_retailers"] = build_active_sso_inactive_retailers_image
+    REPORT_BUILDERS["active_lso_inactive_retailers"] = build_active_lso_inactive_retailers_image
+    FILTERED_BUILDERS["active_lso_inactive_retailers"] = build_active_lso_inactive_retailers_image
 
     logger.info(f"Report builders registered: {list(REPORT_BUILDERS.keys())}")
 

@@ -1870,6 +1870,8 @@ export const translations = {
       whatsapp: {
         title: "Active LSO Report Delivery",
         subtitle: "Auto-send the Active LSO Report daily at a fixed time",
+        retailers_title: "Inactive Retailers Delivery",
+        retailers_subtitle: "Send {name}'s inactive retailer list to WhatsApp / Telegram",
       },
       modal: {
         inactive_retailers: "Inactive Retailers",
@@ -6930,6 +6932,8 @@ employees: "Employees",
       whatsapp: {
         title: "অ্যাকটিভ এলএসও রিপোর্ট ডেলিভারি",
         subtitle: "প্রতিদিন নির্দিষ্ট সময়ে অ্যাকটিভ এলএসও রিপোর্ট স্বয়ংক্রিয়ভাবে পাঠান",
+        retailers_title: "নিষ্ক্রিয় রিটেইলার ডেলিভারি",
+        retailers_subtitle: "{name}-এর নিষ্ক্রিয় রিটেইলার তালিকা হোয়াটসঅ্যাপ / টেলিগ্রামে পাঠান",
       },
       modal: {
         inactive_retailers: "নিষ্ক্রিয় রিটেইলার",

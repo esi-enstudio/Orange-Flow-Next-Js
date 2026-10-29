@@ -404,6 +404,9 @@ export default function ActiveLsoReportPage() {
   const [configForm, setConfigForm] = useState({ days: "7", amount: "500" });
   const [inactiveRetailerModal, setInactiveRetailerModal] = useState<{open: boolean; employeeId: number; rsoName: string; rsoCode: string; loading: boolean; data: InactiveRetailer[];}>({open: false, employeeId: 0, rsoName: "", rsoCode: "", loading: false, data: []});
   const [wsModalOpen, setWsModalOpen] = useState(false);
+  // Share source for the Inactive Retailers modal: opens the delivery modal
+  // bound to that RSO, so the attached image is the modal's list only.
+  const [retailerShare, setRetailerShare] = useState<{ open: boolean; employeeId: number; rsoName: string }>({ open: false, employeeId: 0, rsoName: "" });
 
   const initializedRef = useRef(false);
 
@@ -1523,7 +1526,11 @@ export default function ActiveLsoReportPage() {
                     </button>
                     {canShare && (
                       <button
-                        onClick={() => setWsModalOpen(true)}
+                        onClick={() => setRetailerShare({
+                          open: true,
+                          employeeId: inactiveRetailerModal.employeeId,
+                          rsoName: inactiveRetailerModal.rsoName,
+                        })}
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded-lg hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors cursor-pointer"
                       >
                         <Share2 className="w-3.5 h-3.5" />
@@ -1622,7 +1629,7 @@ export default function ActiveLsoReportPage() {
         </div>
       )}
 
-      {/* WhatsApp Report Delivery Modal */}
+      {/* WhatsApp Report Delivery Modal — house-wide Active LSO report */}
       <WhatsAppReportDeliveryModal
         open={wsModalOpen}
         houseId={filters.houseId ? Number(filters.houseId) : null}
@@ -1630,6 +1637,21 @@ export default function ActiveLsoReportPage() {
         title={t("active_lso_report.whatsapp.title")}
         subtitle={t("active_lso_report.whatsapp.subtitle")}
         onClose={() => setWsModalOpen(false)}
+      />
+
+      {/* WhatsApp Report Delivery Modal — the opened RSO's inactive retailer list only */}
+      <WhatsAppReportDeliveryModal
+        open={retailerShare.open}
+        houseId={appliedFilters.houseId ? Number(appliedFilters.houseId) : null}
+        reportType="active_lso_inactive_retailers"
+        reportParams={{
+          employee_id: retailerShare.employeeId,
+          start_date: appliedFilters.startDate,
+          end_date: appliedFilters.endDate,
+        }}
+        title={t("active_lso_report.whatsapp.retailers_title")}
+        subtitle={t("active_lso_report.whatsapp.retailers_subtitle", { name: retailerShare.rsoName })}
+        onClose={() => setRetailerShare((prev) => ({ ...prev, open: false }))}
       />
     </div>
   );

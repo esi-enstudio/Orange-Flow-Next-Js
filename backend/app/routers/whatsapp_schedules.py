@@ -47,13 +47,15 @@ PREVIEW_SCALE = 4
 SCHEDULE_PERMISSIONS = ["live_activations.schedule", "reports.whatsapp_share"]
 
 ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation", "recharge",
-                        "recharge_ev_secondary", "active_sso_inactive_retailers")
+                        "recharge_ev_secondary", "active_sso_inactive_retailers",
+                        "active_lso_inactive_retailers")
 
 # Report types that render a slice of the data instead of the whole house. The
 # schedule/send must carry these keys in ``report_params`` (e.g. one RSO's
 # inactive-retailer list needs ``employee_id``).
 REQUIRED_REPORT_PARAMS = {
     "active_sso_inactive_retailers": ("employee_id",),
+    "active_lso_inactive_retailers": ("employee_id",),
 }
 
 # Optional context a filtered report type can carry. Only the *required* keys
@@ -61,6 +63,7 @@ REQUIRED_REPORT_PARAMS = {
 # the period the modal was showing) shape the render without splitting the list.
 OPTIONAL_REPORT_PARAMS = {
     "active_sso_inactive_retailers": ("start_date", "end_date"),
+    "active_lso_inactive_retailers": ("start_date", "end_date"),
 }
 
 
