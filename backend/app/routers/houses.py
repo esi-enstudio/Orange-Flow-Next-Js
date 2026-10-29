@@ -1,7 +1,9 @@
+import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, or_, and_, func as sa_func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.routers.deps import get_db, has_permission, has_any_permission, get_current_user
@@ -10,7 +12,11 @@ from app.schemas.pagination import PaginationParams, PaginatedResponse, Paginati
 from app.models.house import House
 from app.models.user import User
 from app.services import entitlement
-from app.utils.access_control import is_admin_user
+from app.services.house_purge import HousePurgeError, purge_house
+from app.utils.access_control import is_admin_user, is_super_admin_user
+from app.utils.activity_logger import log_activity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/houses", tags=["houses"])
 
@@ -181,10 +187,90 @@ async def update_house(house_id: int, house_data: HouseCreate, db: AsyncSession 
     return house
 
 @router.delete("/{house_id}")
-async def delete_house(house_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("houses.delete"))):
+async def delete_house(
+    house_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.delete")),
+):
     result = await db.execute(select(House).where(House.id == house_id))
     house = result.scalar_one_or_none()
-    if not house: raise HTTPException(status_code=404, detail="House not found")
-    await db.delete(house)
-    await db.commit()
-    return {"message": "House deleted successfully"}
+    if not house:
+        raise HTTPException(status_code=404, detail="House not found")
+
+    # Only the platform super admin may delete a house they do not belong to.
+    # A tenant admin/manager is still scoped to their own houses.
+    user_house_ids = [h.id for h in current_user.houses]
+    if not is_super_admin_user(current_user) and house_id not in user_house_ids:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to delete this house",
+        )
+
+    # Snapshot only non-sensitive identity fields for the audit trail.
+    old_values = {
+        "id": house.id,
+        "name": house.name,
+        "code": house.code,
+        "cluster": house.cluster,
+        "region": house.region,
+        "district": house.district,
+    }
+
+    try:
+        # Hard purge: the house and every tenant-scoped row (employees,
+        # retailers, targets, sales, reports, billing, schedules, ...) is
+        # deleted in one transaction. See app/services/house_purge.py.
+        deleted = await purge_house(
+            db, house_id=house_id, current_user_id=current_user.id
+        )
+        await db.commit()
+    except HousePurgeError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.exception("House %s purge failed on a foreign-key constraint", house_id)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "HOUSE_DELETE_CONFLICT",
+                "message": (
+                    "House could not be deleted because related records are "
+                    "still referenced. No data was changed."
+                ),
+                "fields": {},
+            },
+        ) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("House %s purge failed", house_id)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "HOUSE_DELETE_FAILED",
+                "message": "House could not be deleted. No data was changed.",
+                "fields": {},
+            },
+        ) from exc
+
+    try:
+        await log_activity(
+            db=db,
+            user_id=current_user.id,
+            user_name=current_user.name or current_user.username,
+            module="house",
+            action="delete",
+            record_id=house_id,
+            record_identifier=old_values.get("code") or old_values.get("name"),
+            old_values=old_values,
+            new_values={"deleted_rows": deleted},
+            request=request,
+            status_code=200,
+        )
+    except Exception:
+        logger.warning(
+            "Activity log failed for house delete (%s)", house_id, exc_info=True
+        )
+
+    return {"message": "House deleted successfully", "deleted": deleted}

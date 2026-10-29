@@ -14,7 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, has_permission, require_house_context
+from app.routers.deps import (
+    get_db,
+    get_house_context,
+    has_permission,
+    require_house_context,
+)
 from app.models.user import User
 from app.models.house import House
 from app.models.retailer import Retailer
