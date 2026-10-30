@@ -12,8 +12,11 @@ import {
   RefreshCw,
   Search,
   X,
+  ScanBarcode,
+  Clipboard,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
+import { cn } from "@/lib/utils";
 
 import axios from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -21,8 +24,52 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import { InventoryStatusBadge } from "@/components/inventory/InventoryStatusBadge";
-import { SerialsInput, parseSerials } from "@/components/inventory/SerialsInput";
+import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
+import { parseSerials, SerialsInput } from "@/components/inventory/SerialsInput";
 import { apiError, formatDate, houseHeaders } from "@/components/inventory/helpers";
+import { useSerialLength } from "@/hooks/useSerialLength";
+import { sanitizeSerialInput } from "@/lib/serialValidation";
+
+// Expand range strings like "890123000001-890123000010" into individual serials
+function expandSerials(tokens: string[]): string[] {
+  const result: string[] = [];
+  const RANGE_RE = /^([A-Z0-9]+)-([A-Z0-9]+)$/;
+
+  for (const token of tokens) {
+    const match = token.match(RANGE_RE);
+    if (match) {
+      const [, startStr, endStr] = match;
+      // Handle both numeric and alphanumeric serials
+      const startNum = BigInt(startStr.replace(/\D/g, "") || "0");
+      const endNum = BigInt(endStr.replace(/\D/g, "") || "0");
+      const prefixStart = startStr.match(/^[A-Z0-9]*/)?.[0] || "";
+      const prefixEnd = endStr.match(/^[A-Z0-9]*/)?.[0] || "";
+
+      // Only expand if both have same numeric length and prefix
+      if (
+        startStr.length === endStr.length &&
+        prefixStart === prefixEnd &&
+        startNum > 0 &&
+        endNum >= startNum &&
+        endNum - startNum < BigInt(500) // Limit expansion to prevent abuse
+      ) {
+        const numDigits = startStr.replace(/\D/g, "").length;
+        const padLen = numDigits;
+        let current = startNum;
+        while (current <= endNum) {
+          const numPart = current.toString().padStart(padLen, "0");
+          const padded = prefixStart + numPart.slice(prefixStart.length);
+          result.push(padded.toUpperCase());
+          current++;
+        }
+        continue;
+      }
+    }
+    // Not a range or couldn't parse - treat as single serial
+    result.push(token);
+  }
+  return result;
+}
 
 const PER_PAGE = 20;
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -102,11 +149,15 @@ export default function StockReceivingPage() {
 
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [form, setForm] = useState({ ...emptyForm });
-  const [serials, setSerials] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [inputMethod, setInputMethod] = useState<"range" | "list">("range");
+  const [serialInputValue, setSerialInputValue] = useState("");
+  const [rangeValid, setRangeValid] = useState(true);
+  const rangeInputRef = useRef<SerialRangeInputHandle>(null);
+  const serialLength = useSerialLength();
 
   const [detail, setDetail] = useState<ReceiptDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -115,7 +166,46 @@ export default function StockReceivingPage() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const canReceive = hasPermission("inventory.receive");
-  const parsed = useMemo(() => parseSerials(serials), [serials]);
+
+  // Calculate parsed count for UI feedback (auto-sets expected quantity)
+  const parsedCount = useMemo(() => {
+    function b(v: string) { try { return BigInt(v); } catch { return BigInt(0); } }
+    if (!serialInputValue.trim()) return 0;
+    const rawLines = serialInputValue.split(/[\n,\;]+/);
+    let total = 0;
+    for (const line of rawLines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Range detection
+      if (trimmed.includes("-") && trimmed.split("-").length === 2) {
+        const parts = trimmed.split("-");
+        const start = parts[0].trim();
+        const end = parts[1].trim();
+        if (/^\d+$/.test(start) && /^\d+$/.test(end)) {
+          let endStr = end;
+          if (end.length < start.length) {
+            const prefix = start.slice(0, start.length - end.length);
+            endStr = prefix + end;
+          }
+          const s = b(start);
+          const e = b(endStr);
+          if (s === BigInt(0) || e === BigInt(0) || e < s) continue;
+          const diff = e - s + BigInt(1);
+          if (diff > BigInt(500)) continue;
+          total += Number(diff);
+          continue;
+        }
+      }
+      const clean = trimmed.replace(/\D/g, "");
+      if (clean) {
+        total += 1;
+      }
+    }
+    return total;
+  }, [serialInputValue]);
+
+  // Parse serials for validation
+  const parsed = useMemo(() => parseSerials(serialInputValue), [serialInputValue]);
 
   const fetchReceipts = useCallback(async () => {
     if (!houseId) {
@@ -178,7 +268,8 @@ export default function StockReceivingPage() {
 
   const resetCreate = () => {
     setForm({ ...emptyForm });
-    setSerials("");
+    setSerialInputValue("");
+    setInputMethod("range");
     setFormError(null);
     setFieldErrors({});
   };
@@ -202,6 +293,9 @@ export default function StockReceivingPage() {
       return;
     }
 
+    // Expand range strings into individual serials before sending to backend
+    const expandedSerials = expandSerials(parsed.valid);
+
     setSaving(true);
     try {
       const res = await axios.post(
@@ -215,11 +309,11 @@ export default function StockReceivingPage() {
           business_date: form.business_date || null,
           expected_quantity: form.expected_quantity
             ? Number(form.expected_quantity)
-            : parsed.valid.length,
+            : expandedSerials.length,
           unit_cost: form.unit_cost ? Number(form.unit_cost) : 0,
           face_value: form.face_value ? Number(form.face_value) : 0,
           notes: form.notes || null,
-          serials: parsed.valid,
+          serials: expandedSerials,
         },
         { headers: houseHeaders(houseId) }
       );
@@ -576,9 +670,9 @@ export default function StockReceivingPage() {
                 <input
                   type="number"
                   min={0}
-                  value={form.expected_quantity}
+                  value={form.expected_quantity || parsedCount}
                   onChange={(event) => setForm({ ...form, expected_quantity: event.target.value })}
-                  placeholder={String(parsed.valid.length || "")}
+                  placeholder={String(parsedCount || "")}
                   className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
                 />
               </Field>
@@ -607,15 +701,105 @@ export default function StockReceivingPage() {
               </div>
 
               <div className="md:col-span-2">
-                <SerialsInput
-                  value={serials}
-                  onChange={(value) => {
-                    setSerials(value);
-                    setFieldErrors((current) => ({ ...current, serials: "" }));
-                  }}
-                  error={fieldErrors.serials || null}
-                  disabled={saving}
-                />
+                <div className="space-y-3">
+                  {/* Input Method Tabs */}
+                  <div className="space-y-2">
+                    <label className="hidden sm:block text-xs font-bold text-gray-500 dark:text-gray-400">
+                      {t("inventory.common.input_method")}
+                    </label>
+                    <label className="sm:hidden block text-xs font-bold text-gray-500 dark:text-gray-400">
+                      Input Method
+                    </label>
+                    <div className="flex gap-1.5 p-1 bg-gray-100/80 dark:bg-slate-800 border border-gray-200/50 dark:border-slate-700 rounded-2xl w-fit">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInputMethod("range");
+                          setSerialInputValue("");
+                        }}
+                        disabled={saving}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold rounded-xl transition-all",
+                          inputMethod === "range"
+                            ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                        )}
+                      >
+                        Range
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInputMethod("list");
+                          setSerialInputValue("");
+                        }}
+                        disabled={saving}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold rounded-xl transition-all",
+                          inputMethod === "list"
+                            ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                        )}
+                      >
+                        List
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Range Input */}
+                  {inputMethod === "range" ? (
+                    <SerialRangeInput
+                      ref={rangeInputRef}
+                      onChange={(formatted) => setSerialInputValue(formatted)}
+                      disabled={saving}
+                      serialLength={serialLength}
+                      onValidChange={setRangeValid}
+                    />
+                  ) : (
+                    <>
+                      {/* List Input */}
+                      <SerialsInput
+                        value={serialInputValue}
+                        onChange={(value) => {
+                          setSerialInputValue(value);
+                          setFieldErrors((current) => ({ ...current, serials: "" }));
+                        }}
+                        error={fieldErrors.serials || null}
+                        disabled={saving}
+                      />
+                    </>
+                  )}
+
+                  {/* Helper Buttons */}
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (inputMethod === "range") {
+                          const example = "898803992145808574-898803992145808580";
+                          setSerialInputValue(example);
+                          setTimeout(() => rangeInputRef.current?.resetFromValue(example), 0);
+                        } else {
+                          setSerialInputValue("898803992145808574\n898803992145808575\n898803992145808580");
+                        }
+                      }}
+                      disabled={saving}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Clipboard className="w-3.5 h-3.5" />
+                      Load Example
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSerialInputValue("")}
+                      disabled={saving}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      Reset
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="md:col-span-2">
