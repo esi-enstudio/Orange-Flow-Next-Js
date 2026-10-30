@@ -89,7 +89,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     result = await db.execute(
         select(User).options(
             selectinload(User.roles).selectinload(Role.permissions),
-            selectinload(User.houses)
+            selectinload(User.houses),
+            # Async sessions cannot lazy-load; several routers (inventory scope,
+            # reports) read the linked employee without an extra query.
+            selectinload(User.employee_profile),
         ).where(User.id == user_id)
     )
     user = result.unique().scalar_one_or_none()

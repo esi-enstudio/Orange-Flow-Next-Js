@@ -117,6 +117,9 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/scratch-card", "reports"),
     ("/api/sim-issues", "reports"),
 
+    ("/api/v1/inventory", "inventory"),
+    ("/api/v1/sales", "field_sales"),
+    ("/api/v1/finance", "finance"),
     ("/api/v1/ev-kit", "sim_management"),
     ("/api/v1/sim-inventory", "sim_management"),
     ("/api/v1/sim-products", "sim_management"),
@@ -195,6 +198,20 @@ MODULE_LEAF_ROUTES: dict = {
         "/reports/sim-issues",
     ),
     "sim_management": ("/sim-inventory", "/sim-replacement"),
+    "inventory": (
+        "/inventory/receiving",
+        "/inventory/mother-stock",
+        "/inventory/issues",
+        "/inventory/returns",
+    ),
+    "field_sales": ("/sales", "/sales/my-stock"),
+    "finance": (
+        "/finance/expenses",
+        "/finance/receipts",
+        "/finance/cashbook",
+        "/finance/closing",
+        "/finance/itopup",
+    ),
     "performance": ("/dashboard/manager", "/dashboard/supervisor", "/dashboard/rso"),
     "targets": ("/targets/house", "/targets/supervisor", "/targets/rso", "/targets/bp"),
     "roles_permissions": ("/roles", "/permissions"),
@@ -288,6 +305,24 @@ LEAF_TO_API_PREFIXES: dict = {
     "/reports/scratch-card": ("/api/scratch-card",),
     "/reports/sim-issues": ("/api/sim-issues",),
 
+    # ---- inventory ----
+    "/inventory/receiving": ("/api/v1/inventory/receipts",),
+    "/inventory/mother-stock": ("/api/v1/inventory/serials", "/api/v1/inventory/summary"),
+    "/inventory/issues": ("/api/v1/inventory/issues",),
+    "/inventory/returns": ("/api/v1/inventory/returns",),
+
+    # ---- field_sales ----
+    # both pages share the same router; the page guard decides visibility.
+    "/sales": ("/api/v1/sales",),
+    "/sales/my-stock": ("/api/v1/sales",),
+
+    # ---- finance ----
+    "/finance/expenses": ("/api/v1/finance/expenses", "/api/v1/finance/expense-categories"),
+    "/finance/receipts": ("/api/v1/finance/receipts",),
+    "/finance/cashbook": ("/api/v1/finance/cash", "/api/v1/finance/cashbook"),
+    "/finance/closing": ("/api/v1/finance/daily-closings",),
+    "/finance/itopup": ("/api/v1/finance/itopup",),
+
     # ---- sim_management ----
     "/sim-inventory": ("/api/v1/sim-inventory",),
     "/sim-replacement": ("/api/v1/sim-replacement",),
@@ -333,6 +368,11 @@ LEAF_TO_API_PREFIXES: dict = {
 # leaf of the module is granted. Keeping them here avoids breaking pages that
 # share a single router; page-specific endpoints stay strictly leaf-gated.
 MODULE_SHARED_API_PREFIXES: dict = {
+    "inventory": (
+        "/api/v1/inventory/products",
+        "/api/v1/inventory/employees",
+        "/api/v1/inventory/ledger",
+    ),
     "sim_management": ("/api/v1/ev-kit", "/api/v1/sim-products"),
     "reports": ("/api/itopup-details", "/api/itopup-balance"),
     "zoom_in": ("/api/zoom-in/filter-options",),

@@ -49,6 +49,25 @@ from app.models.zoom_in import (
     ZoomInEventBTS, ZoomInEventRSO, ZoomInEventBP, ZoomInEventRetailer,
 )
 from app.models.sim_inventory import SimInventory
+from app.models.field_sales import Sale, SaleLine, SaleSerialLine
+from app.models.stock import (
+    InventoryLedger,
+    ProductBatch,
+    SerialUnit,
+    StockDocument,
+    StockDocumentLine,
+    StockLocation,
+    StockSerialLine,
+)
+from app.models.finance import (
+    CashAccount,
+    CashTransaction,
+    DailyClosing,
+    Expense,
+    ExpenseCategory,
+    Receipt,
+    TopupEntry,
+)
 from app.models.ev_kit_inventory import EvKitInventory
 from app.models.sim_replacement_request import SimReplacementRequest
 from app.models.sim_replacement_log import SimReplacementLog

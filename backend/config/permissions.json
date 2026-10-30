@@ -354,6 +354,43 @@
         "sim_inventory.import"
       ]
     },
+    "inventory": {
+      "display_name": "Inventory & Stock",
+      "permissions": [
+        "inventory.view",
+        "inventory.receive",
+        "inventory.issue",
+        "inventory.return",
+        "inventory.verify"
+      ]
+    },
+    "field_sales": {
+      "display_name": "Field Sales",
+      "permissions": [
+        "field_sales.view",
+        "field_sales.create",
+        "field_sales.edit",
+        "field_sales.submit",
+        "field_sales.approve",
+        "field_sales.reject"
+      ]
+    },
+    "finance": {
+      "display_name": "Finance & Cashbook",
+      "permissions": [
+        "finance.view",
+        "finance.expense_create",
+        "finance.expense_approve",
+        "finance.expense_pay",
+        "finance.receipt_create",
+        "finance.cash_entry",
+        "finance.cash_reverse",
+        "finance.closing_submit",
+        "finance.closing_approve",
+        "finance.closing_reopen",
+        "finance.export"
+      ]
+    },
     "ev_kit": {
       "display_name": "EV Kit Inventory",
       "permissions": [
@@ -370,7 +407,8 @@
       "permissions": [
         "itopup_balance.view",
         "itopup_balance.create",
-        "itopup_balance.edit"
+        "itopup_balance.edit",
+        "itopup_balance.verify"
       ]
     },
     "active_lso": {

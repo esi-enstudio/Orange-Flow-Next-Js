@@ -37,6 +37,7 @@ import {
   RadioTower,
   MapPin,
   ServerCog,
+  Boxes,
 } from "lucide-react";
 
 export interface NavItem {
@@ -236,6 +237,44 @@ export const navItems: NavItem[] = [
       { title: "SIM Inventory", translationKey: "nav.sim_inventory", href: "/sim-inventory", permission: "sim_inventory.view" },
       { title: "SIM Replacement", translationKey: "nav.sim_replacement", href: "/sim-replacement", permission: "sim_replacement.view" },
     ]
+  },
+  {
+    title: "Inventory",
+    translationKey: "nav.inventory",
+    moduleKey: "inventory",
+    icon: Boxes,
+    color: "text-amber-500",
+    children: [
+      { title: "Stock Receiving", translationKey: "nav.inventory_receiving", href: "/inventory/receiving", permission: "inventory.view" },
+      { title: "Mother Stock", translationKey: "nav.inventory_mother_stock", href: "/inventory/mother-stock", permission: "inventory.view" },
+      { title: "Stock Issue", translationKey: "nav.inventory_issues", href: "/inventory/issues", permission: "inventory.view" },
+      { title: "Stock Returns", translationKey: "nav.inventory_returns", href: "/inventory/returns", permission: "inventory.view" },
+    ],
+  },
+  {
+    title: "Finance",
+    translationKey: "nav.finance",
+    moduleKey: "finance",
+    icon: Wallet,
+    color: "text-violet-500",
+    children: [
+      { title: "Expenses", translationKey: "nav.finance_expenses", href: "/finance/expenses", permission: "finance.expense_create" },
+      { title: "Receipts", translationKey: "nav.finance_receipts", href: "/finance/receipts", permission: "finance.receipt_create" },
+      { title: "Cashbook", translationKey: "nav.finance_cashbook", href: "/finance/cashbook", permission: "finance.cash_entry" },
+      { title: "Daily Closing", translationKey: "nav.finance_closing", href: "/finance/closing", permission: "finance.closing_submit" },
+      { title: "iTopUp Balance", translationKey: "nav.finance_itopup", href: "/finance/itopup", permission: "itopup_balance.view" },
+    ],
+  },
+  {
+    title: "Field Sales",
+    translationKey: "nav.field_sales",
+    moduleKey: "field_sales",
+    icon: ClipboardList,
+    color: "text-emerald-500",
+    children: [
+      { title: "Daily Sales", translationKey: "nav.sales_daily", href: "/sales", permission: "field_sales.view" },
+      { title: "My Stock", translationKey: "nav.sales_my_stock", href: "/sales/my-stock", permission: "field_sales.view" },
+    ],
   },
   {
     title: "Performance",
