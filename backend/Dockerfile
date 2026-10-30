@@ -45,7 +45,7 @@ RUN update-alternatives --install /usr/bin/pg_dump  pg_dump  /usr/lib/postgresql
 
 # Copy requirements and install
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright and its browser dependencies
 RUN playwright install --with-deps chromium

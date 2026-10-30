@@ -219,7 +219,7 @@ async def delete_house(
 
     try:
         # Hard purge: the house and every tenant-scoped row (employees,
-        # retailers, targets, sales, reports, billing, schedules, ...) is
+        # retailers, targets, reports, billing, schedules, ...) is
         # deleted in one transaction. See app/services/house_purge.py.
         deleted = await purge_house(
             db, house_id=house_id, current_user_id=current_user.id

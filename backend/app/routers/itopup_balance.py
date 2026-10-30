@@ -11,7 +11,6 @@ from app.models.itopup_balance import ITopUpBalance, ITopUpBalanceLedger, ITopUp
 from app.models.employee import Employee
 from app.models.user import User
 from app.schemas.itopup_balance import ITopUpTransferCreate
-from app.services.stock_service import ensure_house_access
 from app.services.itopup_service import apply_itopup_change
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
@@ -107,7 +106,6 @@ async def create_itopup_transfer(
     current_user: User = Depends(has_permission("itopup_balance.create")),
     house_id: int = Depends(require_house_context),
 ):
-    await ensure_house_access(current_user, house_id)
     if data.from_employee_id is None and data.to_employee_id is None:
         raise HTTPException(status_code=422, detail="Mother SIM cannot transfer to itself")
     if data.from_employee_id is not None and data.from_employee_id == data.to_employee_id:

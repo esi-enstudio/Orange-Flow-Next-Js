@@ -38,8 +38,6 @@ import app.models.commission
 import app.models.product
 import app.models.todo
 import app.models.cv
-import app.models.stock
-import app.models.sales
 import app.models.itopup_balance
 import app.models.whatsapp_schedule
 import app.models.whatsapp_contact
@@ -563,27 +561,6 @@ async def _migrate_lifting_soft_delete():
             logger.info("Migration complete: lifting_records soft delete")
     except Exception as e:
         logger.warning(f"Migration warning (lifting_records soft delete): {e}")
-
-async def _migrate_lifting_stock_added():
-    try:
-        async with engine.begin() as conn:
-            result = await conn.execute(text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name='lifting_records' AND column_name='stock_added'"
-            ))
-            if result.scalar():
-                return
-            logger.info("Migrating lifting_records: adding stock_added columns...")
-            await conn.execute(text(
-                "ALTER TABLE lifting_records "
-                "ADD COLUMN stock_added BOOLEAN DEFAULT FALSE, "
-                "ADD COLUMN stock_added_at TIMESTAMP WITHOUT TIME ZONE, "
-                "ADD COLUMN stock_added_by INTEGER"
-            ))
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lifting_records_stock_added ON lifting_records (stock_added)"))
-            logger.info("Migration complete: lifting_records.stock_added")
-    except Exception as e:
-        logger.warning(f"Migration warning (lifting_records stock_added): {e}")
 
 async def _migrate_lifting_deposit_slip():
     try:
@@ -1392,6 +1369,100 @@ async def _migrate_drop_bp_retailer_codes():
         logger.warning(f"Migration warning (drop bp_retailer_codes): {e}")
 
 
+_STOCK_SALES_PLAN_KEYS = frozenset({"stock_sales", "/stock", "/sales"})
+
+
+async def _module_migration_done(conn, key: str) -> bool:
+    await conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS module_migrations ("
+        "key VARCHAR(100) PRIMARY KEY, "
+        "applied_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP)"
+    ))
+    result = await conn.execute(
+        text("SELECT 1 FROM module_migrations WHERE key = :key"),
+        {"key": key},
+    )
+    return result.scalar() is not None
+
+
+async def _mark_module_migration(conn, key: str) -> None:
+    await conn.execute(
+        text("INSERT INTO module_migrations (key) VALUES (:key) ON CONFLICT DO NOTHING"),
+        {"key": key},
+    )
+
+
+async def _migrate_drop_stock_sales_module():
+    """Remove the Stock & Sales module completely.
+
+    The module is being rebuilt from scratch, so its tables, permissions and
+    plan grants are removed. Seeding only ever inserts, therefore stale
+    ``stock.*`` / ``sales.*`` permission rows would otherwise keep appearing in
+    the Permissions UI. The obsolete ``stock_added`` integration columns on
+    ``lifting_records`` are dropped too. Idempotent.
+    """
+    statements = (
+        "DROP TABLE IF EXISTS sales_records CASCADE",
+        "DROP TABLE IF EXISTS daily_stock_snapshots CASCADE",
+        "DROP TABLE IF EXISTS stock_adjustments CASCADE",
+        "DROP TABLE IF EXISTS stock_transfer_orders CASCADE",
+        "DROP TABLE IF EXISTS stock_ledger CASCADE",
+        "DROP TABLE IF EXISTS stock_items CASCADE",
+        "ALTER TABLE lifting_records DROP COLUMN IF EXISTS stock_added",
+        "ALTER TABLE lifting_records DROP COLUMN IF EXISTS stock_added_at",
+        "ALTER TABLE lifting_records DROP COLUMN IF EXISTS stock_added_by",
+        "DELETE FROM roles_permissions WHERE permission_id IN "
+        "(SELECT id FROM permissions WHERE name LIKE 'stock.%' OR name LIKE 'sales.%')",
+        "DELETE FROM permissions WHERE name LIKE 'stock.%' OR name LIKE 'sales.%'",
+    )
+    migration_key = "drop_stock_sales_module"
+    try:
+        async with engine.begin() as conn:
+            if await _module_migration_done(conn, migration_key):
+                return
+            for stmt in statements:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as exc:
+                    # Missing table (fresh DB) or a non-PostgreSQL test DB.
+                    logger.debug("Skipping (%s): %s", stmt, exc)
+
+            exists = await conn.execute(text(
+                "SELECT to_regclass('public.subscription_packages') IS NOT NULL AS exists"
+            ))
+            if exists.scalar():
+                rows = await conn.execute(text(
+                    """
+                    SELECT id, allowed_modules
+                    FROM subscription_packages
+                    WHERE allowed_modules IS NOT NULL
+                      AND jsonb_typeof(allowed_modules::jsonb) = 'array'
+                    FOR UPDATE
+                    """
+                ))
+                updated = 0
+                for pkg_id, current in rows:
+                    new = [key for key in list(current or []) if key not in _STOCK_SALES_PLAN_KEYS]
+                    if new == list(current or []):
+                        continue
+                    await conn.execute(
+                        text(
+                            "UPDATE subscription_packages "
+                            "SET allowed_modules = :mods, updated_at = NOW() WHERE id = :id"
+                        ),
+                        {"mods": json.dumps(new), "id": pkg_id},
+                    )
+                    updated += 1
+                if updated:
+                    logger.info(
+                        f"Migration: removed Stock & Sales keys from {updated} plan(s)"
+                    )
+            await _mark_module_migration(conn, migration_key)
+        logger.info("Migration complete: Stock & Sales module removed")
+    except Exception as e:
+        logger.warning(f"Migration warning (drop Stock & Sales module): {e}")
+
+
 async def _migrate_bts_own_plan_module():
     """BTS was promoted from a `data_import` sub-page to its own plan module `bts`.
 
@@ -2095,7 +2166,6 @@ async def init_db():
         await _migrate_live_activation_date_type()
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_lifting_soft_delete()
-        await _migrate_lifting_stock_added()
         await _migrate_lifting_deposit_slip()
         await _migrate_lifting_pull_fields()
         await _migrate_indexes()
@@ -2116,6 +2186,7 @@ async def init_db():
         await _migrate_payment_transaction_reference()
         await _migrate_remove_payment_gateway_artifacts()
         await _migrate_drop_bp_retailer_codes()
+        await _migrate_drop_stock_sales_module()
         await _migrate_billing_fail_closed()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()

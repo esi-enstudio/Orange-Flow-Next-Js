@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 # প্রয়োজনীয় ফাইল কপি করা
 COPY requirements.txt .
+RUN python -m pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install uvicorn gunicorn
 

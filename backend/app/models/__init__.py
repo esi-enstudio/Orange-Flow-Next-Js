@@ -53,12 +53,7 @@ from app.models.ev_kit_inventory import EvKitInventory
 from app.models.sim_replacement_request import SimReplacementRequest
 from app.models.sim_replacement_log import SimReplacementLog
 from app.models.sim_stock_movement import SimStockMovement
-from app.models.stock import (
-    StockItem, StockLedger, StockTransfer,
-    StockAdjustment, DailyStockSnapshot,
-)
 from app.models.itopup_balance import ITopUpBalance, ITopUpBalanceLedger, ITopUpTransfer
-from app.models.sales import SalesRecord
 from app.models.otp import OTP
 from app.models.whatsapp_schedule import WhatsAppSchedule
 from app.models.whatsapp_delivery_log import WhatsAppDeliveryLog

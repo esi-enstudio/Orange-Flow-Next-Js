@@ -121,8 +121,6 @@ from app.routers.cv import router as cv_router
 from app.routers.sync import router as sync_router
 from app.routers.sim_replacement import router as sim_replacement_router
 from app.routers.shifts import router as shifts_router
-from app.routers.stock import router as stock_router
-from app.routers.sales import router as sales_router
 from app.routers.itopup_balance import router as itopup_balance_router
 from app.routers.whatsapp_schedules import router as whatsapp_schedules_router
 from app.routers.whatsapp_contacts import router as whatsapp_contacts_router
@@ -192,8 +190,6 @@ app.include_router(cv_router)
 app.include_router(sync_router)
 app.include_router(sim_replacement_router)
 app.include_router(shifts_router)
-app.include_router(stock_router)
-app.include_router(sales_router)
 app.include_router(itopup_balance_router)
 app.include_router(whatsapp_schedules_router)
 app.include_router(whatsapp_contacts_router)

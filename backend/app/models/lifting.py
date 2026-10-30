@@ -48,10 +48,6 @@ class LiftingRecord(Base):
     deleted_at = Column(DateTime, nullable=True)
     deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    stock_added = Column(Boolean, default=False, index=True)
-    stock_added_at = Column(DateTime, nullable=True)
-    stock_added_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 

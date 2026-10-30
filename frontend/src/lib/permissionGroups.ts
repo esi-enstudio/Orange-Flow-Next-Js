@@ -147,8 +147,6 @@ export const MODULE_DISPLAY_OVERRIDES: Record<string, string> = {
   sim_replacement: "SIM Replacement",
   sim_inventory: "SIM Inventory",
   ev_kit: "EV Kit Inventory",
-  sales: "Sales",
-  stock: "Stock",
   itopup_balance: "iTopUp Balance",
   active_lso: "Active LSO Report",
   active_sso: "Active SSO Report",

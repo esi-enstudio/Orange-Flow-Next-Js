@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 from app.services.db_service import async_session
 from app.models.role import Role, Permission
@@ -151,15 +151,38 @@ async def seed_system_data(session=None):
 
         for pkg_data in packages_data:
             pkg_res = await session.execute(
-                select(SubscriptionPackage).where(SubscriptionPackage.tier == pkg_data["tier"])
+                select(SubscriptionPackage)
+                .where(
+                    SubscriptionPackage.is_deleted == False,  # noqa: E712
+                    or_(
+                        SubscriptionPackage.slug == pkg_data["slug"],
+                        SubscriptionPackage.tier == pkg_data["tier"],
+                    ),
+                )
+                .order_by(SubscriptionPackage.id)
             )
-            pkg = pkg_res.scalar_one_or_none()
+            pkg = pkg_res.scalars().first()
+
             if not pkg:
+                archived_res = await session.execute(
+                    select(SubscriptionPackage.id)
+                    .where(
+                        SubscriptionPackage.is_deleted == True,  # noqa: E712
+                        or_(
+                            SubscriptionPackage.slug == pkg_data["slug"],
+                            SubscriptionPackage.tier == pkg_data["tier"],
+                        ),
+                    )
+                    .limit(1)
+                )
+                if archived_res.scalar_one_or_none() is not None:
+                    print(f"ℹ️ Skipping archived package: {pkg_data['name']}")
+                    continue
                 pkg = SubscriptionPackage(**pkg_data)
                 session.add(pkg)
                 print(f"➕ Creating subscription package: {pkg_data['name']}")
             else:
-                # Backfill new billing fields on legacy rows (idempotent)
+                # Backfill new billing fields on live legacy rows (idempotent)
                 for key, value in pkg_data.items():
                     setattr(pkg, key, value)
 

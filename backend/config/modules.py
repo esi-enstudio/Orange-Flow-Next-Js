@@ -83,9 +83,6 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/lifting", "lifting"),
     ("/api/products", "lifting"),
 
-    ("/api/stock", "stock_sales"),
-    ("/api/sales", "stock_sales"),
-
     ("/api/commission", "commission"),
 
     ("/api/house-targets", "targets"),
@@ -178,7 +175,6 @@ MODULE_LEAF_ROUTES: dict = {
     # removed `commercial_sales` group at /commercial/commission.
     "commission": ("/commission",),
     "lifting": ("/liftings", "/liftings/products"),
-    "stock_sales": ("/stock", "/sales"),
     "dms": (
         "/dms/sim-issue",
         "/dms/sim-status",
@@ -268,10 +264,6 @@ LEAF_TO_API_PREFIXES: dict = {
     # ---- lifting ----
     "/liftings": ("/api/lifting",),
     "/liftings/products": ("/api/products",),
-
-    # ---- stock_sales ----
-    "/stock": ("/api/stock",),
-    "/sales": ("/api/sales",),
 
     # ---- dms ----
     "/dms/sim-issue": ("/api/dms/sim-issue",),

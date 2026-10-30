@@ -193,17 +193,6 @@ export const navItems: NavItem[] = [
     ]
   },
   {
-    title: "Stock & Sales",
-    translationKey: "nav.stock_sales",
-    moduleKey: "stock_sales",
-    icon: Warehouse,
-    color: "text-emerald-500",
-    children: [
-      { title: "Stock Management", translationKey: "nav.stock", href: "/stock", permission: "stock.view" },
-      { title: "Sales", translationKey: "nav.sales_module", href: "/sales", permission: "sales.view" },
-    ]
-  },
-  {
     title: "DMS Automation",
     translationKey: "nav.dms",
     moduleKey: "dms",

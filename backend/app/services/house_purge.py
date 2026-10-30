@@ -1,8 +1,8 @@
 """Hard-delete a house together with every row that belongs to it.
 
 Deleting a tenant is a whole-tenant operation: employees, retailers, targets,
-stock, sales, reports, billing records, schedules and every other operational
-table that carries a ``house_id`` must disappear with the house. Child tables
+reports, billing records, schedules and every other operational table that
+carries a ``house_id`` must disappear with the house. Child tables
 that only point at house-owned rows (``retailer_marking_assignments``,
 ``mela_assignments``, legacy ``attendance_adjustments`` ...) must be removed
 too, otherwise the ``houses`` row cannot be deleted.

@@ -365,24 +365,6 @@
         "ev_kit.export"
       ]
     },
-    "sales": {
-      "display_name": "Sales",
-      "permissions": [
-        "sales.view",
-        "sales.create",
-        "sales.edit",
-        "sales.delete"
-      ]
-    },
-    "stock": {
-      "display_name": "Stock",
-      "permissions": [
-        "stock.view",
-        "stock.create",
-        "stock.transfer",
-        "stock.adjust"
-      ]
-    },
     "itopup_balance": {
       "display_name": "iTopUp Balance",
       "permissions": [
@@ -576,14 +558,6 @@
         "reports.target_achievement",
         "reports.whatsapp_share",
         "zoom_in.view",
-        "sales.view",
-        "sales.create",
-        "sales.edit",
-        "sales.delete",
-        "stock.view",
-        "stock.create",
-        "stock.transfer",
-        "stock.adjust",
         "itopup_balance.view",
         "itopup_balance.create",
         "itopup_balance.edit",
@@ -636,14 +610,6 @@
         "reports.target_achievement",
         "reports.whatsapp_share",
         "zoom_in.view",
-        "sales.view",
-        "sales.create",
-        "sales.edit",
-        "sales.delete",
-        "stock.view",
-        "stock.create",
-        "stock.transfer",
-        "stock.adjust",
         "itopup_balance.view",
         "itopup_balance.create",
         "itopup_balance.edit",
@@ -686,8 +652,6 @@
         "sim_status.view",
         "activations.view",
         "reports.target_achievement",
-        "sales.view",
-        "stock.view",
         "active_lso.view",
         "active_sso.view",
         "transactions.view"
