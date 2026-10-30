@@ -68,11 +68,20 @@ def _safe(value) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _money(value) -> str:
+def _money(value, category: str | None = None) -> str:
+    """Money string for PDF cells.
+
+    Scratch-card unit prices keep up to four decimals so the stored precision
+    (``97.1258``) survives into the statement. Every other money value uses the
+    standard two-decimal accounting format.
+    """
     try:
-        return f"{float(value or 0):,.2f}"
+        v = float(value or 0)
     except (TypeError, ValueError):
         return "0.00"
+    if (category or "").strip().lower().startswith("scratch"):
+        return f"{v:,.4f}"
+    return f"{v:,.2f}"
 
 
 def _date_label(value) -> str:
@@ -93,13 +102,41 @@ def _styles() -> dict:
             "StmtTotal", fontName="Helvetica", fontSize=10, leading=14, textColor=INK
         ),
         "th": ParagraphStyle(
-            "StmtTh", fontName="Helvetica-Bold", fontSize=7.6, leading=9.6, textColor=INK
+            "StmtTh",
+            fontName="Helvetica-Bold",
+            fontSize=7.6,
+            leading=9.6,
+            textColor=INK,
+            splitLongWords=0,
+            wordWrap=None,
         ),
         "cell": ParagraphStyle(
-            "StmtCell", fontName="Helvetica", fontSize=7.4, leading=9.4, textColor=INK
+            "StmtCell",
+            fontName="Helvetica",
+            fontSize=7.4,
+            leading=9.4,
+            textColor=INK,
         ),
         "cell_bold": ParagraphStyle(
-            "StmtCellBold", fontName="Helvetica-Bold", fontSize=7.4, leading=9.4, textColor=INK
+            "StmtCellBold",
+            fontName="Helvetica-Bold",
+            fontSize=7.4,
+            leading=9.4,
+            textColor=INK,
+        ),
+        "code_cell": ParagraphStyle(
+            "StmtCodeCell",
+            fontName="Helvetica-Bold",
+            fontSize=7.4,
+            leading=9.4,
+            textColor=INK,
+        ),
+        "money_cell": ParagraphStyle(
+            "StmtMoneyCell",
+            fontName="Helvetica",
+            fontSize=7.4,
+            leading=9.4,
+            textColor=INK,
         ),
     }
 
@@ -126,12 +163,12 @@ def _product_table(records: Iterable, styles: dict) -> Table:
                 [
                     Paragraph(date_label, styles["cell"]),
                     Paragraph(f"#{record.id}", styles["cell"]),
-                    Paragraph(_safe(item.product_code), styles["cell_bold"]),
+                    Paragraph(_safe(item.product_code), styles["code_cell"]),
                     Paragraph(_safe(item.product_name), styles["cell"]),
                     Paragraph(_safe(getattr(product, "category", None) or "-"), styles["cell"]),
                     Paragraph(f"{int(item.quantity or 0):,}", styles["cell"]),
-                    Paragraph(_money(item.unit_price), styles["cell"]),
-                    Paragraph(_money(item.total_price), styles["cell"]),
+                    Paragraph(_money(item.unit_price, getattr(product, "category", None)), styles["cell"]),
+                    Paragraph(_money(item.total_price), styles["money_cell"]),
                 ]
             )
 
@@ -140,15 +177,16 @@ def _product_table(records: Iterable, styles: dict) -> Table:
         colWidths=[
             CONTENT_WIDTH * 0.10,
             CONTENT_WIDTH * 0.08,
-            CONTENT_WIDTH * 0.12,
-            CONTENT_WIDTH * 0.35,
+            CONTENT_WIDTH * 0.16,
+            CONTENT_WIDTH * 0.30,
             CONTENT_WIDTH * 0.12,
             CONTENT_WIDTH * 0.08,
             CONTENT_WIDTH * 0.08,
-            CONTENT_WIDTH * 0.07,
+            CONTENT_WIDTH * 0.09,
         ],
         repeatRows=1,
         hAlign="LEFT",
+        splitByRow=False,
     )
     table.setStyle(
         TableStyle(

@@ -12,7 +12,7 @@
 /** Decimals a lifting price can carry — the scratch-card price precision. */
 export const PRICE_DECIMALS = 4;
 
-const SCRATCH_CARD_CATEGORY = "scratch card";
+const SCRATCH_CARD_KW = "scratch";
 
 /** Two to four decimals: round money values never grow a trailing `.00`. */
 const PRICE_FORMAT: Intl.NumberFormatOptions = {
@@ -20,9 +20,13 @@ const PRICE_FORMAT: Intl.NumberFormatOptions = {
   maximumFractionDigits: PRICE_DECIMALS,
 };
 
-/** `"Scratch Card"`, `"scratch card "` → true; any other category → false. */
+/**
+ * Any category whose normalized form contains "scratch" (e.g. "Scratch Card",
+ * "scratch_card", "Scratch") is treated as a scratch-card price and keeps up
+ * to four decimals.
+ */
 export function isScratchCardCategory(category?: string | null): boolean {
-  return (category || "").trim().toLowerCase() === SCRATCH_CARD_CATEGORY;
+  return (category || "").trim().toLowerCase().includes(SCRATCH_CARD_KW);
 }
 
 /**
