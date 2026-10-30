@@ -37,9 +37,8 @@ from reportlab.platypus import (
 logger = logging.getLogger(__name__)
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
-# "No margin": the statement is full-bleed. The 1pt guard keeps the outer table
-# border stroke inside the page instead of half-clipped by the page edge.
-CONTENT_WIDTH = PAGE_WIDTH - 1
+MARGIN = 20  # minimum margin in points
+CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN
 
 INK = colors.HexColor("#111827")
 MUTED = colors.HexColor("#6B7280")
@@ -138,7 +137,16 @@ def _product_table(records: Iterable, styles: dict) -> Table:
 
     table = Table(
         rows,
-        colWidths=[62, 40, 66, 176, 62, 40, 68, 80.27],
+        colWidths=[
+            CONTENT_WIDTH * 0.10,
+            CONTENT_WIDTH * 0.08,
+            CONTENT_WIDTH * 0.12,
+            CONTENT_WIDTH * 0.35,
+            CONTENT_WIDTH * 0.12,
+            CONTENT_WIDTH * 0.08,
+            CONTENT_WIDTH * 0.08,
+            CONTENT_WIDTH * 0.07,
+        ],
         repeatRows=1,
         hAlign="LEFT",
     )
@@ -215,10 +223,10 @@ def build_lifting_statement_pdf(
                 id="full-bleed",
                 frames=[
                     Frame(
-                        0,
-                        0,
-                        PAGE_WIDTH,
-                        PAGE_HEIGHT,
+                        MARGIN,
+                        MARGIN,
+                        CONTENT_WIDTH,
+                        PAGE_HEIGHT - 2 * MARGIN,
                         leftPadding=0,
                         rightPadding=0,
                         topPadding=0,

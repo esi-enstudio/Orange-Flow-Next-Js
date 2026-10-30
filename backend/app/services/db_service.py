@@ -2208,8 +2208,25 @@ async def init_db():
         if "already exists" in error_msg:
             logger.warning(f"Some DB objects already exist (normal on restart). Dropping conflicting constraint and retrying...")
             await _drop_conflicting_constraints()
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
+            try:
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+            except Exception as e2:
+                error_msg2 = str(e2).lower()
+                if "already exists" in error_msg2 and "ix_sales_house_date" in error_msg2:
+                    logger.warning("Dropping conflicting sales index and retrying...")
+                    try:
+                        async with engine.begin() as conn:
+                            await conn.execute(text("DROP INDEX IF EXISTS ix_sales_house_date"))
+                    except Exception:
+                        pass
+                    async with engine.begin() as conn:
+                        await conn.run_sync(Base.metadata.create_all)
+                elif "already exists" in error_msg2:
+                    logger.warning(f"Still have conflicts: {e2}. Attempting to continue...")
+                    # Try to continue anyway
+                else:
+                    raise
         else:
             logger.warning(f"Table sync error (non-critical): {e}")
 

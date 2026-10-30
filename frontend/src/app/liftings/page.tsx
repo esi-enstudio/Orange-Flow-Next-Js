@@ -14,6 +14,8 @@ import { formatLiftingAmount, formatPrice } from "@/lib/price";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 import PageGuideModal from "@/components/PageGuideModal";
 import PullPreRFModal, { PullBank } from "./_components/PullPreRFModal";
+import { DateRangePicker } from "@/components/date-picker";
+import type { DateRangeValue } from "@/components/date-picker/utils";
 
 function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -203,21 +205,21 @@ export default function LiftingRecordsPage() {
     const [records, setRecords] = useState<LiftingRecord[]>([]);
     const [summary, setSummary] = useState<LiftingSummary | null>(null);
     const [loading, setLoading] = useState(true);
-    const [exporting, setExporting] = useState(false);
     const [printing, setPrinting] = useState(false);
 
     const [houses, setHouses] = useState<House[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [banks, setBanks] = useState<PullBank[]>([]);
     const [houseId, setHouseId] = useState<number | "">("");
-    const [dateFrom, setDateFrom] = useState(getMonthRange().from);
-    const [dateTo, setDateTo] = useState(getMonthRange().to);
+    const monthRange = getMonthRange();
+    const [dateRange, setDateRange] = useState<DateRangeValue>({ from: monthRange.from, to: monthRange.to });
     const [statusFilter, setStatusFilter] = useState("");
     const [search, setSearch] = useState("");
 
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<LiftingRecord | null>(null);
     const [deleting, setDeleting] = useState(false);
+    const [hasSearched, setHasSearched] = useState(false);
 
     const [editTarget, setEditTarget] = useState<LiftingRecord | null>(null);
     const [editBankDeposit, setEditBankDeposit] = useState("");
@@ -316,8 +318,8 @@ export default function LiftingRecordsPage() {
                 offset: 0,
             };
             if (houseId) params.house_id = houseId;
-            if (dateFrom) params.date_from = dateFrom;
-            if (dateTo) params.date_to = dateTo;
+            if (dateRange.from) params.date_from = dateRange.from;
+            if (dateRange.to) params.date_to = dateRange.to;
             if (statusFilter) params.status = statusFilter;
             if (s.trim()) params.search = s.trim();
 
@@ -340,13 +342,13 @@ export default function LiftingRecordsPage() {
             setLoading(false);
             fetchingRef.current = false;
         }
-    }, [houseId, dateFrom, dateTo, statusFilter, search, t]);
+    }, [houseId, dateRange.from, dateRange.to, statusFilter, search, t]);
 
     const statementParams = () => {
         const params: Record<string, any> = {};
         if (houseId) params.house_id = houseId;
-        if (dateFrom) params.date_from = dateFrom;
-        if (dateTo) params.date_to = dateTo;
+        if (dateRange.from) params.date_from = dateRange.from;
+        if (dateRange.to) params.date_to = dateRange.to;
         if (statusFilter) params.status = statusFilter;
         if (search.trim()) params.search = search.trim();
         return params;
@@ -364,7 +366,7 @@ export default function LiftingRecordsPage() {
             );
             const a = document.createElement("a");
             a.href = url;
-            a.download = `lifting_statement_${dateFrom || "start"}_${dateTo || "end"}.pdf`;
+            a.download = `lifting_statement_${dateRange.from || "start"}_${dateRange.to || "end"}.pdf`;
             a.click();
             window.URL.revokeObjectURL(url);
             toast.success(t("liftings.statement.success"));
@@ -385,34 +387,6 @@ export default function LiftingRecordsPage() {
             toast.error(message);
         } finally {
             setPrinting(false);
-        }
-    };
-
-    const handleExport = async () => {
-        setExporting(true);
-        try {
-            const params: Record<string, any> = {};
-            if (houseId) params.house_id = houseId;
-            if (dateFrom) params.date_from = dateFrom;
-            if (dateTo) params.date_to = dateTo;
-            if (statusFilter) params.status = statusFilter;
-            if (search.trim()) params.search = search.trim();
-
-            const res = await apiClient.get("lifting/export", {
-                params,
-                responseType: "blob",
-            });
-            const url = window.URL.createObjectURL(new Blob([res.data]));
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "lifting_records_export.xlsx";
-            a.click();
-            window.URL.revokeObjectURL(url);
-            toast.success("Lifting records exported");
-        } catch (err: any) {
-            toast.error(err?.response?.data?.detail || t("common.error"));
-        } finally {
-            setExporting(false);
         }
     };
 
@@ -495,7 +469,6 @@ export default function LiftingRecordsPage() {
         if (!authLoading && hasPermission("lifting.view")) {
             fetchHouses();
             fetchBanks();
-            fetchRecords({ silent: true });
         }
     }, [authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -529,13 +502,17 @@ export default function LiftingRecordsPage() {
         return label === key ? category : label;
     };
 
-    const activeFilterCount = [houseId, dateFrom, dateTo, statusFilter, search.trim()].filter(Boolean).length;
+    const activeFilterCount = [houseId, dateRange.from || dateRange.to ? true : false, statusFilter, search.trim()].filter(Boolean).length;
 
     const activeFilterChips: { label: string; onRemove: () => void }[] = [];
     const selectedHouse = houses.find((h) => h.id === houseId);
     if (selectedHouse) activeFilterChips.push({ label: `House: ${selectedHouse.display_name}`, onRemove: () => setHouseId("") });
-    if (dateFrom) activeFilterChips.push({ label: `From: ${dateFrom}`, onRemove: () => setDateFrom("") });
-    if (dateTo) activeFilterChips.push({ label: `To: ${dateTo}`, onRemove: () => setDateTo("") });
+    if (dateRange.from || dateRange.to) {
+        activeFilterChips.push({
+            label: `Date: ${dateRange.from || "..."} - ${dateRange.to || "..."}`,
+            onRemove: () => setDateRange({ from: null, to: null }),
+        });
+    }
     if (statusFilter) activeFilterChips.push({ label: `Status: ${statusFilter}`, onRemove: () => setStatusFilter("") });
     if (search.trim()) activeFilterChips.push({ label: `Search: "${search.trim()}"`, onRemove: () => { setSearch(""); searchRef.current = ""; fetchRecords({ search: "", silent: true }); } });
 
@@ -570,26 +547,14 @@ export default function LiftingRecordsPage() {
                     </p>
                 </div>
                 <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-2.5 sm:shrink-0">
-                    {hasPermission("lifting.export") && (
-                        <>
-                            <button
-                                onClick={handleStatement}
-                                disabled={printing || loading}
-                                className="w-full sm:w-auto justify-center px-4 py-2.5 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 rounded-xl text-sm font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                                {printing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                                {t("liftings.statement.button")}
-                            </button>
-                            <button
-                                onClick={handleExport}
-                                disabled={exporting || loading}
-                                className="w-full sm:w-auto justify-center px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                                {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                                {t("liftings.export")}
-                            </button>
-                        </>
-                    )}
+                    <button
+                        onClick={handleStatement}
+                        disabled={printing || loading || !hasSearched}
+                        className="w-full sm:w-auto justify-center px-4 py-2.5 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 rounded-xl text-sm font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        {printing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                        {t("liftings.statement.button")}
+                    </button>
                     <button
                         onClick={() => router.push("/liftings/create")}
                         className="w-full sm:w-auto justify-center shrink-0 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-2 shadow-sm"
@@ -623,13 +588,14 @@ export default function LiftingRecordsPage() {
                         <button
                             onClick={() => {
                                 setHouseId("");
-                                setDateFrom("");
-                                setDateTo("");
+                                setDateRange({ from: null, to: null });
                                 setStatusFilter("");
                                 setSearch("");
                                 searchRef.current = "";
                                 setExpandedId(null);
-                                fetchRecords({ search: "", silent: true });
+                                setHasSearched(false);
+                                setRecords([]);
+                                setSummary(null);
                             }}
                             className="text-[11px] font-semibold text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center gap-1"
                         >
@@ -647,34 +613,20 @@ export default function LiftingRecordsPage() {
                             <select
                                 value={houseId}
                                 onChange={(e) => setHouseId(e.target.value ? Number(e.target.value) : "")}
-                                className="w-full px-3 py-[9px] rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
+                                className="w-full px-3 py-[9px] rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
                             >
-                                <option value="">All Houses</option>
+                                <option value="">Select House</option>
                                 {houses.map((h) => (
                                     <option key={h.id} value={h.id}>{h.display_name}</option>
                                 ))}
                             </select>
                         </div>
-                        <div>
-                            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
-                                From Date
-                            </label>
-                            <input
-                                type="date"
-                                value={dateFrom}
-                                onChange={(e) => setDateFrom(e.target.value)}
-                                className="w-full px-3 py-[9px] rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
-                                To Date
-                            </label>
-                            <input
-                                type="date"
-                                value={dateTo}
-                                onChange={(e) => setDateTo(e.target.value)}
-                                className="w-full px-3 py-[9px] rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
+                        <div className="sm:col-span-2">
+                            <DateRangePicker
+                                label="Date Range"
+                                value={dateRange}
+                                onChange={setDateRange}
+                                placeholder="Select date range"
                             />
                         </div>
                         <div>
@@ -684,7 +636,7 @@ export default function LiftingRecordsPage() {
                             <select
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value)}
-                                className="w-full px-3 py-[9px] rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
+                                className="w-full px-3 py-[9px] rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
                             >
                                 <option value="">All Statuses</option>
                                 <option value="Draft">Draft</option>
@@ -704,7 +656,7 @@ export default function LiftingRecordsPage() {
                                     value={search}
                                     onChange={(e) => handleSearchChange(e.target.value)}
                                     placeholder="Product, code or notes..."
-                                    className="w-full pl-9 pr-8 py-[9px] rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all placeholder:text-gray-400"
+                                    className="w-full pl-9 pr-8 py-[9px] rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all placeholder:text-gray-400"
                                 />
                                 {search && (
                                     <button
@@ -719,7 +671,18 @@ export default function LiftingRecordsPage() {
                     </div>
                     <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
                         <button
-                            onClick={() => fetchRecords({ silent: false })}
+                            onClick={() => {
+                                if (!houseId) {
+                                    toast.error("Please select a house");
+                                    return;
+                                }
+                                if (!dateRange.from || !dateRange.to) {
+                                    toast.error("Please select date range");
+                                    return;
+                                }
+                                setHasSearched(true);
+                                fetchRecords({ silent: false });
+                            }}
                             className="w-full sm:w-auto justify-center px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-sm hover:shadow-md active:scale-[0.98] flex items-center gap-1.5"
                         >
                             <Search className="w-3.5 h-3.5" />
@@ -728,13 +691,14 @@ export default function LiftingRecordsPage() {
                         <button
                             onClick={() => {
                                 setHouseId("");
-                                setDateFrom("");
-                                setDateTo("");
+                                setDateRange({ from: null, to: null });
                                 setStatusFilter("");
                                 setSearch("");
                                 searchRef.current = "";
                                 setExpandedId(null);
-                                fetchRecords({ search: "", silent: true });
+                                setHasSearched(false);
+                                setRecords([]);
+                                setSummary(null);
                             }}
                             className="w-full sm:w-auto justify-center px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800/50 hover:text-gray-700 dark:hover:text-gray-300 transition-all active:scale-[0.98]"
                         >
@@ -762,6 +726,7 @@ export default function LiftingRecordsPage() {
             </div>
 
             {/* Filtered Summary */}
+            {hasSearched && (
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
                 <div className="px-3.5 py-3 sm:px-5 sm:py-3.5 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -890,10 +855,15 @@ export default function LiftingRecordsPage() {
                     </div>
                 )}
             </div>
+            )}
 
             {/* Records Table / Accordion */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
-                {loading ? (
+                {!hasSearched ? (
+                    <div className="px-4 py-12 text-center">
+                        <p className="text-gray-400 dark:text-gray-500 text-sm">Please select House and Date Range, then click Search to view lifting records</p>
+                    </div>
+                ) : loading ? (
                     <div className="divide-y divide-gray-50 dark:divide-slate-800">
                         {Array.from({ length: 5 }).map((_, i) => (
                             <div key={i} className="flex items-center gap-4 px-3.5 py-4 sm:px-4 animate-pulse">

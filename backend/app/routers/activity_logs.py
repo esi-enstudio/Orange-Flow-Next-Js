@@ -5,12 +5,12 @@ only logs from houses they belong to. Admins see all logs.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from typing import Optional
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity_log import ActivityLog
-from app.models.employee import Employee
-from app.models.house import House
+from app.models.user import User
 from app.routers.deps import get_db, get_current_user, get_house_context, has_permission, is_super_admin_user
 from app.schemas.activity_log import ActivityLogOut, ActivityLogListOut
 
