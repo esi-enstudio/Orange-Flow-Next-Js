@@ -258,11 +258,36 @@ export const navItems: NavItem[] = [
     icon: Wallet,
     color: "text-violet-500",
     children: [
-      { title: "Expenses", translationKey: "nav.finance_expenses", href: "/finance/expenses", permission: "finance.expense_create" },
-      { title: "Receipts", translationKey: "nav.finance_receipts", href: "/finance/receipts", permission: "finance.receipt_create" },
-      { title: "Cashbook", translationKey: "nav.finance_cashbook", href: "/finance/cashbook", permission: "finance.cash_entry" },
-      { title: "Daily Closing", translationKey: "nav.finance_closing", href: "/finance/closing", permission: "finance.closing_submit" },
-      { title: "iTopUp Balance", translationKey: "nav.finance_itopup", href: "/finance/itopup", permission: "itopup_balance.view" },
+      {
+        title: "Expenses",
+        translationKey: "nav.finance_expenses",
+        href: "/finance/expenses",
+        permissions: ["finance.view", "finance.expense_create", "finance.expense_approve", "finance.expense_pay"],
+      },
+      {
+        title: "Receipts",
+        translationKey: "nav.finance_receipts",
+        href: "/finance/receipts",
+        permissions: ["finance.view", "finance.receipt_create"],
+      },
+      {
+        title: "Cashbook",
+        translationKey: "nav.finance_cashbook",
+        href: "/finance/cashbook",
+        permissions: ["finance.view", "finance.cash_entry", "finance.cash_reverse"],
+      },
+      {
+        title: "Daily Closing",
+        translationKey: "nav.finance_closing",
+        href: "/finance/closing",
+        permissions: ["finance.view", "finance.closing_submit", "finance.closing_approve", "finance.closing_reopen"],
+      },
+      {
+        title: "iTopUp Balance",
+        translationKey: "nav.finance_itopup",
+        href: "/finance/itopup",
+        permissions: ["itopup_balance.view", "itopup_balance.create", "itopup_balance.verify"],
+      },
     ],
   },
   {

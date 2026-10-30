@@ -16,6 +16,8 @@ from sqlalchemy.orm import selectinload
 
 from app.models.employee import Employee
 from app.models.finance import (
+    EXPENSE_STATUSES,
+    RECEIPT_METHODS,
     CashAccount,
     CashTransaction,
     DailyClosing,
@@ -24,7 +26,7 @@ from app.models.finance import (
     Receipt,
     TopupEntry,
 )
-from app.models.itopup_balance import ITopUpBalance
+from app.models.itopup_balance import ITopUpBalance, ITopUpTransfer
 from app.models.stock import SerialUnit
 from app.services.inventory_service import resolve_business_date
 from app.services.itopup_service import apply_itopup_change
@@ -607,6 +609,38 @@ async def _get_closing(db: AsyncSession, house_id: int, closing_id: int) -> Dail
     return closing
 
 
+async def list_closings(
+    db: AsyncSession,
+    *,
+    house_id: int,
+    status: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
+) -> Tuple[List[DailyClosing], int]:
+    filters = [DailyClosing.house_id == house_id]
+    if status:
+        filters.append(DailyClosing.status == status)
+    if date_from:
+        filters.append(DailyClosing.business_date >= date_from)
+    if date_to:
+        filters.append(DailyClosing.business_date <= date_to)
+
+    total = (
+        await db.execute(select(func.count(DailyClosing.id)).where(*filters))
+    ).scalar() or 0
+    stmt = (
+        select(DailyClosing)
+        .where(*filters)
+        .order_by(DailyClosing.business_date.desc())
+    )
+    if page and per_page:
+        stmt = stmt.offset((page - 1) * per_page).limit(per_page)
+    rows = list((await db.execute(stmt)).scalars().all())
+    return rows, total
+
+
 # --------------------------------------------------------------------------- #
 # iTopUp daily entries
 # --------------------------------------------------------------------------- #
@@ -794,6 +828,29 @@ async def topup_reconciliation(db: AsyncSession, *, house_id: int, business_date
     }
 
 
+def expense_filters(
+    *,
+    house_id: int,
+    status: Optional[str] = None,
+    source: Optional[str] = None,
+    search: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> list:
+    filters = [Expense.house_id == house_id, Expense.is_deleted.is_(False)]
+    if status:
+        filters.append(Expense.status == status)
+    if source:
+        filters.append(Expense.source == source)
+    if search:
+        filters.append(Expense.description.ilike(f"%{search.strip()}%"))
+    if date_from:
+        filters.append(Expense.business_date >= date_from)
+    if date_to:
+        filters.append(Expense.business_date <= date_to)
+    return filters
+
+
 async def list_expenses(
     db: AsyncSession,
     *,
@@ -806,17 +863,14 @@ async def list_expenses(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
 ) -> Tuple[List[Expense], int]:
-    filters = [Expense.house_id == house_id, Expense.is_deleted.is_(False)]
-    if status:
-        filters.append(Expense.status == status)
-    if source:
-        filters.append(Expense.source == source)
-    if search:
-        filters.append(Expense.description.ilike(f"%{search.strip()}%"))
-    if date_from:
-        filters.append(Expense.business_date >= date_from)
-    if date_to:
-        filters.append(Expense.business_date <= date_to)
+    filters = expense_filters(
+        house_id=house_id,
+        status=status,
+        source=source,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
     total = (await db.execute(select(func.count(Expense.id)).where(*filters))).scalar() or 0
     rows = list(
         (
@@ -835,16 +889,57 @@ async def list_expenses(
     return rows, total
 
 
-async def list_receipts(
+async def expense_summary(
     db: AsyncSession,
     *,
     house_id: int,
-    page: int,
-    per_page: int,
+    status: Optional[str] = None,
+    source: Optional[str] = None,
     search: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
-) -> Tuple[List[Receipt], int]:
+) -> dict:
+    filters = expense_filters(
+        house_id=house_id,
+        status=status,
+        source=source,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    grouped = (
+        await db.execute(
+            select(
+                Expense.status,
+                func.count(Expense.id),
+                func.coalesce(func.sum(Expense.amount), 0),
+            )
+            .where(*filters)
+            .group_by(Expense.status)
+        )
+    ).all()
+
+    counts = {row[0]: int(row[1] or 0) for row in grouped}
+    amounts = {row[0]: float(row[2] or 0) for row in grouped}
+    total_count = sum(counts.values())
+    total_amount = sum(amounts.values())
+    return {
+        "total": {"count": total_count, "amount": round(total_amount, 2)},
+        "by_status": {
+            name: {"count": counts.get(name, 0), "amount": round(amounts.get(name, 0.0), 2)}
+            for name in EXPENSE_STATUSES
+        },
+    }
+
+
+def receipt_filters(
+    *,
+    house_id: int,
+    search: Optional[str] = None,
+    payment_method: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> list:
     filters = [Receipt.house_id == house_id, Receipt.is_deleted.is_(False)]
     if search:
         pattern = f"%{search.strip()}%"
@@ -853,10 +948,33 @@ async def list_receipts(
             | Receipt.source_name.ilike(pattern)
             | Receipt.related_party.ilike(pattern)
         )
+    if payment_method:
+        filters.append(Receipt.payment_method == payment_method)
     if date_from:
         filters.append(Receipt.business_date >= date_from)
     if date_to:
         filters.append(Receipt.business_date <= date_to)
+    return filters
+
+
+async def list_receipts(
+    db: AsyncSession,
+    *,
+    house_id: int,
+    page: int,
+    per_page: int,
+    search: Optional[str] = None,
+    payment_method: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> Tuple[List[Receipt], int]:
+    filters = receipt_filters(
+        house_id=house_id,
+        search=search,
+        payment_method=payment_method,
+        date_from=date_from,
+        date_to=date_to,
+    )
     total = (await db.execute(select(func.count(Receipt.id)).where(*filters))).scalar() or 0
     rows = list(
         (
@@ -872,3 +990,101 @@ async def list_receipts(
         .all()
     )
     return rows, total
+
+
+async def receipt_summary(
+    db: AsyncSession,
+    *,
+    house_id: int,
+    search: Optional[str] = None,
+    payment_method: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> dict:
+    filters = receipt_filters(
+        house_id=house_id,
+        search=search,
+        payment_method=payment_method,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    grouped = (
+        await db.execute(
+            select(
+                Receipt.payment_method,
+                func.count(Receipt.id),
+                func.coalesce(func.sum(Receipt.amount), 0),
+            )
+            .where(*filters)
+            .group_by(Receipt.payment_method)
+        )
+    ).all()
+
+    counts = {row[0]: int(row[1] or 0) for row in grouped}
+    amounts = {row[0]: float(row[2] or 0) for row in grouped}
+    return {
+        "total": {
+            "count": sum(counts.values()),
+            "amount": round(sum(amounts.values()), 2),
+        },
+        "by_method": {
+            name: {"count": counts.get(name, 0), "amount": round(amounts.get(name, 0.0), 2)}
+            for name in RECEIPT_METHODS
+        },
+    }
+
+
+async def list_topup_transfers(
+    db: AsyncSession,
+    *,
+    house_id: int,
+    page: int,
+    per_page: int,
+) -> Tuple[List[dict], int]:
+    base = select(ITopUpTransfer).where(
+        ITopUpTransfer.house_id == house_id,
+        ITopUpTransfer.is_deleted.is_(False),
+    )
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar() or 0
+    rows = list(
+        (
+            await db.execute(
+                base.order_by(ITopUpTransfer.id.desc())
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    employee_ids = {
+        emp_id
+        for row in rows
+        for emp_id in (row.from_employee_id, row.to_employee_id)
+        if emp_id is not None
+    }
+    names: dict = {}
+    if employee_ids:
+        names = {
+            emp.id: emp.employee_name
+            for emp in (
+                await db.execute(select(Employee).where(Employee.id.in_(employee_ids)))
+            ).scalars().all()
+        }
+    data = [
+        {
+            "id": row.id,
+            "from_employee_id": row.from_employee_id,
+            "from_employee_name": names.get(row.from_employee_id) or "Mother SIM",
+            "to_employee_id": row.to_employee_id,
+            "to_employee_name": names.get(row.to_employee_id) or "Mother SIM",
+            "amount": float(row.amount or 0),
+            "movement": row.movement,
+            "notes": row.notes,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+    return data, total

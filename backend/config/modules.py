@@ -373,6 +373,10 @@ MODULE_SHARED_API_PREFIXES: dict = {
         "/api/v1/inventory/employees",
         "/api/v1/inventory/ledger",
     ),
+    "finance": (
+        "/api/v1/finance/employees",
+        "/api/v1/finance/cash-accounts",
+    ),
     "sim_management": ("/api/v1/ev-kit", "/api/v1/sim-products"),
     "reports": ("/api/itopup-details", "/api/itopup-balance"),
     "zoom_in": ("/api/zoom-in/filter-options",),

@@ -4,13 +4,13 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.employee import Employee
-from app.models.finance import CashTransaction, DailyClosing, Expense, Receipt, TopupEntry
+from app.models.finance import CashAccount, CashTransaction, DailyClosing, Expense, Receipt, TopupEntry
 from app.models.itopup_balance import ITopUpBalance, ITopUpTransfer
 from app.models.user import User
 from app.routers.deps import get_db, has_permission, require_house_context
@@ -28,6 +28,7 @@ from app.schemas.finance import (
     TopupVerify,
 )
 from app.services import finance_service as svc
+from app.services import finance_excel
 from app.services.itopup_service import apply_itopup_change
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
@@ -35,6 +36,7 @@ from app.utils.timezone import now_naive
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
 VIEW = has_permission("finance.view")
+EXPORT = has_permission("finance.export")
 EXPENSE_CREATE = has_permission("finance.expense_create")
 EXPENSE_APPROVE = has_permission("finance.expense_approve")
 EXPENSE_PAY = has_permission("finance.expense_pay")
@@ -145,6 +147,142 @@ async def expense_categories(
             {"id": row.id, "name": row.name, "source": row.source} for row in rows
         ],
     }
+
+
+@router.get("/employees")
+async def finance_employees(
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(VIEW),
+):
+    """Active house employees for the expense / iTopUp pickers.
+
+    Kept inside the finance router so a finance-only role does not need
+    `employees.view` to record an expense for an RSO.
+    """
+    rows = (
+        await db.execute(
+            select(Employee)
+            .where(Employee.house_id == house_id, Employee.status == "Active")
+            .order_by(Employee.employee_name)
+        )
+    ).scalars().all()
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": row.id,
+                "employee_name": row.employee_name,
+                "employee_id": row.employee_id,
+                "dms_code": row.dms_code,
+                "employee_type": row.employee_type,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.get("/cash-accounts")
+async def cash_accounts(
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(VIEW),
+):
+    await svc.get_default_cash_account(db, house_id)
+    await db.commit()
+    rows = (
+        await db.execute(
+            select(CashAccount)
+            .where(CashAccount.house_id == house_id, CashAccount.is_active.is_(True))
+            .order_by(CashAccount.id)
+        )
+    ).scalars().all()
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": row.id,
+                "name": row.name,
+                "account_type": row.account_type,
+                "opening_balance": float(row.opening_balance or 0),
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.get("/expenses/summary")
+async def expense_summary(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    source: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(VIEW),
+):
+    data = await svc.expense_summary(
+        db,
+        house_id=house_id,
+        status=status_filter,
+        source=source,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return {"success": True, "data": data}
+
+
+@router.get("/expenses/export")
+async def export_expenses(
+    request: Request,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    source: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(EXPORT),
+):
+    filters = svc.expense_filters(
+        house_id=house_id,
+        status=status_filter,
+        source=source,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    rows = list(
+        (
+            await db.execute(
+                select(Expense)
+                .options(selectinload(Expense.category), selectinload(Expense.employee))
+                .where(*filters)
+                .order_by(Expense.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    excel_data = await finance_excel.export_expenses_excel(rows)
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="finance",
+        action="export",
+        record_identifier=f"{len(rows)} expenses",
+        new_values={"house_id": house_id, "count": len(rows)},
+        request=request,
+        status_code=200,
+    )
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=finance_expenses.xlsx"},
+    )
 
 
 @router.get("/expenses")
@@ -273,11 +411,81 @@ async def pay_expense(
 # --------------------------------------------------------------------------- #
 # receipts & cash
 # --------------------------------------------------------------------------- #
+@router.get("/receipts/summary")
+async def receipt_summary(
+    search: Optional[str] = Query(None),
+    payment_method: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(VIEW),
+):
+    data = await svc.receipt_summary(
+        db,
+        house_id=house_id,
+        search=search,
+        payment_method=payment_method,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return {"success": True, "data": data}
+
+
+@router.get("/receipts/export")
+async def export_receipts(
+    request: Request,
+    search: Optional[str] = Query(None),
+    payment_method: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(EXPORT),
+):
+    filters = svc.receipt_filters(
+        house_id=house_id,
+        search=search,
+        payment_method=payment_method,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    rows = list(
+        (
+            await db.execute(
+                select(Receipt)
+                .where(*filters)
+                .order_by(Receipt.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    excel_data = await finance_excel.export_receipts_excel(rows)
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="finance",
+        action="export",
+        record_identifier=f"{len(rows)} receipts",
+        new_values={"house_id": house_id, "count": len(rows)},
+        request=request,
+        status_code=200,
+    )
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=finance_receipts.xlsx"},
+    )
+
+
 @router.get("/receipts")
 async def list_receipts(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
+    payment_method: Optional[str] = Query(None),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     house_id: int = Depends(require_house_context),
@@ -290,6 +498,7 @@ async def list_receipts(
         page=page,
         per_page=per_page,
         search=search,
+        payment_method=payment_method,
         date_from=date_from,
         date_to=date_to,
     )
@@ -387,9 +596,74 @@ async def daily_cashbook(
     return {"success": True, "data": book}
 
 
+@router.get("/cashbook/export")
+async def export_cashbook(
+    request: Request,
+    business_date: Optional[date] = Query(None, alias="date"),
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(EXPORT),
+):
+    target = business_date or now_naive().date()
+    book = await svc.cashbook(db, house_id=house_id, business_date=target)
+    excel_data = await finance_excel.export_cashbook_excel(book)
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="finance",
+        action="export",
+        record_identifier=f"cashbook {target.isoformat()}",
+        new_values={"house_id": house_id, "business_date": target.isoformat()},
+        request=request,
+        status_code=200,
+    )
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=cashbook_{target.isoformat()}.xlsx"},
+    )
+
+
 # --------------------------------------------------------------------------- #
 # daily closing
 # --------------------------------------------------------------------------- #
+@router.get("/daily-closings/export")
+async def export_closings(
+    request: Request,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(EXPORT),
+):
+    rows, _total = await svc.list_closings(
+        db,
+        house_id=house_id,
+        status=status_filter,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    excel_data = await finance_excel.export_closings_excel(rows)
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="finance",
+        action="export",
+        record_identifier=f"{len(rows)} daily closings",
+        new_values={"house_id": house_id, "count": len(rows)},
+        request=request,
+        status_code=200,
+    )
+    return Response(
+        content=excel_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=daily_closings.xlsx"},
+    )
+
+
 @router.get("/daily-closings")
 async def list_closings(
     page: int = Query(1, ge=1),
@@ -401,25 +675,15 @@ async def list_closings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(VIEW),
 ):
-    from sqlalchemy import func
-
-    filters = [DailyClosing.house_id == house_id]
-    if status_filter:
-        filters.append(DailyClosing.status == status_filter)
-    if date_from:
-        filters.append(DailyClosing.business_date >= date_from)
-    if date_to:
-        filters.append(DailyClosing.business_date <= date_to)
-    total = (await db.execute(select(func.count(DailyClosing.id)).where(*filters))).scalar() or 0
-    rows = (
-        await db.execute(
-            select(DailyClosing)
-            .where(*filters)
-            .order_by(DailyClosing.business_date.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-        )
-    ).scalars().all()
+    rows, total = await svc.list_closings(
+        db,
+        house_id=house_id,
+        status=status_filter,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        per_page=per_page,
+    )
     return {
         "success": True,
         "data": [_closing_out(row) for row in rows],
@@ -525,6 +789,24 @@ async def topup_balances(
             }
             for row in rows
         ],
+    }
+
+
+@router.get("/itopup/transfers")
+async def topup_transfers(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(TOPUP_VIEW),
+):
+    rows, total = await svc.list_topup_transfers(
+        db, house_id=house_id, page=page, per_page=per_page
+    )
+    return {
+        "success": True,
+        "data": rows,
+        "pagination": _pagination(page, per_page, total),
     }
 
 
