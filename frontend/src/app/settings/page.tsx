@@ -1,10 +1,10 @@
 "use client";
+import NextImage from "next/image";
 import { useLanguage } from "@/i18n/useLanguage";
 import { usePrimaryColor, PRIMARY_COLORS } from "@/context/ColorContext";
 import {
-  Settings, Palette, Sun, Moon, Monitor, Check, Image, Save,
-  Loader2, Upload, RefreshCw, Building2, Globe, Bell, Shield,
-  Database, ChevronRight, Hash, Wrench
+  Settings, Palette, Sun, Moon, Monitor, Check, Image as ImageIcon, Save,
+  Loader2, Upload, RefreshCw, Building2, Bell, Hash, Wrench
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import { useState, useEffect, useMemo } from "react";
@@ -48,7 +48,7 @@ function Toggle({ enabled, onToggle, disabled, label }: { enabled: boolean; onTo
 
 export default function SettingsPage() {
   const { hasPermission, loading: authLoading, user } = useAuth();
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const { primaryColor, setPrimaryColor } = usePrimaryColor();
   const { theme, setTheme } = useTheme();
   const { brand, updateBrand } = useBrand();
@@ -56,10 +56,10 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [appName, setAppName] = useState(brand.app_name);
   const [logo, setLogo] = useState<string | null>(brand.logo);
-  const [favicon, setFavicon] = useState<string | null>(brand.favicon);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadingFavicon, setUploadingFavicon] = useState(false);
+  const [uploadingAppIcon, setUploadingAppIcon] = useState(false);
+  const [brandIconVersion, setBrandIconVersion] = useState<number | null>(null);
   const [dailySyncEnabled, setDailySyncEnabled] = useState(true);
   const [togglingSync, setTogglingSync] = useState(false);
   const [simSerialLength, setSimSerialLength] = useState(18);
@@ -96,7 +96,7 @@ export default function SettingsPage() {
         bgColor: "bg-rose-100 dark:bg-rose-500/10",
       },
     ];
-  }, [isSuperAdmin, t, language]);
+  }, [isSuperAdmin, t]);
 
   // Seed the message field from the server once, before any local edits.
   useEffect(() => {
@@ -167,14 +167,13 @@ export default function SettingsPage() {
   useEffect(() => {
     setAppName(brand.app_name);
     setLogo(brand.logo);
-    setFavicon(brand.favicon);
   }, [brand]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await apiClient.put("settings/brand", { app_name: appName });
-      updateBrand({ app_name: appName, logo, favicon });
+      updateBrand({ app_name: appName, logo, favicon: brand.favicon });
       toast.success("Brand settings saved");
     } catch { toast.error("Failed to save"); }
     finally { setSaving(false); }
@@ -218,26 +217,47 @@ export default function SettingsPage() {
       const res = await apiClient.post("settings/brand/logo", form);
       const logoUrl = resolveImageUrl(res.data.logo);
       setLogo(logoUrl);
-      updateBrand({ app_name: appName, logo: logoUrl, favicon });
+      updateBrand({ app_name: appName, logo: logoUrl, favicon: brand.favicon });
       toast.success("Logo uploaded");
     } catch { toast.error("Failed to upload logo"); }
     finally { setUploading(false); }
   };
 
-  const handleFaviconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAppIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploadingFavicon(true);
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!extension || !["png", "jpg", "jpeg", "webp"].includes(extension)) {
+      toast.error(t("settings.brand_icons.app_icon_type_error"));
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error(t("settings.brand_icons.app_icon_size_error"));
+      e.target.value = "";
+      return;
+    }
+
+    setUploadingAppIcon(true);
     const form = new FormData();
     form.append("file", file);
     try {
-      const res = await apiClient.post("settings/brand/favicon", form);
-      const faviconUrl = resolveImageUrl(res.data.favicon);
-      setFavicon(faviconUrl);
-      updateBrand({ app_name: appName, logo, favicon: faviconUrl });
-      toast.success("Favicon uploaded");
-    } catch { toast.error("Failed to upload favicon"); }
-    finally { setUploadingFavicon(false); }
+      const res = await apiClient.post("settings/brand-icons", form);
+      setBrandIconVersion(res.data.version);
+      updateBrand({
+        app_name: appName,
+        logo,
+        favicon: `/favicon.ico?v=${res.data.version}`,
+      });
+      toast.success(t("settings.brand_icons.app_icon_success"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t("settings.brand_icons.upload_failed"),
+      );
+    } finally {
+      setUploadingAppIcon(false);
+      e.target.value = "";
+    }
   };
 
   if (!authLoading && !hasPermission("app_settings.manage")) {
@@ -308,10 +328,17 @@ export default function SettingsPage() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Logo</label>
                 <div className="flex items-center gap-4">
                   {logo ? (
-                    <img src={logo} alt="Brand logo" className="w-16 h-16 rounded-xl object-cover border border-gray-200 dark:border-slate-700" />
+                    <NextImage
+                      src={logo}
+                      alt="Brand logo"
+                      width={64}
+                      height={64}
+                      unoptimized
+                      className="w-16 h-16 rounded-xl object-cover border border-gray-200 dark:border-slate-700"
+                    />
                   ) : (
                     <div className="w-16 h-16 rounded-xl bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center text-gray-400">
-                      <Image className="w-6 h-6" />
+                      <ImageIcon aria-hidden="true" className="w-6 h-6" />
                     </div>
                   )}
                   <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors">
@@ -322,21 +349,40 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Favicon (Browser Tab Icon)</label>
-                <div className="flex items-center gap-4">
-                  {favicon ? (
-                    <img src={favicon} alt="Favicon" className="w-10 h-10 rounded-lg object-cover border border-gray-200 dark:border-slate-700" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center text-gray-400">
-                      <Globe className="w-5 h-5" />
-                    </div>
-                  )}
-                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors">
-                    <Upload className="w-4 h-4" />
-                    {uploadingFavicon ? "Uploading..." : "Upload Favicon"}
-                    <input type="file" accept="image/*" onChange={handleFaviconUpload} className="hidden" />
-                  </label>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">Recommended: 16x16 or 32x32 px .ico or .png</p>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {t("settings.brand_icons.app_icon_label")}
+                </label>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <NextImage
+                    src={
+                      brandIconVersion
+                        ? `/icons/icon-192.png?v=${brandIconVersion}`
+                        : "/icons/icon-192.png"
+                    }
+                    alt={t("settings.brand_icons.app_icon_preview")}
+                    width={64}
+                    height={64}
+                    unoptimized
+                    className="h-16 w-16 rounded-xl border border-gray-200 object-cover dark:border-slate-700"
+                  />
+                  <div className="space-y-2">
+                    <label className="cursor-pointer inline-flex min-h-11 items-center gap-2 rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-gray-300 dark:hover:bg-slate-700">
+                      <Upload className="w-4 h-4" />
+                      {uploadingAppIcon
+                        ? t("settings.brand_icons.uploading")
+                        : t("settings.brand_icons.app_icon_upload")}
+                      <input
+                        type="file"
+                        accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                        onChange={handleAppIconUpload}
+                        disabled={uploadingAppIcon}
+                        className="hidden"
+                      />
+                    </label>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {t("settings.brand_icons.app_icon_hint")}
+                    </p>
+                  </div>
                 </div>
               </div>
               <button onClick={handleSave} disabled={saving}

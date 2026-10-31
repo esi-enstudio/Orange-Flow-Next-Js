@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -17,6 +17,7 @@ import { Toaster } from "react-hot-toast";
 import { Suspense } from "react";
 import PageProgressIndicator from "@/components/ui/PageProgressIndicator";
 import { DynamicPageTitle } from "@/components/layout/DynamicPageTitle";
+import { PWARegister } from "@/components/PWARegister";
 
 const EXTENSION_ATTRIBUTES = ["bis_skin_checked"] as const;
 
@@ -60,6 +61,26 @@ const EXTENSION_CLEANUP_SCRIPT = `
 export const metadata: Metadata = {
   title: "OrangeFlow Management System",
   description: "Professional management dashboard for distribution",
+  applicationName: "OrangeFlow",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "OrangeFlow",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any", type: "image/x-icon" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#f97316",
 };
 
 export default async function RootLayout({
@@ -73,6 +94,7 @@ export default async function RootLayout({
   return (
     <html lang={lang} suppressHydrationWarning>
       <body suppressHydrationWarning className="antialiased text-gray-900 dark:text-gray-100">
+        <PWARegister />
         {process.env.NODE_ENV === "development" ? (
           <script
             type={typeof window === "undefined" ? "text/javascript" : "text/plain"}

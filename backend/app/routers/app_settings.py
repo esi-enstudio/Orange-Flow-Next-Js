@@ -1,4 +1,6 @@
-import os, shutil, logging
+import base64
+import logging
+import os
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from sqlalchemy import select
@@ -12,6 +14,13 @@ from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_super_admin_user
 from app.utils.timezone import now_naive
 from app.services import maintenance_service
+from app.services.brand_icons import (
+    MAX_APP_ICON_SIZE,
+    MAX_FAVICON_SIZE,
+    BrandIconValidationError,
+    generate_app_icon_files,
+    validate_favicon_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -219,12 +228,16 @@ async def upload_favicon(
     current_user = Depends(has_permission("app_settings.manage")),
 ):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    ext = os.path.splitext(file.filename)[1] if file.filename else ".png"
-    filename = f"favicon{ext}"
+    content = await file.read(MAX_FAVICON_SIZE + 1)
+    try:
+        normalized_favicon = validate_favicon_file(file.filename, content)
+    except BrandIconValidationError as exc:
+        status_code = 413 if len(content) > MAX_FAVICON_SIZE else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    filename = "favicon.ico"
     filepath = os.path.join(UPLOAD_DIR, filename)
     with open(filepath, "wb") as f:
-        content = await file.read()
-        f.write(content)
+        f.write(normalized_favicon)
     result = await db.execute(select(AppSetting).where(AppSetting.id == 1))
     setting = result.scalar_one_or_none()
     if not setting:
@@ -233,6 +246,40 @@ async def upload_favicon(
     setting.favicon = filename
     await db.commit()
     return {"favicon": f"/uploads/brand/{filename}"}
+
+@router.post("/brand/icons")
+async def upload_brand_icons(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(has_permission("app_settings.manage")),
+):
+    content = await file.read(MAX_APP_ICON_SIZE + 1)
+    try:
+        files = generate_app_icon_files(file.filename, content)
+    except BrandIconValidationError as exc:
+        status_code = 413 if len(content) > MAX_APP_ICON_SIZE else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    setting = await _get_or_create_setting(db)
+    previous_favicon = setting.favicon
+    setting.favicon = None
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name or current_user.username,
+        module="app_settings",
+        action="edit",
+        record_id=1,
+        record_identifier="brand_icons",
+        old_values={"favicon": previous_favicon},
+        new_values={"updated_files": sorted(files)},
+        request=request,
+        status_code=200,
+    )
+    return {
+        "files": {name: base64.b64encode(data).decode("ascii") for name, data in files.items()}
+    }
 
 @router.get("/maintenance")
 async def get_maintenance_status(
