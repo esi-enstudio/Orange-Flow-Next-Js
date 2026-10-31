@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.dialects import postgresql
 
 from app.models.employee import Employee
 from app.models.house import House
@@ -25,6 +26,14 @@ from app.schemas.stock import (
 )
 from app.services import inventory_service as svc
 from app.utils.timezone import now_naive
+
+
+def test_serial_unit_locks_exclude_joined_product_from_postgresql_lock():
+    statement = svc.lock_serial_units(select(SerialUnit))
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+
+    assert "LEFT OUTER JOIN products" in sql
+    assert "FOR UPDATE OF serial_units" in sql
 
 
 @pytest.fixture

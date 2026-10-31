@@ -31,6 +31,7 @@ from app.services.inventory_service import (
     get_active_employee,
     get_location,
     get_serial_product,
+    lock_serial_units,
     resolve_business_date,
 )
 from app.utils.timezone import now_naive
@@ -153,12 +154,12 @@ async def validate_sale_items(
     units = list(
         (
             await db.execute(
-                select(SerialUnit)
-                .where(
-                    SerialUnit.house_id == house_id,
-                    SerialUnit.serial_number.in_(all_serials),
+                lock_serial_units(
+                    select(SerialUnit).where(
+                        SerialUnit.house_id == house_id,
+                        SerialUnit.serial_number.in_(all_serials),
+                    )
                 )
-                .with_for_update()
             )
         )
         .scalars()
@@ -463,9 +464,11 @@ async def approve_sale(
     units = list(
         (
             await db.execute(
-                select(SerialUnit)
-                .where(SerialUnit.id.in_([line.serial_unit_id for line in sale.serial_lines]))
-                .with_for_update()
+                lock_serial_units(
+                    select(SerialUnit).where(
+                        SerialUnit.id.in_([line.serial_unit_id for line in sale.serial_lines])
+                    )
+                )
             )
         )
         .scalars()

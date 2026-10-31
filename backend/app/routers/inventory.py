@@ -80,7 +80,19 @@ def _serial_out(unit: SerialUnit) -> dict:
     }
 
 
-def _doc_out(doc: StockDocument, *, include_serials: bool = False) -> dict:
+def _doc_out(
+    doc: StockDocument,
+    *,
+    include_serials: bool = False,
+    serials_count: Optional[int] = None,
+) -> dict:
+    """Serialize a voucher.
+
+    List endpoints must pass ``serials_count`` (computed in SQL by
+    ``inventory_service.list_documents``). Touching ``doc.serial_lines`` without
+    it would trigger an implicit lazy load, which is not allowed under asyncio
+    (``MissingGreenlet``).
+    """
     line = doc.lines[0] if doc.lines else None
     product = getattr(line, "product", None)
     employee = doc.employee
@@ -122,7 +134,7 @@ def _doc_out(doc: StockDocument, *, include_serials: bool = False) -> dict:
             }
             for doc_line in doc.lines
         ],
-        "serials_count": len(doc.serial_lines),
+        "serials_count": serials_count if serials_count is not None else len(doc.serial_lines),
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "posted_at": doc.posted_at.isoformat() if doc.posted_at else None,
         "verified_at": doc.verified_at.isoformat() if doc.verified_at else None,
@@ -410,7 +422,7 @@ async def list_receipts(
     )
     return {
         "success": True,
-        "data": [_doc_out(doc) for doc in rows],
+        "data": [_doc_out(doc, serials_count=serials_count) for doc, serials_count in rows],
         "pagination": _pagination(page, per_page, total),
     }
 
@@ -509,7 +521,7 @@ async def list_issues(
     )
     return {
         "success": True,
-        "data": [_doc_out(doc) for doc in rows],
+        "data": [_doc_out(doc, serials_count=serials_count) for doc, serials_count in rows],
         "pagination": _pagination(page, per_page, total),
     }
 
@@ -593,7 +605,7 @@ async def list_returns(
     )
     return {
         "success": True,
-        "data": [_doc_out(doc) for doc in rows],
+        "data": [_doc_out(doc, serials_count=serials_count) for doc, serials_count in rows],
         "pagination": _pagination(page, per_page, total),
     }
 

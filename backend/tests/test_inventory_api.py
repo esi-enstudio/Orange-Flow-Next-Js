@@ -290,6 +290,39 @@ async def test_multi_product_receipt_keeps_one_line_and_batch_per_product(api, d
     assert {batch.batch_number for batch in batches} == {doc["batch_number"]}
 
 
+async def test_receipt_list_counts_serials_without_lazy_load(api, db, data):
+    """The list endpoint must not lazy-load ``doc.serial_lines`` (MissingGreenlet).
+
+    A fresh request gets a fresh session, so nothing is pre-loaded. ``expunge_all``
+    reproduces that: without a SQL-side count the serializer would issue a lazy
+    load outside the greenlet and the request would fail with a 500.
+    """
+    app, client = api
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.view", "inventory.receive")
+    )
+    headers = {"X-House-ID": str(data["house"].id)}
+
+    created = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={"product_id": data["product"].id, "serials": ["APILST001", "APILST002", "APILST003"]},
+    )
+    assert created.status_code == 201, created.text
+    doc_id = created.json()["data"]["id"]
+
+    db.expunge_all()
+
+    listed = await client.get("/api/v1/inventory/receipts", headers=headers)
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()["data"]
+    assert listed.json()["pagination"]["total"] == 1
+    assert rows[0]["id"] == doc_id
+    assert rows[0]["serials_count"] == 3
+    # Detail-only payload stays out of the list.
+    assert "serials" not in rows[0]
+
+
 async def test_receipt_batch_number_is_auto_generated_and_unique(api, db, data):
     app, client = api
     app.dependency_overrides[get_current_user] = lambda: _user(

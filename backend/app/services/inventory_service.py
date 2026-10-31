@@ -49,6 +49,11 @@ def _error(status_code: int, code: str, message: str, fields: Optional[dict] = N
     raise HTTPException(status_code=status_code, detail=detail)
 
 
+def lock_serial_units(query):
+    """Lock serial rows only; their joined product relationship is nullable."""
+    return query.with_for_update(of=SerialUnit)
+
+
 def normalize_serial(raw: str) -> str:
     """Serials are compared/stored without spaces, uppercased."""
     return re.sub(r"\s+", "", str(raw or "")).upper()
@@ -536,7 +541,7 @@ async def post_receipt(db: AsyncSession, *, house_id: int, doc_id: int, user_id:
     units = list(
         (
             await db.execute(
-                select(SerialUnit).where(SerialUnit.id.in_(unit_ids)).with_for_update()
+                lock_serial_units(select(SerialUnit).where(SerialUnit.id.in_(unit_ids)))
             )
         )
         .scalars()
@@ -647,13 +652,13 @@ async def issue_stock(db: AsyncSession, *, house_id: int, user_id: Optional[int]
     serials = clean_serials(data.serials)
 
     result = await db.execute(
-        select(SerialUnit)
-        .where(
-            SerialUnit.house_id == house_id,
-            SerialUnit.product_id == product.id,
-            SerialUnit.serial_number.in_(serials),
+        lock_serial_units(
+            select(SerialUnit).where(
+                SerialUnit.house_id == house_id,
+                SerialUnit.product_id == product.id,
+                SerialUnit.serial_number.in_(serials),
+            )
         )
-        .with_for_update()
     )
     units = list(result.scalars().all())
     found = {unit.serial_number: unit for unit in units}
@@ -780,13 +785,13 @@ async def create_return(db: AsyncSession, *, house_id: int, user_id: Optional[in
     serials = clean_serials(data.serials)
 
     result = await db.execute(
-        select(SerialUnit)
-        .where(
-            SerialUnit.house_id == house_id,
-            SerialUnit.product_id == product.id,
-            SerialUnit.serial_number.in_(serials),
+        lock_serial_units(
+            select(SerialUnit).where(
+                SerialUnit.house_id == house_id,
+                SerialUnit.product_id == product.id,
+                SerialUnit.serial_number.in_(serials),
+            )
         )
-        .with_for_update()
     )
     found = {unit.serial_number: unit for unit in result.scalars().all()}
 
@@ -906,9 +911,11 @@ async def verify_return(
     units = list(
         (
             await db.execute(
-                select(SerialUnit)
-                .where(SerialUnit.id.in_([line.serial_unit_id for line in doc.serial_lines]))
-                .with_for_update()
+                lock_serial_units(
+                    select(SerialUnit).where(
+                        SerialUnit.id.in_([line.serial_unit_id for line in doc.serial_lines])
+                    )
+                )
             )
         )
         .scalars()
@@ -1032,6 +1039,7 @@ async def serial_history(db: AsyncSession, *, house_id: int, serial_id: int) -> 
         (
             await db.execute(
                 select(InventoryLedger)
+                .options(selectinload(InventoryLedger.employee))
                 .where(InventoryLedger.serial_unit_id == unit.id)
                 .order_by(InventoryLedger.created_at.asc(), InventoryLedger.id.asc())
             )
@@ -1224,7 +1232,7 @@ async def list_documents(
     date_to: Optional[date] = None,
     sort_order: str = "desc",
     scope_employee_id: Optional[int] = None,
-) -> Tuple[List[StockDocument], int]:
+) -> Tuple[List[Tuple[StockDocument, int]], int]:
     filters = [
         StockDocument.house_id == house_id,
         StockDocument.document_type == document_type,
@@ -1262,23 +1270,27 @@ async def list_documents(
     ordering = (
         StockDocument.id.asc() if (sort_order or "desc").lower() == "asc" else StockDocument.id.desc()
     )
-    rows = list(
-        (
-            await db.execute(
-                select(StockDocument)
-                .options(
-                    selectinload(StockDocument.employee),
-                    selectinload(StockDocument.lines).selectinload(StockDocumentLine.product),
-                )
-                .where(*filters)
-                .order_by(ordering)
-                .offset((page - 1) * per_page)
-                .limit(per_page)
-            )
-        )
-        .scalars()
-        .all()
+    # The list serializer only needs the number of moved serials. Counting in SQL
+    # avoids loading every serial line (and prevents an implicit lazy load, which
+    # raises ``MissingGreenlet`` under asyncio).
+    serials_count = (
+        select(func.count(StockSerialLine.id))
+        .where(StockSerialLine.document_id == StockDocument.id)
+        .correlate(StockDocument)
+        .scalar_subquery()
     )
+    result = await db.execute(
+        select(StockDocument, serials_count.label("serials_count"))
+        .options(
+            selectinload(StockDocument.employee),
+            selectinload(StockDocument.lines).selectinload(StockDocumentLine.product),
+        )
+        .where(*filters)
+        .order_by(ordering)
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+    )
+    rows = [(doc, int(count or 0)) for doc, count in result.all()]
     return rows, total
 
 
