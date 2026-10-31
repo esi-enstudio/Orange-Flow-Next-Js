@@ -1300,6 +1300,30 @@ async def _migrate_payment_transaction_reference():
         logger.warning(f"Migration warning (payment transaction reference guard): {e}")
 
 
+async def _migrate_receipt_batch_numbers():
+    """Give every existing receipt an explicit, unique automatic batch number.
+
+    Receipts created before auto-generation had no batch number and only used the
+    document number as an implicit fallback while posting. Backfilling
+    ``stock_documents.batch_number`` makes the value explicit and keeps it
+    identical to the batch number already stored on ``product_batches`` rows.
+    """
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "UPDATE stock_documents "
+                "SET batch_number = document_no "
+                "WHERE document_type = 'receipt' "
+                "  AND batch_number IS NULL "
+                "  AND document_no IS NOT NULL"
+            ))
+            updated = result.rowcount or 0
+            if updated > 0:
+                logger.info("Migration complete: backfilled %d receipt batch number(s)", updated)
+    except Exception as e:
+        logger.warning(f"Migration warning (receipt batch numbers): {e}")
+
+
 async def _migrate_remove_payment_gateway_artifacts():
     """Drop the obsolete online-payment tables/columns (manual payments only).
 
@@ -2184,6 +2208,7 @@ async def init_db():
         await _migrate_subscription_package_live_uniqueness()
         await _migrate_billing_tables_extra()
         await _migrate_payment_transaction_reference()
+        await _migrate_receipt_batch_numbers()
         await _migrate_remove_payment_gateway_artifacts()
         await _migrate_drop_bp_retailer_codes()
         await _migrate_drop_stock_sales_module()

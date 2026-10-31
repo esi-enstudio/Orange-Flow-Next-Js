@@ -6,6 +6,76 @@ import { useLanguage } from "@/i18n/useLanguage";
 
 export const SERIAL_RE = /^[A-Z0-9][A-Z0-9._/-]{2,63}$/;
 
+function splitTrailingNumber(value: string): { prefix: string; number: string } | null {
+  const match = value.match(/^(.*?)(\d+)$/);
+  if (!match) return null;
+  return { prefix: match[1], number: match[2] };
+}
+
+/** Expand a single `START-END` token, or return null when it is not a valid range. */
+export function expandSerialRange(token: string): string[] | null {
+  const parts = token.split("-");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const [startRaw, endRaw] = parts as [string, string];
+  const start = splitTrailingNumber(startRaw);
+  if (!start) return null;
+  let end = splitTrailingNumber(endRaw);
+  if (!end) return null;
+
+  // Allow the common shorthand where only the last digits of the end are typed
+  // (e.g. 890123000001-000010 or SIM0001-10).
+  if (
+    end.prefix === "" &&
+    endRaw.length <= start.number.length &&
+    (start.prefix !== "" || endRaw.length < start.number.length)
+  ) {
+    end = { prefix: start.prefix, number: endRaw.padStart(start.number.length, "0") };
+  }
+  if (start.prefix !== end.prefix || start.number.length !== end.number.length) return null;
+
+  const first = BigInt(start.number);
+  const last = BigInt(end.number);
+  if (last < first) return null;
+  const count = last - first + BigInt(1);
+  if (count > BigInt(500)) return null;
+
+  const serials: string[] = [];
+  for (let current = first; current <= last; current++) {
+    serials.push(start.prefix + current.toString().padStart(start.number.length, "0"));
+  }
+  return serials;
+}
+
+/** Like `parseSerials`, but `START-END` tokens expand into individual serials. */
+export function parseSerialsWithRanges(text: string) {
+  const tokens = text
+    .split(/[\s,;]+/)
+    .map((token) => token.trim().toUpperCase())
+    .filter(Boolean);
+
+  const expanded: string[] = [];
+  const invalidRanges: string[] = [];
+  for (const token of tokens) {
+    if (/^[^-\s]+-[^-\s]+$/.test(token)) {
+      const range = expandSerialRange(token);
+      if (range) {
+        expanded.push(...range);
+      } else {
+        invalidRanges.push(token);
+      }
+    } else {
+      expanded.push(token);
+    }
+  }
+
+  const parsed = parseSerials(expanded.join("\n"));
+  if (invalidRanges.length === 0) return parsed;
+  return {
+    ...parsed,
+    invalid: Array.from(new Set([...parsed.invalid, ...invalidRanges])),
+  };
+}
+
 export function parseSerials(text: string) {
   const tokens = text
     .split(/[\s,;]+/)
@@ -42,15 +112,18 @@ export function SerialsInput({
   onChange,
   error,
   disabled,
+  expandRanges = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   error?: string | null;
   disabled?: boolean;
+  /** Parse `START-END` tokens into individual serials (receiving multi-product). */
+  expandRanges?: boolean;
 }) {
   const { t } = useLanguage();
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const parsed = parseSerials(value);
+  const parsed = expandRanges ? parseSerialsWithRanges(value) : parseSerials(value);
 
   const handleFile = async (file?: File | null) => {
     if (!file) return;

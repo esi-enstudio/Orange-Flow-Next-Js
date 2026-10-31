@@ -9,6 +9,8 @@ export interface SelectorItem {
   label: string;
   sublabel?: string;
   badge?: string;
+  /** Optional section header. When any item sets it, the list renders grouped. */
+  group?: string;
 }
 
 interface EntitySelectorProps {
@@ -27,6 +29,8 @@ interface EntitySelectorProps {
   selectAllLabel?: string;
   clearLabel?: string;
   selectedLabel?: string;
+  /** Hide the "Select All" action (e.g. pickers where selecting everything is meaningless). */
+  showSelectAll?: boolean;
   onSearchChange?: (q: string) => void;
   /**
    * Render the label in the visually-hidden a11y slot only. Set this when the
@@ -59,6 +63,7 @@ export default function EntitySelector({
   selectAllLabel = "Select All",
   clearLabel = "Clear",
   selectedLabel = "selected",
+  showSelectAll = true,
   onSearchChange,
   hideLabel = false,
   portal = false,
@@ -174,9 +179,19 @@ export default function EntitySelector({
     return (
       item.label.toLowerCase().includes(q) ||
       (item.sublabel && item.sublabel.toLowerCase().includes(q)) ||
+      (item.group && item.group.toLowerCase().includes(q)) ||
       String(item.id).toLowerCase().includes(q)
     );
   });
+
+  const grouped = trimmedSearch
+    ? null
+    : filtered.reduce<Record<string, SelectorItem[]>>((acc, item) => {
+        const key = item.group || "";
+        (acc[key] ||= []).push(item);
+        return acc;
+      }, {});
+  const hasGroups = Boolean(grouped && Object.keys(grouped).some(Boolean));
 
   const selectedItem = single ? items.find((item) => selectedIds.includes(item.id)) : undefined;
 
@@ -226,6 +241,43 @@ export default function EntitySelector({
     }
   };
 
+  const renderOption = (item: SelectorItem) => {
+    const isSelected = selectedIds.includes(item.id);
+    return (
+      <button
+        key={item.id}
+        type="button"
+        role="option"
+        aria-selected={isSelected}
+        onClick={() => toggleItem(item.id)}
+        className={`w-full flex items-center gap-2.5 px-3 py-3 lg:py-2 rounded-lg text-sm transition-colors cursor-pointer ${
+          isSelected
+            ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
+            : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+        }`}
+      >
+        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+          isSelected
+            ? "bg-primary-500 border-primary-500"
+            : "border-gray-300 dark:border-slate-600"
+        }`}>
+          {isSelected && <Check className="w-3 h-3 text-white" />}
+        </div>
+        <div className="flex-1 text-left min-w-0">
+          <span className="block truncate">{item.label}</span>
+          {item.sublabel && (
+            <span className="block text-[11px] text-gray-400 dark:text-gray-500 truncate">{item.sublabel}</span>
+          )}
+        </div>
+        {item.badge && (
+          <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 rounded-md">
+            {item.badge}
+          </span>
+        )}
+      </button>
+    );
+  };
+
     const menuBody = (
     <>
           {(items.length > 0 || onSearchChange) && (
@@ -253,7 +305,7 @@ export default function EntitySelector({
 
               {items.length > 0 && (
                 <div className="flex items-center gap-1 px-2 pt-2 pb-1 border-b border-gray-100 dark:border-slate-800">
-                {!single && (
+                {!single && showSelectAll && (
                 <button
                   type="button"
                   onClick={selectAll}
@@ -291,43 +343,19 @@ export default function EntitySelector({
               <p className="text-xs text-gray-400 p-3 text-center">{emptyMessage}</p>
             ) : filtered.length === 0 ? (
               <p className="text-xs text-gray-400 p-3 text-center">{noResultsMessage}</p>
+            ) : hasGroups && grouped ? (
+              Object.entries(grouped).map(([group, groupItems]) => (
+                <div key={group || "__ungrouped"}>
+                  {group ? (
+                    <p className="px-3 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                      {group}
+                    </p>
+                  ) : null}
+                  {groupItems.map(renderOption)}
+                </div>
+              ))
             ) : (
-              filtered.map((item) => {
-                const isSelected = selectedIds.includes(item.id);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => toggleItem(item.id)}
-                     className={`w-full flex items-center gap-2.5 px-3 py-3 lg:py-2 rounded-lg text-sm transition-colors ${
-                       isSelected
-                         ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
-                         : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
-                     }`}
-                  >
-                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-                      isSelected
-                        ? "bg-primary-500 border-primary-500"
-                        : "border-gray-300 dark:border-slate-600"
-                    }`}>
-                      {isSelected && <Check className="w-3 h-3 text-white" />}
-                    </div>
-                    <div className="flex-1 text-left min-w-0">
-                      <span className="block truncate">{item.label}</span>
-                      {item.sublabel && (
-                        <span className="block text-[11px] text-gray-400 dark:text-gray-500 truncate">{item.sublabel}</span>
-                      )}
-                    </div>
-                    {item.badge && (
-                      <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 rounded-md">
-                        {item.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })
+              filtered.map(renderOption)
             )}
           </div>
     </>

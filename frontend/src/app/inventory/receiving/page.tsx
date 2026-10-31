@@ -11,12 +11,11 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
+  Trash2,
   X,
-  ScanBarcode,
-  Clipboard,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
-import { cn } from "@/lib/utils";
 
 import axios from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -24,52 +23,9 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import { InventoryStatusBadge } from "@/components/inventory/InventoryStatusBadge";
-import { SerialRangeInput, SerialRangeInputHandle } from "@/components/dms/SerialRangeInput";
-import { parseSerials, SerialsInput } from "@/components/inventory/SerialsInput";
+import { parseSerialsWithRanges, SerialsInput } from "@/components/inventory/SerialsInput";
 import { apiError, formatDate, houseHeaders } from "@/components/inventory/helpers";
-import { useSerialLength } from "@/hooks/useSerialLength";
-import { sanitizeSerialInput } from "@/lib/serialValidation";
-
-// Expand range strings like "890123000001-890123000010" into individual serials
-function expandSerials(tokens: string[]): string[] {
-  const result: string[] = [];
-  const RANGE_RE = /^([A-Z0-9]+)-([A-Z0-9]+)$/;
-
-  for (const token of tokens) {
-    const match = token.match(RANGE_RE);
-    if (match) {
-      const [, startStr, endStr] = match;
-      // Handle both numeric and alphanumeric serials
-      const startNum = BigInt(startStr.replace(/\D/g, "") || "0");
-      const endNum = BigInt(endStr.replace(/\D/g, "") || "0");
-      const prefixStart = startStr.match(/^[A-Z0-9]*/)?.[0] || "";
-      const prefixEnd = endStr.match(/^[A-Z0-9]*/)?.[0] || "";
-
-      // Only expand if both have same numeric length and prefix
-      if (
-        startStr.length === endStr.length &&
-        prefixStart === prefixEnd &&
-        startNum > 0 &&
-        endNum >= startNum &&
-        endNum - startNum < BigInt(500) // Limit expansion to prevent abuse
-      ) {
-        const numDigits = startStr.replace(/\D/g, "").length;
-        const padLen = numDigits;
-        let current = startNum;
-        while (current <= endNum) {
-          const numPart = current.toString().padStart(padLen, "0");
-          const padded = prefixStart + numPart.slice(prefixStart.length);
-          result.push(padded.toUpperCase());
-          current++;
-        }
-        continue;
-      }
-    }
-    // Not a range or couldn't parse - treat as single serial
-    result.push(token);
-  }
-  return result;
-}
+import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
 const PER_PAGE = 20;
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -81,6 +37,17 @@ interface ProductOption {
   category: string;
 }
 
+interface ReceiptLine {
+  id: number;
+  product_id: number;
+  product_name?: string | null;
+  product_code?: string | null;
+  category?: string | null;
+  quantity: number;
+  unit_cost?: number;
+  face_value?: number;
+}
+
 interface ReceiptRow {
   id: number;
   document_no: string | null;
@@ -88,6 +55,7 @@ interface ReceiptRow {
   business_date?: string | null;
   product_name?: string | null;
   product_code?: string | null;
+  product_count?: number;
   supplier?: string | null;
   invoice_number?: string | null;
   batch_number?: string | null;
@@ -112,6 +80,7 @@ interface ReceiptDetail extends ReceiptRow {
   unit_cost?: number;
   face_value?: number;
   notes?: string | null;
+  lines: ReceiptLine[];
   serials: {
     serial_number: string;
     serial_unit_id: number;
@@ -122,13 +91,10 @@ interface ReceiptDetail extends ReceiptRow {
 }
 
 const emptyForm = {
-  product_id: "",
-  supplier: "",
+  supplier: "Banglalink",
   purchase_reference: "",
   invoice_number: "",
-  batch_number: "",
   business_date: TODAY,
-  expected_quantity: "",
   unit_cost: "",
   face_value: "",
   notes: "",
@@ -153,11 +119,8 @@ export default function StockReceivingPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [inputMethod, setInputMethod] = useState<"range" | "list">("range");
-  const [serialInputValue, setSerialInputValue] = useState("");
-  const [rangeValid, setRangeValid] = useState(true);
-  const rangeInputRef = useRef<SerialRangeInputHandle>(null);
-  const serialLength = useSerialLength();
+  const [selectedProductIds, setSelectedProductIds] = useState<(string | number)[]>([]);
+  const [lineSerials, setLineSerials] = useState<Record<number, string>>({});
 
   const [detail, setDetail] = useState<ReceiptDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -167,45 +130,54 @@ export default function StockReceivingPage() {
 
   const canReceive = hasPermission("inventory.receive");
 
-  // Calculate parsed count for UI feedback (auto-sets expected quantity)
-  const parsedCount = useMemo(() => {
-    function b(v: string) { try { return BigInt(v); } catch { return BigInt(0); } }
-    if (!serialInputValue.trim()) return 0;
-    const rawLines = serialInputValue.split(/[\n,\;]+/);
-    let total = 0;
-    for (const line of rawLines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      // Range detection
-      if (trimmed.includes("-") && trimmed.split("-").length === 2) {
-        const parts = trimmed.split("-");
-        const start = parts[0].trim();
-        const end = parts[1].trim();
-        if (/^\d+$/.test(start) && /^\d+$/.test(end)) {
-          let endStr = end;
-          if (end.length < start.length) {
-            const prefix = start.slice(0, start.length - end.length);
-            endStr = prefix + end;
-          }
-          const s = b(start);
-          const e = b(endStr);
-          if (s === BigInt(0) || e === BigInt(0) || e < s) continue;
-          const diff = e - s + BigInt(1);
-          if (diff > BigInt(500)) continue;
-          total += Number(diff);
-          continue;
-        }
-      }
-      const clean = trimmed.replace(/\D/g, "");
-      if (clean) {
-        total += 1;
+  const productItems = useMemo(
+    () =>
+      products.map((product) => ({
+        id: product.id,
+        label: product.product_name,
+        sublabel: product.product_code,
+        badge: product.category,
+        group: product.category,
+      })),
+    [products]
+  );
+
+  const selectedProducts = useMemo(
+    () =>
+      selectedProductIds
+        .map((id) => products.find((product) => product.id === Number(id)))
+        .filter((product): product is ProductOption => Boolean(product)),
+    [selectedProductIds, products]
+  );
+
+  const lineSerialsParsed = useMemo(() => {
+    const map: Record<number, ReturnType<typeof parseSerialsWithRanges>> = {};
+    for (const product of selectedProducts) {
+      map[product.id] = parseSerialsWithRanges(lineSerials[product.id] || "");
+    }
+    return map;
+  }, [selectedProducts, lineSerials]);
+
+  const totalSerials = useMemo(
+    () =>
+      selectedProducts.reduce(
+        (sum, product) => sum + (lineSerialsParsed[product.id]?.valid.length || 0),
+        0
+      ),
+    [selectedProducts, lineSerialsParsed]
+  );
+
+  const crossDuplicates = useMemo(() => {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const product of selectedProducts) {
+      for (const serial of lineSerialsParsed[product.id]?.valid || []) {
+        if (seen.has(serial)) duplicates.add(serial);
+        else seen.add(serial);
       }
     }
-    return total;
-  }, [serialInputValue]);
-
-  // Parse serials for validation
-  const parsed = useMemo(() => parseSerials(serialInputValue), [serialInputValue]);
+    return Array.from(duplicates);
+  }, [selectedProducts, lineSerialsParsed]);
 
   const fetchReceipts = useCallback(async () => {
     if (!houseId) {
@@ -268,52 +240,75 @@ export default function StockReceivingPage() {
 
   const resetCreate = () => {
     setForm({ ...emptyForm });
-    setSerialInputValue("");
-    setInputMethod("range");
+    setSelectedProductIds([]);
+    setLineSerials({});
     setFormError(null);
     setFieldErrors({});
+  };
+
+  const handleProductSelection = (ids: (string | number)[]) => {
+    setSelectedProductIds(ids);
+    setLineSerials((current) => {
+      const next: Record<number, string> = {};
+      for (const id of ids) {
+        const key = Number(id);
+        next[key] = current[key] || "";
+      }
+      return next;
+    });
+    setFieldErrors((current) => ({ ...current, products: "" }));
   };
 
   const submitReceipt = async () => {
     setFieldErrors({});
     setFormError(null);
 
-    if (!form.product_id) {
-      setFieldErrors({ product_id: t("inventory.common.required_field") });
-      return;
-    }
-    if (parsed.valid.length === 0) {
-      setFieldErrors({ serials: t("inventory.common.required_field") });
-      return;
-    }
-    if (parsed.duplicates.length > 0 || parsed.invalid.length > 0) {
-      setFieldErrors({
-        serials: `${t("inventory.common.duplicates")}: ${parsed.duplicates.length}, ${t("inventory.common.invalid")}: ${parsed.invalid.length}`,
-      });
+    if (selectedProducts.length === 0) {
+      setFieldErrors({ products: t("inventory.common.required_field") });
       return;
     }
 
-    // Expand range strings into individual serials before sending to backend
-    const expandedSerials = expandSerials(parsed.valid);
+    const nextFieldErrors: Record<string, string> = {};
+    const lines: { product_id: number; serials: string[] }[] = [];
+    for (const product of selectedProducts) {
+      const parsed = lineSerialsParsed[product.id];
+      if (!parsed || parsed.valid.length === 0) {
+        nextFieldErrors[`serials_${product.id}`] = t("inventory.common.required_field");
+        continue;
+      }
+      if (parsed.duplicates.length > 0 || parsed.invalid.length > 0) {
+        nextFieldErrors[`serials_${product.id}`] =
+          `${t("inventory.common.duplicates")}: ${parsed.duplicates.length}, ${t("inventory.common.invalid")}: ${parsed.invalid.length}`;
+        continue;
+      }
+      lines.push({ product_id: product.id, serials: parsed.valid });
+    }
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
+      return;
+    }
+    if (crossDuplicates.length > 0) {
+      setFormError(
+        `${t("inventory.receiving.duplicate_across_products")}: ${crossDuplicates.slice(0, 5).join(", ")}`
+      );
+      return;
+    }
 
     setSaving(true);
     try {
       const res = await axios.post(
         "/v1/inventory/receipts",
         {
-          product_id: Number(form.product_id),
           supplier: form.supplier || null,
           purchase_reference: form.purchase_reference || null,
           invoice_number: form.invoice_number || null,
-          batch_number: form.batch_number || null,
           business_date: form.business_date || null,
-          expected_quantity: form.expected_quantity
-            ? Number(form.expected_quantity)
-            : expandedSerials.length,
+          expected_quantity: totalSerials,
           unit_cost: form.unit_cost ? Number(form.unit_cost) : 0,
           face_value: form.face_value ? Number(form.face_value) : 0,
           notes: form.notes || null,
-          serials: expandedSerials,
+          lines,
         },
         { headers: houseHeaders(houseId) }
       );
@@ -481,6 +476,9 @@ export default function StockReceivingPage() {
                             <p className="font-medium">{row.product_name}</p>
                             <p className="text-[11px] text-gray-500 dark:text-gray-400">
                               {row.product_code}
+                              {row.product_count && row.product_count > 1
+                                ? ` • +${row.product_count - 1} ${t("inventory.receiving.more_products")}`
+                                : ""}
                             </p>
                           </td>
                           <td className="px-2 py-1">
@@ -528,7 +526,11 @@ export default function StockReceivingPage() {
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-sm truncate">{row.document_no}</p>
                             <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                              {row.product_name} • {formatDate(row.business_date)}
+                              {row.product_name}
+                              {row.product_count && row.product_count > 1
+                                ? ` • +${row.product_count - 1} ${t("inventory.receiving.more_products")}`
+                                : ""}{" "}
+                              • {formatDate(row.business_date)}
                             </p>
                           </div>
                           <InventoryStatusBadge status={row.status} />
@@ -587,7 +589,7 @@ export default function StockReceivingPage() {
       {showCreate ? (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <div className="fixed inset-0 bg-black/40" onClick={() => !saving && setShowCreate(false)} />
-          <div className="relative w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 p-4 sm:p-6">
+          <div className="relative w-full sm:max-w-3xl max-h-[92vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 p-4 sm:p-6">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
@@ -606,212 +608,173 @@ export default function StockReceivingPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label={t("inventory.common.product")} required>
-                <select
-                  value={form.product_id}
-                  onChange={(event) => setForm({ ...form, product_id: event.target.value })}
-                  className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-pointer outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">{t("inventory.common.select_product")}</option>
-                  {products.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.product_name} ({product.category})
-                    </option>
-                  ))}
-                </select>
-                {fieldErrors.product_id ? <FieldError text={fieldErrors.product_id} /> : null}
-              </Field>
-
-              <Field label={t("inventory.common.business_date")}>
-                <input
-                  type="date"
-                  value={form.business_date}
-                  max={TODAY}
-                  onChange={(event) => setForm({ ...form, business_date: event.target.value })}
-                  className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-pointer outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </Field>
-
-              <Field label={t("inventory.common.supplier")}>
-                <input
-                  value={form.supplier}
-                  onChange={(event) => setForm({ ...form, supplier: event.target.value })}
-                  placeholder="Banglalink"
-                  className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </Field>
-
-              <Field label={t("inventory.common.invoice_number")}>
-                <input
-                  value={form.invoice_number}
-                  onChange={(event) => setForm({ ...form, invoice_number: event.target.value })}
-                  className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </Field>
-
-              <Field label={t("inventory.common.purchase_reference")}>
-                <input
-                  value={form.purchase_reference}
-                  onChange={(event) => setForm({ ...form, purchase_reference: event.target.value })}
-                  className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </Field>
-
-              <Field label={t("inventory.common.batch_number")}>
-                <input
-                  value={form.batch_number}
-                  onChange={(event) => setForm({ ...form, batch_number: event.target.value })}
-                  className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </Field>
-
-              <Field label={t("inventory.common.expected_quantity")}>
-                <input
-                  type="number"
-                  min={0}
-                  value={form.expected_quantity || parsedCount}
-                  onChange={(event) => setForm({ ...form, expected_quantity: event.target.value })}
-                  placeholder={String(parsedCount || "")}
-                  className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </Field>
-
-              <div className="grid grid-cols-2 gap-3">
-                <Field label={t("inventory.common.unit_cost")}>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label={t("inventory.common.business_date")}>
                   <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={form.unit_cost}
-                    onChange={(event) => setForm({ ...form, unit_cost: event.target.value })}
+                    type="date"
+                    value={form.business_date}
+                    max={TODAY}
+                    onChange={(event) => setForm({ ...form, business_date: event.target.value })}
+                    className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-pointer outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </Field>
+
+                <Field label={t("inventory.common.supplier")}>
+                  <input
+                    value={form.supplier}
+                    onChange={(event) => setForm({ ...form, supplier: event.target.value })}
                     className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
                   />
                 </Field>
-                <Field label={t("inventory.common.face_value")}>
+
+                <Field label={t("inventory.common.invoice_number")}>
                   <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={form.face_value}
-                    onChange={(event) => setForm({ ...form, face_value: event.target.value })}
+                    value={form.invoice_number}
+                    onChange={(event) => setForm({ ...form, invoice_number: event.target.value })}
                     className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
                   />
                 </Field>
-              </div>
 
-              <div className="md:col-span-2">
-                <div className="space-y-3">
-                  {/* Input Method Tabs */}
-                  <div className="space-y-2">
-                    <label className="hidden sm:block text-xs font-bold text-gray-500 dark:text-gray-400">
-                      {t("inventory.common.input_method")}
-                    </label>
-                    <label className="sm:hidden block text-xs font-bold text-gray-500 dark:text-gray-400">
-                      Input Method
-                    </label>
-                    <div className="flex gap-1.5 p-1 bg-gray-100/80 dark:bg-slate-800 border border-gray-200/50 dark:border-slate-700 rounded-2xl w-fit">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setInputMethod("range");
-                          setSerialInputValue("");
-                        }}
-                        disabled={saving}
-                        className={cn(
-                          "px-4 py-2 text-xs font-bold rounded-xl transition-all",
-                          inputMethod === "range"
-                            ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
-                            : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-                        )}
-                      >
-                        Range
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setInputMethod("list");
-                          setSerialInputValue("");
-                        }}
-                        disabled={saving}
-                        className={cn(
-                          "px-4 py-2 text-xs font-bold rounded-xl transition-all",
-                          inputMethod === "list"
-                            ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
-                            : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-                        )}
-                      >
-                        List
-                      </button>
-                    </div>
+                <Field label={t("inventory.common.purchase_reference")}>
+                  <input
+                    value={form.purchase_reference}
+                    onChange={(event) => setForm({ ...form, purchase_reference: event.target.value })}
+                    className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </Field>
+
+                <Field label={t("inventory.common.batch_number")}>
+                  <div className="flex items-center gap-2 min-h-[42px] rounded-xl border border-dashed border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/30 px-3 text-xs text-gray-500 dark:text-gray-400">
+                    <Sparkles className="w-3.5 h-3.5 shrink-0 text-primary-500" />
+                    <span>{t("inventory.receiving.batch_auto")}</span>
                   </div>
+                </Field>
 
-                  {/* Range Input */}
-                  {inputMethod === "range" ? (
-                    <SerialRangeInput
-                      ref={rangeInputRef}
-                      onChange={(formatted) => setSerialInputValue(formatted)}
-                      disabled={saving}
-                      serialLength={serialLength}
-                      onValidChange={setRangeValid}
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label={t("inventory.common.unit_cost")}>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={form.unit_cost}
+                      onChange={(event) => setForm({ ...form, unit_cost: event.target.value })}
+                      className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
                     />
-                  ) : (
-                    <>
-                      {/* List Input */}
-                      <SerialsInput
-                        value={serialInputValue}
-                        onChange={(value) => {
-                          setSerialInputValue(value);
-                          setFieldErrors((current) => ({ ...current, serials: "" }));
-                        }}
-                        error={fieldErrors.serials || null}
-                        disabled={saving}
-                      />
-                    </>
-                  )}
-
-                  {/* Helper Buttons */}
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (inputMethod === "range") {
-                          const example = "898803992145808574-898803992145808580";
-                          setSerialInputValue(example);
-                          setTimeout(() => rangeInputRef.current?.resetFromValue(example), 0);
-                        } else {
-                          setSerialInputValue("898803992145808574\n898803992145808575\n898803992145808580");
-                        }
-                      }}
-                      disabled={saving}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
-                    >
-                      <Clipboard className="w-3.5 h-3.5" />
-                      Load Example
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSerialInputValue("")}
-                      disabled={saving}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      Reset
-                    </button>
-                  </div>
+                  </Field>
+                  <Field label={t("inventory.common.face_value")}>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={form.face_value}
+                      onChange={(event) => setForm({ ...form, face_value: event.target.value })}
+                      className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </Field>
                 </div>
               </div>
 
-              <div className="md:col-span-2">
-                <Field label={t("inventory.common.notes")}>
-                  <textarea
-                    rows={2}
-                    value={form.notes}
-                    onChange={(event) => setForm({ ...form, notes: event.target.value })}
-                    className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
+              <div className="space-y-3">
+                <div>
+                  <EntitySelector
+                    label={t("inventory.receiving.products_label")}
+                    items={productItems}
+                    selectedIds={selectedProductIds}
+                    onChange={handleProductSelection}
+                    placeholder={t("inventory.receiving.products_placeholder")}
+                    searchPlaceholder={t("inventory.receiving.product_search")}
+                    emptyMessage={t("inventory.receiving.no_products")}
+                    noResultsMessage={t("inventory.receiving.no_products_search")}
+                    selectAllLabel={t("inventory.common.select_all")}
+                    clearLabel={t("inventory.common.clear")}
+                    selectedLabel={t("inventory.receiving.products_selected")}
+                    showSelectAll={false}
+                    error={fieldErrors.products || undefined}
+                    disabled={saving}
+                    required
+                    portal
                   />
-                </Field>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                    {t("inventory.receiving.products_help")}
+                  </p>
+                </div>
+
+                {selectedProducts.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-200 dark:border-slate-700 p-5 text-center">
+                    <Boxes className="w-8 h-8 mx-auto text-gray-300 dark:text-slate-600" />
+                    <p className="mt-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      {t("inventory.receiving.products_empty")}
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      {t("inventory.receiving.products_empty_desc")}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedProducts.map((product, index) => {
+                      return (
+                        <div
+                          key={product.id}
+                          className="rounded-2xl border border-gray-200 dark:border-slate-800 bg-gray-50/40 dark:bg-slate-800/20 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-md bg-primary-100 dark:bg-primary-900/30 text-[11px] font-bold text-primary-700 dark:text-primary-300">
+                                  {index + 1}
+                                </span>
+                                <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">
+                                  {product.product_name}
+                                </p>
+                                <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 rounded-md">
+                                  {product.category}
+                                </span>
+                              </div>
+                              <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400 mt-0.5">
+                                {product.product_code}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleProductSelection(selectedProductIds.filter((id) => Number(id) !== product.id))}
+                              disabled={saving}
+                              title={t("inventory.receiving.remove_product")}
+                              aria-label={t("inventory.receiving.remove_product")}
+                              className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <SerialsInput
+                            value={lineSerials[product.id] || ""}
+                            onChange={(value) => {
+                              setLineSerials((current) => ({ ...current, [product.id]: value }));
+                              setFieldErrors((current) => ({
+                                ...current,
+                                [`serials_${product.id}`]: "",
+                              }));
+                            }}
+                            error={fieldErrors[`serials_${product.id}`] || null}
+                            disabled={saving}
+                            expandRanges
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+
+              <Field label={t("inventory.common.notes")}>
+                <textarea
+                  rows={2}
+                  value={form.notes}
+                  onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                  className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </Field>
             </div>
 
             {formError ? (
@@ -820,7 +783,8 @@ export default function StockReceivingPage() {
 
             <div className="flex items-center justify-between gap-2 mt-5 flex-wrap">
               <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                {t("inventory.common.accepted_quantity")}: {parsed.valid.length}
+                {selectedProducts.length} {t("inventory.receiving.products_unit")} •{" "}
+                {t("inventory.common.serials")}: {totalSerials}
               </p>
               <div className="flex gap-2">
                 <button
@@ -863,7 +827,7 @@ export default function StockReceivingPage() {
                       {detail.document_no}
                     </h2>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {detail.product_name} • {formatDate(detail.business_date)}
+                      {t("inventory.common.business_date")}: {formatDate(detail.business_date)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -885,6 +849,29 @@ export default function StockReceivingPage() {
                   <Row label={t("inventory.common.invoice_number")} value={detail.invoice_number || "-"} />
                   <Row label={t("inventory.common.supplier")} value={detail.supplier || "-"} />
                   <Row label={t("inventory.common.batch_number")} value={detail.batch_number || "-"} />
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1.5">
+                    {t("inventory.receiving.products_label")} ({detail.lines?.length || 0})
+                  </p>
+                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 divide-y divide-gray-50 dark:divide-slate-800">
+                    {(detail.lines || []).map((line) => (
+                      <div key={line.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                            {line.product_name}
+                          </p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                            {line.product_code} • {line.category}
+                          </p>
+                        </div>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {line.quantity}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="mt-4">
@@ -976,8 +963,4 @@ function Field({
       {children}
     </div>
   );
-}
-
-function FieldError({ text }: { text: string }) {
-  return <p className="text-xs text-red-600 dark:text-red-400 mt-1">{text}</p>;
 }

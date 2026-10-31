@@ -345,10 +345,60 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
     if existing:
         return existing
 
-    product = await get_serial_product(db, data.product_id)
-    serials = clean_serials(data.serials)
-    await _ensure_not_existing_serials(db, house_id, product.id, serials)
+    raw_lines = _receipt_input_lines(data)
 
+    # One entry per product, preserving the order the caller sent. A product
+    # repeated in the payload is merged instead of rejected, so a split paste
+    # (e.g. two ranges for the same SIM) still becomes one document line.
+    products: dict = {}
+    serials_by_product: dict = {}
+    meta_by_product: dict = {}
+    product_order: list = []
+    seen_serials: set = set()
+    cross_duplicates: list = []
+
+    for raw in raw_lines:
+        product_id = int(raw["product_id"])
+        product = products.get(product_id)
+        if product is None:
+            product = await get_serial_product(db, product_id)
+            products[product_id] = product
+            serials_by_product[product_id] = []
+            product_order.append(product_id)
+            meta_by_product[product_id] = {
+                "expected_quantity": None,
+                "unit_cost": None,
+                "face_value": None,
+                "notes": None,
+            }
+
+        cleaned = clean_serials(raw["serials"])
+        for serial in cleaned:
+            if serial in seen_serials:
+                cross_duplicates.append(serial)
+            seen_serials.add(serial)
+        serials_by_product[product_id].extend(cleaned)
+
+        meta = meta_by_product[product_id]
+        for key in ("expected_quantity", "unit_cost", "face_value", "notes"):
+            if meta[key] is None and raw.get(key) is not None:
+                meta[key] = raw[key]
+
+    if cross_duplicates:
+        repeated = sorted(set(cross_duplicates))
+        _error(
+            400,
+            "VALIDATION_ERROR",
+            "Duplicate serial numbers in this receiving",
+            {"serials": "Duplicate in batch: " + ", ".join(repeated[:10])},
+        )
+
+    for product_id in product_order:
+        await _ensure_not_existing_serials(
+            db, house_id, product_id, serials_by_product[product_id]
+        )
+
+    total_serials = sum(len(serials) for serials in serials_by_product.values())
     house_location = await get_location(db, house_id, "house")
     doc = StockDocument(
         house_id=house_id,
@@ -357,10 +407,11 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
         supplier=(data.supplier or "").strip() or None,
         purchase_reference=(data.purchase_reference or "").strip() or None,
         invoice_number=(data.invoice_number or "").strip() or None,
-        batch_number=(data.batch_number or "").strip() or None,
         business_date=resolve_business_date(data.business_date),
-        expected_quantity=data.expected_quantity or len(serials),
-        total_quantity=len(serials),
+        expected_quantity=(
+            data.expected_quantity if data.expected_quantity is not None else total_serials
+        ),
+        total_quantity=total_serials,
         unit_cost=Decimal(str(data.unit_cost or 0)),
         face_value=Decimal(str(data.face_value or 0)),
         notes=data.notes,
@@ -376,62 +427,102 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
 
     await _finalize_document_no(db, doc)
 
-    line = StockDocumentLine(
-        document_id=doc.id,
-        product_id=product.id,
-        quantity=len(serials),
-        unit_cost=doc.unit_cost,
-        face_value=doc.face_value,
-        notes=data.notes,
-    )
-    db.add(line)
+    # Batch numbers are server-generated from the unique document number, so a
+    # receiving can never share a batch number with another voucher and the UI
+    # never has to ask for one.
+    doc.batch_number = doc.document_no
     await db.flush()
 
-    units = [
-        SerialUnit(
-            house_id=house_id,
-            product_id=product.id,
-            serial_number=serial,
-            status="received",
-            current_location_id=house_location.id,
-            unit_cost=doc.unit_cost,
-            face_value=doc.face_value,
-            notes=data.notes,
-            status_updated_at=now_naive(),
+    for product_id in product_order:
+        serials = serials_by_product[product_id]
+        meta = meta_by_product[product_id]
+        line = StockDocumentLine(
+            document_id=doc.id,
+            product_id=product_id,
+            quantity=len(serials),
+            unit_cost=(
+                Decimal(str(meta["unit_cost"])) if meta["unit_cost"] is not None else doc.unit_cost
+            ),
+            face_value=(
+                Decimal(str(meta["face_value"])) if meta["face_value"] is not None else doc.face_value
+            ),
+            notes=meta["notes"] or data.notes,
         )
-        for serial in serials
-    ]
-    db.add_all(units)
-    try:
+        db.add(line)
         await db.flush()
-    except IntegrityError:
-        await db.rollback()
-        _error(
-            409,
-            "DUPLICATE_SERIAL",
-            "Some serial numbers already exist in this house",
-            {"serials": "Duplicate serial detected. Re-check the serial list."},
-        )
 
-    for unit in units:
-        db.add(
-            _serial_line(
-                doc=doc,
-                line=line,
-                unit=unit,
-                action="receive",
-                status_before=None,
-                status_after="received",
-                location_before_id=None,
-                location_after_id=house_location.id,
-                employee_before_id=None,
-                employee_after_id=None,
-                user_id=user_id,
+        units = [
+            SerialUnit(
+                house_id=house_id,
+                product_id=product_id,
+                serial_number=serial,
+                status="received",
+                current_location_id=house_location.id,
+                unit_cost=line.unit_cost,
+                face_value=line.face_value,
+                notes=line.notes,
+                status_updated_at=now_naive(),
             )
-        )
+            for serial in serials
+        ]
+        db.add_all(units)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            _error(
+                409,
+                "DUPLICATE_SERIAL",
+                "Some serial numbers already exist in this house",
+                {"serials": "Duplicate serial detected. Re-check the serial list."},
+            )
+
+        for unit in units:
+            db.add(
+                _serial_line(
+                    doc=doc,
+                    line=line,
+                    unit=unit,
+                    action="receive",
+                    status_before=None,
+                    status_after="received",
+                    location_before_id=None,
+                    location_after_id=house_location.id,
+                    employee_before_id=None,
+                    employee_after_id=None,
+                    user_id=user_id,
+                )
+            )
 
     await db.flush()
     return await _get_document(db, house_id, doc.id)
+
+
+def _receipt_input_lines(data) -> List[dict]:
+    """Normalise the multi-line payload and the legacy single-product payload."""
+    lines = getattr(data, "lines", None)
+    if lines:
+        return [
+            {
+                "product_id": line.product_id,
+                "serials": list(line.serials),
+                "expected_quantity": line.expected_quantity,
+                "unit_cost": line.unit_cost,
+                "face_value": line.face_value,
+                "notes": line.notes,
+            }
+            for line in lines
+        ]
+    return [
+        {
+            "product_id": data.product_id,
+            "serials": list(data.serials or []),
+            "expected_quantity": None,
+            "unit_cost": None,
+            "face_value": None,
+            "notes": None,
+        }
+    ]
 
 
 async def post_receipt(db: AsyncSession, *, house_id: int, doc_id: int, user_id: Optional[int]) -> StockDocument:
@@ -454,44 +545,66 @@ async def post_receipt(db: AsyncSession, *, house_id: int, doc_id: int, user_id:
     units_by_id = {unit.id: unit for unit in units}
 
     house_location = await get_location(db, house_id, "house")
-    batch_number = doc.batch_number or doc.document_no
-    batch = (
-        await db.execute(
-            select(ProductBatch).where(
-                ProductBatch.house_id == house_id,
-                ProductBatch.product_id == doc.lines[0].product_id,
-                ProductBatch.batch_number == batch_number,
-            )
-        )
-    ).scalar_one_or_none()
-    if batch:
-        batch.quantity = (batch.quantity or 0) + len(units)
-    else:
-        batch = ProductBatch(
-            house_id=house_id,
-            product_id=doc.lines[0].product_id,
-            batch_number=batch_number,
-            supplier=doc.supplier,
-            purchase_reference=doc.purchase_reference,
-            invoice_number=doc.invoice_number,
-            received_date=doc.business_date,
-            quantity=len(units),
-            unit_cost=doc.unit_cost,
-            face_value=doc.face_value,
-            notes=doc.notes,
-            created_by=user_id,
-        )
-        db.add(batch)
-        await db.flush()
-
+    # Fresh receipts already carry an auto batch number; this keeps drafts made
+    # before auto-generation consistent once they are posted.
+    doc.batch_number = doc.batch_number or doc.document_no
+    batch_number = doc.batch_number
     now = now_naive()
+
+    # One batch per product line: a multi-product receiving must never put SIM
+    # and Scratch Card serials into the same batch row.
+    lines_by_id = {line.id: line for line in doc.lines}
+    line_by_product = {line.product_id: line for line in doc.lines}
+    quantities_by_line: dict = {}
+    for serial_line in doc.serial_lines:
+        line_id = serial_line.line_id or getattr(
+            line_by_product.get(serial_line.product_id), "id", None
+        )
+        if line_id is not None:
+            quantities_by_line[line_id] = quantities_by_line.get(line_id, 0) + 1
+
+    batches_by_line: dict = {}
+    for line in doc.lines:
+        batch = (
+            await db.execute(
+                select(ProductBatch).where(
+                    ProductBatch.house_id == house_id,
+                    ProductBatch.product_id == line.product_id,
+                    ProductBatch.batch_number == batch_number,
+                )
+            )
+        ).scalar_one_or_none()
+        quantity = quantities_by_line.get(line.id, 0)
+        if batch:
+            batch.quantity = (batch.quantity or 0) + quantity
+        else:
+            batch = ProductBatch(
+                house_id=house_id,
+                product_id=line.product_id,
+                batch_number=batch_number,
+                supplier=doc.supplier,
+                purchase_reference=doc.purchase_reference,
+                invoice_number=doc.invoice_number,
+                received_date=doc.business_date,
+                quantity=quantity,
+                unit_cost=line.unit_cost,
+                face_value=line.face_value,
+                notes=doc.notes,
+                created_by=user_id,
+            )
+            db.add(batch)
+            await db.flush()
+        line.batch_id = batch.id
+        batches_by_line[line.id] = batch
+
     for serial_line in doc.serial_lines:
         unit = units_by_id.get(serial_line.serial_unit_id)
         if not unit or unit.status != "received":
             _error(409, "SERIAL_STATE_CONFLICT", "A serial in this receiving is no longer in received state")
+        line = lines_by_id.get(serial_line.line_id) or line_by_product.get(serial_line.product_id)
         before = unit.status
         unit.status = "available"
-        unit.batch_id = batch.id
+        unit.batch_id = batches_by_line[line.id].id if line else None
         unit.current_location_id = house_location.id
         unit.current_employee_id = None
         unit.received_at = now

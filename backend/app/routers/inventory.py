@@ -108,6 +108,20 @@ def _doc_out(doc: StockDocument, *, include_serials: bool = False) -> dict:
         "product_id": getattr(line, "product_id", None),
         "product_name": getattr(product, "product_name", None),
         "product_code": getattr(product, "product_code", None),
+        "product_count": len(doc.lines),
+        "lines": [
+            {
+                "id": doc_line.id,
+                "product_id": doc_line.product_id,
+                "product_name": getattr(doc_line.product, "product_name", None),
+                "product_code": getattr(doc_line.product, "product_code", None),
+                "category": getattr(doc_line.product, "category", None),
+                "quantity": doc_line.quantity,
+                "unit_cost": float(doc_line.unit_cost or 0),
+                "face_value": float(doc_line.face_value or 0),
+            }
+            for doc_line in doc.lines
+        ],
         "serials_count": len(doc.serial_lines),
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "posted_at": doc.posted_at.isoformat() if doc.posted_at else None,
