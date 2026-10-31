@@ -11,7 +11,7 @@ class ReceiptLineCreate(BaseModel):
     """One product (with its serials) inside a multi-product receiving."""
 
     product_id: int
-    serials: List[str] = Field(..., min_length=1, max_length=5000)
+    serials: List[str] = Field(..., min_length=1)
     expected_quantity: Optional[int] = Field(None, ge=0, le=100000)
     unit_cost: Optional[Decimal] = Field(None, ge=0)
     face_value: Optional[Decimal] = Field(None, ge=0)
@@ -39,7 +39,7 @@ class ReceiptCreate(BaseModel):
     expected_quantity: Optional[int] = Field(None, ge=0, le=100000)
     unit_cost: Decimal = Field(default=Decimal("0"), ge=0)
     face_value: Decimal = Field(default=Decimal("0"), ge=0)
-    serials: Optional[List[str]] = Field(None, min_length=1, max_length=5000)
+    serials: Optional[List[str]] = Field(None, min_length=1)
     lines: Optional[List[ReceiptLineCreate]] = Field(None, min_length=1, max_length=100)
     notes: Optional[str] = Field(None, max_length=2000)
     idempotency_key: Optional[str] = Field(None, max_length=120)

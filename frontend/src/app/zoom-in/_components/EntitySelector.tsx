@@ -26,6 +26,8 @@ interface EntitySelectorProps {
   disabled?: boolean;
   required?: boolean;
   single?: boolean;
+  /** Close the dropdown after selecting or deselecting an option in multi-select mode. */
+  closeOnSelect?: boolean;
   selectAllLabel?: string;
   clearLabel?: string;
   selectedLabel?: string;
@@ -60,6 +62,7 @@ export default function EntitySelector({
   disabled = false,
   required = false,
   single = false,
+  closeOnSelect = false,
   selectAllLabel = "Select All",
   clearLabel = "Clear",
   selectedLabel = "selected",
@@ -206,6 +209,10 @@ export default function EntitySelector({
         ? selectedIds.filter((v) => v !== id)
         : [...selectedIds, id]
     );
+    if (closeOnSelect) {
+      setOpen(false);
+      setSearch("");
+    }
   };
 
   const selectAll = () => {
@@ -227,7 +234,7 @@ export default function EntitySelector({
 
   // Enter picks the first matching option so the menu is fully operable without a
   // mouse. For a single-select that selects and closes; for a multi-select it
-  // toggles the first match and keeps the menu open for further picks.
+  // toggles the first match and normally keeps the menu open for further picks.
   const commitFirstMatch = () => {
     const first = filtered[0];
     if (!first) {
@@ -237,6 +244,8 @@ export default function EntitySelector({
     }
     toggleItem(first.id);
     if (single) {
+      triggerRef.current?.focus();
+    } else if (closeOnSelect) {
       triggerRef.current?.focus();
     }
   };

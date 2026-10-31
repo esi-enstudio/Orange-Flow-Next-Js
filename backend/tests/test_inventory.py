@@ -109,6 +109,15 @@ def _receipt(setup, serials, **overrides):
     return ReceiptCreate(**payload)
 
 
+def test_receipt_schema_accepts_more_than_5000_serials():
+    serials = [f"SIM{index:08d}" for index in range(26000)]
+    line = ReceiptCreate(
+        lines=[{"product_id": 1, "serials": serials}]
+    ).lines[0]
+
+    assert len(line.serials) == 26000
+
+
 async def _receive_and_post(db, setup, serials):
     doc = await svc.create_receipt(
         db, house_id=setup["house"].id, user_id=1, data=_receipt(setup, serials)

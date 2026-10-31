@@ -95,8 +95,6 @@ const emptyForm = {
   purchase_reference: "",
   invoice_number: "",
   business_date: TODAY,
-  unit_cost: "",
-  face_value: "",
   notes: "",
 };
 
@@ -121,6 +119,8 @@ export default function StockReceivingPage() {
   const [saving, setSaving] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<(string | number)[]>([]);
   const [lineSerials, setLineSerials] = useState<Record<number, string>>({});
+  const [lineUnitCosts, setLineUnitCosts] = useState<Record<number, string>>({});
+  const [lineFaceValues, setLineFaceValues] = useState<Record<number, string>>({});
 
   const [detail, setDetail] = useState<ReceiptDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -242,6 +242,8 @@ export default function StockReceivingPage() {
     setForm({ ...emptyForm });
     setSelectedProductIds([]);
     setLineSerials({});
+    setLineUnitCosts({});
+    setLineFaceValues({});
     setFormError(null);
     setFieldErrors({});
   };
@@ -249,6 +251,22 @@ export default function StockReceivingPage() {
   const handleProductSelection = (ids: (string | number)[]) => {
     setSelectedProductIds(ids);
     setLineSerials((current) => {
+      const next: Record<number, string> = {};
+      for (const id of ids) {
+        const key = Number(id);
+        next[key] = current[key] || "";
+      }
+      return next;
+    });
+    setLineUnitCosts((current) => {
+      const next: Record<number, string> = {};
+      for (const id of ids) {
+        const key = Number(id);
+        next[key] = current[key] || "";
+      }
+      return next;
+    });
+    setLineFaceValues((current) => {
       const next: Record<number, string> = {};
       for (const id of ids) {
         const key = Number(id);
@@ -269,19 +287,37 @@ export default function StockReceivingPage() {
     }
 
     const nextFieldErrors: Record<string, string> = {};
-    const lines: { product_id: number; serials: string[] }[] = [];
+    const lines: {
+      product_id: number;
+      serials: string[];
+      unit_cost: number;
+      face_value: number;
+    }[] = [];
     for (const product of selectedProducts) {
       const parsed = lineSerialsParsed[product.id];
-      if (!parsed || parsed.valid.length === 0) {
-        nextFieldErrors[`serials_${product.id}`] = t("inventory.common.required_field");
-        continue;
+      const unitCost = lineUnitCosts[product.id] || "";
+      const faceValue = lineFaceValues[product.id] || "";
+      if (unitCost && (!Number.isFinite(Number(unitCost)) || Number(unitCost) < 0)) {
+        nextFieldErrors[`unit_cost_${product.id}`] = t("inventory.receiving.invalid_amount");
       }
-      if (parsed.duplicates.length > 0 || parsed.invalid.length > 0) {
+      if (faceValue && (!Number.isFinite(Number(faceValue)) || Number(faceValue) < 0)) {
+        nextFieldErrors[`face_value_${product.id}`] = t("inventory.receiving.invalid_amount");
+      }
+      if (!parsed) {
+        nextFieldErrors[`serials_${product.id}`] = t("inventory.common.required_field");
+      } else if (parsed.duplicates.length > 0 || parsed.invalid.length > 0) {
         nextFieldErrors[`serials_${product.id}`] =
           `${t("inventory.common.duplicates")}: ${parsed.duplicates.length}, ${t("inventory.common.invalid")}: ${parsed.invalid.length}`;
-        continue;
+      } else if (parsed.valid.length === 0) {
+        nextFieldErrors[`serials_${product.id}`] = t("inventory.common.required_field");
+      } else {
+        lines.push({
+          product_id: product.id,
+          serials: parsed.valid,
+          unit_cost: unitCost ? Number(unitCost) : 0,
+          face_value: faceValue ? Number(faceValue) : 0,
+        });
       }
-      lines.push({ product_id: product.id, serials: parsed.valid });
     }
 
     if (Object.keys(nextFieldErrors).length > 0) {
@@ -305,8 +341,6 @@ export default function StockReceivingPage() {
           invoice_number: form.invoice_number || null,
           business_date: form.business_date || null,
           expected_quantity: totalSerials,
-          unit_cost: form.unit_cost ? Number(form.unit_cost) : 0,
-          face_value: form.face_value ? Number(form.face_value) : 0,
           notes: form.notes || null,
           lines,
         },
@@ -651,28 +685,6 @@ export default function StockReceivingPage() {
                   </div>
                 </Field>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label={t("inventory.common.unit_cost")}>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={form.unit_cost}
-                      onChange={(event) => setForm({ ...form, unit_cost: event.target.value })}
-                      className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                  </Field>
-                  <Field label={t("inventory.common.face_value")}>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={form.face_value}
-                      onChange={(event) => setForm({ ...form, face_value: event.target.value })}
-                      className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                  </Field>
-                </div>
               </div>
 
               <div className="space-y-3">
@@ -690,6 +702,7 @@ export default function StockReceivingPage() {
                     clearLabel={t("inventory.common.clear")}
                     selectedLabel={t("inventory.receiving.products_selected")}
                     showSelectAll={false}
+                    closeOnSelect
                     error={fieldErrors.products || undefined}
                     disabled={saving}
                     required
@@ -745,6 +758,59 @@ export default function StockReceivingPage() {
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                            <Field label={t("inventory.common.unit_cost")}>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={lineUnitCosts[product.id] || ""}
+                                onChange={(event) => {
+                                  setLineUnitCosts((current) => ({
+                                    ...current,
+                                    [product.id]: event.target.value,
+                                  }));
+                                  setFieldErrors((current) => ({
+                                    ...current,
+                                    [`unit_cost_${product.id}`]: "",
+                                  }));
+                                }}
+                                disabled={saving}
+                                className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                              />
+                              {fieldErrors[`unit_cost_${product.id}`] ? (
+                                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                                  {fieldErrors[`unit_cost_${product.id}`]}
+                                </p>
+                              ) : null}
+                            </Field>
+                            <Field label={t("inventory.common.face_value")}>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={lineFaceValues[product.id] || ""}
+                                onChange={(event) => {
+                                  setLineFaceValues((current) => ({
+                                    ...current,
+                                    [product.id]: event.target.value,
+                                  }));
+                                  setFieldErrors((current) => ({
+                                    ...current,
+                                    [`face_value_${product.id}`]: "",
+                                  }));
+                                }}
+                                disabled={saving}
+                                className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                              />
+                              {fieldErrors[`face_value_${product.id}`] ? (
+                                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                                  {fieldErrors[`face_value_${product.id}`]}
+                                </p>
+                              ) : null}
+                            </Field>
                           </div>
 
                           <SerialsInput
@@ -864,6 +930,11 @@ export default function StockReceivingPage() {
                           </p>
                           <p className="text-[11px] text-gray-500 dark:text-gray-400">
                             {line.product_code} • {line.category}
+                          </p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                            {t("inventory.common.unit_cost")}: {Number(line.unit_cost || 0).toFixed(2)}
+                            {" • "}
+                            {t("inventory.common.face_value")}: {Number(line.face_value || 0).toFixed(2)}
                           </p>
                         </div>
                         <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
