@@ -53,6 +53,8 @@ export default function SCSerialsPage() {
 
   // filters
   const [search, setSearch] = useState("");
+  const [serialFrom, setSerialFrom] = useState("");
+  const [serialTo, setSerialTo] = useState("");
   const [filterProductId, setFilterProductId] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
 
@@ -143,9 +145,15 @@ export default function SCSerialsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { dateFrom, dateTo } = todayDateRange();
-      const params: Record<string, string | number> = { page, per_page: perPage, sort_order: "desc", date_from: dateFrom, date_to: dateTo };
+      const params: Record<string, string | number> = { page, per_page: perPage, sort_order: "desc" };
+      if (!serialFrom && !serialTo) {
+        const { dateFrom, dateTo } = todayDateRange();
+        params.date_from = dateFrom;
+        params.date_to = dateTo;
+      }
       if (search) params.search = search;
+      if (serialFrom) params.serial_from = serialFrom;
+      if (serialTo) params.serial_to = serialTo;
       if (filterProductId) params.product_id = Number(filterProductId);
       if (filterStatus) params.status = filterStatus;
       const res = await apiClient.get("/v1/scratch-card-serials", { params, headers: houseHeaders });
@@ -153,7 +161,7 @@ export default function SCSerialsPage() {
       setTotalRecords(res.data.pagination?.total || 0);
     } catch { toast.error(t('scratch_card_serials.toast_load_failed')); }
     finally { setLoading(false); }
-  }, [page, search, filterProductId, filterStatus, selectedHouse?.id]);
+  }, [page, search, serialFrom, serialTo, filterProductId, filterStatus, selectedHouse?.id]);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -196,7 +204,7 @@ export default function SCSerialsPage() {
   }, []);
 
   // reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, filterProductId, filterStatus]);
+  useEffect(() => { setPage(1); }, [search, serialFrom, serialTo, filterProductId, filterStatus]);
 
   const handleExport = async (houseId: number): Promise<boolean> => {
     setExporting(true);
@@ -335,13 +343,17 @@ export default function SCSerialsPage() {
   const selectAllMatching = async () => {
     setSelectingAll(true);
     try {
-      const { dateFrom, dateTo } = todayDateRange();
       const params: Record<string, string | number> = {};
       if (search) params.search = search;
+      if (serialFrom) params.serial_from = serialFrom;
+      if (serialTo) params.serial_to = serialTo;
       if (filterProductId) params.product_id = Number(filterProductId);
       if (filterStatus) params.status = filterStatus;
-      params.date_from = dateFrom;
-      params.date_to = dateTo;
+      if (!serialFrom && !serialTo) {
+        const { dateFrom, dateTo } = todayDateRange();
+        params.date_from = dateFrom;
+        params.date_to = dateTo;
+      }
       const res = await apiClient.post("/v1/scratch-card-serials/select-all", null, { params, headers: houseHeaders });
       const allIds = res.data.data?.ids || [];
       if (allIds.length === 0) { toast.error(t('scratch_card_serials.toast_no_matching')); return; }
@@ -614,7 +626,7 @@ export default function SCSerialsPage() {
       </div>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -624,6 +636,26 @@ export default function SCSerialsPage() {
             className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
           />
         </div>
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={100}
+          aria-label={t('scratch_card_serials.serial_range_from')}
+          placeholder={t('scratch_card_serials.serial_range_from')}
+          value={serialFrom}
+          onChange={e => setSerialFrom(e.target.value)}
+          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+        />
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={100}
+          aria-label={t('scratch_card_serials.serial_range_to')}
+          placeholder={t('scratch_card_serials.serial_range_to')}
+          value={serialTo}
+          onChange={e => setSerialTo(e.target.value)}
+          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+        />
         <select value={filterProductId} onChange={e => setFilterProductId(e.target.value)}
           className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
           <option value="">{t('scratch_card_serials.filter_all')}</option>

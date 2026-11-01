@@ -15,8 +15,9 @@ export function houseHeaders(houseId?: number): Record<string, string> {
 
 export function apiError(err: unknown, fallback: string) {
   const response = (err as { response?: { data?: any } })?.response?.data;
+  const errorMessage = (err as { message?: unknown })?.message;
   const detail = response?.detail;
-  let message = fallback;
+  let message = typeof errorMessage === "string" && errorMessage ? errorMessage : fallback;
 
   if (typeof detail === "string") {
     message = detail;

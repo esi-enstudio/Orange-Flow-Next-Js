@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, insert, literal, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -37,6 +37,7 @@ SERIAL_RE = re.compile(r"^[A-Z0-9][A-Z0-9._/\-]{2,63}$")
 SERIAL_TRACKED_CATEGORIES = {"SIM", "Scratch Card"}
 DOC_PREFIX = {"receipt": "GRN", "issue": "ISS", "return": "RET", "adjustment": "ADJ"}
 SERIAL_STATUS_PENDING_RETURN = "returned"
+SERIAL_INSERT_BATCH_SIZE = 2000
 
 
 # --------------------------------------------------------------------------- #
@@ -188,16 +189,25 @@ async def get_location(db: AsyncSession, house_id: int, location_type: str, empl
     return location
 
 
-async def _idempotent_document(db: AsyncSession, house_id: int, doc_type: str, key: Optional[str]):
+async def _idempotent_document(
+    db: AsyncSession,
+    house_id: int,
+    doc_type: str,
+    key: Optional[str],
+    *,
+    include_serial_lines: bool = True,
+):
+    options = [
+        selectinload(StockDocument.employee),
+        selectinload(StockDocument.lines).selectinload(StockDocumentLine.product),
+    ]
+    if include_serial_lines:
+        options.append(selectinload(StockDocument.serial_lines))
     if not key:
         return None
     result = await db.execute(
         select(StockDocument)
-        .options(
-            selectinload(StockDocument.employee),
-            selectinload(StockDocument.lines).selectinload(StockDocumentLine.product),
-            selectinload(StockDocument.serial_lines),
-        )
+        .options(*options)
         .where(
             StockDocument.house_id == house_id,
             StockDocument.document_type == doc_type,
@@ -221,19 +231,18 @@ async def _get_document(
     *,
     doc_type: Optional[str] = None,
     for_update: bool = False,
+    include_serial_lines: bool = True,
 ) -> StockDocument:
-    query = (
-        select(StockDocument)
-        .options(
-            selectinload(StockDocument.employee),
-            selectinload(StockDocument.lines).selectinload(StockDocumentLine.product),
-            selectinload(StockDocument.serial_lines),
-        )
-        .where(
-            StockDocument.id == doc_id,
-            StockDocument.house_id == house_id,
-            StockDocument.is_deleted.is_(False),
-        )
+    options = [
+        selectinload(StockDocument.employee),
+        selectinload(StockDocument.lines).selectinload(StockDocumentLine.product),
+    ]
+    if include_serial_lines:
+        options.append(selectinload(StockDocument.serial_lines))
+    query = select(StockDocument).options(*options).where(
+        StockDocument.id == doc_id,
+        StockDocument.house_id == house_id,
+        StockDocument.is_deleted.is_(False),
     )
     if for_update:
         query = query.with_for_update()
@@ -325,14 +334,19 @@ def _serial_line(
 async def _ensure_not_existing_serials(
     db: AsyncSession, house_id: int, product_id: int, serials: Sequence[str]
 ) -> None:
-    result = await db.execute(
-        select(SerialUnit.serial_number).where(
-            SerialUnit.house_id == house_id,
-            SerialUnit.product_id == product_id,
-            SerialUnit.serial_number.in_(list(serials)),
+    existing: set[str] = set()
+    for offset in range(0, len(serials), SERIAL_INSERT_BATCH_SIZE):
+        result = await db.execute(
+            select(SerialUnit.serial_number).where(
+                SerialUnit.house_id == house_id,
+                SerialUnit.product_id == product_id,
+                SerialUnit.serial_number.in_(
+                    serials[offset : offset + SERIAL_INSERT_BATCH_SIZE]
+                ),
+            )
         )
-    )
-    existing = sorted({row[0] for row in result.all()})
+        existing.update(row[0] for row in result.all())
+    existing = sorted(existing)
     if existing:
         _error(
             409,
@@ -346,7 +360,13 @@ async def _ensure_not_existing_serials(
 
 
 async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[int], data) -> StockDocument:
-    existing = await _idempotent_document(db, house_id, "receipt", data.idempotency_key)
+    existing = await _idempotent_document(
+        db,
+        house_id,
+        "receipt",
+        data.idempotency_key,
+        include_serial_lines=False,
+    )
     if existing:
         return existing
 
@@ -362,11 +382,33 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
     seen_serials: set = set()
     cross_duplicates: list = []
 
+    requested_product_ids = list(dict.fromkeys(int(raw["product_id"]) for raw in raw_lines))
+    product_rows = (
+        await db.execute(select(Product).where(Product.id.in_(requested_product_ids)))
+    ).scalars().all()
+    product_lookup = {product.id: product for product in product_rows}
+
     for raw in raw_lines:
         product_id = int(raw["product_id"])
         product = products.get(product_id)
         if product is None:
-            product = await get_serial_product(db, product_id)
+            product = product_lookup.get(product_id)
+            if not product:
+                _error(404, "NOT_FOUND", "Product not found", {"product_id": "Product not found"})
+            if product.category not in SERIAL_TRACKED_CATEGORIES:
+                _error(
+                    400,
+                    "PRODUCT_NOT_SERIAL_TRACKED",
+                    "Only SIM and Scratch Card products are serial-tracked",
+                    {"product_id": "This product is tracked by quantity, not serial"},
+                )
+            if (product.status or "").lower() != "active":
+                _error(
+                    400,
+                    "PRODUCT_INACTIVE",
+                    "Product is inactive",
+                    {"product_id": "This product is inactive"},
+                )
             products[product_id] = product
             serials_by_product[product_id] = []
             product_order.append(product_id)
@@ -456,23 +498,29 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
         db.add(line)
         await db.flush()
 
-        units = [
-            SerialUnit(
-                house_id=house_id,
-                product_id=product_id,
-                serial_number=serial,
-                status="received",
-                current_location_id=house_location.id,
-                unit_cost=line.unit_cost,
-                face_value=line.face_value,
-                notes=line.notes,
-                status_updated_at=now_naive(),
-            )
-            for serial in serials
-        ]
-        db.add_all(units)
+        now = now_naive()
         try:
-            await db.flush()
+            for offset in range(0, len(serials), SERIAL_INSERT_BATCH_SIZE):
+                serial_chunk = serials[offset : offset + SERIAL_INSERT_BATCH_SIZE]
+                await db.execute(
+                    insert(SerialUnit),
+                    [
+                        {
+                            "house_id": house_id,
+                            "product_id": product_id,
+                            "serial_number": serial,
+                            "status": "received",
+                            "current_location_id": house_location.id,
+                            "unit_cost": line.unit_cost,
+                            "face_value": line.face_value,
+                            "notes": line.notes,
+                            "status_updated_at": now,
+                            "created_at": now,
+                            "updated_at": now,
+                        }
+                        for serial in serial_chunk
+                    ],
+                )
         except IntegrityError:
             await db.rollback()
             _error(
@@ -482,25 +530,61 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
                 {"serials": "Duplicate serial detected. Re-check the serial list."},
             )
 
-        for unit in units:
-            db.add(
-                _serial_line(
-                    doc=doc,
-                    line=line,
-                    unit=unit,
-                    action="receive",
-                    status_before=None,
-                    status_after="received",
-                    location_before_id=None,
-                    location_after_id=house_location.id,
-                    employee_before_id=None,
-                    employee_after_id=None,
-                    user_id=user_id,
+        try:
+            for offset in range(0, len(serials), SERIAL_INSERT_BATCH_SIZE):
+                serial_chunk = serials[offset : offset + SERIAL_INSERT_BATCH_SIZE]
+                serial_line_select = select(
+                    literal(doc.id),
+                    literal(line.id),
+                    SerialUnit.id,
+                    SerialUnit.serial_number,
+                    literal(product_id),
+                    literal("receive"),
+                    literal(None),
+                    literal("received"),
+                    literal(None),
+                    literal(house_location.id),
+                    literal(None),
+                    literal(None),
+                    literal(user_id),
+                    literal(now),
+                ).where(
+                    SerialUnit.house_id == house_id,
+                    SerialUnit.product_id == product_id,
+                    SerialUnit.serial_number.in_(serial_chunk),
                 )
+                await db.execute(
+                    insert(StockSerialLine).from_select(
+                        [
+                            "document_id",
+                            "line_id",
+                            "serial_unit_id",
+                            "serial_number",
+                            "product_id",
+                            "action",
+                            "status_before",
+                            "status_after",
+                            "location_before_id",
+                            "location_after_id",
+                            "employee_before_id",
+                            "employee_after_id",
+                            "created_by",
+                            "created_at",
+                        ],
+                        serial_line_select,
+                    )
+                )
+        except IntegrityError:
+            await db.rollback()
+            _error(
+                409,
+                "DUPLICATE_SERIAL",
+                "Some serial numbers already exist in this house",
+                {"serials": "Duplicate serial detected. Re-check the serial list."},
             )
 
     await db.flush()
-    return await _get_document(db, house_id, doc.id)
+    return await _get_document(db, house_id, doc.id, include_serial_lines=False)
 
 
 def _receipt_input_lines(data) -> List[dict]:
@@ -531,23 +615,48 @@ def _receipt_input_lines(data) -> List[dict]:
 
 
 async def post_receipt(db: AsyncSession, *, house_id: int, doc_id: int, user_id: Optional[int]) -> StockDocument:
-    doc = await _get_document(db, house_id, doc_id, doc_type="receipt", for_update=True)
+    doc = await _get_document(
+        db,
+        house_id,
+        doc_id,
+        doc_type="receipt",
+        for_update=True,
+        include_serial_lines=False,
+    )
     if doc.status != "draft":
         _error(400, "INVALID_STATUS", "Only a draft receiving can be posted")
-    if not doc.serial_lines:
-        _error(400, "VALIDATION_ERROR", "This receiving has no serials to post")
-
-    unit_ids = [line.serial_unit_id for line in doc.serial_lines]
-    units = list(
+    serial_count = int(
         (
             await db.execute(
-                lock_serial_units(select(SerialUnit).where(SerialUnit.id.in_(unit_ids)))
+                select(func.count(StockSerialLine.id)).where(
+                    StockSerialLine.document_id == doc.id
+                )
             )
-        )
-        .scalars()
-        .all()
+        ).scalar_one()
+        or 0
     )
-    units_by_id = {unit.id: unit for unit in units}
+    if not serial_count:
+        _error(400, "VALIDATION_ERROR", "This receiving has no serials to post")
+
+    conflicted_count = int(
+        (
+            await db.execute(
+                select(func.count(StockSerialLine.id))
+                .join(SerialUnit, SerialUnit.id == StockSerialLine.serial_unit_id)
+                .where(
+                    StockSerialLine.document_id == doc.id,
+                    SerialUnit.status != "received",
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    if conflicted_count:
+        _error(
+            409,
+            "SERIAL_STATE_CONFLICT",
+            "A serial in this receiving is no longer in received state",
+        )
 
     house_location = await get_location(db, house_id, "house")
     # Fresh receipts already carry an auto batch number; this keeps drafts made
@@ -558,28 +667,33 @@ async def post_receipt(db: AsyncSession, *, house_id: int, doc_id: int, user_id:
 
     # One batch per product line: a multi-product receiving must never put SIM
     # and Scratch Card serials into the same batch row.
-    lines_by_id = {line.id: line for line in doc.lines}
     line_by_product = {line.product_id: line for line in doc.lines}
-    quantities_by_line: dict = {}
-    for serial_line in doc.serial_lines:
-        line_id = serial_line.line_id or getattr(
-            line_by_product.get(serial_line.product_id), "id", None
+    quantities_by_product = {
+        product_id: quantity
+        for product_id, quantity in (
+            await db.execute(
+                select(StockSerialLine.product_id, func.count(StockSerialLine.id))
+                .where(StockSerialLine.document_id == doc.id)
+                .group_by(StockSerialLine.product_id)
+            )
+        ).all()
+    }
+
+    existing_batches = (
+        await db.execute(
+            select(ProductBatch).where(
+                ProductBatch.house_id == house_id,
+                ProductBatch.batch_number == batch_number,
+                ProductBatch.product_id.in_([line.product_id for line in doc.lines]),
+            )
         )
-        if line_id is not None:
-            quantities_by_line[line_id] = quantities_by_line.get(line_id, 0) + 1
+    ).scalars().all()
+    batches_by_product = {batch.product_id: batch for batch in existing_batches}
 
     batches_by_line: dict = {}
     for line in doc.lines:
-        batch = (
-            await db.execute(
-                select(ProductBatch).where(
-                    ProductBatch.house_id == house_id,
-                    ProductBatch.product_id == line.product_id,
-                    ProductBatch.batch_number == batch_number,
-                )
-            )
-        ).scalar_one_or_none()
-        quantity = quantities_by_line.get(line.id, 0)
+        batch = batches_by_product.get(line.product_id)
+        quantity = quantities_by_product.get(line.product_id, 0)
         if batch:
             batch.quantity = (batch.quantity or 0) + quantity
         else:
@@ -598,41 +712,96 @@ async def post_receipt(db: AsyncSession, *, house_id: int, doc_id: int, user_id:
                 created_by=user_id,
             )
             db.add(batch)
-            await db.flush()
+            batches_by_product[line.product_id] = batch
         line.batch_id = batch.id
         batches_by_line[line.id] = batch
 
-    for serial_line in doc.serial_lines:
-        unit = units_by_id.get(serial_line.serial_unit_id)
-        if not unit or unit.status != "received":
-            _error(409, "SERIAL_STATE_CONFLICT", "A serial in this receiving is no longer in received state")
-        line = lines_by_id.get(serial_line.line_id) or line_by_product.get(serial_line.product_id)
-        before = unit.status
-        unit.status = "available"
-        unit.batch_id = batches_by_line[line.id].id if line else None
-        unit.current_location_id = house_location.id
-        unit.current_employee_id = None
-        unit.received_at = now
-        unit.status_updated_at = now
-        serial_line.status_after = "available"
-        db.add(
-            _ledger_entry(
-                house_id=house_id,
-                product_id=unit.product_id,
-                unit=unit,
-                doc=doc,
-                movement_type="receipt",
-                quantity=1,
-                location_id=house_location.id,
-                employee_id=None,
-                status_before=before,
-                status_after="available",
-                user_id=user_id,
-            )
+    await db.flush()
+    batch_by_product = {
+        product_id: batches_by_line[line.id].id
+        for product_id, line in line_by_product.items()
+    }
+    batch_for_product = case(
+        batch_by_product,
+        value=SerialUnit.product_id,
+        else_=None,
+    )
+    updated_units = await db.execute(
+        update(SerialUnit)
+        .where(
+            SerialUnit.id.in_(
+                select(StockSerialLine.serial_unit_id).where(
+                    StockSerialLine.document_id == doc.id
+                )
+            ),
+            SerialUnit.status == "received",
+        )
+        .values(
+            status="available",
+            batch_id=batch_for_product,
+            current_location_id=house_location.id,
+            current_employee_id=None,
+            received_at=now,
+            status_updated_at=now,
+            updated_at=now,
+        )
+    )
+    if updated_units.rowcount != serial_count:
+        _error(
+            409,
+            "SERIAL_STATE_CONFLICT",
+            "A serial in this receiving is no longer in received state",
         )
 
+    await db.execute(
+        update(StockSerialLine)
+        .where(StockSerialLine.document_id == doc.id)
+        .values(status_after="available")
+    )
+    ledger_select = (
+        select(
+            SerialUnit.house_id,
+            SerialUnit.product_id,
+            SerialUnit.id,
+            SerialUnit.serial_number,
+            literal(doc.id),
+            literal(doc.document_no),
+            literal("receipt"),
+            literal(1),
+            literal(house_location.id),
+            literal(None),
+            literal("received"),
+            literal("available"),
+            literal(user_id),
+            literal(now),
+        )
+        .join(StockSerialLine, StockSerialLine.serial_unit_id == SerialUnit.id)
+        .where(StockSerialLine.document_id == doc.id)
+    )
+    await db.execute(
+        insert(InventoryLedger).from_select(
+            [
+                "house_id",
+                "product_id",
+                "serial_unit_id",
+                "serial_number",
+                "document_id",
+                "document_no",
+                "movement_type",
+                "quantity",
+                "location_id",
+                "employee_id",
+                "status_before",
+                "status_after",
+                "created_by",
+                "created_at",
+            ],
+            ledger_select,
+        )
+    )
+
     doc.status = "posted"
-    doc.total_quantity = len(units)
+    doc.total_quantity = serial_count
     doc.posted_by = user_id
     doc.posted_at = now
     await db.flush()
@@ -1294,5 +1463,45 @@ async def list_documents(
     return rows, total
 
 
-async def document_detail(db: AsyncSession, *, house_id: int, doc_id: int) -> StockDocument:
-    return await _get_document(db, house_id, doc_id)
+async def document_detail(
+    db: AsyncSession,
+    *,
+    house_id: int,
+    doc_id: int,
+    include_serial_lines: bool = True,
+) -> StockDocument:
+    return await _get_document(
+        db,
+        house_id,
+        doc_id,
+        include_serial_lines=include_serial_lines,
+    )
+
+
+async def list_document_serials(
+    db: AsyncSession,
+    *,
+    doc_id: int,
+    page: int,
+    per_page: int,
+):
+    rows = (
+        await db.execute(
+            select(StockSerialLine)
+            .where(StockSerialLine.document_id == doc_id)
+            .order_by(StockSerialLine.id)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+    ).scalars().all()
+    total = int(
+        (
+            await db.execute(
+                select(func.count(StockSerialLine.id)).where(
+                    StockSerialLine.document_id == doc_id
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    return rows, total

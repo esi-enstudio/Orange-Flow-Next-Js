@@ -118,6 +118,17 @@ def test_receipt_schema_accepts_more_than_5000_serials():
     assert len(line.serials) == 26000
 
 
+def test_receipt_schema_rejects_more_than_100000_serials():
+    serials = [f"SIM{index:08d}" for index in range(50001)]
+    with pytest.raises(ValueError, match="cannot contain more than 100000 serials"):
+        ReceiptCreate(
+            lines=[
+                {"product_id": 1, "serials": serials},
+                {"product_id": 2, "serials": serials},
+            ]
+        )
+
+
 async def _receive_and_post(db, setup, serials):
     doc = await svc.create_receipt(
         db, house_id=setup["house"].id, user_id=1, data=_receipt(setup, serials)
@@ -172,6 +183,45 @@ async def test_receipt_draft_then_post_moves_serials_to_available(db, setup):
     assert len(ledger) == 2
     assert all(entry.movement_type == "receipt" for entry in ledger)
     assert all(entry.quantity == 1 for entry in ledger)
+
+
+async def test_large_receipt_bulk_inserts_and_posts_without_loading_serial_lines(db, setup):
+    serials = [f"SIM{index:08d}" for index in range(50000)]
+    doc = await svc.create_receipt(
+        db,
+        house_id=setup["house"].id,
+        user_id=1,
+        data=_receipt(setup, serials),
+    )
+    assert doc.total_quantity == len(serials)
+    assert "serial_lines" not in doc.__dict__
+    await db.commit()
+
+    posted = await svc.post_receipt(
+        db,
+        house_id=setup["house"].id,
+        doc_id=doc.id,
+        user_id=1,
+    )
+    assert posted.status == "posted"
+    assert "serial_lines" not in posted.__dict__
+    await db.commit()
+
+    assert (
+        await db.execute(
+            select(func.count(SerialUnit.id)).where(
+                SerialUnit.house_id == setup["house"].id,
+                SerialUnit.status == "available",
+            )
+        )
+    ).scalar_one() == len(serials)
+    assert (
+        await db.execute(
+            select(func.count(InventoryLedger.id)).where(
+                InventoryLedger.document_id == doc.id
+            )
+        )
+    ).scalar_one() == len(serials)
 
 
 async def test_duplicate_serials_are_rejected(db, setup):

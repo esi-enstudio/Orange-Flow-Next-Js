@@ -9,7 +9,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -318,18 +318,30 @@ async def list_ledger(
 
 @router.get("/products")
 async def inventory_products(
+    search: Optional[str] = Query(None, max_length=100),
+    limit: int = Query(30, ge=1, le=100),
     house_id: int = Depends(require_house_context),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(VIEW),
 ):
+    filters = [
+        Product.category.in_(["SIM", "Scratch Card"]),
+        Product.status == "Active",
+    ]
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Product.product_name.ilike(term),
+                Product.product_code.ilike(term),
+            )
+        )
     rows = (
         await db.execute(
             select(Product)
-            .where(
-                Product.category.in_(["SIM", "Scratch Card"]),
-                Product.status == "Active",
-            )
+            .where(*filters)
             .order_by(Product.category, Product.product_name)
+            .limit(limit if search and search.strip() else None)
         )
     ).scalars().all()
     return {
@@ -434,10 +446,57 @@ async def receipt_detail(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(VIEW),
 ):
-    doc = await svc.document_detail(db, house_id=house_id, doc_id=doc_id)
+    doc = await svc.document_detail(
+        db,
+        house_id=house_id,
+        doc_id=doc_id,
+        include_serial_lines=False,
+    )
     if doc.document_type != "receipt":
         raise HTTPException(status_code=404, detail="Document not found")
-    return {"success": True, "data": _doc_out(doc, include_serials=True)}
+    return {
+        "success": True,
+        "data": _doc_out(doc, serials_count=doc.total_quantity),
+    }
+
+
+@router.get("/receipts/{doc_id}/serials")
+async def receipt_serials(
+    doc_id: int,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(100, ge=1, le=500),
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(VIEW),
+):
+    doc = await svc.document_detail(
+        db,
+        house_id=house_id,
+        doc_id=doc_id,
+        include_serial_lines=False,
+    )
+    if doc.document_type != "receipt":
+        raise HTTPException(status_code=404, detail="Document not found")
+    rows, total = await svc.list_document_serials(
+        db,
+        doc_id=doc.id,
+        page=page,
+        per_page=per_page,
+    )
+    return {
+        "success": True,
+        "data": [
+            {
+                "serial_number": line.serial_number,
+                "serial_unit_id": line.serial_unit_id,
+                "status_before": line.status_before,
+                "status_after": line.status_after,
+                "action": line.action,
+            }
+            for line in rows
+        ],
+        "pagination": _pagination(page, per_page, total),
+    }
 
 
 @router.post("/receipts", status_code=status.HTTP_201_CREATED)
@@ -462,7 +521,10 @@ async def create_receipt(
         request=request,
         status_code=201,
     )
-    return {"success": True, "data": _doc_out(doc, include_serials=True)}
+    return {
+        "success": True,
+        "data": _doc_out(doc, serials_count=doc.total_quantity),
+    }
 
 
 @router.post("/receipts/{doc_id}/post")
@@ -486,7 +548,10 @@ async def post_receipt(
         new_values={"status": "posted", "quantity": doc.total_quantity},
         request=request,
     )
-    return {"success": True, "data": _doc_out(doc, include_serials=True)}
+    return {
+        "success": True,
+        "data": _doc_out(doc, serials_count=doc.total_quantity),
+    }
 
 
 # --------------------------------------------------------------------------- #

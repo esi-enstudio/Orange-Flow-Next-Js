@@ -5,13 +5,14 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 SERIAL_LIST_FIELD = Field(..., min_length=1, max_length=5000)
+MAX_RECEIPT_SERIALS = 100000
 
 
 class ReceiptLineCreate(BaseModel):
     """One product (with its serials) inside a multi-product receiving."""
 
     product_id: int
-    serials: List[str] = Field(..., min_length=1)
+    serials: List[str] = Field(..., min_length=1, max_length=MAX_RECEIPT_SERIALS)
     expected_quantity: Optional[int] = Field(None, ge=0, le=100000)
     unit_cost: Optional[Decimal] = Field(None, ge=0)
     face_value: Optional[Decimal] = Field(None, ge=0)
@@ -57,6 +58,8 @@ class ReceiptCreate(BaseModel):
     @model_validator(mode="after")
     def _require_product_lines(self):
         if self.lines:
+            if sum(len(line.serials) for line in self.lines) > MAX_RECEIPT_SERIALS:
+                raise ValueError(f"A receiving cannot contain more than {MAX_RECEIPT_SERIALS} serials")
             return self
         if self.product_id and self.serials:
             return self

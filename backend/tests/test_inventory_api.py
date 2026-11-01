@@ -97,7 +97,15 @@ async def test_receiving_issue_return_flow_over_http(api, db, data):
     assert doc["status"] == "draft"
     assert doc["document_no"].startswith("GRN-")
     assert doc["serials_count"] == 2
-    assert len(doc["serials"]) == 2
+    assert "serials" not in doc
+    serial_page = await client.get(
+        f"/api/v1/inventory/receipts/{doc['id']}/serials",
+        headers=headers,
+        params={"page": 1, "per_page": 1},
+    )
+    assert serial_page.status_code == 200
+    assert len(serial_page.json()["data"]) == 1
+    assert serial_page.json()["pagination"]["total"] == 2
 
     # Draft serials are not sellable yet.
     summary = await client.get("/api/v1/inventory/summary", headers=headers)
@@ -331,6 +339,58 @@ async def test_receipt_list_counts_serials_without_lazy_load(api, db, data):
     assert rows[0]["serials_count"] == 3
     # Detail-only payload stays out of the list.
     assert "serials" not in rows[0]
+
+
+async def test_receipt_serial_page_and_product_search(api, db, data):
+    app, client = api
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.view", "inventory.receive")
+    )
+    headers = {"X-House-ID": str(data["house"].id)}
+
+    products = [
+        Product(
+            product_code=f"SIM-SEARCH-{index:02d}",
+            category="SIM",
+            product_name=f"Search SIM {index:02d}",
+            status="Active",
+        )
+        for index in range(8)
+    ]
+    db.add_all(products)
+    await db.commit()
+
+    response = await client.get(
+        "/api/v1/inventory/products",
+        headers=headers,
+        params={"search": "SIM-SEARCH", "limit": 3},
+    )
+    assert response.status_code == 200
+    assert len(response.json()["data"]) == 3
+
+    receipt = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={
+            "product_id": data["product"].id,
+            "serials": ["APIPAGE001", "APIPAGE002", "APIPAGE003"],
+        },
+    )
+    assert receipt.status_code == 201
+    doc_id = receipt.json()["data"]["id"]
+    detail = await client.get(f"/api/v1/inventory/receipts/{doc_id}", headers=headers)
+    assert detail.status_code == 200
+    assert "serials" not in detail.json()["data"]
+    assert detail.json()["data"]["serials_count"] == 3
+
+    page = await client.get(
+        f"/api/v1/inventory/receipts/{doc_id}/serials",
+        headers=headers,
+        params={"page": 2, "per_page": 2},
+    )
+    assert page.status_code == 200
+    assert [row["serial_number"] for row in page.json()["data"]] == ["APIPAGE003"]
+    assert page.json()["pagination"]["has_prev"] is True
 
 
 async def test_receipt_batch_number_is_auto_generated_and_unique(api, db, data):

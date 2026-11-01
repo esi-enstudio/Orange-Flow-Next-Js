@@ -6,6 +6,7 @@ import { useLanguage } from "@/i18n/useLanguage";
 
 export const SERIAL_RE = /^[A-Z0-9][A-Z0-9._/-]{2,63}$/;
 const SERIAL_RANGE_SERIAL_RE = /^\d{18}$/;
+const MAX_SERIAL_PREVIEW = 100000;
 
 function splitTrailingNumber(value: string): { prefix: string; number: string } | null {
   const match = value.match(/^(.*?)(\d+)$/);
@@ -76,31 +77,68 @@ export function parseSerialsWithRanges(text: string) {
     .map((token) => token.trim().toUpperCase())
     .filter(Boolean);
 
-  const expanded: string[] = [];
-  const invalidRanges: string[] = [];
+  const seen = new Set<string>();
+  const valid: string[] = [];
+  const duplicates: string[] = [];
+  const invalid: string[] = [];
+  let total = 0;
+  const addSerial = (serial: string) => {
+    total += 1;
+    if (!SERIAL_RE.test(serial)) {
+      invalid.push(serial);
+    } else if (seen.has(serial)) {
+      duplicates.push(serial);
+    } else {
+      seen.add(serial);
+      valid.push(serial);
+    }
+  };
+
   for (const token of tokens) {
     if (token.startsWith("-") || token.endsWith("-")) {
-      invalidRanges.push(token);
+      invalid.push(token);
       continue;
     }
     if (/^[^-\s]+-[^-\s]+$/.test(token)) {
-      const range = expandSerialRange(token);
-      if (range) {
-        expanded.push(...range);
+      const bounds = getSerialRangeBounds(token);
+      if (bounds) {
+        const rangeCount = bounds.last - bounds.first + BigInt(1);
+        if (BigInt(total) + rangeCount > BigInt(MAX_SERIAL_PREVIEW)) {
+          invalid.push(token);
+          break;
+        }
+        for (let current = bounds.first; current <= bounds.last; current++) {
+          addSerial(bounds.prefix + current.toString().padStart(bounds.width, "0"));
+        }
       } else {
-        invalidRanges.push(token);
+        invalid.push(token);
       }
     } else {
-      expanded.push(token);
+      addSerial(token);
     }
   }
 
-  const parsed = parseSerials(expanded.join("\n"));
-  if (invalidRanges.length === 0) return parsed;
   return {
-    ...parsed,
-    invalid: Array.from(new Set([...parsed.invalid, ...invalidRanges])),
+    valid,
+    duplicates: Array.from(new Set(duplicates)),
+    invalid: Array.from(new Set(invalid)),
+    total,
   };
+}
+
+export function countSerialsWithRanges(text: string): number {
+  let count = 0;
+  for (const rawToken of text.split(/[\s,;]+/)) {
+    const token = rawToken.trim().toUpperCase();
+    if (!token || token.startsWith("-") || token.endsWith("-")) continue;
+    if (/^[^-\s]+-[^-\s]+$/.test(token)) {
+      const bounds = getSerialRangeBounds(token);
+      if (bounds) count += Number(bounds.last - bounds.first + BigInt(1));
+    } else if (SERIAL_RE.test(token)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 export function parseSerials(text: string) {
@@ -188,15 +226,24 @@ export function SerialsInput({
   const [rangeEntries, setRangeEntries] = useState<SerialRangeEntry[]>(() =>
     rangeEntriesFromValue(value)
   );
-  const parsed = expandRanges ? parseSerialsWithRanges(value) : parseSerials(value);
+  const [parsed, setParsed] = useState(() =>
+    expandRanges ? parseSerialsWithRanges(value) : parseSerials(value)
+  );
 
   useEffect(() => {
     if (expandRanges) setRangeEntries(rangeEntriesFromValue(value));
   }, [expandRanges, value]);
 
-  const updateRangeEntries = (next: SerialRangeEntry[]) => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setParsed(expandRanges ? parseSerialsWithRanges(value) : parseSerials(value));
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [expandRanges, value]);
+
+  const updateRangeEntries = (next: SerialRangeEntry[], serialize = true) => {
     setRangeEntries(next);
-    onChange(serializeRangeEntries(next));
+    if (serialize) onChange(serializeRangeEntries(next));
   };
 
   const resetSerials = () => {
@@ -215,21 +262,6 @@ export function SerialsInput({
     const bounds = getSerialRangeBounds(`${start.trim()}-${end.trim()}`);
     return bounds ? (bounds.last - bounds.first + BigInt(1)).toString() : null;
   };
-  const hasRangeError =
-    entryMode === "range" &&
-    rangeEntries.some(({ start, end }) => {
-      const trimmedStart = start.trim();
-      const trimmedEnd = end.trim();
-      const quantity = quantityForRange({ start: trimmedStart, end: trimmedEnd });
-      return (
-        (trimmedStart && !SERIAL_RANGE_SERIAL_RE.test(trimmedStart)) ||
-        (trimmedEnd && !trimmedStart) ||
-        (trimmedStart && !trimmedEnd) ||
-        (trimmedEnd && !/^\d{1,18}$/.test(trimmedEnd)) ||
-        (trimmedStart && trimmedEnd && quantity === null)
-      );
-    });
-
   const handleFile = async (file?: File | null) => {
     if (!file) return;
     let lines: string[] = [];
@@ -346,12 +378,6 @@ export function SerialsInput({
         <div className="space-y-3">
           {rangeEntries.map((entry, index) => {
             const quantity = quantityForRange(entry);
-            const rangeError =
-              (entry.start.trim() && !SERIAL_RANGE_SERIAL_RE.test(entry.start.trim())) ||
-              (entry.end.trim() && !entry.start.trim()) ||
-              (entry.start.trim() && !entry.end.trim()) ||
-              (entry.end.trim() && !/^\d{1,18}$/.test(entry.end.trim())) ||
-              (entry.start.trim() && entry.end.trim() && quantity === null);
             return (
               <div
                 key={index}
@@ -367,8 +393,6 @@ export function SerialsInput({
                     type="text"
                     value={entry.start}
                     placeholder="898803841015320254"
-                    maxLength={18}
-                    aria-invalid={Boolean(rangeError)}
                     disabled={disabled}
                     onChange={(event) => {
                       const next = rangeEntries.map((item, itemIndex) =>
@@ -378,11 +402,7 @@ export function SerialsInput({
                       );
                       updateRangeEntries(next);
                     }}
-                    className={`w-full px-3 py-2.5 border rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-tight disabled:opacity-50 ${
-                      rangeError
-                        ? "border-red-300 dark:border-red-700 focus:ring-red-500"
-                        : "border-gray-200 dark:border-slate-700 focus:ring-primary-500"
-                    }`}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all text-sm font-mono tracking-tight disabled:opacity-50"
                   />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -394,8 +414,6 @@ export function SerialsInput({
                     type="text"
                     value={entry.end}
                     placeholder="898803841015320750"
-                    maxLength={18}
-                    aria-invalid={Boolean(rangeError)}
                     disabled={disabled}
                     onChange={(event) => {
                       const next = rangeEntries.map((item, itemIndex) =>
@@ -405,11 +423,7 @@ export function SerialsInput({
                       );
                       updateRangeEntries(next);
                     }}
-                    className={`w-full px-3 py-2.5 border rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 transition-all text-sm font-mono tracking-tight disabled:opacity-50 ${
-                      rangeError
-                        ? "border-red-300 dark:border-red-700 focus:ring-red-500"
-                        : "border-gray-200 dark:border-slate-700 focus:ring-primary-500"
-                    }`}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all text-sm font-mono tracking-tight disabled:opacity-50"
                   />
                 </div>
                 <div className="flex items-end gap-2 w-full sm:w-24">
@@ -420,10 +434,9 @@ export function SerialsInput({
                     <input
                       inputMode="numeric"
                       type="text"
-                      value={quantity || ""}
+                      value={quantity ?? ""}
                       placeholder="—"
                       aria-label={t("inventory.receiving.range_quantity")}
-                      aria-invalid={Boolean(rangeError)}
                       disabled={disabled}
                       onChange={(event) => {
                         const rawQuantity = event.target.value;
@@ -433,16 +446,15 @@ export function SerialsInput({
                           : "";
                         const next = rangeEntries.map((item, itemIndex) =>
                           itemIndex === index
-                            ? { ...item, end: nextEnd ?? "" }
+                            ? {
+                                ...item,
+                                end: nextEnd ?? "",
+                              }
                             : item
-                        );
-                        updateRangeEntries(next);
+                          );
+                          updateRangeEntries(next);
                       }}
-                      className={`w-full px-2 py-2.5 rounded-xl text-sm font-mono font-bold text-center border bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 transition-all disabled:opacity-50 ${
-                        rangeError
-                          ? "border-red-300 dark:border-red-700 focus:ring-red-500"
-                          : "border-gray-200 dark:border-slate-700 focus:ring-primary-500"
-                      }`}
+                      className="w-full px-2 py-2.5 rounded-xl text-sm font-mono font-bold text-center border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all disabled:opacity-50"
                     />
                   </div>
                   {rangeEntries.length > 1 ? (
@@ -510,11 +522,6 @@ export function SerialsInput({
           />
         </>
       )}
-      {hasRangeError ? (
-        <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 mt-2">
-          <AlertCircle className="w-3.5 h-3.5" /> {t("inventory.receiving.invalid_range")}
-        </p>
-      ) : null}
       <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
         {expandRanges && entryMode === "range"
           ? t("inventory.receiving.serial_ranges_help")
@@ -525,7 +532,7 @@ export function SerialsInput({
           <AlertCircle className="w-3.5 h-3.5" /> {error}
         </p>
       ) : null}
-      {value.trim() ? (
+      {value.trim() && !(expandRanges && entryMode === "range") ? (
         <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px]">
           <span className="px-2 py-0.5 rounded-md bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 font-semibold">
             {t("inventory.common.valid")}: {parsed.valid.length}

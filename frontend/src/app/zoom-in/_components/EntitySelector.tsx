@@ -34,6 +34,8 @@ interface EntitySelectorProps {
   /** Hide the "Select All" action (e.g. pickers where selecting everything is meaningless). */
   showSelectAll?: boolean;
   onSearchChange?: (q: string) => void;
+  /** Skip local filtering when the caller provides already-filtered remote results. */
+  remoteSearch?: boolean;
   /**
    * Render the label in the visually-hidden a11y slot only. Set this when the
    * surrounding form already renders its own visible label, so the two never
@@ -68,6 +70,7 @@ export default function EntitySelector({
   selectedLabel = "selected",
   showSelectAll = true,
   onSearchChange,
+  remoteSearch = false,
   hideLabel = false,
   portal = false,
 }: EntitySelectorProps) {
@@ -176,7 +179,7 @@ export default function EntitySelector({
   }, [open]);
 
   const trimmedSearch = search.trim();
-  const filtered = items.filter((item) => {
+  const filtered = remoteSearch ? items : items.filter((item) => {
     if (!trimmedSearch) return true;
     const q = trimmedSearch.toLowerCase();
     return (
@@ -349,7 +352,9 @@ export default function EntitySelector({
             style={portal ? { maxHeight: portalPos?.listMaxHeight } : undefined}
           >
             {items.length === 0 ? (
-              <p className="text-xs text-gray-400 p-3 text-center">{emptyMessage}</p>
+              <p className="text-xs text-gray-400 p-3 text-center">
+                {trimmedSearch ? noResultsMessage : emptyMessage}
+              </p>
             ) : filtered.length === 0 ? (
               <p className="text-xs text-gray-400 p-3 text-center">{noResultsMessage}</p>
             ) : hasGroups && grouped ? (

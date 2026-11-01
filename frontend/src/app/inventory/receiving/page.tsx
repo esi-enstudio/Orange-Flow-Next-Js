@@ -23,11 +23,16 @@ import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import { InventoryStatusBadge } from "@/components/inventory/InventoryStatusBadge";
-import { parseSerialsWithRanges, SerialsInput } from "@/components/inventory/SerialsInput";
+import {
+  countSerialsWithRanges,
+  parseSerialsWithRanges,
+  SerialsInput,
+} from "@/components/inventory/SerialsInput";
 import { apiError, formatDate, houseHeaders } from "@/components/inventory/helpers";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
 const PER_PAGE = 20;
+const MAX_RECEIPT_SERIALS = 100000;
 const TODAY = new Date().toISOString().slice(0, 10);
 
 interface ProductOption {
@@ -81,13 +86,14 @@ interface ReceiptDetail extends ReceiptRow {
   face_value?: number;
   notes?: string | null;
   lines: ReceiptLine[];
-  serials: {
-    serial_number: string;
-    serial_unit_id: number;
-    status_before?: string | null;
-    status_after?: string | null;
-    action: string;
-  }[];
+}
+
+interface ReceiptSerial {
+  serial_number: string;
+  serial_unit_id: number;
+  status_before?: string | null;
+  status_after?: string | null;
+  action: string;
 }
 
 const emptyForm = {
@@ -111,7 +117,10 @@ export default function StockReceivingPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [productsById, setProductsById] = useState<Record<number, ProductOption>>({});
+  const [productResultIds, setProductResultIds] = useState<number[]>([]);
+  const productSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const productSearchRequest = useRef(0);
   const [form, setForm] = useState({ ...emptyForm });
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -123,6 +132,8 @@ export default function StockReceivingPage() {
   const [lineFaceValues, setLineFaceValues] = useState<Record<number, string>>({});
 
   const [detail, setDetail] = useState<ReceiptDetail | null>(null);
+  const [receiptSerials, setReceiptSerials] = useState<ReceiptSerial[]>([]);
+  const [receiptSerialPagination, setReceiptSerialPagination] = useState<PaginationMeta | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmPost, setConfirmPost] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -132,52 +143,40 @@ export default function StockReceivingPage() {
 
   const productItems = useMemo(
     () =>
-      products.map((product) => ({
-        id: product.id,
-        label: product.product_name,
-        sublabel: product.product_code,
-        badge: product.category,
-        group: product.category,
-      })),
-    [products]
+      productResultIds
+        .map((id) => productsById[id])
+        .filter((product): product is ProductOption => Boolean(product))
+        .map((product) => ({
+          id: product.id,
+          label: product.product_name,
+          sublabel: product.product_code,
+          badge: product.category,
+          group: product.category,
+        })),
+    [productResultIds, productsById]
   );
 
   const selectedProducts = useMemo(
     () =>
       selectedProductIds
-        .map((id) => products.find((product) => product.id === Number(id)))
+        .map((id) => productsById[Number(id)])
         .filter((product): product is ProductOption => Boolean(product)),
-    [selectedProductIds, products]
+    [selectedProductIds, productsById]
   );
 
-  const lineSerialsParsed = useMemo(() => {
-    const map: Record<number, ReturnType<typeof parseSerialsWithRanges>> = {};
-    for (const product of selectedProducts) {
-      map[product.id] = parseSerialsWithRanges(lineSerials[product.id] || "");
-    }
-    return map;
-  }, [selectedProducts, lineSerials]);
+  const [totalSerials, setTotalSerials] = useState(0);
 
-  const totalSerials = useMemo(
-    () =>
-      selectedProducts.reduce(
-        (sum, product) => sum + (lineSerialsParsed[product.id]?.valid.length || 0),
-        0
-      ),
-    [selectedProducts, lineSerialsParsed]
-  );
-
-  const crossDuplicates = useMemo(() => {
-    const seen = new Set<string>();
-    const duplicates = new Set<string>();
-    for (const product of selectedProducts) {
-      for (const serial of lineSerialsParsed[product.id]?.valid || []) {
-        if (seen.has(serial)) duplicates.add(serial);
-        else seen.add(serial);
-      }
-    }
-    return Array.from(duplicates);
-  }, [selectedProducts, lineSerialsParsed]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setTotalSerials(
+        selectedProducts.reduce(
+          (sum, product) => sum + countSerialsWithRanges(lineSerials[product.id] || ""),
+          0
+        )
+      );
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [lineSerials, selectedProducts]);
 
   const fetchReceipts = useCallback(async () => {
     if (!houseId) {
@@ -210,12 +209,43 @@ export default function StockReceivingPage() {
   }, [fetchReceipts]);
 
   useEffect(() => {
-    if (!houseId) return;
-    axios
-      .get("/v1/inventory/products", { headers: houseHeaders(houseId) })
-      .then((res) => setProducts(res.data.data || []))
-      .catch(() => setProducts([]));
+    productSearchRequest.current += 1;
+    if (productSearchTimer.current) clearTimeout(productSearchTimer.current);
+    setProductsById({});
+    setProductResultIds([]);
+    return () => {
+      productSearchRequest.current += 1;
+      if (productSearchTimer.current) clearTimeout(productSearchTimer.current);
+    };
   }, [houseId]);
+
+  const searchProducts = (value: string) => {
+    const requestId = ++productSearchRequest.current;
+    if (productSearchTimer.current) clearTimeout(productSearchTimer.current);
+    setProductResultIds([]);
+    const query = value.trim();
+    if (!houseId || !query) return;
+
+    productSearchTimer.current = setTimeout(async () => {
+      try {
+        const res = await axios.get("/v1/inventory/products", {
+          params: { search: query, limit: 30 },
+          headers: houseHeaders(houseId),
+        });
+        if (requestId !== productSearchRequest.current) return;
+        const options = (res.data.data || []) as ProductOption[];
+        setProductsById((current) => ({
+          ...current,
+          ...Object.fromEntries(options.map((product) => [product.id, product])),
+        }));
+        setProductResultIds(options.map((product) => product.id));
+      } catch (err) {
+        if (requestId === productSearchRequest.current) {
+          toast.error(apiError(err, t("inventory.common.error_generic")).message);
+        }
+      }
+    }, 250);
+  };
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -226,15 +256,37 @@ export default function StockReceivingPage() {
   const openDetail = async (id: number) => {
     setDetailLoading(true);
     setDetail(null);
+    setReceiptSerials([]);
+    setReceiptSerialPagination(null);
     try {
       const res = await axios.get(`/v1/inventory/receipts/${id}`, {
         headers: houseHeaders(houseId),
       });
       setDetail(res.data.data);
+      const serialRes = await axios.get(`/v1/inventory/receipts/${id}/serials`, {
+        params: { page: 1, per_page: 100 },
+        headers: houseHeaders(houseId),
+      });
+      setReceiptSerials(serialRes.data.data || []);
+      setReceiptSerialPagination(serialRes.data.pagination || null);
     } catch (err) {
       toast.error(apiError(err, t("inventory.common.error_generic")).message);
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const changeReceiptSerialPage = async (nextPage: number) => {
+    if (!detail || !houseId) return;
+    try {
+      const res = await axios.get(`/v1/inventory/receipts/${detail.id}/serials`, {
+        params: { page: nextPage, per_page: 100 },
+        headers: houseHeaders(houseId),
+      });
+      setReceiptSerials(res.data.data || []);
+      setReceiptSerialPagination(res.data.pagination || null);
+    } catch (err) {
+      toast.error(apiError(err, t("inventory.common.error_generic")).message);
     }
   };
 
@@ -244,6 +296,7 @@ export default function StockReceivingPage() {
     setLineSerials({});
     setLineUnitCosts({});
     setLineFaceValues({});
+    setTotalSerials(0);
     setFormError(null);
     setFieldErrors({});
   };
@@ -286,6 +339,15 @@ export default function StockReceivingPage() {
       return;
     }
 
+    const enteredSerialCount = selectedProducts.reduce(
+      (sum, product) => sum + countSerialsWithRanges(lineSerials[product.id] || ""),
+      0
+    );
+    if (enteredSerialCount > MAX_RECEIPT_SERIALS) {
+      setFormError(t("inventory.receiving.max_serials", { count: MAX_RECEIPT_SERIALS }));
+      return;
+    }
+
     const nextFieldErrors: Record<string, string> = {};
     const lines: {
       product_id: number;
@@ -293,19 +355,23 @@ export default function StockReceivingPage() {
       unit_cost: number;
       face_value: number;
     }[] = [];
+    const seenSerials = new Set<string>();
+    const crossDuplicates = new Set<string>();
     for (const product of selectedProducts) {
-      const parsed = lineSerialsParsed[product.id];
+      const parsed = parseSerialsWithRanges(lineSerials[product.id] || "");
       const unitCost = lineUnitCosts[product.id] || "";
       const faceValue = lineFaceValues[product.id] || "";
+      for (const serial of parsed.valid) {
+        if (seenSerials.has(serial)) crossDuplicates.add(serial);
+        else seenSerials.add(serial);
+      }
       if (unitCost && (!Number.isFinite(Number(unitCost)) || Number(unitCost) < 0)) {
         nextFieldErrors[`unit_cost_${product.id}`] = t("inventory.receiving.invalid_amount");
       }
       if (faceValue && (!Number.isFinite(Number(faceValue)) || Number(faceValue) < 0)) {
         nextFieldErrors[`face_value_${product.id}`] = t("inventory.receiving.invalid_amount");
       }
-      if (!parsed) {
-        nextFieldErrors[`serials_${product.id}`] = t("inventory.common.required_field");
-      } else if (parsed.duplicates.length > 0 || parsed.invalid.length > 0) {
+      if (parsed.duplicates.length > 0 || parsed.invalid.length > 0) {
         nextFieldErrors[`serials_${product.id}`] =
           `${t("inventory.common.duplicates")}: ${parsed.duplicates.length}, ${t("inventory.common.invalid")}: ${parsed.invalid.length}`;
       } else if (parsed.valid.length === 0) {
@@ -324,9 +390,9 @@ export default function StockReceivingPage() {
       setFieldErrors(nextFieldErrors);
       return;
     }
-    if (crossDuplicates.length > 0) {
+    if (crossDuplicates.size > 0) {
       setFormError(
-        `${t("inventory.receiving.duplicate_across_products")}: ${crossDuplicates.slice(0, 5).join(", ")}`
+        `${t("inventory.receiving.duplicate_across_products")}: ${Array.from(crossDuplicates).slice(0, 5).join(", ")}`
       );
       return;
     }
@@ -340,11 +406,11 @@ export default function StockReceivingPage() {
           purchase_reference: form.purchase_reference || null,
           invoice_number: form.invoice_number || null,
           business_date: form.business_date || null,
-          expected_quantity: totalSerials,
+          expected_quantity: lines.reduce((sum, line) => sum + line.serials.length, 0),
           notes: form.notes || null,
           lines,
         },
-        { headers: houseHeaders(houseId) }
+        { headers: houseHeaders(houseId), timeout: 300000 }
       );
       toast.success(t("inventory.receiving.created_toast"));
       setShowCreate(false);
@@ -367,7 +433,7 @@ export default function StockReceivingPage() {
       await axios.post(
         `/v1/inventory/receipts/${detail.id}/post`,
         {},
-        { headers: houseHeaders(houseId) }
+        { headers: houseHeaders(houseId), timeout: 300000 }
       );
       toast.success(t("inventory.receiving.posted"));
       setConfirmPost(false);
@@ -694,6 +760,8 @@ export default function StockReceivingPage() {
                     items={productItems}
                     selectedIds={selectedProductIds}
                     onChange={handleProductSelection}
+                    onSearchChange={searchProducts}
+                    remoteSearch
                     placeholder={t("inventory.receiving.products_placeholder")}
                     searchPlaceholder={t("inventory.receiving.product_search")}
                     emptyMessage={t("inventory.receiving.no_products")}
@@ -947,16 +1015,42 @@ export default function StockReceivingPage() {
 
                 <div className="mt-4">
                   <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1.5">
-                    {t("inventory.common.serials")} ({detail.serials.length})
+                    {t("inventory.common.serials")} ({detail.serials_count || detail.total_quantity})
                   </p>
                   <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 dark:border-slate-800 divide-y divide-gray-50 dark:divide-slate-800">
-                    {detail.serials.map((line) => (
+                    {receiptSerials.map((line) => (
                       <div key={line.serial_number} className="flex items-center justify-between px-3 py-1.5 text-xs font-mono">
                         <span>{line.serial_number}</span>
                         <InventoryStatusBadge status={line.status_after || "received"} />
                       </div>
                     ))}
                   </div>
+                  {receiptSerialPagination && receiptSerialPagination.total_pages > 1 ? (
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => changeReceiptSerialPage(receiptSerialPagination.page - 1)}
+                        disabled={!receiptSerialPagination.has_prev}
+                        className="min-h-11 px-3 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        {t("inventory.common.previous")}
+                      </button>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {t("inventory.common.page_info", {
+                          current: receiptSerialPagination.page,
+                          total: receiptSerialPagination.total_pages,
+                        })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => changeReceiptSerialPage(receiptSerialPagination.page + 1)}
+                        disabled={!receiptSerialPagination.has_next}
+                        className="min-h-11 px-3 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        {t("inventory.common.next")}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 {detail.status === "draft" && canReceive ? (

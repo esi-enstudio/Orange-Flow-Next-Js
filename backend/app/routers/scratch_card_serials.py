@@ -81,6 +81,14 @@ def _apply_house_filter(query, model, current_user, house_context):
     return query
 
 
+def _apply_serial_range(query, serial_from, serial_to):
+    if serial_from:
+        query = query.where(ScratchCardSerial.serial_number >= serial_from)
+    if serial_to:
+        query = query.where(ScratchCardSerial.serial_number <= serial_to)
+    return query
+
+
 def _check_house_access(record, current_user, house_context=None):
     if not record:
         return
@@ -114,6 +122,8 @@ async def list_serials(
     status: Optional[str] = Query(None),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
+    serial_from: Optional[str] = Query(None, min_length=1, max_length=100),
+    serial_to: Optional[str] = Query(None, min_length=1, max_length=100),
     house_context: Optional[int] = Depends(get_house_context),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
@@ -124,6 +134,7 @@ async def list_serials(
         joinedload(ScratchCardSerial.used_by_user),
     )
     query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
+    query = _apply_serial_range(query, serial_from, serial_to)
 
     if pagination.search:
         q = f"%{pagination.search}%"
@@ -184,12 +195,15 @@ async def select_all_serials(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     search: Optional[str] = Query(None),
+    serial_from: Optional[str] = Query(None, min_length=1, max_length=100),
+    serial_to: Optional[str] = Query(None, min_length=1, max_length=100),
     house_context: Optional[int] = Depends(get_house_context),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
 ):
     query = select(ScratchCardSerial.id)
     query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
+    query = _apply_serial_range(query, serial_from, serial_to)
 
     if search:
         q = f"%{search}%"
