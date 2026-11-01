@@ -72,8 +72,6 @@ def _serial_out(unit: SerialUnit) -> dict:
         "dms_code": getattr(employee, "dms_code", None),
         "location_id": unit.current_location_id,
         "batch_id": unit.batch_id,
-        "unit_cost": float(unit.unit_cost or 0),
-        "face_value": float(unit.face_value or 0),
         "received_at": unit.received_at.isoformat() if unit.received_at else None,
         "status_updated_at": unit.status_updated_at.isoformat() if unit.status_updated_at else None,
         "created_at": unit.created_at.isoformat() if unit.created_at else None,
@@ -113,8 +111,6 @@ def _doc_out(
         "expected_quantity": doc.expected_quantity,
         "total_quantity": doc.total_quantity,
         "discrepancy": doc.discrepancy,
-        "unit_cost": float(doc.unit_cost or 0),
-        "face_value": float(doc.face_value or 0),
         "notes": doc.notes,
         "reason": doc.reason,
         "product_id": getattr(line, "product_id", None),
@@ -129,8 +125,6 @@ def _doc_out(
                 "product_code": getattr(doc_line.product, "product_code", None),
                 "category": getattr(doc_line.product, "category", None),
                 "quantity": doc_line.quantity,
-                "unit_cost": float(doc_line.unit_cost or 0),
-                "face_value": float(doc_line.face_value or 0),
             }
             for doc_line in doc.lines
         ],

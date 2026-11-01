@@ -13,7 +13,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -65,8 +64,6 @@ class ProductBatch(Base):
     invoice_number = Column(String(100), nullable=True)
     received_date = Column(Date, nullable=True)
     quantity = Column(Integer, nullable=False, default=0)
-    unit_cost = Column(Numeric(14, 2), nullable=False, default=0)
-    face_value = Column(Numeric(14, 2), nullable=False, default=0)
     notes = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=now_naive)
@@ -120,8 +117,6 @@ class SerialUnit(Base):
     status = Column(String(20), nullable=False, default="received", index=True)
     current_location_id = Column(Integer, ForeignKey("stock_locations.id"), nullable=True, index=True)
     current_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)
-    unit_cost = Column(Numeric(14, 2), nullable=False, default=0)
-    face_value = Column(Numeric(14, 2), nullable=False, default=0)
     received_at = Column(DateTime, nullable=True)
     status_updated_at = Column(DateTime, default=now_naive)
     notes = Column(String(500), nullable=True)
@@ -162,8 +157,6 @@ class StockDocument(Base):
     business_date = Column(Date, nullable=False)
     expected_quantity = Column(Integer, nullable=False, default=0)
     total_quantity = Column(Integer, nullable=False, default=0)
-    unit_cost = Column(Numeric(14, 2), nullable=False, default=0)
-    face_value = Column(Numeric(14, 2), nullable=False, default=0)
     notes = Column(Text, nullable=True)
     reason = Column(String(255), nullable=True)
     idempotency_key = Column(String(120), nullable=True)
@@ -202,8 +195,6 @@ class StockDocumentLine(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     batch_id = Column(Integer, ForeignKey("product_batches.id"), nullable=True)
     quantity = Column(Integer, nullable=False, default=0)
-    unit_cost = Column(Numeric(14, 2), nullable=False, default=0)
-    face_value = Column(Numeric(14, 2), nullable=False, default=0)
     notes = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=now_naive)
 

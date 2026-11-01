@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Barcode, Clipboard, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Upload } from "lucide-react";
 import { useLanguage } from "@/i18n/useLanguage";
 
 export const SERIAL_RE = /^[A-Z0-9][A-Z0-9._/-]{2,63}$/;
-const SERIAL_RANGE_SERIAL_RE = /^\d{18}$/;
 const MAX_SERIAL_PREVIEW = 100000;
 
 function splitTrailingNumber(value: string): { prefix: string; number: string } | null {
@@ -14,46 +13,61 @@ function splitTrailingNumber(value: string): { prefix: string; number: string } 
   return { prefix: match[1], number: match[2] };
 }
 
+/**
+ * End serial for `start` + `quantity` (both directions of the range sync use
+ * this). Works for any serial shape: an 18-digit ICCID, a prefixed serial such
+ * as `APISC001`, or a shorter numeric block. The trailing digit block keeps its
+ * width, so `APISC001` + 3 → `APISC003`.
+ */
 export function serialEndFromQuantity(start: string, quantity: string): string | null {
-  if (!SERIAL_RANGE_SERIAL_RE.test(start) || !/^\d+$/.test(quantity)) return null;
+  const startParts = splitTrailingNumber((start || "").trim().toUpperCase());
+  if (!startParts || !/^\d+$/.test(quantity)) return null;
   const count = BigInt(quantity);
   if (count < BigInt(1)) return null;
-  const end = BigInt(start) + count - BigInt(1);
-  if (end > BigInt("999999999999999999")) return null;
-  return end.toString().padStart(18, "0");
+  const end = BigInt(startParts.number) + count - BigInt(1);
+  const endDigits = end.toString();
+  // Never produce a block that a serial number could not hold.
+  if (endDigits.length > 18) return null;
+  return startParts.prefix + endDigits.padStart(startParts.number.length, "0");
+}
+
+/** Quantity implied by a `start` / `end` pair, or null when it is not a range. */
+export function serialQuantityFromRange(start: string, end: string): string | null {
+  const startParts = splitTrailingNumber((start || "").trim().toUpperCase());
+  const endParts = splitTrailingNumber((end || "").trim().toUpperCase());
+  if (!startParts || !endParts) return null;
+  if (endParts.prefix !== "" && endParts.prefix !== startParts.prefix) return null;
+  if (endParts.number.length > startParts.number.length) return null;
+  // A shorter end is a suffix of the start's digit block (`...254` → `...750`).
+  const endDigits =
+    startParts.number.slice(0, startParts.number.length - endParts.number.length) +
+    endParts.number;
+  const first = BigInt(startParts.number);
+  const last = BigInt(endDigits);
+  if (last < first) return null;
+  return (last - first + BigInt(1)).toString();
 }
 
 function getSerialRangeBounds(token: string) {
   const parts = token.split("-");
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   const [startRaw, endRaw] = parts as [string, string];
-  if (!SERIAL_RANGE_SERIAL_RE.test(startRaw) || !/^\d{1,18}$/.test(endRaw)) return null;
-  let start = splitTrailingNumber(startRaw);
+  // Any serial shape is fine (an 18-digit ICCID, a 12-digit numeric serial, or a
+  // prefixed one such as APISC001); only the trailing digit block is compared.
+  const start = splitTrailingNumber(startRaw);
   if (!start) return null;
-  let end = splitTrailingNumber(endRaw);
+  const end = splitTrailingNumber(endRaw);
   if (!end) return null;
 
-  // When the end is abbreviated, retain the shared prefix, including digits
-  // from numeric-only serials (e.g. 898803841015320254-750).
-  if (
-    end.prefix === "" &&
-    endRaw.length < start.number.length
-  ) {
-    const sharedDigitsLength = start.number.length - endRaw.length;
-    const sharedPrefix = start.number.slice(0, sharedDigitsLength);
-    start = {
-      prefix: start.prefix + sharedPrefix,
-      number: start.number.slice(sharedDigitsLength),
-    };
-    end = { prefix: start.prefix, number: endRaw };
-  } else if (end.prefix === "" && start.prefix !== "" && endRaw.length === start.number.length) {
-    // Also allow a full-width end suffix when the serial has a non-numeric prefix.
-    end = { prefix: start.prefix, number: endRaw };
-  }
-  if (start.prefix !== end.prefix || start.number.length !== end.number.length) return null;
+  // The end may repeat the start's prefix or be only its trailing digits
+  // (e.g. 898803841015320254-750); anything else is not a range.
+  if (end.prefix !== "" && end.prefix !== start.prefix) return null;
+  if (end.number.length > start.number.length) return null;
+  const endNumber =
+    start.number.slice(0, start.number.length - end.number.length) + end.number;
 
   const first = BigInt(start.number);
-  const last = BigInt(end.number);
+  const last = BigInt(endNumber);
   if (last < first) return null;
   return { prefix: start.prefix, width: start.number.length, first, last };
 }
@@ -219,19 +233,21 @@ export function SerialsInput({
 }) {
   const { t } = useLanguage();
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const startInputRef = useRef<HTMLInputElement | null>(null);
-  const [entryMode, setEntryMode] = useState<"range" | "list">(
-    expandRanges ? "range" : "list"
-  );
   const [rangeEntries, setRangeEntries] = useState<SerialRangeEntry[]>(() =>
     rangeEntriesFromValue(value)
   );
   const [parsed, setParsed] = useState(() =>
     expandRanges ? parseSerialsWithRanges(value) : parseSerials(value)
   );
+  // Keeps a typed quantity visible while it cannot yet be turned into an end
+  // serial (for example before the start serial is filled in).
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>({});
 
   useEffect(() => {
-    if (expandRanges) setRangeEntries(rangeEntriesFromValue(value));
+    if (expandRanges) {
+      setRangeEntries(rangeEntriesFromValue(value));
+      setQuantityDrafts({});
+    }
   }, [expandRanges, value]);
 
   useEffect(() => {
@@ -243,25 +259,12 @@ export function SerialsInput({
 
   const updateRangeEntries = (next: SerialRangeEntry[], serialize = true) => {
     setRangeEntries(next);
+    if (next.length !== rangeEntries.length) setQuantityDrafts({});
     if (serialize) onChange(serializeRangeEntries(next));
   };
 
-  const resetSerials = () => {
-    updateRangeEntries([{ start: "", end: "" }]);
-  };
-
-  const loadExample = () => {
-    updateRangeEntries([
-      { start: "898803921654700214", end: "898803921654700220" },
-    ]);
-  };
-
-  const quantityForRange = ({ start, end }: SerialRangeEntry): string | null => {
-    if (!SERIAL_RANGE_SERIAL_RE.test(start.trim())) return null;
-    if (!end.trim() || !/^\d{1,18}$/.test(end.trim())) return null;
-    const bounds = getSerialRangeBounds(`${start.trim()}-${end.trim()}`);
-    return bounds ? (bounds.last - bounds.first + BigInt(1)).toString() : null;
-  };
+  const quantityForRange = ({ start, end }: SerialRangeEntry): string | null =>
+    serialQuantityFromRange(start, end);
   const handleFile = async (file?: File | null) => {
     if (!file) return;
     let lines: string[] = [];
@@ -295,72 +298,7 @@ export function SerialsInput({
 
   return (
     <div>
-      {expandRanges ? (
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-black text-gray-500 dark:text-gray-400 tracking-wide uppercase">
-              {t("inventory.receiving.entry_method")}
-            </label>
-            <div className="flex gap-1.5 p-1 bg-gray-100/80 dark:bg-slate-800 border border-gray-200/50 dark:border-slate-700 rounded-2xl">
-              <button
-                type="button"
-                onClick={() => setEntryMode("range")}
-                disabled={disabled}
-                className={`px-4 py-2 min-h-[40px] text-xs font-black rounded-xl transition-all disabled:cursor-not-allowed ${
-                  entryMode === "range"
-                    ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-                }`}
-              >
-                {t("inventory.receiving.serial_range")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setEntryMode("list")}
-                disabled={disabled}
-                className={`px-4 py-2 min-h-[40px] text-xs font-black rounded-xl transition-all disabled:cursor-not-allowed ${
-                  entryMode === "list"
-                    ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-md"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-                }`}
-              >
-                {t("inventory.receiving.multiline_list")}
-              </button>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-1">
-            {entryMode === "range" ? (
-              <button
-                type="button"
-                onClick={() => startInputRef.current?.focus()}
-                disabled={disabled}
-                className="flex items-center gap-1.5 px-2.5 py-2 min-h-[44px] text-xs font-bold border-b border-primary-500/20 text-primary-500 hover:text-primary-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              >
-                <Barcode className="w-3.5 h-3.5" />
-                {t("inventory.receiving.scan_barcode")}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={loadExample}
-              disabled={disabled}
-              className="flex items-center gap-1.5 px-2.5 py-2 min-h-[44px] text-xs font-bold border-b border-primary-500/20 text-primary-500 hover:text-primary-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <Clipboard className="w-3.5 h-3.5" />
-              {t("inventory.receiving.load_example")}
-            </button>
-            <button
-              type="button"
-              onClick={resetSerials}
-              disabled={disabled}
-              className="flex items-center gap-1.5 px-2.5 py-2 min-h-[44px] text-xs font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              {t("inventory.receiving.reset")}
-            </button>
-          </div>
-        </div>
-      ) : (
+      {expandRanges ? null : (
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
             {t("inventory.common.serial_numbers")}
@@ -374,35 +312,45 @@ export function SerialsInput({
         className="hidden"
         onChange={(event) => handleFile(event.target.files?.[0])}
       />
-      {expandRanges && entryMode === "range" ? (
-        <div className="space-y-3">
+      {expandRanges ? (
+        <div>
           {rangeEntries.map((entry, index) => {
             const quantity = quantityForRange(entry);
             return (
               <div
                 key={index}
-                className="flex flex-col gap-3 p-3.5 rounded-2xl border border-gray-100 dark:border-slate-800 bg-gray-50/40 dark:bg-slate-800/20 sm:p-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:flex-row sm:items-end sm:gap-2"
+                className="flex items-end gap-1.5 mb-2"
               >
                 <div className="min-w-0 flex-1">
                   <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
                     {t("inventory.receiving.range_start")}
                   </label>
                   <input
-                    ref={index === 0 ? startInputRef : undefined}
                     inputMode="numeric"
                     type="text"
                     value={entry.start}
                     placeholder="898803841015320254"
                     disabled={disabled}
                     onChange={(event) => {
+                      const rawStart = event.target.value.toUpperCase();
+                      // A quantity typed before the start serial fills the end as
+                      // soon as the start becomes usable.
+                      const draftQuantity = quantityDrafts[index];
+                      const draftEnd = draftQuantity
+                        ? serialEndFromQuantity(rawStart, draftQuantity)
+                        : null;
                       const next = rangeEntries.map((item, itemIndex) =>
                         itemIndex === index
-                          ? { ...item, start: event.target.value.toUpperCase() }
+                          ? {
+                              ...item,
+                              start: rawStart,
+                              ...(draftEnd !== null ? { end: draftEnd } : {}),
+                            }
                           : item
                       );
                       updateRangeEntries(next);
                     }}
-                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all text-sm font-mono tracking-tight disabled:opacity-50"
+                    className="w-full px-2 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all text-sm font-mono tracking-tight disabled:opacity-50"
                   />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -413,7 +361,7 @@ export function SerialsInput({
                     inputMode="numeric"
                     type="text"
                     value={entry.end}
-                    placeholder="898803841015320750"
+                    placeholder="—"
                     disabled={disabled}
                     onChange={(event) => {
                       const next = rangeEntries.map((item, itemIndex) =>
@@ -423,24 +371,25 @@ export function SerialsInput({
                       );
                       updateRangeEntries(next);
                     }}
-                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all text-sm font-mono tracking-tight disabled:opacity-50"
+                    className="w-full px-2 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all text-sm font-mono tracking-tight disabled:opacity-50"
                   />
                 </div>
-                <div className="flex items-end gap-2 w-full sm:w-24">
-                  <div className="flex-1 min-w-0">
+                <div className="flex items-end gap-1.5 shrink-0">
+                  <div className="w-16 sm:w-20">
                     <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1.5">
                       {t("inventory.receiving.range_quantity")}
                     </label>
                     <input
                       inputMode="numeric"
                       type="text"
-                      value={quantity ?? ""}
+                      value={quantity ?? quantityDrafts[index] ?? ""}
                       placeholder="—"
                       aria-label={t("inventory.receiving.range_quantity")}
                       disabled={disabled}
                       onChange={(event) => {
                         const rawQuantity = event.target.value;
                         if (!/^\d*$/.test(rawQuantity)) return;
+                        setQuantityDrafts((current) => ({ ...current, [index]: rawQuantity }));
                         const nextEnd = rawQuantity
                           ? serialEndFromQuantity(entry.start.trim(), rawQuantity)
                           : "";
@@ -473,7 +422,7 @@ export function SerialsInput({
               </div>
             );
           })}
-          <div className="flex items-center justify-between gap-2 pt-1">
+          <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
               onClick={() => updateRangeEntries([...rangeEntries, { start: "", end: "" }])}
@@ -482,15 +431,6 @@ export function SerialsInput({
             >
               <Plus className="w-3.5 h-3.5" />
               {t("inventory.receiving.add_range")}
-            </button>
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={disabled}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] text-xs font-semibold rounded-xl border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              {t("inventory.common.import_file")}
             </button>
           </div>
         </div>
@@ -522,17 +462,17 @@ export function SerialsInput({
           />
         </>
       )}
-      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-        {expandRanges && entryMode === "range"
-          ? t("inventory.receiving.serial_ranges_help")
-          : t("inventory.common.serials_help")}
-      </p>
+      {expandRanges ? null : (
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+          {t("inventory.common.serials_help")}
+        </p>
+      )}
       {error ? (
         <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 mt-1">
           <AlertCircle className="w-3.5 h-3.5" /> {error}
         </p>
       ) : null}
-      {value.trim() && !(expandRanges && entryMode === "range") ? (
+      {!expandRanges && value.trim() ? (
         <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px]">
           <span className="px-2 py-0.5 rounded-md bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 font-semibold">
             {t("inventory.common.valid")}: {parsed.valid.length}

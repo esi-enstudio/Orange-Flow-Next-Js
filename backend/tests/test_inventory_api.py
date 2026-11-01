@@ -252,14 +252,10 @@ async def test_multi_product_receipt_keeps_one_line_and_batch_per_product(api, d
                 {
                     "product_id": data["product"].id,
                     "serials": ["APISIM101", "APISIM102"],
-                    "unit_cost": 10,
-                    "face_value": 20,
                 },
                 {
                     "product_id": scratch.id,
                     "serials": ["APISC001"],
-                    "unit_cost": 5,
-                    "face_value": 10,
                 },
             ],
         },
@@ -273,8 +269,6 @@ async def test_multi_product_receipt_keeps_one_line_and_batch_per_product(api, d
     assert doc["batch_number"] == doc["document_no"]
     assert [line["product_id"] for line in doc["lines"]] == [data["product"].id, scratch.id]
     assert [line["quantity"] for line in doc["lines"]] == [2, 1]
-    assert [line["unit_cost"] for line in doc["lines"]] == [10, 5]
-    assert [line["face_value"] for line in doc["lines"]] == [20, 10]
 
     posted = await client.post(
         f"/api/v1/inventory/receipts/{doc['id']}/post", headers=headers
@@ -296,14 +290,6 @@ async def test_multi_product_receipt_keeps_one_line_and_batch_per_product(api, d
     ).scalars().all()
     assert {batch.product_id for batch in batches} == {data["product"].id, scratch.id}
     assert {batch.quantity for batch in batches} == {1, 2}
-    assert {batch.product_id: float(batch.unit_cost) for batch in batches} == {
-        data["product"].id: 10,
-        scratch.id: 5,
-    }
-    assert {batch.product_id: float(batch.face_value) for batch in batches} == {
-        data["product"].id: 20,
-        scratch.id: 10,
-    }
     # Both products share the voucher's auto batch number.
     assert {batch.batch_number for batch in batches} == {doc["batch_number"]}
 

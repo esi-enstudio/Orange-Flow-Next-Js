@@ -1,7 +1,6 @@
 """P1 inventory foundation: serial integrity, ledger and tenant isolation."""
 
 from datetime import date
-from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
@@ -101,8 +100,6 @@ def _receipt(setup, serials, **overrides):
         purchase_reference="PO-1",
         invoice_number="INV-1",
         business_date=date(2026, 10, 29),
-        unit_cost=Decimal("10"),
-        face_value=Decimal("50"),
         serials=serials,
     )
     payload.update(overrides)

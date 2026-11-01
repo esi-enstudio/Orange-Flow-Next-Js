@@ -1862,6 +1862,40 @@ async def _migrate_location_telemetry_columns():
         logger.warning(f"Migration warning (location telemetry columns): {e}")
 
 
+_INVENTORY_COST_TABLES = (
+    "product_batches",
+    "serial_units",
+    "stock_documents",
+    "stock_document_lines",
+)
+_INVENTORY_COST_COLUMNS = ("unit_cost", "face_value")
+
+
+async def _migrate_drop_inventory_cost_columns():
+    """Drop the unused per-receipt cost columns.
+
+    Unit price and MRP are read from the selected product
+    (``products.dd_lifting_price`` / ``products.mrp``), so a receiving no longer
+    keeps its own copy. Idempotent: ``DROP COLUMN IF EXISTS`` on every restart.
+    """
+    statements = tuple(
+        f"ALTER TABLE {table} DROP COLUMN IF EXISTS {column}"
+        for table in _INVENTORY_COST_TABLES
+        for column in _INVENTORY_COST_COLUMNS
+    )
+    try:
+        async with engine.begin() as conn:
+            for stmt in statements:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as exc:
+                    # Missing table (fresh DB) or a non-PostgreSQL test DB.
+                    logger.debug("Skipping (%s): %s", stmt, exc)
+        logger.info("Migration complete: inventory unit_cost/face_value columns removed")
+    except Exception as e:
+        logger.warning(f"Migration warning (drop inventory cost columns): {e}")
+
+
 async def _migrate_billing_fail_closed(db_engine=None) -> dict:
     """Deny-by-default rollout: never lock out a tenant that was working before.
 
@@ -2212,6 +2246,7 @@ async def init_db():
         await _migrate_remove_payment_gateway_artifacts()
         await _migrate_drop_bp_retailer_codes()
         await _migrate_drop_stock_sales_module()
+        await _migrate_drop_inventory_cost_columns()
         await _migrate_billing_fail_closed()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()

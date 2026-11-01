@@ -11,7 +11,6 @@ Rules enforced here (never only in the UI):
 
 import re
 from datetime import date
-from decimal import Decimal
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from fastapi import HTTPException
@@ -414,8 +413,6 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
             product_order.append(product_id)
             meta_by_product[product_id] = {
                 "expected_quantity": None,
-                "unit_cost": None,
-                "face_value": None,
                 "notes": None,
             }
 
@@ -427,7 +424,7 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
         serials_by_product[product_id].extend(cleaned)
 
         meta = meta_by_product[product_id]
-        for key in ("expected_quantity", "unit_cost", "face_value", "notes"):
+        for key in ("expected_quantity", "notes"):
             if meta[key] is None and raw.get(key) is not None:
                 meta[key] = raw[key]
 
@@ -459,8 +456,6 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
             data.expected_quantity if data.expected_quantity is not None else total_serials
         ),
         total_quantity=total_serials,
-        unit_cost=Decimal(str(data.unit_cost or 0)),
-        face_value=Decimal(str(data.face_value or 0)),
         notes=data.notes,
         idempotency_key=data.idempotency_key,
         created_by=user_id,
@@ -487,12 +482,6 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
             document_id=doc.id,
             product_id=product_id,
             quantity=len(serials),
-            unit_cost=(
-                Decimal(str(meta["unit_cost"])) if meta["unit_cost"] is not None else doc.unit_cost
-            ),
-            face_value=(
-                Decimal(str(meta["face_value"])) if meta["face_value"] is not None else doc.face_value
-            ),
             notes=meta["notes"] or data.notes,
         )
         db.add(line)
@@ -511,8 +500,6 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
                             "serial_number": serial,
                             "status": "received",
                             "current_location_id": house_location.id,
-                            "unit_cost": line.unit_cost,
-                            "face_value": line.face_value,
                             "notes": line.notes,
                             "status_updated_at": now,
                             "created_at": now,
@@ -596,8 +583,6 @@ def _receipt_input_lines(data) -> List[dict]:
                 "product_id": line.product_id,
                 "serials": list(line.serials),
                 "expected_quantity": line.expected_quantity,
-                "unit_cost": line.unit_cost,
-                "face_value": line.face_value,
                 "notes": line.notes,
             }
             for line in lines
@@ -607,8 +592,6 @@ def _receipt_input_lines(data) -> List[dict]:
             "product_id": data.product_id,
             "serials": list(data.serials or []),
             "expected_quantity": None,
-            "unit_cost": None,
-            "face_value": None,
             "notes": None,
         }
     ]
@@ -706,8 +689,6 @@ async def post_receipt(db: AsyncSession, *, house_id: int, doc_id: int, user_id:
                 invoice_number=doc.invoice_number,
                 received_date=doc.business_date,
                 quantity=quantity,
-                unit_cost=line.unit_cost,
-                face_value=line.face_value,
                 notes=doc.notes,
                 created_by=user_id,
             )

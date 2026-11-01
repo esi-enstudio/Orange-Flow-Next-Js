@@ -31,7 +31,7 @@ import {
 import { apiError, formatDate, houseHeaders } from "@/components/inventory/helpers";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
-const PER_PAGE = 20;
+const PER_PAGE = 10;
 const MAX_RECEIPT_SERIALS = 100000;
 const TODAY = new Date().toISOString().slice(0, 10);
 
@@ -49,8 +49,6 @@ interface ReceiptLine {
   product_code?: string | null;
   category?: string | null;
   quantity: number;
-  unit_cost?: number;
-  face_value?: number;
 }
 
 interface ReceiptRow {
@@ -82,8 +80,6 @@ interface PaginationMeta {
 
 interface ReceiptDetail extends ReceiptRow {
   purchase_reference?: string | null;
-  unit_cost?: number;
-  face_value?: number;
   notes?: string | null;
   lines: ReceiptLine[];
 }
@@ -128,8 +124,6 @@ export default function StockReceivingPage() {
   const [saving, setSaving] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<(string | number)[]>([]);
   const [lineSerials, setLineSerials] = useState<Record<number, string>>({});
-  const [lineUnitCosts, setLineUnitCosts] = useState<Record<number, string>>({});
-  const [lineFaceValues, setLineFaceValues] = useState<Record<number, string>>({});
 
   const [detail, setDetail] = useState<ReceiptDetail | null>(null);
   const [receiptSerials, setReceiptSerials] = useState<ReceiptSerial[]>([]);
@@ -294,8 +288,6 @@ export default function StockReceivingPage() {
     setForm({ ...emptyForm });
     setSelectedProductIds([]);
     setLineSerials({});
-    setLineUnitCosts({});
-    setLineFaceValues({});
     setTotalSerials(0);
     setFormError(null);
     setFieldErrors({});
@@ -304,22 +296,6 @@ export default function StockReceivingPage() {
   const handleProductSelection = (ids: (string | number)[]) => {
     setSelectedProductIds(ids);
     setLineSerials((current) => {
-      const next: Record<number, string> = {};
-      for (const id of ids) {
-        const key = Number(id);
-        next[key] = current[key] || "";
-      }
-      return next;
-    });
-    setLineUnitCosts((current) => {
-      const next: Record<number, string> = {};
-      for (const id of ids) {
-        const key = Number(id);
-        next[key] = current[key] || "";
-      }
-      return next;
-    });
-    setLineFaceValues((current) => {
       const next: Record<number, string> = {};
       for (const id of ids) {
         const key = Number(id);
@@ -352,24 +328,14 @@ export default function StockReceivingPage() {
     const lines: {
       product_id: number;
       serials: string[];
-      unit_cost: number;
-      face_value: number;
     }[] = [];
     const seenSerials = new Set<string>();
     const crossDuplicates = new Set<string>();
     for (const product of selectedProducts) {
       const parsed = parseSerialsWithRanges(lineSerials[product.id] || "");
-      const unitCost = lineUnitCosts[product.id] || "";
-      const faceValue = lineFaceValues[product.id] || "";
       for (const serial of parsed.valid) {
         if (seenSerials.has(serial)) crossDuplicates.add(serial);
         else seenSerials.add(serial);
-      }
-      if (unitCost && (!Number.isFinite(Number(unitCost)) || Number(unitCost) < 0)) {
-        nextFieldErrors[`unit_cost_${product.id}`] = t("inventory.receiving.invalid_amount");
-      }
-      if (faceValue && (!Number.isFinite(Number(faceValue)) || Number(faceValue) < 0)) {
-        nextFieldErrors[`face_value_${product.id}`] = t("inventory.receiving.invalid_amount");
       }
       if (parsed.duplicates.length > 0 || parsed.invalid.length > 0) {
         nextFieldErrors[`serials_${product.id}`] =
@@ -380,8 +346,6 @@ export default function StockReceivingPage() {
         lines.push({
           product_id: product.id,
           serials: parsed.valid,
-          unit_cost: unitCost ? Number(unitCost) : 0,
-          face_value: faceValue ? Number(faceValue) : 0,
         });
       }
     }
@@ -525,7 +489,7 @@ export default function StockReceivingPage() {
           <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
             {loading ? (
               <div className="divide-y divide-gray-50 dark:divide-slate-800">
-                {Array.from({ length: 5 }).map((_, index) => (
+                {Array.from({ length: PER_PAGE }).map((_, index) => (
                   <div key={index} className="flex items-center gap-4 px-4 py-4 animate-pulse">
                     <div className="space-y-2 flex-1">
                       <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
@@ -828,59 +792,6 @@ export default function StockReceivingPage() {
                             </button>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                            <Field label={t("inventory.common.unit_cost")}>
-                              <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={lineUnitCosts[product.id] || ""}
-                                onChange={(event) => {
-                                  setLineUnitCosts((current) => ({
-                                    ...current,
-                                    [product.id]: event.target.value,
-                                  }));
-                                  setFieldErrors((current) => ({
-                                    ...current,
-                                    [`unit_cost_${product.id}`]: "",
-                                  }));
-                                }}
-                                disabled={saving}
-                                className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
-                              />
-                              {fieldErrors[`unit_cost_${product.id}`] ? (
-                                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                                  {fieldErrors[`unit_cost_${product.id}`]}
-                                </p>
-                              ) : null}
-                            </Field>
-                            <Field label={t("inventory.common.face_value")}>
-                              <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={lineFaceValues[product.id] || ""}
-                                onChange={(event) => {
-                                  setLineFaceValues((current) => ({
-                                    ...current,
-                                    [product.id]: event.target.value,
-                                  }));
-                                  setFieldErrors((current) => ({
-                                    ...current,
-                                    [`face_value_${product.id}`]: "",
-                                  }));
-                                }}
-                                disabled={saving}
-                                className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm cursor-text outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
-                              />
-                              {fieldErrors[`face_value_${product.id}`] ? (
-                                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                                  {fieldErrors[`face_value_${product.id}`]}
-                                </p>
-                              ) : null}
-                            </Field>
-                          </div>
-
                           <SerialsInput
                             value={lineSerials[product.id] || ""}
                             onChange={(value) => {
@@ -998,11 +909,6 @@ export default function StockReceivingPage() {
                           </p>
                           <p className="text-[11px] text-gray-500 dark:text-gray-400">
                             {line.product_code} • {line.category}
-                          </p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                            {t("inventory.common.unit_cost")}: {Number(line.unit_cost || 0).toFixed(2)}
-                            {" • "}
-                            {t("inventory.common.face_value")}: {Number(line.face_value || 0).toFixed(2)}
                           </p>
                         </div>
                         <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
