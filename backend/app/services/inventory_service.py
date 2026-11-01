@@ -216,6 +216,36 @@ async def _idempotent_document(
     return result.scalar_one_or_none()
 
 
+async def document_brief(
+    db: AsyncSession, *, house_id: int, doc_id: int
+) -> Optional[dict]:
+    """Cheap existence/type lookup for endpoints that only need to authorise.
+
+    Serial pagination calls this once per page, so it must not load the voucher
+    with its lines, product joins and employee like ``document_detail`` does.
+    """
+    row = (
+        await db.execute(
+            select(
+                StockDocument.id,
+                StockDocument.document_type,
+                StockDocument.total_quantity,
+            ).where(
+                StockDocument.id == doc_id,
+                StockDocument.house_id == house_id,
+                StockDocument.is_deleted.is_(False),
+            )
+        )
+    ).first()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "document_type": row[1],
+        "total_quantity": row[2],
+    }
+
+
 async def _finalize_document_no(db: AsyncSession, doc: StockDocument) -> None:
     """Number after flush so the primary key guarantees uniqueness under load."""
     year = (doc.business_date or now_naive().date()).year
@@ -516,6 +546,14 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
                 "Some serial numbers already exist in this house",
                 {"serials": "Duplicate serial detected. Re-check the serial list."},
             )
+        except Exception as e:
+            await db.rollback()
+            _error(
+                422,
+                "SERIAL_INSERT_ERROR",
+                "Failed to insert serial numbers",
+                {"detail": str(e)},
+            )
 
         try:
             for offset in range(0, len(serials), SERIAL_INSERT_BATCH_SIZE):
@@ -568,6 +606,14 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
                 "DUPLICATE_SERIAL",
                 "Some serial numbers already exist in this house",
                 {"serials": "Duplicate serial detected. Re-check the serial list."},
+            )
+        except Exception as e:
+            await db.rollback()
+            _error(
+                422,
+                "SERIAL_INSERT_ERROR",
+                "Failed to insert serial lines",
+                {"detail": str(e)},
             )
 
     await db.flush()

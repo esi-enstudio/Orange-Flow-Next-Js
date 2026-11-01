@@ -109,14 +109,18 @@ class SerialUnit(Base):
         Index("ix_serial_units_house_employee", "house_id", "current_employee_id"),
     )
 
+    # Index budget: a 100,000-serial receiving writes 100,000 index entries per
+    # index, so single-column indexes whose column is the leftmost part of a
+    # composite (house_id, product_id, status, current_employee_id) are omitted —
+    # the composite/unique index already serves those lookups.
     id = Column(Integer, primary_key=True)
-    house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     batch_id = Column(Integer, ForeignKey("product_batches.id"), nullable=True, index=True)
     serial_number = Column(String(100), nullable=False, index=True)
-    status = Column(String(20), nullable=False, default="received", index=True)
+    status = Column(String(20), nullable=False, default="received")
     current_location_id = Column(Integer, ForeignKey("stock_locations.id"), nullable=True, index=True)
-    current_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)
+    current_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
     received_at = Column(DateTime, nullable=True)
     status_updated_at = Column(DateTime, default=now_naive)
     notes = Column(String(500), nullable=True)
@@ -142,6 +146,8 @@ class StockDocument(Base):
         UniqueConstraint("house_id", "idempotency_key", name="uq_stock_document_idempotency"),
         Index("ix_stock_documents_house_type_status", "house_id", "document_type", "status"),
         Index("ix_stock_documents_house_date", "house_id", "business_date"),
+        # Voucher lists page through one house + document type ordered by id.
+        Index("ix_stock_documents_house_type_id", "house_id", "document_type", "id"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -208,11 +214,15 @@ class StockSerialLine(Base):
     __tablename__ = "stock_serial_lines"
     __table_args__ = (
         Index("ix_stock_serial_lines_document", "document_id", "serial_unit_id"),
+        # Serial pagination reads one document ordered by id; without this index
+        # every page sorts the whole document (50,000 rows) before limiting.
+        Index("ix_stock_serial_lines_document_id_id", "document_id", "id"),
     )
 
     id = Column(Integer, primary_key=True)
+    # Covered by (document_id, id) / (document_id, serial_unit_id).
     document_id = Column(
-        Integer, ForeignKey("stock_documents.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer, ForeignKey("stock_documents.id", ondelete="CASCADE"), nullable=False
     )
     line_id = Column(Integer, ForeignKey("stock_document_lines.id"), nullable=True)
     serial_unit_id = Column(Integer, ForeignKey("serial_units.id"), nullable=False, index=True)
@@ -245,8 +255,11 @@ class InventoryLedger(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    # ``product_id`` and ``created_at`` single-column indexes are covered by
+    # ``(house_id, product_id)`` / ``(house_id, created_at)``; keeping them would
+    # mean two extra index writes for every moved serial.
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     serial_unit_id = Column(Integer, ForeignKey("serial_units.id"), nullable=True, index=True)
     serial_number = Column(String(100), nullable=True, index=True)
     document_id = Column(Integer, ForeignKey("stock_documents.id"), nullable=True, index=True)
@@ -259,7 +272,7 @@ class InventoryLedger(Base):
     status_after = Column(String(20), nullable=True)
     note = Column(String(500), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=now_naive, index=True)
+    created_at = Column(DateTime, default=now_naive)
 
     house = relationship("House")
     product = relationship("Product", lazy="joined")

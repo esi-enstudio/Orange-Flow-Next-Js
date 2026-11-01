@@ -32,6 +32,12 @@ import { apiError, formatDate, houseHeaders } from "@/components/inventory/helpe
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
 const PER_PAGE = 10;
+// Serial list inside the detail modal: pages of 500 (the API cap) fetched on
+// demand and windowed to the ~10 rows that are actually visible.
+const SERIAL_PAGE_SIZE = 500;
+const SERIAL_ROW_HEIGHT = 28;
+const SERIAL_VIEWPORT_HEIGHT = 288;
+const SERIAL_OVERSCAN = 6;
 const MAX_RECEIPT_SERIALS = 100000;
 const TODAY = new Date().toISOString().slice(0, 10);
 
@@ -126,8 +132,13 @@ export default function StockReceivingPage() {
   const [lineSerials, setLineSerials] = useState<Record<number, string>>({});
 
   const [detail, setDetail] = useState<ReceiptDetail | null>(null);
-  const [receiptSerials, setReceiptSerials] = useState<ReceiptSerial[]>([]);
-  const [receiptSerialPagination, setReceiptSerialPagination] = useState<PaginationMeta | null>(null);
+  // Serial rows are kept per loaded page and rendered through a fixed-height
+  // window, so a 50,000-serial receipt never mounts 50,000 DOM nodes.
+  const [serialPages, setSerialPages] = useState<Record<number, ReceiptSerial[]>>({});
+  const [serialTotal, setSerialTotal] = useState(0);
+  const [serialScrollTop, setSerialScrollTop] = useState(0);
+  const serialPagesRef = useRef<Set<number>>(new Set());
+  const serialPageRequests = useRef<Set<number>>(new Set());
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmPost, setConfirmPost] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -247,22 +258,46 @@ export default function StockReceivingPage() {
     searchTimer.current = setTimeout(() => setPage(1), 400);
   };
 
+  const loadSerialPage = useCallback(
+    async (docId: number, page: number) => {
+      if (!houseId) return;
+      if (serialPagesRef.current.has(page) || serialPageRequests.current.has(page)) return;
+      serialPageRequests.current.add(page);
+      try {
+        const res = await axios.get(`/v1/inventory/receipts/${docId}/serials`, {
+          params: { page, per_page: SERIAL_PAGE_SIZE },
+          headers: houseHeaders(houseId),
+        });
+        serialPagesRef.current.add(page);
+        setSerialPages((current) => ({ ...current, [page]: res.data.data || [] }));
+        setSerialTotal(res.data.pagination?.total ?? 0);
+      } catch (err) {
+        toast.error(apiError(err, t("inventory.common.error_generic")).message);
+      } finally {
+        serialPageRequests.current.delete(page);
+      }
+    },
+    [houseId, t]
+  );
+
   const openDetail = async (id: number) => {
     setDetailLoading(true);
     setDetail(null);
-    setReceiptSerials([]);
-    setReceiptSerialPagination(null);
+    serialPagesRef.current = new Set();
+    serialPageRequests.current = new Set();
+    setSerialPages({});
+    setSerialTotal(0);
+    setSerialScrollTop(0);
     try {
-      const res = await axios.get(`/v1/inventory/receipts/${id}`, {
-        headers: houseHeaders(houseId),
-      });
+      // The voucher and its first serial page are independent — fetch them in
+      // parallel instead of paying two sequential round trips.
+      const [res] = await Promise.all([
+        axios.get(`/v1/inventory/receipts/${id}`, {
+          headers: houseHeaders(houseId),
+        }),
+        loadSerialPage(id, 1),
+      ]);
       setDetail(res.data.data);
-      const serialRes = await axios.get(`/v1/inventory/receipts/${id}/serials`, {
-        params: { page: 1, per_page: 100 },
-        headers: houseHeaders(houseId),
-      });
-      setReceiptSerials(serialRes.data.data || []);
-      setReceiptSerialPagination(serialRes.data.pagination || null);
     } catch (err) {
       toast.error(apiError(err, t("inventory.common.error_generic")).message);
     } finally {
@@ -270,19 +305,34 @@ export default function StockReceivingPage() {
     }
   };
 
-  const changeReceiptSerialPage = async (nextPage: number) => {
-    if (!detail || !houseId) return;
-    try {
-      const res = await axios.get(`/v1/inventory/receipts/${detail.id}/serials`, {
-        params: { page: nextPage, per_page: 100 },
-        headers: houseHeaders(houseId),
-      });
-      setReceiptSerials(res.data.data || []);
-      setReceiptSerialPagination(res.data.pagination || null);
-    } catch (err) {
-      toast.error(apiError(err, t("inventory.common.error_generic")).message);
+  const serialRowCount =
+    serialTotal || Number(detail?.serials_count || detail?.total_quantity || 0);
+  const serialFirstRow = Math.max(
+    0,
+    Math.floor(serialScrollTop / SERIAL_ROW_HEIGHT) - SERIAL_OVERSCAN
+  );
+  const serialRowsPerView = Math.ceil(SERIAL_VIEWPORT_HEIGHT / SERIAL_ROW_HEIGHT);
+  const serialLastRow = Math.min(
+    serialRowCount,
+    serialFirstRow + serialRowsPerView + SERIAL_OVERSCAN * 2
+  );
+  const serialVisibleRows = useMemo(() => {
+    const rows: { index: number; line: ReceiptSerial | null }[] = [];
+    for (let index = serialFirstRow; index < serialLastRow; index += 1) {
+      const page = serialPages[Math.floor(index / SERIAL_PAGE_SIZE)];
+      rows.push({ index, line: page?.[index % SERIAL_PAGE_SIZE] ?? null });
     }
-  };
+    return rows;
+  }, [serialFirstRow, serialLastRow, serialPages]);
+
+  useEffect(() => {
+    if (!detail || serialLastRow <= serialFirstRow) return;
+    const firstPage = Math.floor(serialFirstRow / SERIAL_PAGE_SIZE) + 1;
+    const lastPage = Math.floor((serialLastRow - 1) / SERIAL_PAGE_SIZE) + 1;
+    for (let page = firstPage; page <= lastPage; page += 1) {
+      void loadSerialPage(detail.id, page);
+    }
+  }, [detail, serialFirstRow, serialLastRow, loadSerialPage]);
 
   const resetCreate = () => {
     setForm({ ...emptyForm });
@@ -379,7 +429,9 @@ export default function StockReceivingPage() {
       toast.success(t("inventory.receiving.created_toast"));
       setShowCreate(false);
       resetCreate();
-      await fetchReceipts();
+      // Refresh the list in the background: the new voucher's detail is what
+      // the user is waiting for, not the list re-read.
+      void fetchReceipts();
       if (res.data?.data?.id) await openDetail(res.data.data.id);
     } catch (err) {
       const { message, fields } = apiError(err, t("inventory.common.error_generic"));
@@ -708,12 +760,7 @@ export default function StockReceivingPage() {
                   />
                 </Field>
 
-                <Field label={t("inventory.common.batch_number")}>
-                  <div className="flex items-center gap-2 min-h-[42px] rounded-xl border border-dashed border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/30 px-3 text-xs text-gray-500 dark:text-gray-400">
-                    <Sparkles className="w-3.5 h-3.5 shrink-0 text-primary-500" />
-                    <span>{t("inventory.receiving.batch_auto")}</span>
-                  </div>
-                </Field>
+                
 
               </div>
 
@@ -893,7 +940,6 @@ export default function StockReceivingPage() {
                   <Row label={t("inventory.common.discrepancy")} value={detail.discrepancy} />
                   <Row label={t("inventory.common.invoice_number")} value={detail.invoice_number || "-"} />
                   <Row label={t("inventory.common.supplier")} value={detail.supplier || "-"} />
-                  <Row label={t("inventory.common.batch_number")} value={detail.batch_number || "-"} />
                 </div>
 
                 <div className="mt-4">
@@ -921,42 +967,40 @@ export default function StockReceivingPage() {
 
                 <div className="mt-4">
                   <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1.5">
-                    {t("inventory.common.serials")} ({detail.serials_count || detail.total_quantity})
+                    {t("inventory.common.serials")} ({serialRowCount})
                   </p>
-                  <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 dark:border-slate-800 divide-y divide-gray-50 dark:divide-slate-800">
-                    {receiptSerials.map((line) => (
-                      <div key={line.serial_number} className="flex items-center justify-between px-3 py-1.5 text-xs font-mono">
-                        <span>{line.serial_number}</span>
-                        <InventoryStatusBadge status={line.status_after || "received"} />
-                      </div>
-                    ))}
-                  </div>
-                  {receiptSerialPagination && receiptSerialPagination.total_pages > 1 ? (
-                    <div className="flex items-center justify-between gap-2 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => changeReceiptSerialPage(receiptSerialPagination.page - 1)}
-                        disabled={!receiptSerialPagination.has_prev}
-                        className="min-h-11 px-3 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        {t("inventory.common.previous")}
-                      </button>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {t("inventory.common.page_info", {
-                          current: receiptSerialPagination.page,
-                          total: receiptSerialPagination.total_pages,
-                        })}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => changeReceiptSerialPage(receiptSerialPagination.page + 1)}
-                        disabled={!receiptSerialPagination.has_next}
-                        className="min-h-11 px-3 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        {t("inventory.common.next")}
-                      </button>
+                  {/* Windowed list: only the rows inside the viewport are mounted,
+                      so a 50,000-serial receipt scrolls as smoothly as 20 rows. */}
+                  <div
+                    className="overflow-y-auto rounded-xl border border-gray-100 dark:border-slate-800"
+                    style={{ height: SERIAL_VIEWPORT_HEIGHT }}
+                    onScroll={(event) => setSerialScrollTop(event.currentTarget.scrollTop)}
+                  >
+                    <div style={{ height: serialRowCount * SERIAL_ROW_HEIGHT, position: "relative" }}>
+                      {serialVisibleRows.map(({ index, line }) => (
+                        <div
+                          key={index}
+                          style={{
+                            position: "absolute",
+                            top: index * SERIAL_ROW_HEIGHT,
+                            left: 0,
+                            right: 0,
+                            height: SERIAL_ROW_HEIGHT,
+                          }}
+                          className="flex items-center justify-between gap-2 px-3 text-xs font-mono border-b border-gray-50 dark:border-slate-800"
+                        >
+                          {line ? (
+                            <>
+                              <span className="truncate">{line.serial_number}</span>
+                              <InventoryStatusBadge status={line.status_after || "received"} />
+                            </>
+                          ) : (
+                            <span className="h-2.5 w-40 rounded bg-gray-100 dark:bg-slate-800 animate-pulse" />
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ) : null}
+                  </div>
                 </div>
 
                 {detail.status === "draft" && canReceive ? (

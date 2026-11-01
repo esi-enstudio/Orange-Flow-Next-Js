@@ -1862,6 +1862,44 @@ async def _migrate_location_telemetry_columns():
         logger.warning(f"Migration warning (location telemetry columns): {e}")
 
 
+async def _migrate_inventory_indexes():
+    """Add the indexes behind the inventory list/serial endpoints.
+
+    ``CREATE INDEX IF NOT EXISTS`` keeps the migration idempotent; the serial
+    index lets a receipt's serial page read 500 rows in index order instead of
+    sorting the whole voucher, and the document index pages a voucher list
+    without a sort.
+    """
+    statements = (
+        "CREATE INDEX IF NOT EXISTS ix_stock_serial_lines_document_id_id "
+        "ON stock_serial_lines (document_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_stock_documents_house_type_id "
+        "ON stock_documents (house_id, document_type, id)",
+        # Redundant single-column indexes: each one costs an extra index write
+        # for every serial a receiving moves (100,000 rows per voucher), while
+        # the composite/unique index that starts with the same column already
+        # serves the lookups.
+        "DROP INDEX IF EXISTS ix_serial_units_house_id",
+        "DROP INDEX IF EXISTS ix_serial_units_product_id",
+        "DROP INDEX IF EXISTS ix_serial_units_status",
+        "DROP INDEX IF EXISTS ix_serial_units_current_employee_id",
+        "DROP INDEX IF EXISTS ix_stock_serial_lines_document_id",
+        "DROP INDEX IF EXISTS ix_inventory_ledger_product_id",
+        "DROP INDEX IF EXISTS ix_inventory_ledger_created_at",
+    )
+    try:
+        async with engine.begin() as conn:
+            for stmt in statements:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as exc:
+                    # Missing table (fresh DB) or a non-PostgreSQL test DB.
+                    logger.debug("Skipping (%s): %s", stmt, exc)
+        logger.info("Migration complete: inventory indexes ensured")
+    except Exception as e:
+        logger.warning(f"Migration warning (inventory indexes): {e}")
+
+
 _INVENTORY_COST_TABLES = (
     "product_batches",
     "serial_units",
@@ -2247,6 +2285,7 @@ async def init_db():
         await _migrate_drop_bp_retailer_codes()
         await _migrate_drop_stock_sales_module()
         await _migrate_drop_inventory_cost_columns()
+        await _migrate_inventory_indexes()
         await _migrate_billing_fail_closed()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()

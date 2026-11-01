@@ -6,6 +6,7 @@ import { useLanguage } from "@/i18n/useLanguage";
 
 export const SERIAL_RE = /^[A-Z0-9][A-Z0-9._/-]{2,63}$/;
 const MAX_SERIAL_PREVIEW = 100000;
+const EMPTY_PARSE = { valid: [] as string[], duplicates: [] as string[], invalid: [] as string[], total: 0 };
 
 function splitTrailingNumber(value: string): { prefix: string; number: string } | null {
   const match = value.match(/^(.*?)(\d+)$/);
@@ -236,8 +237,11 @@ export function SerialsInput({
   const [rangeEntries, setRangeEntries] = useState<SerialRangeEntry[]>(() =>
     rangeEntriesFromValue(value)
   );
+  // Only the multi-line textarea needs a parsed preview. In range mode the
+  // serials are expanded once on submit, so typing a 50,000-serial range never
+  // expands (and stores) 50,000 strings here.
   const [parsed, setParsed] = useState(() =>
-    expandRanges ? parseSerialsWithRanges(value) : parseSerials(value)
+    expandRanges ? EMPTY_PARSE : parseSerials(value)
   );
   // Keeps a typed quantity visible while it cannot yet be turned into an end
   // serial (for example before the start serial is filled in).
@@ -251,9 +255,8 @@ export function SerialsInput({
   }, [expandRanges, value]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setParsed(expandRanges ? parseSerialsWithRanges(value) : parseSerials(value));
-    }, 350);
+    if (expandRanges) return;
+    const timer = setTimeout(() => setParsed(parseSerials(value)), 350);
     return () => clearTimeout(timer);
   }, [expandRanges, value]);
 

@@ -463,17 +463,14 @@ async def receipt_serials(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(VIEW),
 ):
-    doc = await svc.document_detail(
-        db,
-        house_id=house_id,
-        doc_id=doc_id,
-        include_serial_lines=False,
-    )
-    if doc.document_type != "receipt":
+    # Serial pages are fetched while scrolling, so only the identity/type check
+    # runs here — never the full voucher load with its joins.
+    doc = await svc.document_brief(db, house_id=house_id, doc_id=doc_id)
+    if not doc or doc["document_type"] != "receipt":
         raise HTTPException(status_code=404, detail="Document not found")
     rows, total = await svc.list_document_serials(
         db,
-        doc_id=doc.id,
+        doc_id=doc["id"],
         page=page,
         per_page=per_page,
     )
