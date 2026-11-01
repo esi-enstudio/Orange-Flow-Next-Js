@@ -21,21 +21,19 @@ async def run_sim_return_task(serials: list, credentials: dict, bot, chat_id):
     """
     house_name = credentials.get('house_name', 'N/A')
     
-    # 1. Get valid browser page and context from Session Manager
+    # 1. Get an authenticated page (auto-login + retry on expired session)
     logger.info(f"🚀 [{house_name}] SIM Return process starting...")
     try:
-        page, context = await session_manager.get_valid_page(credentials)
+        page, context = await session_manager.open_authenticated_page(
+            credentials, SMART_SEARCH_URL, ready_selector="#SearchType"
+        )
     except Exception as e:
         logger.error(f"❌ Session creation failed: {e}")
         return f"❌ Error: {str(e)}"
     
     try:
-        # 2. Navigate to Smart Search page
-        logger.info(f"🌐 [{house_name}] Navigating to Smart Search Report...")
-        await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000)
-        
+        # 2. Search form is already loaded by open_authenticated_page
         # 3. Fill search form (select SIM Serial option)
-        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
         await page.select_option("#SearchType", "1") 
         await page.fill("#SearchValue", "\n".join(serials))
         
@@ -73,7 +71,23 @@ async def run_sim_return_task(serials: list, credentials: dict, bot, chat_id):
             
             # Navigate to return submission page
             await page.goto(RECEIVE_URL, wait_until="domcontentloaded", timeout=60000)
-            
+
+            # Session may expire mid-run — re-authenticate instead of timing out
+            if "login" in (page.url or "").lower():
+                logger.warning(f"🔒 [{house_name}] DMS session expired during return; re-authenticating...")
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+                if context is not None:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+                page, context = await session_manager.open_authenticated_page(
+                    credentials, RECEIVE_URL, ready_selector="#Retailer"
+                )
+
             # 8. Ensure retailer dropdown (using "attached" state since it's hidden)
             try:
                 await page.wait_for_selector("#Retailer", state="attached", timeout=30000)
@@ -142,8 +156,12 @@ async def run_sim_return_task(serials: list, credentials: dict, bot, chat_id):
     
     finally:
         # 13. Close page and session context (to save memory)
-        if page: await page.close()
-        logger.info(f"🚪 [{house_name}] Task page closed, keepalive context preserved.")
+        try:
+            if page: await page.close()
+            if context is not None: await context.close()
+            logger.info(f"🚪 [{house_name}] Task page closed, keepalive context preserved.")
+        except:
+            pass
 
 
 def process_return_summary(scanned_data, credentials):

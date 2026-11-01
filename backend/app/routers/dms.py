@@ -31,6 +31,8 @@ from app.services.Automation.dms_scraper import (
     get_smart_search_results,
     get_receive_sim_from_retailer_list,
     download_retailer_list_excel,
+    RECEIVE_SIM_FROM_RETAILER_URL,
+    RETAILER_LIST_REPORT_URL,
 )
 from app.services.Automation.Tasks.sim_issue import run_sim_issue_status, run_finalize_issue
 
@@ -306,7 +308,9 @@ async def run_sim_status_check_structured(serials: list, credentials: dict, prog
     
     _notify_progress(progress_callback, "Opening DMS session (logging in if needed)...")
     try:
-        page, context = await session_manager.get_valid_page(credentials)
+        page, context = await session_manager.open_authenticated_page(
+            credentials, SMART_SEARCH_URL, ready_selector="#SearchType"
+        )
     except Exception as e:
         logger.error(f"❌ [Task Error] {house_name} Failed to get session: {str(e)}")
         raise Exception(f"DMS session login failed: {str(e)}")
@@ -314,10 +318,7 @@ async def run_sim_status_check_structured(serials: list, credentials: dict, prog
     try:
         logger.info(f"🔍 [Task] {house_name} ({h_code}): Starting check for {len(serials)} SIMs...")
         _notify_progress(progress_callback, "DMS session ready. Loading Smart Search Report...")
-        
-        await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000) 
-        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
-        
+
         await page.select_option("#SearchType", "1") # SIM Serial
         await page.fill("#SearchValue", "\n".join(serials))
         
@@ -629,7 +630,9 @@ async def run_sim_return_check(serials: list, credentials: dict, progress_callba
 
     _notify_progress(progress_callback, "Opening DMS session (logging in if needed)...")
     try:
-        page, context = await session_manager.get_valid_page(credentials)
+        page, context = await session_manager.open_authenticated_page(
+            credentials, SIM_RETURN_URL, ready_selector="#SearchType"
+        )
     except Exception as e:
         logger.error(f"❌ [Task Error] {house_name} Failed to get session: {str(e)}")
         raise Exception(f"DMS session login failed: {str(e)}")
@@ -638,9 +641,6 @@ async def run_sim_return_check(serials: list, credentials: dict, progress_callba
     try:
         logger.info(f"🔙 [SIM Return] {house_name} ({h_code}): Starting SIM return check for {len(serials)} SIMs...")
         _notify_progress(progress_callback, "DMS session ready. Loading the SIM return page...")
-
-        await page.goto(SIM_RETURN_URL, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
 
         await page.select_option("#SearchType", "1")
         await page.fill("#SearchValue", "\n".join(serials))
@@ -888,7 +888,9 @@ async def list_receive_sim_requests(
     page = None
     context = None
     try:
-        page, context = await session_manager.get_valid_page(credentials)
+        page, context = await session_manager.open_authenticated_page(
+            credentials, RECEIVE_SIM_FROM_RETAILER_URL, ready_selector="#ddlStatus"
+        )
     except Exception as e:
         logger.error(f"❌ [Receive SIM] {house.name} ({house.code}) failed to get session: {str(e)}")
         raise HTTPException(
@@ -897,7 +899,7 @@ async def list_receive_sim_requests(
         )
 
     try:
-        rows, error = await get_receive_sim_from_retailer_list(page, status_filter)
+        rows, error = await get_receive_sim_from_retailer_list(page, status_filter, navigate=False)
     except Exception as e:
         logger.error(f"❌ [Receive SIM] {house.name} ({house.code}) scrape crashed: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -1217,18 +1219,20 @@ async def download_retailer_list(
 
     # Download the Excel file from DMS via Playwright automation
     try:
-        page, context = await session_manager.get_valid_page(credentials)
+        page, context = await session_manager.open_authenticated_page(
+            credentials, RETAILER_LIST_REPORT_URL, ready_selector="#Excel"
+        )
         try:
-            result_path, error = await download_retailer_list_excel(page, temp_path)
+            result_path, error = await download_retailer_list_excel(page, temp_path, navigate=False)
             if error:
                 raise HTTPException(status_code=500, detail=error)
         finally:
-            # If the page came from a fresh context (not keepalive), close it
+            # Always close the tab; keepalive contexts stay alive for reuse
+            try:
+                await page.close()
+            except Exception:
+                pass
             if context is not None:
-                try:
-                    await page.close()
-                except Exception:
-                    pass
                 try:
                     await context.close()
                 except Exception:

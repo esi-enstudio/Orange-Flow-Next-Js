@@ -15,6 +15,10 @@ SESSION_DIR = "sessions"
 KEEPALIVE_INTERVAL = 120  # seconds between keepalive pings
 MAX_CONSECUTIVE_FAILURES = 3
 
+# The Smart Search form only exists on an authenticated DMS page. It is the
+# canonical readiness probe for the portal.
+SMART_SEARCH_SELECTOR = "#SearchType"
+
 
 class SessionManager:
     def __init__(self):
@@ -54,6 +58,25 @@ class SessionManager:
                 "target closed",
             )
         )
+
+    # ── DMS page readiness helpers ─────────────────────────
+
+    @staticmethod
+    def _is_login_url(page) -> bool:
+        """True when DMS bounced the tab to its login page."""
+        try:
+            return "login" in (page.url or "").lower()
+        except Exception:
+            return True
+
+    @staticmethod
+    async def _wait_selector(page, selector: str, timeout: int = 30000) -> bool:
+        """Wait for ``selector`` to be attached, returning True/False instead of raising."""
+        try:
+            await page.wait_for_selector(selector, state="attached", timeout=timeout)
+            return True
+        except Exception:
+            return False
 
     # ── Centralized context creation (with auto-recovery) ──
 
@@ -184,7 +207,13 @@ class SessionManager:
 
         async def _ping():
             try:
-                await page.goto(CHECK_URL, timeout=30000, wait_until="commit")
+                await page.goto(CHECK_URL, timeout=45000, wait_until="domcontentloaded")
+                if self._is_login_url(page):
+                    logger.warning(f"🔒 Keepalive detected an expired DMS session for {code}")
+                    return False
+                if not await self._wait_selector(page, SMART_SEARCH_SELECTOR, timeout=20000):
+                    logger.warning(f"⚠️ Keepalive page is missing the Smart Search form for {code}")
+                    return False
                 await context.storage_state(path=session_path)
                 logger.debug(f"🔄 Keepalive ping for {code}")
                 return True
@@ -234,6 +263,12 @@ class SessionManager:
         if entry:
             entry["task"].cancel()
             try:
+                await entry["task"]
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+            try:
                 await entry["page"].close()
                 await entry["context"].close()
             except Exception:
@@ -251,18 +286,63 @@ class SessionManager:
         for code in list(self._keepalive_ctx.keys()):
             await self._stop_keepalive(code)
 
+    async def _invalidate_session(self, credentials: dict, drop_file: bool = True):
+        """Drop the keepalive context (and optionally the saved storage state).
+
+        The next ``get_valid_page`` call then performs a real login instead of
+        reusing a session that DMS has already rejected. ``drop_file`` should
+        only be True when DMS definitively bounced us to the login page —
+        otherwise a transient network failure would needlessly force an OTP
+        login.
+        """
+        code = credentials.get("code")
+        if code:
+            await self._stop_keepalive(code)
+        if not drop_file:
+            return
+        try:
+            session_path = self._session_path(credentials)
+            if os.path.exists(session_path):
+                os.remove(session_path)
+                house_ref = code or credentials.get("house_id")
+                logger.info(f"🗑️ Stale session file removed for {house_ref}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not remove stale session file: {e}")
+
     # ── Session validation ─────────────────────────────
 
-    async def _is_session_valid(self, page):
+    async def _check_session(self, page) -> str:
+        """Probe a tab and report ``"valid"``, ``"login"`` or ``"unknown"``.
+
+        ``"login"`` is definitive (DMS redirected to the login page), so the
+        stored session can be dropped. ``"unknown"`` means the probe itself
+        failed (network/DMS slowness) and the saved state should be kept.
+        """
         try:
-            await page.goto(CHECK_URL, timeout=40000, wait_until="commit")
-            await asyncio.sleep(2)
-            if "login" not in page.url.lower():
-                if await page.query_selector("#SearchType"):
-                    return True
-            return False
+            await page.goto(CHECK_URL, timeout=45000, wait_until="domcontentloaded")
+        except Exception as e:
+            logger.warning(f"⚠️ Session probe failed: {e}")
+            return "unknown"
+
+        if self._is_login_url(page):
+            return "login"
+        if await self._wait_selector(page, SMART_SEARCH_SELECTOR, timeout=20000):
+            return "valid"
+
+        # A page that is neither the Smart Search form nor a login URL may be a
+        # DMS error/maintenance page. Only call it expired when the markup
+        # clearly contains a login form.
+        try:
+            html = (await page.content()).lower()
+            if "password" in html and "login" in html:
+                return "login"
         except Exception:
-            return False
+            pass
+        return "unknown"
+
+    async def _is_session_valid(self, page):
+        """Load the Smart Search page and confirm the authenticated form is present."""
+        return await self._check_session(page) == "valid"
 
     # ── Login ─────────────────────────────────────────────
 
@@ -407,15 +487,30 @@ class SessionManager:
         house_lock = automation_locks.house(code or str(credentials['house_id']))
         await house_lock.acquire()
         try:
-            # 1. Reuse keepalive context directly — just create a new page
+            # 1. Reuse keepalive context — but verify it is still authenticated.
+            #    A keepalive ping can silently succeed on a login page, so
+            #    handing the tab to a task unchecked leads to a 30s
+            #    "waiting for #SearchType" timeout in the task itself.
             if code and code in self._keepalive_ctx:
+                page = None
+                state = "unknown"
                 try:
                     page = await self._keepalive_ctx[code]["context"].new_page()
-                    logger.info(f"✅ Reused keepalive session for {credentials['house_name']}")
-                    return page, None
+                    state = await self._check_session(page)
+                    if state == "valid":
+                        logger.info(f"✅ Reused keepalive session for {credentials['house_name']}")
+                        return page, None
+                    logger.warning(
+                        f"⚠️ Keepalive session for {code} is not usable ({state}); refreshing session"
+                    )
                 except Exception as e:
                     logger.warning(f"⚠️ Keepalive context unusable for {code} ({e}); falling back to fresh session")
-                    await self._stop_keepalive(code)
+                if page is not None:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+                await self._invalidate_session(credentials, drop_file=(state == "login"))
 
             session_path = self._session_path(credentials)
 
@@ -428,10 +523,11 @@ class SessionManager:
                         logger.info(f"✅ Session valid for {credentials['house_name']}")
                         if code:
                             await self._start_keepalive(credentials)
-                            await test_page.close()
-                            await test_context.close()
-                            page = await self._keepalive_ctx[code]["context"].new_page()
-                            return page, None
+                            if code in self._keepalive_ctx:
+                                await test_page.close()
+                                await test_context.close()
+                                page = await self._keepalive_ctx[code]["context"].new_page()
+                                return page, None
                         return test_page, test_context
                 except Exception:
                     pass
@@ -454,6 +550,62 @@ class SessionManager:
             return page, context
         finally:
             house_lock.release()
+
+    async def open_authenticated_page(
+        self,
+        credentials: dict,
+        url: str = None,
+        ready_selector: str = SMART_SEARCH_SELECTOR,
+        attempts: int = 2,
+    ):
+        """Return ``(page, context)`` that is authenticated and loaded on ``url``.
+
+        ``get_valid_page`` can still race with DMS expiring the session between
+        its health check and the caller's navigation. This wrapper performs the
+        navigation itself and verifies the expected page element. When DMS
+        bounces the tab to its login page, the stale session is discarded and a
+        fresh login is attempted before giving up.
+
+        Callers must still close ``page`` (and ``context`` when it is not
+        ``None``) in their ``finally`` block.
+        """
+        target = url or CHECK_URL
+        house_name = credentials.get("house_name", "N/A")
+        last_error = "DMS page did not load"
+
+        for attempt in range(1, attempts + 1):
+            page, context = await self.get_valid_page(credentials)
+            state = "unknown"
+            try:
+                await page.goto(target, wait_until="domcontentloaded", timeout=60000)
+                if self._is_login_url(page):
+                    state = "login"
+                    last_error = "DMS redirected to the login page"
+                elif await self._wait_selector(page, ready_selector, timeout=30000):
+                    return page, context
+                else:
+                    last_error = f"DMS page did not contain {ready_selector}"
+            except Exception as e:
+                last_error = str(e)
+
+            logger.warning(
+                f"⚠️ [{house_name}] DMS page not ready (attempt {attempt}/{attempts}): "
+                f"{last_error}. Refreshing session..."
+            )
+            try:
+                await page.close()
+            except Exception:
+                pass
+            if context is not None:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+            await self._invalidate_session(credentials, drop_file=(state == "login"))
+
+        raise RuntimeError(
+            f"DMS session could not be established for {house_name}: {last_error}"
+        )
 
 
 session_manager = SessionManager()

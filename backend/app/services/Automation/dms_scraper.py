@@ -210,18 +210,20 @@ def _normalize_receive_status(raw: str) -> str:
         return "S"
     return text[:1].upper()
 
-async def get_receive_sim_from_retailer_list(page: Page, status_filter: str):
+async def get_receive_sim_from_retailer_list(page: Page, status_filter: str, navigate: bool = True):
     """
     Scrapes the "Receive SIM From Retailer" list (ReceiveSimFrRetailerSubmitView).
     Applies the ddlStatus filter (S=Pending, A=Approved, R=Rejected) via the page's
     own search form, then walks the DataTables pagination.
+    Set ``navigate=False`` when the caller has already loaded the page.
     Returns: (data_list, error_message)
     """
     rows = []
     seen = set()
 
     try:
-        await page.goto(RECEIVE_SIM_FROM_RETAILER_URL, wait_until="domcontentloaded", timeout=60000)
+        if navigate:
+            await page.goto(RECEIVE_SIM_FROM_RETAILER_URL, wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_selector("#ddlStatus", state="attached", timeout=30000)
 
         current_status = (await page.input_value("#ddlStatus") or "").strip()
@@ -300,15 +302,17 @@ async def get_receive_sim_from_retailer_list(page: Page, status_filter: str):
         return None, f"❌ Scraping error: {str(e)}"
 
 
-async def download_retailer_list_excel(page: Page, temp_path: str):
+async def download_retailer_list_excel(page: Page, temp_path: str, navigate: bool = True):
     """Navigate to the DMS Retailer List report and click the ``#Excel``
     export button to download the full retailer list as an .xlsx file.
 
+    Set ``navigate=False`` when the caller has already loaded the page.
     Writes the downloaded file to ``temp_path`` and returns ``(temp_path, None)``
     on success or ``(None, error_message)`` on failure.
     """
     try:
-        await page.goto(RETAILER_LIST_REPORT_URL, wait_until="domcontentloaded", timeout=90000)
+        if navigate:
+            await page.goto(RETAILER_LIST_REPORT_URL, wait_until="domcontentloaded", timeout=90000)
 
         # Some DMS flows surface a SweetAlert; close it if present so it can't
         # shadow the export button.

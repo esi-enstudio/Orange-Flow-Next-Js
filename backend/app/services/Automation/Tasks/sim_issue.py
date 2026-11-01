@@ -21,15 +21,17 @@ async def run_sim_issue_status(serials: list, credentials: dict):
     house_name = credentials.get('house_name', 'N/A')
     logger.info(f"🚀 [{house_name}] SIM Issue Analysis starting...")
 
-    # 1. Get active page from Session Manager (handles auto-login)
-    page, context = await session_manager.get_valid_page(credentials)
-    
+    # 1. Get an authenticated page (auto-login + retry on expired session)
     try:
-        # 2. Go to Smart Search page
-        logger.info(f"🔍 [{house_name}] Navigating to Smart Search page...")
-        await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
-        
+        page, context = await session_manager.open_authenticated_page(
+            credentials, SMART_SEARCH_URL, ready_selector="#SearchType"
+        )
+    except Exception as e:
+        logger.error(f"❌ [{house_name}] DMS session error: {str(e)}")
+        return None, f"❌ DMS session error: {str(e)}"
+
+    try:
+        # 2. Search form is already loaded by open_authenticated_page
         # 3. Fill and submit search form
         await page.select_option("#SearchType", "1") # Select SIM Serial
         await page.fill("#SearchValue", "\n".join(serials))
@@ -48,8 +50,16 @@ async def run_sim_issue_status(serials: list, credentials: dict):
     finally:
         # 5. Close only the tab so the profile stays in memory ✅
         if page:
-            await page.close()
+            try:
+                await page.close()
+            except Exception:
+                pass
             logger.info(f"🚪 [{house_name}] Analysis tab closed.")
+        if context is not None:
+            try:
+                await context.close()
+            except Exception:
+                pass
 
 async def run_finalize_issue(serials: list, retailer_code: str, credentials: dict):
     """
@@ -59,16 +69,17 @@ async def run_finalize_issue(serials: list, retailer_code: str, credentials: dic
     house_name = credentials.get('house_name', 'N/A')
     logger.info(f"📤 [{house_name}] Starting submission for retailer `{retailer_code}`...")
 
-    # 1. Get page from Session Manager (ensures session is still active)
-    page, context = await session_manager.get_valid_page(credentials)
-    
+    # 1. Get an authenticated issue page (auto-login + retry on expired session)
     try:
-        # 2. Go to issue page
-        logger.info(f"🌐 Navigating to issue page...")
-        await page.goto(ISSUE_URL, wait_until="domcontentloaded", timeout=60000)
-        
-        # 3. Set date (today's date)
-        await page.wait_for_selector("#IssueDate", timeout=30000)
+        page, context = await session_manager.open_authenticated_page(
+            credentials, ISSUE_URL, ready_selector="#IssueDate"
+        )
+    except Exception as e:
+        logger.error(f"❌ [{house_name}] DMS session error: {str(e)}")
+        return f"❌ DMS session error: {str(e)}"
+
+    try:
+        # 2. Set date (today's date)
         today = datetime.now().strftime('%Y-%m-%d')
         await page.evaluate(f"document.getElementById('IssueDate').value = '{today}';")
         logger.info(f"📅 Date set: {today}")
@@ -146,8 +157,16 @@ async def run_finalize_issue(serials: list, retailer_code: str, credentials: dic
         return f"❌ Issue submission error: {str(e)}"
     
     finally:
-        # Close only the page; session_manager keeps the context alive for reuse
-        if page: await page.close()
+        # Close only the page; session_manager keeps the keepalive context alive
+        try:
+            await page.close()
+        except Exception:
+            pass
+        if context is not None:
+            try:
+                await context.close()
+            except Exception:
+                pass
         logger.info(f"🚪 [{house_name}] Issue process Cleanup completed.")
 
 def process_issue_summary(all_data, house_info):

@@ -17,9 +17,11 @@ async def run_sim_status_check(serials: list, credentials: dict):
     house_name = credentials.get('house_name', 'N/A')
     h_code = credentials.get('code', 'N/A')
     
-    # 1. Get valid page and context from Session Manager
+    # 1. Get an authenticated page (auto-login + retry on expired session)
     try:
-        page, context = await session_manager.get_valid_page(credentials)
+        page, context = await session_manager.open_authenticated_page(
+            credentials, SMART_SEARCH_URL, ready_selector="#SearchType"
+        )
     except Exception as e:
         logger.error(f"❌ [Task Error] {house_name} session failed: {str(e)}")
         return f"{str(e)}"
@@ -28,13 +30,8 @@ async def run_sim_status_check(serials: list, credentials: dict):
 
     try:
         logger.info(f"🔍 [Task] {house_name} ({h_code}) checking {len(serials)} SIMs...")
-        
-        # 2. Go to Smart Search page (domcontentloaded is more stable) ✅
-        await page.goto(SMART_SEARCH_URL, wait_until="domcontentloaded", timeout=60000) 
 
-        # Wait for element to appear
-        await page.wait_for_selector("#SearchType", state="attached", timeout=30000)
-        
+        # 2. Search form is already loaded by open_authenticated_page
         # 3. Provide Input
         await page.select_option("#SearchType", "1") # SIM Serial
         await page.fill("#SearchValue", "\n".join(serials))
@@ -60,9 +57,10 @@ async def run_sim_status_check(serials: list, credentials: dict):
         final_report = f"❌ Automation Error: {str(e).replace('_', ' ')}"
     
     finally:
-        # Close only the page; session_manager keeps the context alive for reuse
+        # Close only the page; session_manager keeps the keepalive context alive
         try:
             if page: await page.close()
+            if context is not None: await context.close()
             logger.info(f"🚪 [{house_name}] Task page closed, keepalive context preserved.")
         except:
             pass
