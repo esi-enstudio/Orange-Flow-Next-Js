@@ -115,15 +115,21 @@ def test_receipt_schema_accepts_more_than_5000_serials():
     assert len(line.serials) == 26000
 
 
-def test_receipt_schema_rejects_more_than_100000_serials():
+def test_receipt_schema_accepts_more_than_100000_serials():
     serials = [f"SIM{index:08d}" for index in range(50001)]
-    with pytest.raises(ValueError, match="cannot contain more than 100000 serials"):
-        ReceiptCreate(
-            lines=[
-                {"product_id": 1, "serials": serials},
-                {"product_id": 2, "serials": serials},
-            ]
-        )
+    receipt = ReceiptCreate(
+        expected_quantity=100001,
+        lines=[
+            {"product_id": 1, "serials": serials},
+            {"product_id": 2, "serials": serials},
+        ],
+    )
+
+    assert sum(len(line.serials) for line in receipt.lines) == 100002
+
+
+def test_receipt_serial_bulk_batch_size_is_5000():
+    assert svc.SERIAL_INSERT_BATCH_SIZE == 5000
 
 
 async def _receive_and_post(db, setup, serials):

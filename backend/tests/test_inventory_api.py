@@ -192,6 +192,34 @@ async def test_receiving_issue_return_flow_over_http(api, db, data):
     assert actions == ["receive", "issue", "return_request"]
 
 
+async def test_100k_receiving_create_and_post_over_http(api, data):
+    app, client = api
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.view", "inventory.receive")
+    )
+    headers = {"X-House-ID": str(data["house"].id)}
+    serials = [f"APISIM{index:08d}" for index in range(100000)]
+
+    created = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={
+            "expected_quantity": len(serials),
+            "lines": [{"product_id": data["product"].id, "serials": serials}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    doc = created.json()["data"]
+    assert doc["serials_count"] == len(serials)
+
+    posted = await client.post(
+        f"/api/v1/inventory/receipts/{doc['id']}/post",
+        headers=headers,
+    )
+    assert posted.status_code == 200, posted.text
+    assert posted.json()["data"]["status"] == "posted"
+
+
 async def test_cross_house_header_is_forbidden(api, db, data):
     app, client = api
     app.dependency_overrides[get_current_user] = lambda: _user(data["house"])

@@ -5,6 +5,7 @@ house context, so a tenant can never read another house's stock even with a
 valid token.
 """
 
+import logging
 from datetime import date
 from typing import Optional
 
@@ -31,6 +32,8 @@ from app.schemas.stock import (
 )
 from app.services import inventory_service as svc
 from app.utils.activity_logger import log_activity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/inventory", tags=["inventory"])
 
@@ -500,18 +503,24 @@ async def create_receipt(
 ):
     doc = await svc.create_receipt(db, house_id=house_id, user_id=current_user.id, data=payload)
     response_data = _doc_out(doc, serials_count=doc.total_quantity)
-    await log_activity(
-        db,
-        user_id=current_user.id,
-        user_name=current_user.name,
-        module="inventory",
-        action="create",
-        record_id=doc.id,
-        record_identifier=doc.document_no,
-        new_values={"document_type": "receipt", "quantity": doc.total_quantity},
-        request=request,
-        status_code=201,
-    )
+    # Commit the receiving on its own (one large voucher is one transaction):
+    # a failed audit insert must never leave a saved voucher reported as a 500.
+    await db.commit()
+    try:
+        await log_activity(
+            db,
+            user_id=current_user.id,
+            user_name=current_user.name,
+            module="inventory",
+            action="create",
+            record_id=doc.id,
+            record_identifier=doc.document_no,
+            new_values={"document_type": "receipt", "quantity": doc.total_quantity},
+            request=request,
+            status_code=201,
+        )
+    except Exception:  # noqa: BLE001 - the receipt is already durable
+        logger.exception("Activity log failed for inventory receipt %s", doc.id)
     return {
         "success": True,
         "data": response_data,

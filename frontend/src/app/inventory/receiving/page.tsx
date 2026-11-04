@@ -32,7 +32,6 @@ import { apiError, formatDate, houseHeaders } from "@/components/inventory/helpe
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
 const PER_PAGE = 10;
-const MAX_RECEIPT_SERIALS = 100000;
 const TODAY = new Date().toISOString().slice(0, 10);
 
 interface ProductOption {
@@ -280,15 +279,6 @@ export default function StockReceivingPage() {
 
     if (selectedProducts.length === 0) {
       setFieldErrors({ products: t("inventory.common.required_field") });
-      return;
-    }
-
-    const enteredSerialCount = selectedProducts.reduce(
-      (sum, product) => sum + countSerialsWithRanges(lineSerials[product.id] || ""),
-      0
-    );
-    if (enteredSerialCount > MAX_RECEIPT_SERIALS) {
-      setFormError(t("inventory.receiving.max_serials", { count: MAX_RECEIPT_SERIALS }));
       return;
     }
 

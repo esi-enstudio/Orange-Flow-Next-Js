@@ -13,6 +13,7 @@ import re
 from datetime import date
 from typing import Iterable, List, Optional, Sequence, Tuple
 
+from asyncpg.exceptions import UniqueViolationError
 from fastapi import HTTPException
 from sqlalchemy import case, func, insert, literal, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -36,7 +37,11 @@ SERIAL_RE = re.compile(r"^[A-Z0-9][A-Z0-9._/\-]{2,63}$")
 SERIAL_TRACKED_CATEGORIES = {"SIM", "Scratch Card"}
 DOC_PREFIX = {"receipt": "GRN", "issue": "ISS", "return": "RET", "adjustment": "ADJ"}
 SERIAL_STATUS_PENDING_RETURN = "returned"
-SERIAL_INSERT_BATCH_SIZE = 2000
+SERIAL_INSERT_BATCH_SIZE = 5000
+
+# Staging table for the PostgreSQL bulk path of a receiving. It lives for one
+# transaction only and is dropped/recreated per product line.
+RECEIPT_TEMP_TABLE = "tmp_receipt_serials"
 
 
 # --------------------------------------------------------------------------- #
@@ -360,6 +365,159 @@ def _serial_line(
 # --------------------------------------------------------------------------- #
 # receipts
 # --------------------------------------------------------------------------- #
+async def _raw_pg_connection(db: AsyncSession):
+    """The raw asyncpg connection when the session runs on PostgreSQL.
+
+    A 100,000-serial receiving must not go through one ``INSERT`` per row:
+    PostgreSQL's ``COPY`` writes the same rows in a fraction of the time, which
+    keeps the request well inside every proxy timeout along the way.
+    """
+    connection = await db.connection()
+    if connection.dialect.name != "postgresql":
+        return None
+    return (await connection.get_raw_connection()).driver_connection
+
+
+async def _store_receipt_serials_pg(
+    pg,
+    *,
+    house_id: int,
+    product_id: int,
+    serials: Sequence[str],
+    doc_id: int,
+    line_id: int,
+    location_id: Optional[int],
+    notes: Optional[str],
+    user_id: Optional[int],
+    now,
+) -> None:
+    """Stage the serials with ``COPY``, then let PostgreSQL write both tables."""
+    await pg.execute(f"DROP TABLE IF EXISTS {RECEIPT_TEMP_TABLE}")
+    await pg.execute(
+        f"CREATE TEMP TABLE {RECEIPT_TEMP_TABLE} "
+        "(product_id integer NOT NULL, serial_number varchar(100) NOT NULL)"
+    )
+    await pg.copy_records_to_table(
+        RECEIPT_TEMP_TABLE,
+        records=[(product_id, serial) for serial in serials],
+        columns=["product_id", "serial_number"],
+    )
+    await pg.execute(
+        f"""
+        INSERT INTO serial_units
+            (house_id, product_id, serial_number, status, current_location_id,
+             notes, status_updated_at, created_at, updated_at)
+        SELECT $1, t.product_id, t.serial_number, 'received', $2, $3, $4, $4, $4
+        FROM {RECEIPT_TEMP_TABLE} t
+        """,
+        house_id,
+        location_id,
+        notes,
+        now,
+    )
+    await pg.execute(
+        f"""
+        INSERT INTO stock_serial_lines
+            (document_id, line_id, serial_unit_id, serial_number, product_id,
+             action, status_before, status_after, location_before_id,
+             location_after_id, employee_before_id, employee_after_id,
+             created_by, created_at)
+        SELECT $1, $2, su.id, su.serial_number, su.product_id, 'receive',
+               NULL, 'received', NULL, $3, NULL, NULL, $4, $5
+        FROM serial_units su
+        JOIN {RECEIPT_TEMP_TABLE} t
+          ON t.product_id = su.product_id
+         AND t.serial_number = su.serial_number
+        WHERE su.house_id = $6
+        """,
+        doc_id,
+        line_id,
+        location_id,
+        user_id,
+        now,
+        house_id,
+    )
+
+
+async def _store_receipt_serials_chunked(
+    db: AsyncSession,
+    *,
+    house_id: int,
+    product_id: int,
+    serials: Sequence[str],
+    doc_id: int,
+    line_id: int,
+    location_id: Optional[int],
+    notes: Optional[str],
+    user_id: Optional[int],
+    now,
+) -> None:
+    """Portable fallback (SQLite in tests): batched insert + insert-select."""
+    for offset in range(0, len(serials), SERIAL_INSERT_BATCH_SIZE):
+        serial_chunk = serials[offset : offset + SERIAL_INSERT_BATCH_SIZE]
+        await db.execute(
+            insert(SerialUnit),
+            [
+                {
+                    "house_id": house_id,
+                    "product_id": product_id,
+                    "serial_number": serial,
+                    "status": "received",
+                    "current_location_id": location_id,
+                    "notes": notes,
+                    "status_updated_at": now,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                for serial in serial_chunk
+            ],
+        )
+
+    for offset in range(0, len(serials), SERIAL_INSERT_BATCH_SIZE):
+        serial_chunk = serials[offset : offset + SERIAL_INSERT_BATCH_SIZE]
+        serial_line_select = select(
+            literal(doc_id),
+            literal(line_id),
+            SerialUnit.id,
+            SerialUnit.serial_number,
+            literal(product_id),
+            literal("receive"),
+            literal(None),
+            literal("received"),
+            literal(None),
+            literal(location_id),
+            literal(None),
+            literal(None),
+            literal(user_id),
+            literal(now),
+        ).where(
+            SerialUnit.house_id == house_id,
+            SerialUnit.product_id == product_id,
+            SerialUnit.serial_number.in_(serial_chunk),
+        )
+        await db.execute(
+            insert(StockSerialLine).from_select(
+                [
+                    "document_id",
+                    "line_id",
+                    "serial_unit_id",
+                    "serial_number",
+                    "product_id",
+                    "action",
+                    "status_before",
+                    "status_after",
+                    "location_before_id",
+                    "location_after_id",
+                    "employee_before_id",
+                    "employee_after_id",
+                    "created_by",
+                    "created_at",
+                ],
+                serial_line_select,
+            )
+        )
+
+
 async def _ensure_not_existing_serials(
     db: AsyncSession, house_id: int, product_id: int, serials: Sequence[str]
 ) -> None:
@@ -505,6 +663,7 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
     doc.batch_number = doc.document_no
     await db.flush()
 
+    pg_connection = await _raw_pg_connection(db)
     for product_id in product_order:
         serials = serials_by_product[product_id]
         meta = meta_by_product[product_id]
@@ -518,27 +677,23 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
         await db.flush()
 
         now = now_naive()
+        store_kwargs = {
+            "house_id": house_id,
+            "product_id": product_id,
+            "serials": serials,
+            "doc_id": doc.id,
+            "line_id": line.id,
+            "location_id": house_location.id,
+            "notes": line.notes,
+            "user_id": user_id,
+            "now": now,
+        }
         try:
-            for offset in range(0, len(serials), SERIAL_INSERT_BATCH_SIZE):
-                serial_chunk = serials[offset : offset + SERIAL_INSERT_BATCH_SIZE]
-                await db.execute(
-                    insert(SerialUnit),
-                    [
-                        {
-                            "house_id": house_id,
-                            "product_id": product_id,
-                            "serial_number": serial,
-                            "status": "received",
-                            "current_location_id": house_location.id,
-                            "notes": line.notes,
-                            "status_updated_at": now,
-                            "created_at": now,
-                            "updated_at": now,
-                        }
-                        for serial in serial_chunk
-                    ],
-                )
-        except IntegrityError:
+            if pg_connection is not None:
+                await _store_receipt_serials_pg(pg_connection, **store_kwargs)
+            else:
+                await _store_receipt_serials_chunked(db, **store_kwargs)
+        except (IntegrityError, UniqueViolationError):
             await db.rollback()
             _error(
                 409,
@@ -552,67 +707,6 @@ async def create_receipt(db: AsyncSession, *, house_id: int, user_id: Optional[i
                 422,
                 "SERIAL_INSERT_ERROR",
                 "Failed to insert serial numbers",
-                {"detail": str(e)},
-            )
-
-        try:
-            for offset in range(0, len(serials), SERIAL_INSERT_BATCH_SIZE):
-                serial_chunk = serials[offset : offset + SERIAL_INSERT_BATCH_SIZE]
-                serial_line_select = select(
-                    literal(doc.id),
-                    literal(line.id),
-                    SerialUnit.id,
-                    SerialUnit.serial_number,
-                    literal(product_id),
-                    literal("receive"),
-                    literal(None),
-                    literal("received"),
-                    literal(None),
-                    literal(house_location.id),
-                    literal(None),
-                    literal(None),
-                    literal(user_id),
-                    literal(now),
-                ).where(
-                    SerialUnit.house_id == house_id,
-                    SerialUnit.product_id == product_id,
-                    SerialUnit.serial_number.in_(serial_chunk),
-                )
-                await db.execute(
-                    insert(StockSerialLine).from_select(
-                        [
-                            "document_id",
-                            "line_id",
-                            "serial_unit_id",
-                            "serial_number",
-                            "product_id",
-                            "action",
-                            "status_before",
-                            "status_after",
-                            "location_before_id",
-                            "location_after_id",
-                            "employee_before_id",
-                            "employee_after_id",
-                            "created_by",
-                            "created_at",
-                        ],
-                        serial_line_select,
-                    )
-                )
-        except IntegrityError:
-            await db.rollback()
-            _error(
-                409,
-                "DUPLICATE_SERIAL",
-                "Some serial numbers already exist in this house",
-                {"serials": "Duplicate serial detected. Re-check the serial list."},
-            )
-        except Exception as e:
-            await db.rollback()
-            _error(
-                422,
-                "SERIAL_INSERT_ERROR",
-                "Failed to insert serial lines",
                 {"detail": str(e)},
             )
 

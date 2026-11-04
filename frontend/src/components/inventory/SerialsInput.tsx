@@ -5,7 +5,6 @@ import { AlertCircle, Plus, Trash2, Upload } from "lucide-react";
 import { useLanguage } from "@/i18n/useLanguage";
 
 export const SERIAL_RE = /^[A-Z0-9][A-Z0-9._/-]{2,63}$/;
-const MAX_SERIAL_PREVIEW = 100000;
 const EMPTY_PARSE = { valid: [] as string[], duplicates: [] as string[], invalid: [] as string[], total: 0 };
 
 function splitTrailingNumber(value: string): { prefix: string; number: string } | null {
@@ -117,11 +116,6 @@ export function parseSerialsWithRanges(text: string) {
     if (/^[^-\s]+-[^-\s]+$/.test(token)) {
       const bounds = getSerialRangeBounds(token);
       if (bounds) {
-        const rangeCount = bounds.last - bounds.first + BigInt(1);
-        if (BigInt(total) + rangeCount > BigInt(MAX_SERIAL_PREVIEW)) {
-          invalid.push(token);
-          break;
-        }
         for (let current = bounds.first; current <= bounds.last; current++) {
           addSerial(bounds.prefix + current.toString().padStart(bounds.width, "0"));
         }
