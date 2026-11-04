@@ -32,12 +32,6 @@ import { apiError, formatDate, houseHeaders } from "@/components/inventory/helpe
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
 const PER_PAGE = 10;
-// Serial list inside the detail modal: pages of 500 (the API cap) fetched on
-// demand and windowed to the ~10 rows that are actually visible.
-const SERIAL_PAGE_SIZE = 500;
-const SERIAL_ROW_HEIGHT = 28;
-const SERIAL_VIEWPORT_HEIGHT = 288;
-const SERIAL_OVERSCAN = 6;
 const MAX_RECEIPT_SERIALS = 100000;
 const TODAY = new Date().toISOString().slice(0, 10);
 
@@ -90,14 +84,6 @@ interface ReceiptDetail extends ReceiptRow {
   lines: ReceiptLine[];
 }
 
-interface ReceiptSerial {
-  serial_number: string;
-  serial_unit_id: number;
-  status_before?: string | null;
-  status_after?: string | null;
-  action: string;
-}
-
 const emptyForm = {
   supplier: "Banglalink",
   purchase_reference: "",
@@ -132,13 +118,6 @@ export default function StockReceivingPage() {
   const [lineSerials, setLineSerials] = useState<Record<number, string>>({});
 
   const [detail, setDetail] = useState<ReceiptDetail | null>(null);
-  // Serial rows are kept per loaded page and rendered through a fixed-height
-  // window, so a 50,000-serial receipt never mounts 50,000 DOM nodes.
-  const [serialPages, setSerialPages] = useState<Record<number, ReceiptSerial[]>>({});
-  const [serialTotal, setSerialTotal] = useState(0);
-  const [serialScrollTop, setSerialScrollTop] = useState(0);
-  const serialPagesRef = useRef<Set<number>>(new Set());
-  const serialPageRequests = useRef<Set<number>>(new Set());
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmPost, setConfirmPost] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -258,45 +237,13 @@ export default function StockReceivingPage() {
     searchTimer.current = setTimeout(() => setPage(1), 400);
   };
 
-  const loadSerialPage = useCallback(
-    async (docId: number, page: number) => {
-      if (!houseId) return;
-      if (serialPagesRef.current.has(page) || serialPageRequests.current.has(page)) return;
-      serialPageRequests.current.add(page);
-      try {
-        const res = await axios.get(`/v1/inventory/receipts/${docId}/serials`, {
-          params: { page, per_page: SERIAL_PAGE_SIZE },
-          headers: houseHeaders(houseId),
-        });
-        serialPagesRef.current.add(page);
-        setSerialPages((current) => ({ ...current, [page]: res.data.data || [] }));
-        setSerialTotal(res.data.pagination?.total ?? 0);
-      } catch (err) {
-        toast.error(apiError(err, t("inventory.common.error_generic")).message);
-      } finally {
-        serialPageRequests.current.delete(page);
-      }
-    },
-    [houseId, t]
-  );
-
   const openDetail = async (id: number) => {
     setDetailLoading(true);
     setDetail(null);
-    serialPagesRef.current = new Set();
-    serialPageRequests.current = new Set();
-    setSerialPages({});
-    setSerialTotal(0);
-    setSerialScrollTop(0);
     try {
-      // The voucher and its first serial page are independent — fetch them in
-      // parallel instead of paying two sequential round trips.
-      const [res] = await Promise.all([
-        axios.get(`/v1/inventory/receipts/${id}`, {
-          headers: houseHeaders(houseId),
-        }),
-        loadSerialPage(id, 1),
-      ]);
+      const res = await axios.get(`/v1/inventory/receipts/${id}`, {
+        headers: houseHeaders(houseId),
+      });
       setDetail(res.data.data);
     } catch (err) {
       toast.error(apiError(err, t("inventory.common.error_generic")).message);
@@ -304,35 +251,6 @@ export default function StockReceivingPage() {
       setDetailLoading(false);
     }
   };
-
-  const serialRowCount =
-    serialTotal || Number(detail?.serials_count || detail?.total_quantity || 0);
-  const serialFirstRow = Math.max(
-    0,
-    Math.floor(serialScrollTop / SERIAL_ROW_HEIGHT) - SERIAL_OVERSCAN
-  );
-  const serialRowsPerView = Math.ceil(SERIAL_VIEWPORT_HEIGHT / SERIAL_ROW_HEIGHT);
-  const serialLastRow = Math.min(
-    serialRowCount,
-    serialFirstRow + serialRowsPerView + SERIAL_OVERSCAN * 2
-  );
-  const serialVisibleRows = useMemo(() => {
-    const rows: { index: number; line: ReceiptSerial | null }[] = [];
-    for (let index = serialFirstRow; index < serialLastRow; index += 1) {
-      const page = serialPages[Math.floor(index / SERIAL_PAGE_SIZE)];
-      rows.push({ index, line: page?.[index % SERIAL_PAGE_SIZE] ?? null });
-    }
-    return rows;
-  }, [serialFirstRow, serialLastRow, serialPages]);
-
-  useEffect(() => {
-    if (!detail || serialLastRow <= serialFirstRow) return;
-    const firstPage = Math.floor(serialFirstRow / SERIAL_PAGE_SIZE) + 1;
-    const lastPage = Math.floor((serialLastRow - 1) / SERIAL_PAGE_SIZE) + 1;
-    for (let page = firstPage; page <= lastPage; page += 1) {
-      void loadSerialPage(detail.id, page);
-    }
-  }, [detail, serialFirstRow, serialLastRow, loadSerialPage]);
 
   const resetCreate = () => {
     setForm({ ...emptyForm });
@@ -962,44 +880,6 @@ export default function StockReceivingPage() {
                         </span>
                       </div>
                     ))}
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1.5">
-                    {t("inventory.common.serials")} ({serialRowCount})
-                  </p>
-                  {/* Windowed list: only the rows inside the viewport are mounted,
-                      so a 50,000-serial receipt scrolls as smoothly as 20 rows. */}
-                  <div
-                    className="overflow-y-auto rounded-xl border border-gray-100 dark:border-slate-800"
-                    style={{ height: SERIAL_VIEWPORT_HEIGHT }}
-                    onScroll={(event) => setSerialScrollTop(event.currentTarget.scrollTop)}
-                  >
-                    <div style={{ height: serialRowCount * SERIAL_ROW_HEIGHT, position: "relative" }}>
-                      {serialVisibleRows.map(({ index, line }) => (
-                        <div
-                          key={index}
-                          style={{
-                            position: "absolute",
-                            top: index * SERIAL_ROW_HEIGHT,
-                            left: 0,
-                            right: 0,
-                            height: SERIAL_ROW_HEIGHT,
-                          }}
-                          className="flex items-center justify-between gap-2 px-3 text-xs font-mono border-b border-gray-50 dark:border-slate-800"
-                        >
-                          {line ? (
-                            <>
-                              <span className="truncate">{line.serial_number}</span>
-                              <InventoryStatusBadge status={line.status_after || "received"} />
-                            </>
-                          ) : (
-                            <span className="h-2.5 w-40 rounded bg-gray-100 dark:bg-slate-800 animate-pulse" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
                   </div>
                 </div>
 

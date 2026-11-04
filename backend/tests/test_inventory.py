@@ -183,7 +183,7 @@ async def test_receipt_draft_then_post_moves_serials_to_available(db, setup):
 
 
 async def test_large_receipt_bulk_inserts_and_posts_without_loading_serial_lines(db, setup):
-    serials = [f"SIM{index:08d}" for index in range(50000)]
+    serials = [f"SIM{index:08d}" for index in range(100000)]
     doc = await svc.create_receipt(
         db,
         house_id=setup["house"].id,

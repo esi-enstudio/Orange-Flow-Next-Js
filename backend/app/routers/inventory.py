@@ -499,7 +499,7 @@ async def create_receipt(
     current_user: User = Depends(RECEIVE),
 ):
     doc = await svc.create_receipt(db, house_id=house_id, user_id=current_user.id, data=payload)
-    await db.commit()
+    response_data = _doc_out(doc, serials_count=doc.total_quantity)
     await log_activity(
         db,
         user_id=current_user.id,
@@ -514,7 +514,7 @@ async def create_receipt(
     )
     return {
         "success": True,
-        "data": _doc_out(doc, serials_count=doc.total_quantity),
+        "data": response_data,
     }
 
 
@@ -527,7 +527,7 @@ async def post_receipt(
     current_user: User = Depends(RECEIVE),
 ):
     doc = await svc.post_receipt(db, house_id=house_id, doc_id=doc_id, user_id=current_user.id)
-    await db.commit()
+    response_data = _doc_out(doc, serials_count=doc.total_quantity)
     await log_activity(
         db,
         user_id=current_user.id,
@@ -541,7 +541,7 @@ async def post_receipt(
     )
     return {
         "success": True,
-        "data": _doc_out(doc, serials_count=doc.total_quantity),
+        "data": response_data,
     }
 
 
