@@ -135,6 +135,9 @@ class LiftingPullResult(BaseModel):
     requisition_sum: Optional[float] = None
     pulled_quantity: Optional[int] = None
     available_amount: Optional[float] = None
+    # True when the deposit slip stored in DMS matches the uploaded image,
+    # False when it is missing/different, None when it could not be checked.
+    slip_verified: Optional[bool] = None
     # Present on `insufficient_balance`: what the pull needed and how much the
     # DMS cash account was short.
     required_amount: Optional[float] = None

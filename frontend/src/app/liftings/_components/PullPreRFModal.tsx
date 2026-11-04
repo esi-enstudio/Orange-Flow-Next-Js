@@ -58,6 +58,7 @@ type PullJobResult = {
     available_amount?: number | null;
     required_amount?: number | null;
     shortfall_amount?: number | null;
+    slip_verified?: boolean | null;
     dry_run?: boolean;
 };
 
@@ -715,6 +716,26 @@ export default function PullPreRFModal({ open, record, isAdmin, onClose, onCompl
                                         </div>
                                     </div>
                                 </div>
+
+                                {result.slip_verified != null && (
+                                    <div
+                                        className={cn(
+                                            "flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold",
+                                            result.slip_verified
+                                                ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                                : "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300"
+                                        )}
+                                    >
+                                        {result.slip_verified ? (
+                                            <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                        ) : (
+                                            <XCircle className="w-4 h-4 shrink-0" />
+                                        )}
+                                        {result.slip_verified
+                                            ? t("liftings.pull.slip_verified")
+                                            : t("liftings.pull.slip_not_verified")}
+                                    </div>
+                                )}
 
                                 {outcome === "insufficient_balance" && (
                                     <div className="rounded-xl border border-red-100 dark:border-red-500/20 divide-y divide-red-100 dark:divide-red-500/20">

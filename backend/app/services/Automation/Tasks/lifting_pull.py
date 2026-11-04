@@ -503,6 +503,61 @@ async def _capture_rf_code(page: Page, before_rows: list[dict]) -> dict:
     return rows[0] if rows else {}
 
 
+async def _verify_deposit_slip(
+    page: Page, rf_row: dict, slip_bytes: bytes
+) -> tuple[Optional[bool], str]:
+    """Confirm DMS stored the same deposit slip that was uploaded.
+
+    DMS renders ``#depositSlipDownloadLink`` on the ViewPreRF page only when a
+    file was saved with the request, so a missing link means the PreRF was
+    created without the slip. When the link exists, the stored file is
+    downloaded and compared byte-for-byte with the uploaded image.
+
+    Returns ``(verified, message)`` where ``verified`` is ``True`` (same file),
+    ``False`` (missing or different file) or ``None`` (could not be checked).
+    """
+    details_url = (rf_row or {}).get("details_url")
+    if not details_url:
+        return None, "The new PreRF details page was not found, so the deposit slip could not be verified."
+
+    try:
+        await page.goto(details_url, wait_until="domcontentloaded", timeout=60000)
+        link = page.locator("#depositSlipDownloadLink").first
+        try:
+            await link.wait_for(state="visible", timeout=10000)
+        except Exception:
+            return False, "DMS did not store a deposit slip for the new PreRF."
+
+        async with page.expect_download(timeout=30000) as download_info:
+            await link.click()
+        download = await download_info.value
+        stored_path = await download.path()
+        if not stored_path:
+            return None, "The deposit slip could not be downloaded from DMS for verification."
+
+        with open(stored_path, "rb") as fh:
+            stored_bytes = fh.read()
+
+        if stored_bytes == slip_bytes:
+            return True, "The deposit slip stored in DMS matches the uploaded image."
+        return False, (
+            "The deposit slip stored in DMS does not match the uploaded image "
+            f"(uploaded {len(slip_bytes)} bytes, stored {len(stored_bytes)} bytes)."
+        )
+    except Exception as exc:
+        logger.warning("Could not verify the DMS deposit slip: %s", exc)
+        return None, f"The deposit slip could not be verified in DMS: {exc}"
+
+
+def _created_message(base: str, slip_verified: Optional[bool], slip_note: str) -> str:
+    """Attach the deposit-slip verification result to a success message."""
+    if slip_verified is True:
+        return f"{base} {slip_note}"
+    if slip_verified is False:
+        return f"{base} WARNING: {slip_note}"
+    return base
+
+
 async def run_lifting_pre_rf_pull(
     *,
     credentials: dict,
@@ -524,6 +579,7 @@ async def run_lifting_pre_rf_pull(
         "requisition_sum": None,
         "pulled_quantity": None,
         "available_amount": None,
+        "slip_verified": None,
         "dry_run": dry_run,
     }
 
@@ -839,16 +895,24 @@ async def run_lifting_pre_rf_pull(
             _progress(progress, "fetching_rf", "Checking the PreRF list for the new request...")
             rf_row = await _capture_rf_code(page, rows)
             if rf_row:
+                _progress(progress, "verifying_slip", "Verifying the deposit slip in DMS...")
+                slip_verified, slip_note = await _verify_deposit_slip(page, rf_row, slip_bytes)
                 base_result.update(
                     {
                         "outcome": "created",
-                        "message": "PreRF request created. Success confirmation was not visible, but the request appears in DMS.",
+                        "message": _created_message(
+                            "PreRF request created. Success confirmation was not visible, "
+                            "but the request appears in DMS.",
+                            slip_verified,
+                            slip_note,
+                        ),
                         "total_price": total_price,
                         "requisition_sum": requisition_sum,
                         "pulled_quantity": quantity,
                         "rf_code": rf_row.get("rf_code"),
                         "rf_date": rf_row.get("rf_date"),
                         "rf_status": rf_row.get("status"),
+                        "slip_verified": slip_verified,
                     }
                 )
                 _progress(progress, "created", "PreRF request created.", rf_code=rf_row.get("rf_code"))
@@ -857,16 +921,21 @@ async def run_lifting_pre_rf_pull(
 
         _progress(progress, "fetching_rf", "Reading the new RF code from DMS...")
         rf_row = await _capture_rf_code(page, rows)
+        _progress(progress, "verifying_slip", "Verifying the deposit slip in DMS...")
+        slip_verified, slip_note = await _verify_deposit_slip(page, rf_row, slip_bytes)
         base_result.update(
             {
                 "outcome": "created",
-                "message": "PreRF request created successfully.",
+                "message": _created_message(
+                    "PreRF request created successfully.", slip_verified, slip_note
+                ),
                 "total_price": total_price,
                 "requisition_sum": requisition_sum,
                 "pulled_quantity": quantity,
                 "rf_code": rf_row.get("rf_code"),
                 "rf_date": rf_row.get("rf_date"),
                 "rf_status": rf_row.get("status"),
+                "slip_verified": slip_verified,
             }
         )
         _progress(progress, "created", "PreRF request created successfully.", rf_code=rf_row.get("rf_code"))

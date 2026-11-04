@@ -399,6 +399,7 @@ async def _run_lifting_pull_job(
                         "requisition_sum": result.get("requisition_sum"),
                         "pulled_quantity": result.get("pulled_quantity"),
                         "available_amount": result.get("available_amount"),
+                        "slip_verified": result.get("slip_verified"),
                         "dry_run": dry_run,
                         "message": message,
                     },
