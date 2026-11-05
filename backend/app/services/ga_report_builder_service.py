@@ -130,6 +130,16 @@ def _fmt(n) -> str:
         return "0"
 
 
+def _active_employee_clause():
+    """SQL predicate: only active employees are reportable.
+
+    NULL/blank status counts as active so legacy rows (and employees created
+    before a status was set) are not silently dropped from a report.
+    """
+    status = func.lower(func.coalesce(func.trim(Employee.status), ""))
+    return or_(status == "active", status == "")
+
+
 def _is_numeric_value(v) -> bool:
     s = str(v).replace(",", "").replace(".", "").strip()
     return s.isdigit()
@@ -195,7 +205,10 @@ class GaReportBuilderService:
         if entity_type == "retailer":
             query = select(Retailer).options(
                 joinedload(Retailer.employee).joinedload(Employee.user)
-            ).where(Retailer.house_id == self.cfg.house_id)
+            ).where(
+                Retailer.house_id == self.cfg.house_id,
+                Retailer.enabled.ilike("y%"),
+            )
             if p:
                 query = query.where(
                     or_(
@@ -219,11 +232,12 @@ class GaReportBuilderService:
                 }
                 for r in retailers
             ]
-        query = select(Employee).options(joinedload(Employee.user))
-        if entity_type == "bp":
-            query = query.where(Employee.employee_type == "bp", Employee.status == "Active")
-        else:
-            query = query.where(Employee.employee_type == "rso", Employee.status == "Active")
+        query = select(Employee).options(joinedload(Employee.user)).where(
+            # Case-insensitive: rows written by imports or by hand as "RSO"/"BP"
+            # must still match, and only active employees are reportable.
+            func.lower(Employee.employee_type) == entity_type,
+            _active_employee_clause(),
+        )
         if self.cfg.house_id:
             query = query.where(Employee.house_id == self.cfg.house_id)
         if p:
@@ -331,7 +345,11 @@ class GaReportBuilderService:
     async def _load_retailer_rows(self, excluded_retailer_ids: set[int]) -> list[Retailer]:
         query = select(Retailer).options(
             joinedload(Retailer.employee).joinedload(Employee.user)
-        ).where(Retailer.house_id == self.cfg.house_id)
+        ).where(
+            Retailer.house_id == self.cfg.house_id,
+            # Same "active retailer" definition used by the other report services.
+            Retailer.enabled.ilike("y%"),
+        )
         if self.cfg.retailer_codes:
             query = query.where(Retailer.retailer_code.in_(self.cfg.retailer_codes))
         if self.cfg.rso_ids:
@@ -576,8 +594,8 @@ class GaReportBuilderService:
         id_filter = self.cfg.rso_ids if entity_type == "rso" else self.cfg.bp_ids
         query = select(Employee).options(joinedload(Employee.user)).where(
             Employee.house_id == self.cfg.house_id,
-            Employee.employee_type == entity_type,
-            Employee.status == "Active",
+            func.lower(Employee.employee_type) == entity_type,
+            _active_employee_clause(),
         )
         if id_filter:
             query = query.where(Employee.id.in_(id_filter))

@@ -860,7 +860,7 @@ export default function EmployeesPage() {
   if (!hasPermission("employees.view")) return <AccessDenied />;
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="-mx-2 -mt-2 sm:mx-0 sm:mt-0 max-w-7xl mx-auto space-y-3 sm:space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
         <div>
@@ -873,30 +873,30 @@ export default function EmployeesPage() {
             </div>
             <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-0.5 md:mt-1">{t('employees.description')}</p>
         </div>
-        <div className="flex items-center gap-1.5 md:gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full md:w-auto">
           <button 
             onClick={handleExport}
             disabled={isExporting}
-            className="px-2.5 md:px-4 py-2 bg-white dark:bg-slate-900 border dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-xs md:text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-1 md:gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            className="w-full sm:w-auto justify-center px-2.5 md:px-4 py-2 bg-white dark:bg-slate-900 border dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-xs md:text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-1 md:gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
           >
             {isExporting ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin"/> : <Download className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary-500"/>}
-            <span className="hidden xs:inline">{t('employees.export')}</span>
+            <span>{t('employees.export')}</span>
           </button>
           <button 
             onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
-            className="px-2.5 md:px-4 py-2 bg-white dark:bg-slate-900 border dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-xs md:text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-1 md:gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            className="w-full sm:w-auto justify-center px-2.5 md:px-4 py-2 bg-white dark:bg-slate-900 border dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-xl text-xs md:text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-1 md:gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
           >
             {isImporting ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin"/> : <Upload className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary-500"/>}
-            <span className="hidden xs:inline">{t('employees.import')}</span>
+            <span>{t('employees.import')}</span>
           </button>
           <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx,.xls"/>
           <button 
             onClick={openAddModal}
-            className="px-2.5 md:px-4 py-2 bg-primary-600 text-white rounded-xl text-xs md:text-sm font-bold hover:bg-primary-700 flex items-center gap-1 md:gap-2 transition-all shadow-lg shadow-primary-200 dark:shadow-none active:scale-95"
+            className="w-full sm:w-auto justify-center px-2.5 md:px-4 py-2 bg-primary-600 text-white rounded-xl text-xs md:text-sm font-bold hover:bg-primary-700 flex items-center gap-1 md:gap-2 transition-all shadow-lg shadow-primary-200 dark:shadow-none active:scale-95 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
-            <span className="hidden xs:inline">{t('employees.add_new')}</span>
+            <span>{t('employees.add_new')}</span>
           </button>
         </div>
       </div>
@@ -908,7 +908,7 @@ export default function EmployeesPage() {
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={cn(
-                "p-2 rounded-xl border transition-all active:scale-95 shrink-0",
+                "p-2 rounded-xl border transition-all active:scale-95 shrink-0 cursor-pointer",
                 showFilters
                   ? "bg-primary-500 text-white border-primary-500 shadow-sm"
                   : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
@@ -953,8 +953,8 @@ export default function EmployeesPage() {
         </AnimatePresence>
 
         {/* Status Tabs */}
-        <div className="border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 px-4 py-2 overflow-x-auto">
-          <div className="flex gap-1 min-w-max">
+        <div className="border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 px-2.5 sm:px-4 py-2">
+          <div className="flex flex-wrap gap-1">
             {statusTabs.map(tab => (
               <button
                 key={tab.key}
@@ -977,12 +977,12 @@ export default function EmployeesPage() {
         </div>
 
         {loading ? (
-          <div className="p-12 flex flex-col items-center justify-center gap-4">
+          <div className="p-8 sm:p-12 flex flex-col items-center justify-center gap-4">
             <div className="w-12 h-12 border-4 border-primary-100 border-t-primary-500 rounded-full animate-spin"></div>
             <p className="text-sm font-bold text-gray-500 animate-pulse">{t('employees.loading_text')}</p>
           </div>
         ) : filteredMembers.length === 0 ? (
-          <div className="p-12 text-center">
+          <div className="p-8 sm:p-12 text-center">
             <div className="w-16 h-16 bg-gray-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Users2 className="w-8 h-8 text-gray-300" />
             </div>
@@ -1145,7 +1145,7 @@ export default function EmployeesPage() {
                 <div key={m.id} className="transition-colors">
                   <button
                     onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors text-left cursor-pointer"
                   >
                     <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs shadow-inner overflow-hidden shrink-0">
                       {m.photo_url || m.user?.profile_pic ? (
@@ -1179,7 +1179,7 @@ export default function EmployeesPage() {
                     "overflow-hidden transition-all duration-200 ease-in-out",
                     expandedId === m.id ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
                   )}>
-                    <div className="px-4 pb-4 space-y-3">
+                    <div className="px-3 pb-3 space-y-3">
                       <div className="pt-2 border-t dark:border-slate-800 space-y-2">
                         <p className="text-[11px] text-gray-500 flex items-center gap-1.5"><Phone className="w-3 h-3" /> {m.personal_number}</p>
                         <p className="text-[11px] text-gray-500 flex items-center gap-1.5"><Smartphone className="w-3 h-3" /> {m.itop_number || "N/A"}</p>
@@ -1243,8 +1243,8 @@ export default function EmployeesPage() {
                           </select>
                         </div>
                         <div className="flex gap-1">
-                          <button onClick={(e) => { e.stopPropagation(); openViewModal(m); }} className="p-2 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg text-gray-400 hover:text-blue-600 transition-all"><Eye className="w-4 h-4"/></button>
-                          <button onClick={(e) => { e.stopPropagation(); setDeletingId(m.id); setIsConfirmOpen(true); }} className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg text-gray-400 hover:text-red-600 transition-all"><Trash2 className="w-4 h-4"/></button>
+                          <button onClick={(e) => { e.stopPropagation(); openViewModal(m); }} className="w-10 h-10 flex items-center justify-center hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg text-gray-400 hover:text-blue-600 transition-all cursor-pointer"><Eye className="w-4 h-4"/></button>
+                          <button onClick={(e) => { e.stopPropagation(); setDeletingId(m.id); setIsConfirmOpen(true); }} className="w-10 h-10 flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg text-gray-400 hover:text-red-600 transition-all cursor-pointer"><Trash2 className="w-4 h-4"/></button>
                         </div>
                       </div>
                     </div>
@@ -1252,13 +1252,13 @@ export default function EmployeesPage() {
                 </div>
               ))}
             </div>
-            <div className="p-4 border-t dark:border-slate-800 flex items-center justify-between bg-gray-50/30 dark:bg-slate-900/30">
+            <div className="p-3 sm:p-4 border-t dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-gray-50/30 dark:bg-slate-900/30">
               <p className="text-xs text-gray-500 font-medium">
                 {t('employees.showing_results', { start: tabTotalCount === 0 ? 0 : (page - 1) * 5 + 1, end: Math.min(page * 5, tabTotalCount), total: tabTotalCount })}
               </p>
               <div className="flex gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="p-1.5 border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95"><ChevronLeft className="w-4 h-4"/></button>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="p-1.5 border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95"><ChevronRight className="w-4 h-4"/></button>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer disabled:cursor-not-allowed"><ChevronLeft className="w-4 h-4"/></button>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer disabled:cursor-not-allowed"><ChevronRight className="w-4 h-4"/></button>
               </div>
             </div>
           </>
@@ -1303,7 +1303,7 @@ export default function EmployeesPage() {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-5 text-gray-900 dark:text-gray-100 scrollbar-custom">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-5 text-gray-900 dark:text-gray-100 scrollbar-custom">
               {/* Contact Info — inline badges */}
               <div className="flex flex-wrap gap-2">
                 <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-xl text-sm border border-gray-200 dark:border-transparent">
@@ -1500,9 +1500,9 @@ export default function EmployeesPage() {
 
       {/* Form Modal */}
       {isFormModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4">
           <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-y-auto max-h-[95vh] border dark:border-slate-800 animate-in fade-in zoom-in duration-200 scrollbar-custom">
-            <div className="p-6 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
+            <div className="p-4 sm:p-6 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
               <div>
                 <h3 className="text-lg font-bold dark:text-gray-100 flex items-center gap-2">
                   <div className="w-8 h-8 rounded-lg bg-primary-500 flex items-center justify-center">
@@ -1514,7 +1514,7 @@ export default function EmployeesPage() {
               </div>
               <button onClick={() => setIsFormModalOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-all active:scale-90"><X className="w-5 h-5"/></button>
             </div>
-            <form onSubmit={handleFormSubmit} className="p-6 space-y-8">
+            <form onSubmit={handleFormSubmit} className="p-4 sm:p-6 space-y-6 sm:space-y-8">
               {/* Section 1: Basic Information */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 pb-2 border-b dark:border-slate-800">
@@ -1899,7 +1899,7 @@ export default function EmployeesPage() {
                 onChange={handleAttachmentChange}
               />
 
-              <div className="flex gap-4 pt-6 bg-white dark:bg-slate-900 border-t dark:border-slate-800 pb-24 sm:pb-4">
+              <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 pt-4 sm:pt-6 bg-white dark:bg-slate-900 border-t dark:border-slate-800 pb-24 sm:pb-4">
                 <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all active:scale-95">{t('employees.btn_cancel')}</button>
                 <button type="submit" disabled={formLoading} className="flex-[2] py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-primary-200 dark:shadow-none transition-all active:scale-95">
                   {formLoading ? <Loader2 className="w-5 h-5 animate-spin"/> : <Check className="w-5 h-5"/>}
@@ -1924,14 +1924,14 @@ export default function EmployeesPage() {
       {/* Reassign Retailers Modal */}
       <AnimatePresence>
         {reassignData && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden"
             >
-              <div className="p-8">
+              <div className="p-5 sm:p-8">
                 <div className="flex flex-col items-center text-center mb-6">
                   <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-amber-100 dark:bg-amber-500/20">
                     <AlertTriangle className="w-10 h-10 text-amber-600 dark:text-amber-400" />
@@ -1968,7 +1968,7 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div className="px-8 pb-6 flex flex-col gap-3">
+              <div className="px-5 sm:px-8 pb-5 sm:pb-6 flex flex-col gap-3">
                 <button
                   onClick={handleReassignConfirm}
                   disabled={!reassignTargetId || reassignLoading}
@@ -1992,14 +1992,14 @@ export default function EmployeesPage() {
       {/* Reassign Supervisor Team Modal */}
       <AnimatePresence>
         {reassignTeamData && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden"
             >
-              <div className="p-8">
+              <div className="p-5 sm:p-8">
                 <div className="flex flex-col items-center text-center mb-6">
                   <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-violet-100 dark:bg-violet-500/20">
                     <Users className="w-10 h-10 text-violet-600 dark:text-violet-400" />
@@ -2036,7 +2036,7 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div className="px-8 pb-6 flex flex-col gap-3">
+              <div className="px-5 sm:px-8 pb-5 sm:pb-6 flex flex-col gap-3">
                 <button
                   onClick={handleReassignTeamConfirm}
                   disabled={!reassignTeamTargetId || reassignTeamLoading}

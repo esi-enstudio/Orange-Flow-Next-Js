@@ -396,19 +396,19 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="-mx-2 -mt-2 sm:mx-0 sm:mt-0 space-y-3 sm:space-y-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t('users.title')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">{t('users.description')}</p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-3">
           {hasPermission("users.export") && (
             <button 
               onClick={handleExport}
               disabled={isExporting}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
               {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               {t('users.export_list')}
@@ -420,7 +420,7 @@ export default function UsersPage() {
               <button 
                 onClick={handleImportClick}
                 disabled={isImporting}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               >
                 {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 {t('users.import_list')}
@@ -430,7 +430,7 @@ export default function UsersPage() {
           {hasPermission("users.create") && (
             <button 
               onClick={openAddModal}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               {t('users.add_new')}
@@ -441,7 +441,7 @@ export default function UsersPage() {
 
       {/* Import Progress & Results */}
       {isImporting && (
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-primary-100 dark:border-primary-500/20 shadow-xl animate-in slide-in-from-top-4 duration-300">
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-primary-100 dark:border-primary-500/20 shadow-xl animate-in slide-in-from-top-4 duration-300">
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-primary-100 dark:bg-primary-500/20 rounded-xl text-primary-600">
@@ -471,7 +471,7 @@ export default function UsersPage() {
             </div>
 
             {importResults && (
-              <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-500 delay-300">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 animate-in fade-in duration-500 delay-300">
                   <div className="bg-green-50 dark:bg-green-500/5 p-3 rounded-xl border border-green-100 dark:border-green-500/10">
                       <p className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider mb-1">{t('users.import_success')}</p>
                       <p className="text-xl font-black text-green-700 dark:text-green-300">{importResults.success}</p>
@@ -486,7 +486,7 @@ export default function UsersPage() {
       )}
 
       {/* Stats Summary */}
-      <div className="grid grid-cols-3 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-6">
         <StatCard title={t('users.total_users')} value={users.length} icon={Users} color="bg-blue-500" />
         <StatCard title={t('users.active_users')} value={users.filter(u => u.status === "Active").length} icon={UserCheck} color="bg-green-500" />
         <StatCard title={t('users.system_roles')} value={roles.length} icon={Shield} color="bg-purple-500" />
@@ -511,11 +511,11 @@ export default function UsersPage() {
         )}
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors duration-300">
-        <div className="p-4 border-b border-gray-50 dark:border-slate-800 flex items-center gap-3">
+        <div className="p-3 sm:p-4 border-b border-gray-50 dark:border-slate-800 flex items-center gap-2 sm:gap-3">
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
-              "p-2 rounded-xl border transition-all",
+              "p-2 rounded-xl border transition-all cursor-pointer",
               showFilters
                 ? "bg-primary-50 dark:bg-primary-500/10 border-primary-200 dark:border-primary-500/30 text-primary-600"
                 : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-400 hover:text-gray-600"
@@ -523,7 +523,7 @@ export default function UsersPage() {
           >
             <SlidersHorizontal className="w-4 h-4" />
           </button>
-          <div className="relative flex-1 max-w-md">
+          <div className="relative flex-1 min-w-0 max-w-none sm:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
             <input 
               type="text" 
@@ -544,11 +544,11 @@ export default function UsersPage() {
         </div>
 
         {loading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-4">
+          <div className="py-16 sm:py-20 flex flex-col items-center justify-center gap-4">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-500"></div>
           </div>
         ) : filteredUsers.length === 0 ? (
-          <div className="py-20 text-center">
+          <div className="py-16 sm:py-20 text-center">
             <Users className="w-12 h-12 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
             <p className="text-gray-500 dark:text-gray-400 font-medium">{t('users.no_users')}</p>
           </div>
@@ -642,7 +642,7 @@ export default function UsersPage() {
                 <div key={u.id} className="transition-colors">
                   <button
                     onClick={() => setExpandedId(expandedId === u.id ? null : u.id)}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-3 py-3 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors text-left cursor-pointer"
                   >
                     <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 font-bold shadow-sm shrink-0">
                       {u.name?.charAt(0) || "U"}
@@ -666,7 +666,7 @@ export default function UsersPage() {
                     "overflow-hidden transition-all duration-200 ease-in-out",
                     expandedId === u.id ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
                   )}>
-                    <div className="px-4 pb-4 space-y-3">
+                    <div className="px-3 pb-3 space-y-3">
                       <div className="pt-2 border-t border-gray-50 dark:border-slate-800">
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
                           <Mail className="w-3 h-3" /> {u.email || "—"}
@@ -732,13 +732,13 @@ export default function UsersPage() {
               ))}
             </div>
 
-            <div className="p-4 border-t border-gray-50 dark:border-slate-800 flex items-center justify-between">
+            <div className="p-3 sm:p-4 border-t border-gray-50 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t('users.showing_results', { start: filteredUsers.length === 0 ? 0 : (page * limit) + 1, end: Math.min((page + 1) * limit, filteredUsers.length), total: filteredUsers.length })}
               </p>
               <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronLeft className="w-4 h-4"/></button>
-                <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} className="p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronRight className="w-4 h-4"/></button>
+                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"><ChevronLeft className="w-4 h-4"/></button>
+                <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center border rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"><ChevronRight className="w-4 h-4"/></button>
               </div>
             </div>
           </>
@@ -750,7 +750,7 @@ export default function UsersPage() {
       {isFormModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white dark:bg-slate-900 w-full max-w-4xl h-full md:h-auto md:max-h-[95vh] md:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
+            <div className="p-4 sm:p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between gap-3 flex-shrink-0">
               <div>
                 <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">{editingUser ? t('users.modal_edit_title') : t('users.modal_create_title')}</h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('users.modal_subtitle')}</p>
@@ -760,7 +760,7 @@ export default function UsersPage() {
               </button>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 md:p-8 scrollbar-hide">
+            <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 scrollbar-hide">
               {formError && (
                 <div className="mb-6 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 text-red-600 dark:text-red-400 p-4 rounded-2xl flex items-center gap-3 text-sm animate-shake">
                   <AlertCircle className="h-5 w-5 shrink-0" />
@@ -768,20 +768,20 @@ export default function UsersPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                 {/* Section 1: Identity & Security */}
                 <div className="space-y-5">
                   <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest flex items-center gap-2"><UserIcon className="w-4 h-4"/> {t('users.section_identity')}</h4>
                   <div className="space-y-4">
                     <InputField label={t('users.field_full_name')} required value={formData.name} onChange={(v: string) => setFormData({...formData, name: v})} placeholder={t('users.field_full_name_placeholder')} leftIcon={UserIcon} error={fieldErrors.name} />
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <InputField label={t('users.field_username')} required value={formData.username} onChange={(v: string) => setFormData({...formData, username: v.toLowerCase()})} placeholder={t('users.field_username_placeholder')} leftIcon={Hash} error={fieldErrors.username} />
                       <InputField label={t('users.field_phone')} type="number" value={formData.phone_number} onChange={(v: string) => setFormData({...formData, phone_number: v})} placeholder={t('users.field_phone_placeholder')} leftIcon={Phone} />
                     </div>
                     <InputField label={t('users.field_email')} required={!editingUser} type="email" value={formData.email} onChange={(v: string) => setFormData({...formData, email: v})} placeholder={t('users.field_email_placeholder')} leftIcon={Mail} error={fieldErrors.email} />
                     <InputField label={t('users.field_password')} required={!editingUser} type="password" value={formData.password} onChange={(v: string) => setFormData({...formData, password: v})} placeholder={t('users.field_password_placeholder')} leftIcon={Lock} error={fieldErrors.password} />
                     
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <InputField label={t('users.field_telegram_id')} value={formData.telegram_id} onChange={(v: string) => setFormData({...formData, telegram_id: v})} placeholder={t('users.field_telegram_id_placeholder')} leftIcon={Hash} />
                       <div className="space-y-1.5">
                         <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-0.5 ml-1">{t('users.field_status')}</label>
@@ -871,7 +871,7 @@ export default function UsersPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="mt-10 pt-6 border-t border-gray-50 dark:border-slate-800 flex gap-4">
+              <div className="mt-6 sm:mt-10 pt-4 sm:pt-6 border-t border-gray-50 dark:border-slate-800 flex flex-col-reverse sm:flex-row gap-3 sm:gap-4">
                 <button type="button" onClick={() => setIsFormModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-2xl transition-all">{t('users.btn_cancel')}</button>
                 <button type="submit" disabled={formLoading} className="flex-[2] py-3 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-200 dark:shadow-none flex items-center justify-center gap-2 group">
                   {formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
@@ -901,7 +901,7 @@ export default function UsersPage() {
 // Stats Card Component
 function StatCard({ title, value, icon: Icon, color }: any) {
   return (
-    <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
+    <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
       <div className={cn("p-3 rounded-xl text-white shadow-lg", color)}>
         <Icon className="w-6 h-6" />
       </div>
