@@ -235,6 +235,9 @@ class ReportPayload(BaseModel):
     sort_by: Optional[str] = None
     sort_order: str = "desc"
     targets: list = []
+    joining_start_date: Optional[str] = None
+    joining_end_date: Optional[str] = None
+    always_active: bool = False
 
     @field_validator("target_type")
     @classmethod
@@ -259,6 +262,17 @@ class ReportPayload(BaseModel):
             date.fromisoformat(v)
         except ValueError:
             raise ValueError("dates must be in YYYY-MM-DD format")
+        return v
+
+    @field_validator("joining_start_date", "joining_end_date")
+    @classmethod
+    def _joining_date(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError("joining dates must be in YYYY-MM-DD format")
         return v
 
 

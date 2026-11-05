@@ -140,6 +140,23 @@ def _active_employee_clause():
     return or_(status == "active", status == "")
 
 
+def _always_active_employee_clause():
+    """SQL predicate: only employees with status = 'Active' (not blank/NULL).
+
+    Used when we need to filter for 'always active' employees only.
+    """
+    status = func.lower(func.coalesce(func.trim(Employee.status), ""))
+    return status == "active"
+
+
+def _joining_date_clause(start_date: str, end_date: str):
+    """SQL predicate: employee joining_date falls within [start_date, end_date].
+
+    joining_date is stored as String (YYYY-MM-DD format).
+    """
+    return Employee.joining_date.between(start_date, end_date)
+
+
 def _is_numeric_value(v) -> bool:
     s = str(v).replace(",", "").replace(".", "").strip()
     return s.isdigit()
@@ -175,6 +192,10 @@ class ReportConfig:
         self.sort_by = payload.get("sort_by") or "activation_count"
         self.sort_order = payload.get("sort_order") or "desc"
         self.targets: list = payload.get("targets") or []
+        # New joining date filter
+        self.joining_start_date: Optional[str] = payload.get("joining_start_date")
+        self.joining_end_date: Optional[str] = payload.get("joining_end_date")
+        self.always_active: bool = payload.get("always_active", False)
 
     @staticmethod
     def _parse_date(value):
@@ -592,13 +613,32 @@ class GaReportBuilderService:
 
     async def _build_employee_report(self, entity_type: str, today: date, start: date, end: date, window: dict) -> dict:
         id_filter = self.cfg.rso_ids if entity_type == "rso" else self.cfg.bp_ids
+        
+        # Build the employee query with filters
         query = select(Employee).options(joinedload(Employee.user)).where(
             Employee.house_id == self.cfg.house_id,
             func.lower(Employee.employee_type) == entity_type,
-            _active_employee_clause(),
         )
+        
+        # Apply always active filter
+        if self.cfg.always_active:
+            query = query.where(_always_active_employee_clause())
+        
+        # Apply joining date filter
+        if self.cfg.joining_start_date and self.cfg.joining_end_date:
+            query = query.where(_joining_date_clause(self.cfg.joining_start_date, self.cfg.joining_end_date))
+        elif self.cfg.joining_start_date:
+            query = query.where(Employee.joining_date >= self.cfg.joining_start_date)
+        elif self.cfg.joining_end_date:
+            query = query.where(Employee.joining_date <= self.cfg.joining_end_date)
+        
+        # Apply active employee clause (unless always_active is set, in which case we already filtered)
+        if not self.cfg.always_active:
+            query = query.where(_active_employee_clause())
+        
         if id_filter:
             query = query.where(Employee.id.in_(id_filter))
+        
         employees = (await self.db.execute(query)).scalars().all()
 
         identity = (
