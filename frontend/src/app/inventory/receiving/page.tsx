@@ -278,7 +278,7 @@ export default function StockReceivingPage() {
     setFormError(null);
 
     if (selectedProducts.length === 0) {
-      setFieldErrors({ products: t("inventory.common.required_field") });
+      setFieldErrors({ products: t("inventory.common.required_product") });
       return;
     }
 
@@ -295,11 +295,21 @@ export default function StockReceivingPage() {
         if (seenSerials.has(serial)) crossDuplicates.add(serial);
         else seenSerials.add(serial);
       }
-      if (parsed.duplicates.length > 0 || parsed.invalid.length > 0) {
-        nextFieldErrors[`serials_${product.id}`] =
-          `${t("inventory.common.duplicates")}: ${parsed.duplicates.length}, ${t("inventory.common.invalid")}: ${parsed.invalid.length}`;
+      if (parsed.invalid.length > 0) {
+        nextFieldErrors[`serials_${product.id}`] = t(
+          "inventory.common.invalid_serial_examples",
+          { serials: parsed.invalid.slice(0, 5).join(", ") }
+        );
+      } else if (parsed.duplicates.length > 0) {
+        nextFieldErrors[`serials_${product.id}`] = t(
+          "inventory.common.duplicate_serial_examples",
+          { serials: parsed.duplicates.slice(0, 5).join(", ") }
+        );
       } else if (parsed.valid.length === 0) {
-        nextFieldErrors[`serials_${product.id}`] = t("inventory.common.required_field");
+        nextFieldErrors[`serials_${product.id}`] = t(
+          "inventory.common.required_serials_product",
+          { product: product.product_name }
+        );
       } else {
         lines.push({
           product_id: product.id,

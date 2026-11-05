@@ -347,6 +347,95 @@ async def test_issue_rejects_employee_from_another_house(db, setup):
     assert exc.value.status_code == 404
 
 
+async def test_issue_can_assign_multiple_products_to_one_employee(db, setup):
+    sim_doc = await _receive_and_post(db, setup, ["SIM501", "SIM502"])
+    card_doc = await svc.create_receipt(
+        db,
+        house_id=setup["house"].id,
+        user_id=1,
+        data=_receipt(
+            setup,
+            ["SC501", "SC502"],
+            product_id=setup["card"].id,
+            invoice_number="INV-CARD-1",
+        ),
+    )
+    await db.commit()
+    await svc.post_receipt(
+        db, house_id=setup["house"].id, doc_id=card_doc.id, user_id=1
+    )
+    await db.commit()
+
+    issue = await svc.issue_stock(
+        db,
+        house_id=setup["house"].id,
+        user_id=1,
+        data=IssueCreate(
+            employee_id=setup["rso"].id,
+            lines=[
+                {"product_id": setup["sim"].id, "serials": ["SIM501", "SIM502"]},
+                {"product_id": setup["card"].id, "serials": ["SC501"]},
+            ],
+        ),
+    )
+    await db.commit()
+
+    assert issue.status == "posted"
+    assert issue.total_quantity == 3
+    assert len(issue.lines) == 2
+    assert {line.product_id: line.quantity for line in issue.lines} == {
+        setup["sim"].id: 2,
+        setup["card"].id: 1,
+    }
+    assert len(issue.serial_lines) == 3
+
+    assigned = (
+        await db.execute(
+            select(SerialUnit.serial_number, SerialUnit.current_employee_id).where(
+                SerialUnit.serial_number.in_(["SIM501", "SIM502", "SC501"])
+            )
+        )
+    ).all()
+    assert {row[1] for row in assigned} == {setup["rso"].id}
+
+    ledger = (
+        await db.execute(
+            select(InventoryLedger.product_id, InventoryLedger.movement_type).where(
+                InventoryLedger.document_id == issue.id
+            )
+        )
+    ).all()
+    assert sorted(ledger) == sorted(
+        [
+            (setup["sim"].id, "issue_in"),
+            (setup["sim"].id, "issue_in"),
+            (setup["sim"].id, "issue_out"),
+            (setup["sim"].id, "issue_out"),
+            (setup["card"].id, "issue_in"),
+            (setup["card"].id, "issue_out"),
+        ]
+    )
+
+
+async def test_issue_rejects_duplicate_serials_across_product_lines(db, setup):
+    await _receive_and_post(db, setup, ["SIM601"])
+    with pytest.raises(HTTPException) as exc:
+        await svc.issue_stock(
+            db,
+            house_id=setup["house"].id,
+            user_id=1,
+            data=IssueCreate(
+                employee_id=setup["rso"].id,
+                lines=[
+                    {"product_id": setup["sim"].id, "serials": ["SIM601"]},
+                    {"product_id": setup["card"].id, "serials": ["SIM601"]},
+                ],
+            ),
+        )
+    assert exc.value.status_code == 400
+    assert "Duplicate" in exc.value.detail["fields"]["serials"]
+
+
 async def test_return_does_not_restore_house_stock_until_verified(db, setup):
     await _receive_and_post(db, setup, ["SIM401", "SIM402", "SIM403"])
     issue = await svc.issue_stock(

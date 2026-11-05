@@ -84,6 +84,9 @@ interface SerialRow {
   employee_id?: number | null;
   employee_name?: string | null;
   dms_code?: string | null;
+  employee_type?: string | null;
+  itop_number?: string | null;
+  pool_number?: string | null;
   received_at?: string | null;
 }
 
@@ -114,6 +117,14 @@ interface PaginationMeta {
   total_pages: number;
   has_next: boolean;
   has_prev: boolean;
+}
+
+/** RSOs are identified by their iTop number, BPs by their pool number. */
+function employeeNumber(row: SerialRow): string | null {
+  const type = (row.employee_type || "").toLowerCase();
+  if (type === "rso") return row.itop_number || null;
+  if (type === "bp") return row.pool_number || null;
+  return null;
 }
 
 export default function MotherStockPage() {
@@ -465,7 +476,11 @@ export default function MotherStockPage() {
                             {row.employee_name ? (
                               <>
                                 <p>{row.employee_name}</p>
-                                <p className="text-[11px] text-gray-500 dark:text-gray-400">{row.dms_code}</p>
+                                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                                  {[row.dms_code, employeeNumber(row)]
+                                    .filter(Boolean)
+                                    .join(" • ")}
+                                </p>
                               </>
                             ) : (
                               "-"
@@ -508,7 +523,13 @@ export default function MotherStockPage() {
                         {open ? (
                           <div className="px-4 pb-4 space-y-1.5 text-sm">
                             <InfoRow label={t("inventory.common.employee")} value={row.employee_name || "-"} />
-                            <InfoRow label="DMS" value={row.dms_code || "-"} />
+                            <InfoRow
+                              label="DMS"
+                              value={
+                                [row.dms_code, employeeNumber(row)].filter(Boolean).join(" • ") ||
+                                "-"
+                              }
+                            />
                             <InfoRow label={t("inventory.common.date")} value={formatDate(row.received_at)} />
                             <button
                               onClick={() => openHistory(row.id)}

@@ -137,8 +137,8 @@ class SerialUnit(Base):
 class StockDocument(Base):
     """Receipt / issue / return voucher.
 
-    A receipt may carry several product lines (multi-product receiving); issue and
-    return vouchers still use one product line each.
+    Receiving and issue vouchers may carry several product lines (multi-product
+    receiving / issue); return vouchers still use one product line each.
     """
 
     __tablename__ = "stock_documents"

@@ -67,6 +67,7 @@ async def data(db):
         employee_type="rso",
         status="Active",
         employee_id="API-RSO-1",
+        itop_number="1915270101",
     )
     db.add(employee)
     await db.commit()
@@ -407,6 +408,82 @@ async def test_receipt_serial_page_and_product_search(api, db, data):
     assert page.json()["pagination"]["has_prev"] is True
 
 
+async def test_product_lookup_reports_available_stock_and_filters_in_stock_only(api, db, data):
+    app, client = api
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.view", "inventory.receive", "inventory.issue")
+    )
+    headers = {"X-House-ID": str(data["house"].id)}
+
+    stocked = Product(
+        product_code="SIM-QTY-01",
+        category="SIM",
+        product_name="Stocked SIM",
+        status="Active",
+    )
+    empty = Product(
+        product_code="SIM-QTY-EMPTY",
+        category="SIM",
+        product_name="Empty SIM",
+        status="Active",
+    )
+    db.add_all([stocked, empty])
+    await db.flush()
+
+    receipt = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={
+            "product_id": stocked.id,
+            "serials": ["QTYAPI0001", "QTYAPI0002", "QTYAPI0003", "QTYAPI0004"],
+        },
+    )
+    assert receipt.status_code == 201, receipt.text
+    posted = await client.post(
+        f"/api/v1/inventory/receipts/{receipt.json()['data']['id']}/post", headers=headers
+    )
+    assert posted.status_code == 200, posted.text
+
+    everything = await client.get(
+        "/api/v1/inventory/products",
+        headers=headers,
+        params={"search": "SIM-QTY"},
+    )
+    assert everything.status_code == 200
+    quantities = {row["product_code"]: row["available_qty"] for row in everything.json()["data"]}
+    assert quantities["SIM-QTY-01"] == 4
+    assert quantities["SIM-QTY-EMPTY"] == 0
+
+    in_stock = await client.get(
+        "/api/v1/inventory/products",
+        headers=headers,
+        params={"search": "SIM-QTY", "in_stock_only": True},
+    )
+    assert in_stock.status_code == 200
+    rows = in_stock.json()["data"]
+    assert [row["product_code"] for row in rows] == ["SIM-QTY-01"]
+    assert rows[0]["available_qty"] == 4
+
+    # Issuing a serial removes it from the house's available stock right away.
+    issued = await client.post(
+        "/api/v1/inventory/issues",
+        headers=headers,
+        json={
+            "employee_id": data["employee"].id,
+            "lines": [{"product_id": stocked.id, "serials": ["QTYAPI0001"]}],
+        },
+    )
+    assert issued.status_code == 201, issued.text
+
+    after_issue = await client.get(
+        "/api/v1/inventory/products",
+        headers=headers,
+        params={"search": "SIM-QTY", "in_stock_only": True},
+    )
+    assert after_issue.status_code == 200
+    assert after_issue.json()["data"][0]["available_qty"] == 3
+
+
 async def test_receipt_batch_number_is_auto_generated_and_unique(api, db, data):
     app, client = api
     app.dependency_overrides[get_current_user] = lambda: _user(
@@ -431,6 +508,93 @@ async def test_receipt_batch_number_is_auto_generated_and_unique(api, db, data):
         batch_numbers.append(doc["batch_number"])
 
     assert len(set(batch_numbers)) == 2
+
+
+async def test_multi_product_issue_creates_one_line_per_product(api, db, data):
+    app, client = api
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"],
+        ("inventory.view", "inventory.receive", "inventory.issue"),
+    )
+    headers = {"X-House-ID": str(data["house"].id)}
+
+    scratch = Product(
+        product_code="SC-API-ISSUE",
+        category="Scratch Card",
+        product_name="API Scratch Issue",
+        status="Active",
+    )
+    db.add(scratch)
+    await db.flush()
+
+    received = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={
+            "lines": [
+                {"product_id": data["product"].id, "serials": ["APIISS001", "APIISS002"]},
+                {"product_id": scratch.id, "serials": ["APIISS003"]},
+            ],
+        },
+    )
+    assert received.status_code == 201, received.text
+    receipt_id = received.json()["data"]["id"]
+    posted = await client.post(
+        f"/api/v1/inventory/receipts/{receipt_id}/post", headers=headers
+    )
+    assert posted.status_code == 200, posted.text
+
+    issued = await client.post(
+        "/api/v1/inventory/issues",
+        headers=headers,
+        json={
+            "employee_id": data["employee"].id,
+            "lines": [
+                {"product_id": data["product"].id, "serials": ["APIISS001", "APIISS002"]},
+                {"product_id": scratch.id, "serials": ["APIISS003"]},
+            ],
+        },
+    )
+    assert issued.status_code == 201, issued.text
+    doc = issued.json()["data"]
+    assert doc["status"] == "posted"
+    assert doc["product_count"] == 2
+    assert doc["serials_count"] == 3
+    assert doc["total_quantity"] == 3
+    assert [line["product_id"] for line in doc["lines"]] == [data["product"].id, scratch.id]
+    assert [line["quantity"] for line in doc["lines"]] == [2, 1]
+
+    detail = await client.get(f"/api/v1/inventory/issues/{doc['id']}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()["data"]
+    serial_products = {
+        row["serial_number"]: row["product_id"] for row in payload["serials"]
+    }
+    assert serial_products == {
+        "APIISS001": data["product"].id,
+        "APIISS002": data["product"].id,
+        "APIISS003": scratch.id,
+    }
+    assert {row["status_after"] for row in payload["serials"]} == {"assigned"}
+
+    # Serial rows carry the holder's identity so the UI can show the RSO iTop
+    # number (BPs show their pool number instead).
+    assigned_serials = await client.get(
+        "/api/v1/inventory/serials", headers=headers, params={"status": "assigned"}
+    )
+    assert assigned_serials.status_code == 200
+    assigned_rows = assigned_serials.json()["data"]
+    assert {row["employee_type"] for row in assigned_rows} == {"rso"}
+    assert {row["itop_number"] for row in assigned_rows} == {"1915270101"}
+
+    summary = await client.get(
+        "/api/v1/inventory/summary",
+        headers=headers,
+        params={"product_id": scratch.id},
+    )
+    house_summary = summary.json()["data"]["house"]
+    assert house_summary["available"] == 0
+    assert house_summary["assigned"] == 1
 
 
 async def test_multi_product_receipt_rejects_duplicate_serial_across_products(api, db, data):

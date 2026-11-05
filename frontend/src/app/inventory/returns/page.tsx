@@ -158,11 +158,27 @@ export default function StockReturnsPage() {
   const submitReturn = async () => {
     setFormError(null);
     const errors: Record<string, string> = {};
-    if (!form.employee_id) errors.employee_id = t("inventory.common.required_field");
-    if (!form.product_id) errors.product_id = t("inventory.common.required_field");
-    if (parsed.valid.length === 0) errors.serials = t("inventory.common.required_field");
-    if (parsed.duplicates.length || parsed.invalid.length) {
-      errors.serials = `${t("inventory.common.duplicates")}: ${parsed.duplicates.length}, ${t("inventory.common.invalid")}: ${parsed.invalid.length}`;
+    const returnProductName = products.find(
+      (product) => product.id === Number(form.product_id)
+    )?.product_name;
+    if (!form.employee_id) {
+      errors.employee_id = t("inventory.common.required_return_employee");
+    }
+    if (!form.product_id) {
+      errors.product_id = t("inventory.common.required_return_product");
+    }
+    if (parsed.invalid.length > 0) {
+      errors.serials = t("inventory.common.invalid_serial_examples", {
+        serials: parsed.invalid.slice(0, 5).join(", "),
+      });
+    } else if (parsed.duplicates.length > 0) {
+      errors.serials = t("inventory.common.duplicate_serial_examples", {
+        serials: parsed.duplicates.slice(0, 5).join(", "),
+      });
+    } else if (parsed.valid.length === 0) {
+      errors.serials = t("inventory.common.required_serials_product", {
+        product: returnProductName || t("inventory.common.product"),
+      });
     }
     if (Object.keys(errors).length) {
       setFieldErrors(errors);

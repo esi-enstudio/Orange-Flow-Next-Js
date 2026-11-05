@@ -58,13 +58,11 @@ class ReceiptCreate(BaseModel):
         raise ValueError("Send either `lines` or `product_id` with `serials`")
 
 
-class IssueCreate(BaseModel):
-    employee_id: int
+class IssueLineCreate(BaseModel):
+    """One product (with its serials) inside a multi-product issue."""
+
     product_id: int
-    business_date: Optional[date] = None
-    serials: List[str] = SERIAL_LIST_FIELD
-    notes: Optional[str] = Field(None, max_length=2000)
-    idempotency_key: Optional[str] = Field(None, max_length=120)
+    serials: List[str] = Field(..., min_length=1)
 
     @field_validator("serials")
     @classmethod
@@ -73,6 +71,36 @@ class IssueCreate(BaseModel):
         if not cleaned:
             raise ValueError("At least one serial is required")
         return cleaned
+
+
+class IssueCreate(BaseModel):
+    # Legacy single-product payload. Kept for old clients; new clients should
+    # send `lines` so one employee can receive several products at once.
+    employee_id: int
+    product_id: Optional[int] = None
+    business_date: Optional[date] = None
+    serials: Optional[List[str]] = Field(None, min_length=1, max_length=5000)
+    lines: Optional[List[IssueLineCreate]] = Field(None, min_length=1, max_length=100)
+    notes: Optional[str] = Field(None, max_length=2000)
+    idempotency_key: Optional[str] = Field(None, max_length=120)
+
+    @field_validator("serials")
+    @classmethod
+    def _serials_not_blank(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return value
+        cleaned = [item.strip() for item in value if item and item.strip()]
+        if not cleaned:
+            raise ValueError("At least one serial is required")
+        return cleaned
+
+    @model_validator(mode="after")
+    def _require_product_lines(self):
+        if self.lines:
+            return self
+        if self.product_id and self.serials:
+            return self
+        raise ValueError("Send either `lines` or `product_id` with `serials`")
 
 
 class ReturnCreate(BaseModel):

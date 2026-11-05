@@ -937,47 +937,116 @@ async def issue_stock(db: AsyncSession, *, house_id: int, user_id: Optional[int]
     if existing:
         return existing
 
-    product = await get_serial_product(db, data.product_id)
     employee = await get_active_employee(db, house_id, data.employee_id)
-    serials = clean_serials(data.serials)
+    raw_lines = _issue_input_lines(data)
 
-    result = await db.execute(
-        lock_serial_units(
-            select(SerialUnit).where(
-                SerialUnit.house_id == house_id,
-                SerialUnit.product_id == product.id,
-                SerialUnit.serial_number.in_(serials),
-            )
-        )
-    )
-    units = list(result.scalars().all())
-    found = {unit.serial_number: unit for unit in units}
+    # One entry per product, preserving the order the caller sent. A product
+    # repeated in the payload is merged instead of rejected, so a split paste
+    # (e.g. two ranges for the same SIM) still becomes one document line.
+    products: dict = {}
+    serials_by_product: dict = {}
+    product_order: list = []
+    seen_serials: set = set()
+    cross_duplicates: list = []
 
-    missing = [serial for serial in serials if serial not in found]
-    if missing:
+    requested_product_ids = list(dict.fromkeys(int(raw["product_id"]) for raw in raw_lines))
+    product_rows = (
+        await db.execute(select(Product).where(Product.id.in_(requested_product_ids)))
+    ).scalars().all()
+    product_lookup = {product.id: product for product in product_rows}
+
+    for raw in raw_lines:
+        product_id = int(raw["product_id"])
+        product = products.get(product_id)
+        if product is None:
+            product = product_lookup.get(product_id)
+            if not product:
+                _error(404, "NOT_FOUND", "Product not found", {"product_id": "Product not found"})
+            if product.category not in SERIAL_TRACKED_CATEGORIES:
+                _error(
+                    400,
+                    "PRODUCT_NOT_SERIAL_TRACKED",
+                    "Only SIM and Scratch Card products are serial-tracked",
+                    {"product_id": "This product is tracked by quantity, not serial"},
+                )
+            if (product.status or "").lower() != "active":
+                _error(
+                    400,
+                    "PRODUCT_INACTIVE",
+                    "Product is inactive",
+                    {"product_id": "This product is inactive"},
+                )
+            products[product_id] = product
+            serials_by_product[product_id] = []
+            product_order.append(product_id)
+
+        cleaned = clean_serials(raw["serials"])
+        for serial in cleaned:
+            if serial in seen_serials:
+                cross_duplicates.append(serial)
+            seen_serials.add(serial)
+        serials_by_product[product_id].extend(cleaned)
+
+    if cross_duplicates:
+        repeated = sorted(set(cross_duplicates))
         _error(
-            404,
-            "SERIAL_NOT_FOUND",
-            "Some serial numbers were not found in this house stock",
-            {"serials": "Not found: " + ", ".join(missing[:10]), "missing_serials": missing},
-        )
-
-    blocked = [
-        f"{serial} ({found[serial].status})"
-        for serial in serials
-        if found[serial].status != "available"
-    ]
-    if blocked:
-        _error(
-            409,
-            "SERIAL_NOT_AVAILABLE",
-            "Some serials are not available in house stock",
-            {"serials": "Not available: " + ", ".join(blocked[:10])},
+            400,
+            "VALIDATION_ERROR",
+            "Duplicate serial numbers in this issue",
+            {"serials": "Duplicate in batch: " + ", ".join(repeated[:10])},
         )
 
     house_location = await get_location(db, house_id, "house")
     employee_location = await get_location(db, house_id, "employee", employee.id)
     business_date = resolve_business_date(data.business_date)
+
+    # Lock and validate every serial before writing the voucher, so a stale
+    # serial in the second product line cannot leave a half-issued document.
+    units_by_product: dict = {}
+    for product_id in product_order:
+        serials = serials_by_product[product_id]
+        result = await db.execute(
+            lock_serial_units(
+                select(SerialUnit).where(
+                    SerialUnit.house_id == house_id,
+                    SerialUnit.product_id == product_id,
+                    SerialUnit.serial_number.in_(serials),
+                )
+            )
+        )
+        found = {unit.serial_number: unit for unit in result.scalars().all()}
+
+        missing = [serial for serial in serials if serial not in found]
+        if missing:
+            _error(
+                404,
+                "SERIAL_NOT_FOUND",
+                "Some serial numbers were not found in this house stock",
+                {
+                    "serials": f"Not found for {products[product_id].product_name}: "
+                    + ", ".join(missing[:10]),
+                    "missing_serials": missing,
+                },
+            )
+
+        blocked = [
+            f"{serial} ({found[serial].status})"
+            for serial in serials
+            if found[serial].status != "available"
+        ]
+        if blocked:
+            _error(
+                409,
+                "SERIAL_NOT_AVAILABLE",
+                "Some serials are not available in house stock",
+                {
+                    "serials": f"Not available for {products[product_id].product_name}: "
+                    + ", ".join(blocked[:10])
+                },
+            )
+        units_by_product[product_id] = found
+
+    total_serials = sum(len(serials) for serials in serials_by_product.values())
 
     doc = StockDocument(
         house_id=house_id,
@@ -985,7 +1054,7 @@ async def issue_stock(db: AsyncSession, *, house_id: int, user_id: Optional[int]
         status="posted",
         employee_id=employee.id,
         business_date=business_date,
-        total_quantity=len(serials),
+        total_quantity=total_serials,
         notes=data.notes,
         idempotency_key=data.idempotency_key,
         created_by=user_id,
@@ -1000,66 +1069,89 @@ async def issue_stock(db: AsyncSession, *, house_id: int, user_id: Optional[int]
         _error(409, "DUPLICATE_DOCUMENT", "This issue voucher already exists")
     await _finalize_document_no(db, doc)
 
-    line = StockDocumentLine(document_id=doc.id, product_id=product.id, quantity=len(serials))
-    db.add(line)
-    await db.flush()
-
     now = now_naive()
-    for serial in serials:
-        unit = found[serial]
-        before = unit.status
-        unit.status = "assigned"
-        unit.current_employee_id = employee.id
-        unit.current_location_id = employee_location.id
-        unit.status_updated_at = now
-        db.add(
-            _serial_line(
-                doc=doc,
-                line=line,
-                unit=unit,
-                action="issue",
-                status_before=before,
-                status_after="assigned",
-                location_before_id=house_location.id,
-                location_after_id=employee_location.id,
-                employee_before_id=None,
-                employee_after_id=employee.id,
-                user_id=user_id,
-            )
+    for product_id in product_order:
+        serials = serials_by_product[product_id]
+        found = units_by_product[product_id]
+        line = StockDocumentLine(
+            document_id=doc.id,
+            product_id=product_id,
+            quantity=len(serials),
         )
-        db.add(
-            _ledger_entry(
-                house_id=house_id,
-                product_id=unit.product_id,
-                unit=unit,
-                doc=doc,
-                movement_type="issue_out",
-                quantity=-1,
-                location_id=house_location.id,
-                employee_id=None,
-                status_before=before,
-                status_after="assigned",
-                user_id=user_id,
+        db.add(line)
+        await db.flush()
+
+        for serial in serials:
+            unit = found[serial]
+            before = unit.status
+            unit.status = "assigned"
+            unit.current_employee_id = employee.id
+            unit.current_location_id = employee_location.id
+            unit.status_updated_at = now
+            db.add(
+                _serial_line(
+                    doc=doc,
+                    line=line,
+                    unit=unit,
+                    action="issue",
+                    status_before=before,
+                    status_after="assigned",
+                    location_before_id=house_location.id,
+                    location_after_id=employee_location.id,
+                    employee_before_id=None,
+                    employee_after_id=employee.id,
+                    user_id=user_id,
+                )
             )
-        )
-        db.add(
-            _ledger_entry(
-                house_id=house_id,
-                product_id=unit.product_id,
-                unit=unit,
-                doc=doc,
-                movement_type="issue_in",
-                quantity=1,
-                location_id=employee_location.id,
-                employee_id=employee.id,
-                status_before=before,
-                status_after="assigned",
-                user_id=user_id,
+            db.add(
+                _ledger_entry(
+                    house_id=house_id,
+                    product_id=unit.product_id,
+                    unit=unit,
+                    doc=doc,
+                    movement_type="issue_out",
+                    quantity=-1,
+                    location_id=house_location.id,
+                    employee_id=None,
+                    status_before=before,
+                    status_after="assigned",
+                    user_id=user_id,
+                )
             )
-        )
+            db.add(
+                _ledger_entry(
+                    house_id=house_id,
+                    product_id=unit.product_id,
+                    unit=unit,
+                    doc=doc,
+                    movement_type="issue_in",
+                    quantity=1,
+                    location_id=employee_location.id,
+                    employee_id=employee.id,
+                    status_before=before,
+                    status_after="assigned",
+                    user_id=user_id,
+                )
+            )
 
     await db.flush()
     return await _get_document(db, house_id, doc.id)
+
+
+def _issue_input_lines(data) -> List[dict]:
+    """Normalise the multi-line payload and the legacy single-product payload."""
+    lines = getattr(data, "lines", None)
+    if lines:
+        return [
+            {"product_id": line.product_id, "serials": list(line.serials)}
+            for line in lines
+        ]
+    return [
+        {
+            "product_id": data.product_id,
+            "serials": list(data.serials or []),
+        }
+    ]
 
 
 # --------------------------------------------------------------------------- #

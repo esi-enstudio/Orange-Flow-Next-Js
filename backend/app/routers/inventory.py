@@ -73,6 +73,10 @@ def _serial_out(unit: SerialUnit) -> dict:
         "employee_id": unit.current_employee_id,
         "employee_name": getattr(employee, "employee_name", None),
         "dms_code": getattr(employee, "dms_code", None),
+        "employee_type": getattr(employee, "employee_type", None),
+        # RSOs are identified by their iTop number, BPs by their pool number.
+        "itop_number": getattr(employee, "itop_number", None),
+        "pool_number": getattr(employee, "pool_number", None),
         "location_id": unit.current_location_id,
         "batch_id": unit.batch_id,
         "received_at": unit.received_at.isoformat() if unit.received_at else None,
@@ -141,6 +145,7 @@ def _doc_out(
             {
                 "serial_number": serial_line.serial_number,
                 "serial_unit_id": serial_line.serial_unit_id,
+                "product_id": serial_line.product_id,
                 "status_before": serial_line.status_before,
                 "status_after": serial_line.status_after,
                 "action": serial_line.action,
@@ -317,6 +322,10 @@ async def list_ledger(
 async def inventory_products(
     search: Optional[str] = Query(None, max_length=100),
     limit: int = Query(30, ge=1, le=100),
+    in_stock_only: bool = Query(
+        False,
+        description="Only return products that currently have available serials in the house",
+    ),
     house_id: int = Depends(require_house_context),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(VIEW),
@@ -325,7 +334,8 @@ async def inventory_products(
         Product.category.in_(["SIM", "Scratch Card"]),
         Product.status == "Active",
     ]
-    if search and search.strip():
+    has_search = bool(search and search.strip())
+    if has_search:
         term = f"%{search.strip()}%"
         filters.append(
             or_(
@@ -333,14 +343,34 @@ async def inventory_products(
                 Product.product_code.ilike(term),
             )
         )
-    rows = (
-        await db.execute(
-            select(Product)
-            .where(*filters)
-            .order_by(Product.category, Product.product_name)
-            .limit(limit if search and search.strip() else None)
+
+    # Available stock per product for the active house: serials physically in the
+    # house that have not been issued to an employee yet.
+    stock_subq = (
+        select(
+            SerialUnit.product_id.label("product_id"),
+            func.count(SerialUnit.id).label("available_qty"),
         )
-    ).scalars().all()
+        .where(
+            SerialUnit.house_id == house_id,
+            SerialUnit.status == "available",
+        )
+        .group_by(SerialUnit.product_id)
+        .subquery()
+    )
+    available_qty = func.coalesce(stock_subq.c.available_qty, 0)
+
+    if in_stock_only:
+        filters.append(stock_subq.c.available_qty > 0)
+    statement = (
+        select(Product, available_qty.label("available_qty"))
+        .outerjoin(stock_subq, stock_subq.c.product_id == Product.id)
+        .where(*filters)
+        .order_by(Product.category, Product.product_name)
+        .limit(limit if has_search else None)
+    )
+
+    rows = (await db.execute(statement)).all()
     return {
         "success": True,
         "data": [
@@ -350,8 +380,9 @@ async def inventory_products(
                 "product_name": product.product_name,
                 "category": product.category,
                 "mrp": product.mrp,
+                "available_qty": int(qty or 0),
             }
-            for product in rows
+            for product, qty in rows
         ],
     }
 
