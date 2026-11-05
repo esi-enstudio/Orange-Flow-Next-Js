@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/i18n/useLanguage";
 import { cn } from "@/lib/utils";
+import { downloadFromSource, extensionForSource } from "@/lib/download";
 
 const ZOOM_MIN = 10;
 const ZOOM_MAX = 400;
@@ -208,13 +209,7 @@ export default function ImageLightbox({
       .trim()
       .replace(/[^\w.-]+/g, "_")
       .replace(/^_+|_+$/g, "");
-    const name = `${safe || "report"}_preview.png`;
-    const a = document.createElement("a");
-    a.href = src;
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    downloadFromSource(src, `${safe || "image"}.${extensionForSource(src)}`);
   };
 
   if (!mounted) return null;

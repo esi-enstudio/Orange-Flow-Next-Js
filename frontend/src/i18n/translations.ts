@@ -5113,6 +5113,7 @@ export const translations = {
       subtitle: "View and filter historical lifting records.",
       export: "Export",
       create: "Create Lifting",
+      download_slip: "Download Slip",
       pull: {
         button: "PULL",
         title: "Create DMS PreRF",
@@ -10800,6 +10801,7 @@ employees: "Employees",
       subtitle: "পূর্বের লিফটিং রেকর্ড দেখুন এবং ফিল্টার করুন।",
       export: "এক্সপোর্ট",
       create: "নতুন লিফটিং",
+      download_slip: "স্লিপ ডাউনলোড",
       pull: {
         button: "PULL",
         title: "DMS PreRF তৈরি করুন",

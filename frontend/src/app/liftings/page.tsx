@@ -10,6 +10,7 @@ import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Loader2, ClipboardList, Search, ChevronDown, ChevronUp, Plus, X, Filter, Download, FileText, Trash2, Eye, Upload, Pencil, BarChart3, Wallet, Landmark, Package, Coins, CreditCard, Smartphone, Cpu, Boxes } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { downloadFromSource, extensionForSource } from "@/lib/download";
 import { formatLiftingAmount, formatPrice } from "@/lib/price";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 import PageGuideModal from "@/components/PageGuideModal";
@@ -136,6 +137,15 @@ type LiftingSummary = {
     total_quantity: number;
     categories: LiftingSummaryCategory[];
 };
+
+function downloadDepositSlip(record: LiftingRecord) {
+    if (!record.deposit_slip) return;
+    const ext = extensionForSource(record.deposit_slip);
+    downloadFromSource(
+        record.deposit_slip,
+        `deposit_slip_${record.lifting_date}_${record.id}.${ext}`
+    );
+}
 
 function getMonthRange() {
     const now = new Date();
@@ -1005,6 +1015,15 @@ export default function LiftingRecordsPage() {
                                                                         <Eye className="w-3.5 h-3.5" />
                                                                         View Slip
                                                                     </button>
+                                                                    <button
+                                                                        onClick={() => downloadDepositSlip(r)}
+                                                                        title={t("liftings.download_slip")}
+                                                                        aria-label={t("liftings.download_slip")}
+                                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                                                                    >
+                                                                        <Download className="w-3.5 h-3.5" />
+                                                                        {t("liftings.download_slip")}
+                                                                    </button>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1107,13 +1126,24 @@ export default function LiftingRecordsPage() {
                                                 {r.deposit_slip && (
                                                     <div className="flex items-center justify-between gap-3 pt-1">
                                                         <p className="text-[11px] font-bold text-gray-400 uppercase">Deposit Slip</p>
-                                                        <button
-                                                            onClick={() => setLightboxUrl(r.deposit_slip!)}
-                                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 text-xs font-semibold hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-all cursor-pointer"
-                                                        >
-                                                            <Eye className="w-3.5 h-3.5" />
-                                                            View Slip
-                                                        </button>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => setLightboxUrl(r.deposit_slip!)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 text-xs font-semibold hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-all cursor-pointer"
+                                                            >
+                                                                <Eye className="w-3.5 h-3.5" />
+                                                                View Slip
+                                                            </button>
+                                                            <button
+                                                                onClick={() => downloadDepositSlip(r)}
+                                                                title={t("liftings.download_slip")}
+                                                                aria-label={t("liftings.download_slip")}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                                                            >
+                                                                <Download className="w-3.5 h-3.5" />
+                                                                {t("liftings.download_slip")}
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>

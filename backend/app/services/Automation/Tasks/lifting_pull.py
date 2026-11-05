@@ -503,6 +503,15 @@ async def _capture_rf_code(page: Page, before_rows: list[dict]) -> dict:
     return rows[0] if rows else {}
 
 
+# DMS starts exposing the saved slip a little after the PreRF POST returns.
+# Clicking the link too early lands on DMS's generic error page ("An error
+# occurred while processing your request."), so the verification polls the
+# link until the stored file is actually downloadable.
+SLIP_VERIFY_TIMEOUT_SECONDS = 90
+SLIP_VERIFY_POLL_SECONDS = 4
+SLIP_DOWNLOAD_TIMEOUT_SECONDS = 20
+
+
 async def _verify_deposit_slip(
     page: Page, rf_row: dict, slip_bytes: bytes
 ) -> tuple[Optional[bool], str]:
@@ -513,6 +522,11 @@ async def _verify_deposit_slip(
     created without the slip. When the link exists, the stored file is
     downloaded and compared byte-for-byte with the uploaded image.
 
+    DMS can take a while to publish the uploaded file behind its GetFile
+    endpoint (the first requests may render an error page while the file is
+    still being written). The link is therefore retried with a bounded poll
+    before verification is reported as failed.
+
     Returns ``(verified, message)`` where ``verified`` is ``True`` (same file),
     ``False`` (missing or different file) or ``None`` (could not be checked).
     """
@@ -520,40 +534,103 @@ async def _verify_deposit_slip(
     if not details_url:
         return None, "The new PreRF details page was not found, so the deposit slip could not be verified."
 
-    try:
-        await page.goto(details_url, wait_until="domcontentloaded", timeout=60000)
-        link = page.locator("#depositSlipDownloadLink").first
+    rf_code = (rf_row or {}).get("rf_code") or "the new PreRF"
+    deadline = time.monotonic() + SLIP_VERIFY_TIMEOUT_SECONDS
+    attempts = 0
+    link_seen = False
+    details_opened = False
+    last_error = "DMS did not expose the deposit slip file"
+
+    while True:
+        attempts += 1
         try:
-            await link.wait_for(state="visible", timeout=10000)
-        except Exception:
-            return False, "DMS did not store a deposit slip for the new PreRF."
+            await page.goto(details_url, wait_until="domcontentloaded", timeout=60000)
+            details_opened = True
+        except Exception as exc:
+            last_error = f"the PreRF details page could not be opened ({exc})"
+            logger.debug(
+                "Deposit slip details page attempt %s failed for %s: %s",
+                attempts,
+                rf_code,
+                exc,
+            )
+        else:
+            link = page.locator("#depositSlipDownloadLink").first
+            try:
+                await link.wait_for(state="visible", timeout=10000)
+            except Exception:
+                last_error = "DMS has not rendered the deposit slip link yet"
+            else:
+                link_seen = True
+                try:
+                    async with page.expect_download(
+                        timeout=SLIP_DOWNLOAD_TIMEOUT_SECONDS * 1000
+                    ) as download_info:
+                        await link.click()
+                    download = await download_info.value
+                    stored_path = await download.path()
+                    if not stored_path:
+                        last_error = "DMS reported a download without a file"
+                    else:
+                        with open(stored_path, "rb") as fh:
+                            stored_bytes = fh.read()
 
-        async with page.expect_download(timeout=30000) as download_info:
-            await link.click()
-        download = await download_info.value
-        stored_path = await download.path()
-        if not stored_path:
-            return None, "The deposit slip could not be downloaded from DMS for verification."
+                        if stored_bytes == slip_bytes:
+                            logger.info(
+                                "Deposit slip verified in DMS for %s after %s attempt(s).",
+                                rf_code,
+                                attempts,
+                            )
+                            return True, (
+                                "The deposit slip stored in DMS matches the uploaded image."
+                            )
+                        return False, (
+                            "The deposit slip stored in DMS does not match the uploaded image "
+                            f"(uploaded {len(slip_bytes)} bytes, stored {len(stored_bytes)} bytes)."
+                        )
+                except Exception as exc:
+                    # DMS renders its error page when the file is not available
+                    # yet, so treat this as retryable.
+                    last_error = (
+                        "DMS's deposit-slip download link is not returning the file yet"
+                    )
+                    logger.debug(
+                        "Deposit slip download attempt %s failed for %s: %s",
+                        attempts,
+                        rf_code,
+                        exc,
+                    )
 
-        with open(stored_path, "rb") as fh:
-            stored_bytes = fh.read()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        await asyncio.sleep(min(SLIP_VERIFY_POLL_SECONDS, remaining))
 
-        if stored_bytes == slip_bytes:
-            return True, "The deposit slip stored in DMS matches the uploaded image."
-        return False, (
-            "The deposit slip stored in DMS does not match the uploaded image "
-            f"(uploaded {len(slip_bytes)} bytes, stored {len(stored_bytes)} bytes)."
+    logger.warning(
+        "Could not verify the deposit slip for %s after %s attempt(s): %s",
+        rf_code,
+        attempts,
+        last_error,
+    )
+    if link_seen:
+        return None, (
+            "DMS stored the deposit slip, but its download link did not return "
+            f"the file after {SLIP_VERIFY_TIMEOUT_SECONDS} seconds. "
+            "Download the slip from the lifting record if you need it now."
         )
-    except Exception as exc:
-        logger.warning("Could not verify the DMS deposit slip: %s", exc)
-        return None, f"The deposit slip could not be verified in DMS: {exc}"
+    if details_opened:
+        return False, "DMS did not render a deposit slip download link for the new PreRF."
+    return None, (
+        "The deposit slip could not be verified because the DMS PreRF details "
+        f"page could not be opened ({last_error})."
+    )
 
 
 def _created_message(base: str, slip_verified: Optional[bool], slip_note: str) -> str:
     """Attach the deposit-slip verification result to a success message."""
     if slip_verified is True:
         return f"{base} {slip_note}"
-    if slip_verified is False:
+    if slip_note:
         return f"{base} WARNING: {slip_note}"
     return base
 
