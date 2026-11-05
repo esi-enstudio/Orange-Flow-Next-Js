@@ -32,6 +32,7 @@ class RSOTargetCreate(BaseModel):
     extra_targets: Optional[dict] = {}
 
 class RSOTargetUpdate(BaseModel):
+    employee_id: Optional[int] = None
     supervisor_id: Optional[int] = None
     ev_secondary: Optional[float] = None
     sc_secondary: Optional[float] = None

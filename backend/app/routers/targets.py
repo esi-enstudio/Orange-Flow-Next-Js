@@ -518,6 +518,24 @@ async def update_rso_target(
         raise HTTPException(status_code=404, detail="RSO target not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+    if "employee_id" in update_data and update_data["employee_id"] is None:
+        update_data.pop("employee_id")
+    new_employee_id = update_data.get("employee_id")
+    if new_employee_id is not None and new_employee_id != record.employee_id:
+        employee = await db.get(Employee, new_employee_id)
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+        if employee.house_id != record.house_id:
+            raise HTTPException(status_code=422, detail="Employee must belong to the same house as the target")
+        conflict = await db.execute(
+            select(RSOTarget).where(
+                RSOTarget.employee_id == new_employee_id,
+                RSOTarget.target_date == record.target_date,
+                RSOTarget.id != record.id,
+            )
+        )
+        if conflict.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Target already exists for this RSO and date")
     if 'ev_secondary' in update_data or 'sc_secondary' in update_data:
         ev = update_data.get('ev_secondary', record.ev_secondary) or 0
         sc = update_data.get('sc_secondary', record.sc_secondary) or 0

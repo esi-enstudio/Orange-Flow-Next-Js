@@ -17,6 +17,8 @@ from app.models.house import House
 from app.models.user import User, user_roles
 from app.models.retailer import Retailer
 from app.models.rso_target import RSOTarget
+from app.models.bp_target import BpTarget
+from app.models.supervisor_target import SupervisorTarget
 from app.models.activation import Activation
 from app.models.live_activation import LiveActivation
 from app.models.supervisor_assignment import SupervisorRSOAssignment
@@ -763,6 +765,55 @@ async def get_employee_retailer_count(
     count = len(count_result.all())
     return {"count": count}
 
+async def _transfer_employee_targets(
+    db: AsyncSession, old_emp: Employee, new_emp: Employee
+) -> int:
+    """Move an employee's monthly targets to their replacement.
+
+    Reports only read targets for Active employees, so a month's targets would
+    silently disappear when the owner resigns. The successor must inherit them
+    (same behaviour as retailer/team handoff). Rows that already exist for the
+    successor (same `target_date`) are left untouched.
+    """
+    emp_type = (old_emp.employee_type or "").lower()
+    model = {"rso": RSOTarget, "bp": BpTarget, "supervisor": SupervisorTarget}.get(emp_type)
+    if model is None:
+        return 0
+    rows = (
+        await db.execute(select(model).where(model.employee_id == old_emp.id))
+    ).scalars().all()
+    if not rows:
+        return 0
+
+    new_supervisor_id = None
+    if emp_type == "rso":
+        new_supervisor_id = (
+            await db.execute(
+                select(SupervisorRSOAssignment.supervisor_employee_id).where(
+                    SupervisorRSOAssignment.member_employee_id == new_emp.id
+                )
+            )
+        ).scalar_one_or_none()
+
+    transferred = 0
+    for row in rows:
+        conflict = (
+            await db.execute(
+                select(model.id).where(
+                    model.employee_id == new_emp.id,
+                    model.target_date == row.target_date,
+                )
+            )
+        ).scalar_one_or_none()
+        if conflict:
+            continue
+        row.employee_id = new_emp.id
+        row.house_id = new_emp.house_id
+        if new_supervisor_id is not None:
+            row.supervisor_id = new_supervisor_id
+        transferred += 1
+    return transferred
+
 @router.post("/{emp_id}/reassign")
 async def reassign_employee_retailers(
     emp_id: int,
@@ -786,13 +837,18 @@ async def reassign_employee_retailers(
     await db.execute(
         Retailer.__table__.update().where(Retailer.employee_id == emp_id).values(employee_id=req.new_employee_id)
     )
+    # Transfer monthly targets so reports keep showing them under the successor
+    targets_transferred = await _transfer_employee_targets(db, emp, new_emp)
     # Update employee status
     emp.status = req.status
     if emp.status == "Resigned" and not emp.resigned_date:
         emp.resigned_date = now_naive().strftime("%Y-%m-%d")
     await db.commit()
     await db.refresh(emp)
-    return {"message": f"Transferred retailers to {new_emp.dms_code or new_emp.id} and status set to {req.status}"}
+    return {
+        "message": f"Transferred retailers and {targets_transferred} target month(s) to {new_emp.dms_code or new_emp.id} and status set to {req.status}",
+        "targets_transferred": targets_transferred,
+    }
 
 @router.get("/{emp_id}/performance-history")
 async def get_employee_performance_history(
@@ -934,6 +990,8 @@ async def reassign_supervisor_team(
             if member_user is not None:
                 member_user.parent_id = new_sup_user.id if new_sup_user else None
 
+    targets_transferred = await _transfer_employee_targets(db, emp, new_sup)
+
     emp.status = req.status
     if emp.status == "Resigned" and not emp.resigned_date:
         emp.resigned_date = now_naive().strftime("%Y-%m-%d")
@@ -948,12 +1006,14 @@ async def reassign_supervisor_team(
             "new_supervisor_id": new_sup.id,
             "status": req.status,
             "member_count": len(assignments),
+            "targets_transferred": targets_transferred,
         },
         request=request, status_code=200,
     )
     return {
-        "message": f"Transferred {len(assignments)} member(s) to supervisor {new_sup.employee_id or new_sup.dms_code} and status set to {req.status}",
+        "message": f"Transferred {len(assignments)} member(s) and {targets_transferred} target month(s) to supervisor {new_sup.employee_id or new_sup.dms_code} and status set to {req.status}",
         "transferred": len(assignments),
+        "targets_transferred": targets_transferred,
     }
 
 @router.delete("/{emp_id}")

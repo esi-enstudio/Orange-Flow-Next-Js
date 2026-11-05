@@ -847,6 +847,58 @@ async def _migrate_supervisor_team_link():
     except Exception as e:
         logger.warning(f"Migration warning (supervisor team link): {e}")
 
+async def _migrate_target_employee_link():
+    """Move monthly targets from a Resigned/Inactive employee to the Active
+    successor in the same house sharing their itop_number or pool_number.
+
+    Report pages (activations, recharge, active-lso, active-sso) only read
+    targets of Active employees, so targets left on a resigned predecessor
+    silently disappear from every report even though they were set for the
+    successor's month. Mirrors the retailer and supervisor-team handoff.
+    A successor that already owns a target row for the same month keeps it.
+    """
+    for table, emp_type, label in (
+        ("rso_targets", "rso", "RSO"),
+        ("bp_targets", "bp", "BP"),
+        ("supervisor_targets", "supervisor", "supervisor"),
+    ):
+        try:
+            async with engine.begin() as conn:
+                fixed = await conn.execute(text(
+                    f"""
+                    UPDATE {table} t
+                    SET employee_id = s.id, house_id = s.house_id
+                    FROM employees e
+                    JOIN LATERAL (
+                        SELECT a.id, a.house_id
+                        FROM employees a
+                        WHERE a.id <> e.id
+                          AND a.house_id = e.house_id
+                          AND lower(a.employee_type) = :emp_type
+                          AND a.status = 'Active'
+                          AND ((a.itop_number IS NOT NULL AND a.itop_number = e.itop_number)
+                               OR (a.pool_number IS NOT NULL AND a.pool_number = e.pool_number))
+                        ORDER BY (a.itop_number IS NOT NULL AND a.itop_number = e.itop_number) DESC,
+                                 a.id DESC
+                        LIMIT 1
+                    ) s ON TRUE
+                    WHERE t.employee_id = e.id
+                      AND lower(e.employee_type) = :emp_type
+                      AND e.status <> 'Active'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM {table} t2
+                          WHERE t2.employee_id = s.id
+                            AND t2.target_date = t.target_date
+                      )
+                    """
+                ), {"emp_type": emp_type})
+                if fixed.rowcount:
+                    logger.info(
+                        f"Migration complete: moved {fixed.rowcount} {label} target row(s) to the active successor"
+                    )
+        except Exception as e:
+            logger.warning(f"Migration warning ({table} successor link): {e}")
+
 async def _migrate_whatsapp_schedule_report_type():
     """Add report_type column to whatsapp_schedules."""
     try:
@@ -2247,6 +2299,7 @@ async def init_db():
         await _migrate_retailer_employee_link()
         await _migrate_activation_employee_id()
         await _migrate_supervisor_team_link()
+        await _migrate_target_employee_link()
         await _migrate_retailer_filter_tag_id()
         await _migrate_retailer_markings()
         await _migrate_retailer_markings_hard_delete()
