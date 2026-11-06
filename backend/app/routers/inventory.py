@@ -9,7 +9,7 @@ import logging
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -31,6 +31,7 @@ from app.schemas.stock import (
     ReturnVerifyRequest,
 )
 from app.services import inventory_service as svc
+from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ RECEIVE = has_permission("inventory.receive")
 ISSUE = has_permission("inventory.issue")
 RETURN = has_permission("inventory.return")
 VERIFY = has_permission("inventory.verify")
+PERMANENT_DELETE = has_permission("inventory.delete.permanent")
 
 
 # --------------------------------------------------------------------------- #
@@ -583,6 +585,45 @@ async def post_receipt(
         "success": True,
         "data": response_data,
     }
+
+
+@router.delete("/receipts/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def permanently_delete_receipt(
+    doc_id: int,
+    request: Request,
+    house_id: int = Depends(require_house_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(PERMANENT_DELETE),
+):
+    if not is_admin_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can permanently delete draft receivings.",
+        )
+    deleted = await svc.permanently_delete_draft_receipt(
+        db, house_id=house_id, doc_id=doc_id
+    )
+    await db.commit()
+    try:
+        await log_activity(
+            db,
+            user_id=current_user.id,
+            user_name=current_user.name,
+            module="inventory",
+            action="permanent_delete",
+            record_id=deleted["id"],
+            record_identifier=deleted["document_no"],
+            old_values={
+                "document_type": "receipt",
+                "status": "draft",
+                "quantity": deleted["quantity"],
+            },
+            request=request,
+            status_code=204,
+        )
+    except Exception:  # noqa: BLE001 - the delete is already durable
+        logger.exception("Activity log failed for permanently deleted receipt %s", deleted["id"])
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --------------------------------------------------------------------------- #

@@ -361,7 +361,8 @@
         "inventory.receive",
         "inventory.issue",
         "inventory.return",
-        "inventory.verify"
+        "inventory.verify",
+        "inventory.delete.permanent"
       ]
     },
     "field_sales": {

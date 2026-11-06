@@ -10,12 +10,12 @@ from sqlalchemy import select
 from app.models.employee import Employee
 from app.models.house import House
 from app.models.product import Product
-from app.models.stock import ProductBatch, SerialUnit
+from app.models.stock import ProductBatch, SerialUnit, StockDocument
 from app.routers.deps import get_current_user, get_db
 from app.routers.inventory import router
 
 
-def _user(house: House, permissions=("inventory.view",)):
+def _user(house: House, permissions=("inventory.view",), role_name="operator"):
     return SimpleNamespace(
         id=7,
         name="Inventory Manager",
@@ -24,7 +24,7 @@ def _user(house: House, permissions=("inventory.view",)):
         roles=[
             SimpleNamespace(
                 # A non-admin role so permission checks are actually exercised.
-                name="operator",
+                name=role_name,
                 permissions=[SimpleNamespace(name=name) for name in permissions],
             )
         ],
@@ -253,6 +253,77 @@ async def test_receiving_requires_receive_permission(api, db, data):
         json={"product_id": data["product"].id, "serials": ["APISIM900"]},
     )
     assert response.status_code == 403
+
+
+async def test_receipt_permanent_delete_requires_permission(api, data):
+    app, client = api
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.view", "inventory.receive")
+    )
+    headers = {"X-House-ID": str(data["house"].id)}
+    created = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={"product_id": data["product"].id, "serials": ["APIDEL001"]},
+    )
+    assert created.status_code == 201, created.text
+
+    deleted = await client.delete(
+        f"/api/v1/inventory/receipts/{created.json()['data']['id']}",
+        headers=headers,
+    )
+    assert deleted.status_code == 403
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.delete.permanent",)
+    )
+    non_admin_delete = await client.delete(
+        f"/api/v1/inventory/receipts/{created.json()['data']['id']}",
+        headers=headers,
+    )
+    assert non_admin_delete.status_code == 403
+
+
+async def test_permanent_delete_removes_draft_and_rejects_posted_receipts(api, db, data):
+    app, client = api
+    headers = {"X-House-ID": str(data["house"].id)}
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.view", "inventory.receive")
+    )
+    created = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={"product_id": data["product"].id, "serials": ["APIDEL002"]},
+    )
+    assert created.status_code == 201, created.text
+    draft_id = created.json()["data"]["id"]
+
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.delete.permanent",), role_name="admin"
+    )
+    deleted = await client.delete(f"/api/v1/inventory/receipts/{draft_id}", headers=headers)
+    assert deleted.status_code == 204, deleted.text
+    assert await db.get(StockDocument, draft_id) is None
+    assert (
+        await db.execute(select(SerialUnit).where(SerialUnit.serial_number == "APIDEL002"))
+    ).scalar_one_or_none() is None
+
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.view", "inventory.receive")
+    )
+    posted_create = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={"product_id": data["product"].id, "serials": ["APIDEL003"]},
+    )
+    posted_id = posted_create.json()["data"]["id"]
+    posted = await client.post(f"/api/v1/inventory/receipts/{posted_id}/post", headers=headers)
+    assert posted.status_code == 200
+
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.delete.permanent",), role_name="admin"
+    )
+    rejected = await client.delete(f"/api/v1/inventory/receipts/{posted_id}", headers=headers)
+    assert rejected.status_code == 409
 
 
 async def test_multi_product_receipt_keeps_one_line_and_batch_per_product(api, db, data):

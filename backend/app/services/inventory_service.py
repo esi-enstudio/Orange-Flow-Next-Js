@@ -15,12 +15,13 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 from asyncpg.exceptions import UniqueViolationError
 from fastapi import HTTPException
-from sqlalchemy import case, func, insert, literal, or_, select, update
+from sqlalchemy import case, delete, func, insert, literal, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.employee import Employee
+from app.models.field_sales import SaleSerialLine
 from app.models.product import Product
 from app.models.stock import (
     InventoryLedger,
@@ -927,6 +928,97 @@ async def post_receipt(db: AsyncSession, *, house_id: int, doc_id: int, user_id:
     doc.posted_at = now
     await db.flush()
     return doc
+
+
+async def permanently_delete_draft_receipt(
+    db: AsyncSession, *, house_id: int, doc_id: int
+) -> dict:
+    """Permanently remove a draft receipt and the received-only serials it created."""
+    doc = await _get_document(
+        db,
+        house_id,
+        doc_id,
+        doc_type="receipt",
+        for_update=True,
+        include_serial_lines=False,
+    )
+    if doc.status != "draft":
+        _error(409, "INVALID_STATUS", "Only a draft receiving can be permanently deleted")
+
+    serial_rows = (
+        await db.execute(
+            select(SerialUnit.id, SerialUnit.status, SerialUnit.batch_id)
+            .join(StockSerialLine, StockSerialLine.serial_unit_id == SerialUnit.id)
+            .where(
+                StockSerialLine.document_id == doc.id,
+                SerialUnit.house_id == house_id,
+            )
+            .with_for_update(of=SerialUnit)
+        )
+    ).all()
+    serial_ids = [row.id for row in serial_rows]
+    if (
+        len(serial_ids) != len(set(serial_ids))
+        or len(serial_ids) != doc.total_quantity
+        or any(row.status != "received" or row.batch_id is not None for row in serial_rows)
+    ):
+        _error(
+            409,
+            "SERIAL_STATE_CONFLICT",
+            "This receiving contains serials that can no longer be deleted",
+        )
+
+    receipt_serial_ids = select(StockSerialLine.serial_unit_id).where(
+        StockSerialLine.document_id == doc.id
+    )
+    external_references = (
+        await db.execute(
+            select(
+                select(StockSerialLine.id)
+                .where(
+                    StockSerialLine.serial_unit_id.in_(receipt_serial_ids),
+                    StockSerialLine.document_id != doc.id,
+                )
+                .exists(),
+                select(InventoryLedger.id)
+                .where(InventoryLedger.serial_unit_id.in_(receipt_serial_ids))
+                .exists(),
+                select(SaleSerialLine.id)
+                .where(SaleSerialLine.serial_unit_id.in_(receipt_serial_ids))
+                .exists(),
+            )
+        )
+    ).one()
+    if any(external_references):
+        _error(
+            409,
+            "SERIAL_STATE_CONFLICT",
+            "This receiving contains serials referenced by other inventory records",
+        )
+
+    document_no = doc.document_no
+    quantity = doc.total_quantity
+    await db.execute(delete(StockSerialLine).where(StockSerialLine.document_id == doc.id))
+    await db.execute(delete(StockDocumentLine).where(StockDocumentLine.document_id == doc.id))
+    await db.execute(
+        delete(StockDocument).where(
+            StockDocument.id == doc.id,
+            StockDocument.house_id == house_id,
+        )
+    )
+    for offset in range(0, len(serial_ids), SERIAL_INSERT_BATCH_SIZE):
+        await db.execute(
+            delete(SerialUnit).where(
+                SerialUnit.house_id == house_id,
+                SerialUnit.id.in_(serial_ids[offset : offset + SERIAL_INSERT_BATCH_SIZE]),
+            )
+        )
+    await db.flush()
+    return {
+        "id": doc_id,
+        "document_no": document_no,
+        "quantity": quantity,
+    }
 
 
 # --------------------------------------------------------------------------- #

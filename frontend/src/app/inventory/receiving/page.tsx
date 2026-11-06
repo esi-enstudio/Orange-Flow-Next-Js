@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertCircle,
   Boxes,
   CheckCircle2,
   ChevronDown,
@@ -93,7 +94,7 @@ const emptyForm = {
 
 export default function StockReceivingPage() {
   const { t } = useLanguage();
-  const { hasPermission, selectedHouse } = useAuth();
+  const { hasPermission, selectedHouse, user } = useAuth();
   const houseId = selectedHouse?.id;
 
   const [loading, setLoading] = useState(true);
@@ -120,9 +121,17 @@ export default function StockReceivingPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmPost, setConfirmPost] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<ReceiptRow | null>(null);
+  const [deletingReceiptId, setDeletingReceiptId] = useState<number | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const canReceive = hasPermission("inventory.receive");
+  const isAdminUser = Boolean(user?.roles?.some((role) =>
+    ["admin", "super admin", "super_admin", "manager", "house manager", "house_manager"].includes(
+      role.name.toLowerCase()
+    )
+  ));
+  const canDeleteDraft = hasPermission("inventory.delete.permanent") && isAdminUser;
 
   const productItems = useMemo(
     () =>
@@ -380,6 +389,26 @@ export default function StockReceivingPage() {
     }
   };
 
+  const permanentlyDeleteReceipt = async () => {
+    if (!houseId || !deleteConfirm) return;
+    const receipt = deleteConfirm;
+    setDeletingReceiptId(receipt.id);
+    try {
+      await axios.delete(`/v1/inventory/receipts/${receipt.id}`, {
+        headers: houseHeaders(houseId),
+      });
+      toast.success(t("inventory.receiving.deleted_toast"));
+      setDeleteConfirm(null);
+      if (detail?.id === receipt.id) setDetail(null);
+      if (rows.length === 1 && page > 1) setPage((current) => current - 1);
+      else await fetchReceipts();
+    } catch (err) {
+      toast.error(apiError(err, t("inventory.common.error_generic")).message);
+    } finally {
+      setDeletingReceiptId(null);
+    }
+  };
+
   if (!hasPermission("inventory.view")) return <AccessDenied />;
 
   const header = (
@@ -534,13 +563,26 @@ export default function StockReceivingPage() {
                             <InventoryStatusBadge status={row.status} />
                           </td>
                           <td className="px-2 py-1 text-right">
-                            <button
-                              onClick={() => openDetail(row.id)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              {t("inventory.common.view")}
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => openDetail(row.id)}
+                                className="inline-flex min-h-11 items-center gap-1 px-2.5 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                {t("inventory.common.view")}
+                              </button>
+                              {row.status === "draft" && canDeleteDraft ? (
+                                <button
+                                  onClick={() => setDeleteConfirm(row)}
+                                  disabled={deletingReceiptId === row.id}
+                                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                  title={t("inventory.receiving.delete_draft")}
+                                  aria-label={t("inventory.receiving.delete_draft")}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -577,12 +619,25 @@ export default function StockReceivingPage() {
                             <Row label={t("inventory.common.discrepancy")} value={row.discrepancy} />
                             <Row label={t("inventory.common.supplier")} value={row.supplier || "-"} />
                             <Row label={t("inventory.common.invoice_number")} value={row.invoice_number || "-"} />
-                            <button
-                              onClick={() => openDetail(row.id)}
-                              className="mt-2 inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5" /> {t("inventory.common.view")}
-                            </button>
+                            <div className="flex items-center gap-2 mt-2">
+                              <button
+                                onClick={() => openDetail(row.id)}
+                                className="inline-flex min-h-11 items-center gap-1 px-3 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" /> {t("inventory.common.view")}
+                              </button>
+                              {row.status === "draft" && canDeleteDraft ? (
+                                <button
+                                  onClick={() => setDeleteConfirm(row)}
+                                  disabled={deletingReceiptId === row.id}
+                                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                  title={t("inventory.receiving.delete_draft")}
+                                  aria-label={t("inventory.receiving.delete_draft")}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -924,6 +979,53 @@ export default function StockReceivingPage() {
                 ) : null}
               </>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {deleteConfirm ? (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-draft-title"
+            className="w-full sm:max-w-sm bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 p-5 sm:p-6"
+          >
+            <div className="mx-auto w-12 h-12 bg-red-100 dark:bg-red-500/10 rounded-2xl flex items-center justify-center mb-4">
+              <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+            </div>
+            <h2
+              id="delete-draft-title"
+              className="text-lg font-bold text-gray-900 dark:text-gray-100 text-center mb-2"
+            >
+              {t("inventory.receiving.delete_draft_title")}
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">
+              {t("inventory.receiving.delete_draft_desc", {
+                document: deleteConfirm.document_no || "",
+              })}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deletingReceiptId !== null}
+                className="flex-1 min-h-11 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {t("inventory.common.cancel")}
+              </button>
+              <button
+                onClick={permanentlyDeleteReceipt}
+                disabled={deletingReceiptId !== null}
+                className="flex-1 min-h-11 inline-flex items-center justify-center gap-2 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {deletingReceiptId === deleteConfirm.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                {t("inventory.receiving.delete_draft")}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
