@@ -105,6 +105,8 @@ export function actionKindOf(action: string): PermissionLabels["kind"] {
 }
 
 export function permissionLabel(name: string): string {
+  if (name === "subscription.renew") return "Renew Plan BTN";
+
   const moduleKey = moduleKeyOfPermission(name);
   const action = actionOfPermission(name);
   if (moduleKey === "__default__") return titleCaseWords(action);
@@ -294,6 +296,22 @@ export function buildPermissionGroups(allPerms: PermissionItem[]): PagePermissio
       parentTranslationKey: leaf.parentTranslationKey,
       perms: unique,
     });
+  }
+
+  const groupedPermissionIds = new Set(groups.flatMap((group) => group.perms.map((perm) => perm.id)));
+  for (const [moduleKey, modulePerms] of Object.entries(moduleMap)) {
+    const unassigned = modulePerms.filter((perm) => !groupedPermissionIds.has(perm.id));
+    if (unassigned.length === 0) continue;
+
+    const targetGroup = groups.find((group) => {
+      const leaf = leaves.find((item) => item.href === group.href);
+      return leaf?.gates.some((gate) => moduleKeyOfPermission(gate) === moduleKey);
+    });
+    if (!targetGroup) continue;
+
+    targetGroup.perms.push(...unassigned);
+    for (const perm of unassigned) groupedPermissionIds.add(perm.id);
+    targetGroup.perms.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   const groupsByPermissions = new Map<string, PagePermissionGroup>();

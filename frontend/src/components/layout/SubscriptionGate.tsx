@@ -108,7 +108,7 @@ export function SubscriptionGate({ children }: { children?: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useLanguage();
-  const { logout, user } = useAuth();
+  const { logout, user, hasPermission } = useAuth();
   const { accessBlock, entitlements, refresh } = useEntitlements();
 
   useEffect(() => {
@@ -185,6 +185,8 @@ export function SubscriptionGate({ children }: { children?: ReactNode }) {
 
   const primaryHref = config.primary?.href ?? null;
   const primaryLabel = config.primary?.label ?? null;
+  const canShowPrimary =
+    block.code !== "SUBSCRIPTION_EXPIRED" || hasPermission("subscription.renew");
 
   return (
     <div
@@ -239,7 +241,7 @@ export function SubscriptionGate({ children }: { children?: ReactNode }) {
         </p>
 
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
-          {primaryHref && primaryLabel && (
+          {primaryHref && primaryLabel && canShowPrimary && (
             <button
               type="button"
               onClick={() => router.push(primaryHref)}
