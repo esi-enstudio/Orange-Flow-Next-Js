@@ -1,17 +1,20 @@
 """HTTP-level checks for /api/v1/inventory (routing, permissions, serialization)."""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models.employee import Employee
 from app.models.house import House
 from app.models.product import Product
 from app.models.stock import ProductBatch, SerialUnit, StockDocument
 from app.routers.deps import get_current_user, get_db
+from app.routers import inventory as inventory_router
 from app.routers.inventory import router
 
 
@@ -34,6 +37,7 @@ def _user(house: House, permissions=("inventory.view",), role_name="operator"):
 
 @pytest.fixture
 async def api(db):
+    inventory_router._receipt_jobs.clear()
     app = FastAPI()
     app.include_router(router)
 
@@ -193,8 +197,13 @@ async def test_receiving_issue_return_flow_over_http(api, db, data):
     assert actions == ["receive", "issue", "return_request"]
 
 
-async def test_100k_receiving_create_and_post_over_http(api, data):
+async def test_100k_receiving_is_queued_then_posted_over_http(api, db, data, monkeypatch):
     app, client = api
+    monkeypatch.setattr(
+        inventory_router,
+        "async_session",
+        async_sessionmaker(db.bind, expire_on_commit=False),
+    )
     app.dependency_overrides[get_current_user] = lambda: _user(
         data["house"], ("inventory.view", "inventory.receive")
     )
@@ -209,16 +218,71 @@ async def test_100k_receiving_create_and_post_over_http(api, data):
             "lines": [{"product_id": data["product"].id, "serials": serials}],
         },
     )
-    assert created.status_code == 201, created.text
-    doc = created.json()["data"]
-    assert doc["serials_count"] == len(serials)
+    assert created.status_code == 202, created.text
+    job = created.json()["job"]
+    assert job["operation"] == "create"
+    assert job["status"] in {"queued", "running"}
+    assert job["quantity"] == len(serials)
+    await asyncio.gather(*list(inventory_router._receipt_job_tasks))
+
+    jobs = await client.get("/api/v1/inventory/receipts/jobs", headers=headers)
+    completed_job = next(
+        row for row in jobs.json()["data"] if row["job_id"] == job["job_id"]
+    )
+    assert completed_job["status"] == "completed"
+    assert completed_job["document_no"]
 
     posted = await client.post(
-        f"/api/v1/inventory/receipts/{doc['id']}/post",
+        f"/api/v1/inventory/receipts/{completed_job['record_id']}/post",
         headers=headers,
     )
     assert posted.status_code == 200, posted.text
     assert posted.json()["data"]["status"] == "posted"
+
+
+async def test_large_draft_delete_is_queued_and_house_scoped(api, db, data, monkeypatch):
+    app, client = api
+    monkeypatch.setattr(
+        inventory_router,
+        "async_session",
+        async_sessionmaker(db.bind, expire_on_commit=False),
+    )
+    monkeypatch.setattr(inventory_router, "RECEIPT_BACKGROUND_THRESHOLD", 1)
+    headers = {"X-House-ID": str(data["house"].id)}
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.view", "inventory.receive")
+    )
+    created = await client.post(
+        "/api/v1/inventory/receipts",
+        headers=headers,
+        json={"product_id": data["product"].id, "serials": ["APIQUE001"]},
+    )
+    assert created.status_code == 202, created.text
+    create_job = created.json()["job"]
+    await asyncio.gather(*list(inventory_router._receipt_job_tasks))
+    assert inventory_router._receipt_jobs[create_job["job_id"]]["status"] == "completed"
+    receipt_id = inventory_router._receipt_jobs[create_job["job_id"]]["doc_id"]
+
+    app.dependency_overrides[get_current_user] = lambda: _user(
+        data["house"], ("inventory.delete.permanent",), role_name="admin"
+    )
+    deleted = await client.delete(f"/api/v1/inventory/receipts/{receipt_id}", headers=headers)
+    assert deleted.status_code == 202, deleted.text
+    delete_job = deleted.json()["job"]
+    assert delete_job["operation"] == "delete"
+    assert delete_job["record_id"] == receipt_id
+    await asyncio.gather(*list(inventory_router._receipt_job_tasks))
+
+    status_response = await client.get(
+        "/api/v1/inventory/receipts/jobs", headers=headers
+    )
+    completed_delete = next(
+        job
+        for job in status_response.json()["data"]
+        if job["job_id"] == delete_job["job_id"]
+    )
+    assert completed_delete["status"] == "completed"
+    assert await db.get(StockDocument, receipt_id) is None
 
 
 async def test_cross_house_header_is_forbidden(api, db, data):

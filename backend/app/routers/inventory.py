@@ -5,11 +5,15 @@ house context, so a tenant can never read another house's stock even with a
 valid token.
 """
 
+import asyncio
 import logging
+import time
+import uuid
 from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -31,6 +35,7 @@ from app.schemas.stock import (
     ReturnVerifyRequest,
 )
 from app.services import inventory_service as svc
+from app.services.db_service import async_session
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 
@@ -44,6 +49,151 @@ ISSUE = has_permission("inventory.issue")
 RETURN = has_permission("inventory.return")
 VERIFY = has_permission("inventory.verify")
 PERMANENT_DELETE = has_permission("inventory.delete.permanent")
+
+RECEIPT_BACKGROUND_THRESHOLD = 5000
+_receipt_jobs: dict[str, dict] = {}
+_receipt_job_tasks: set[asyncio.Task] = set()
+_receipt_job_semaphore = asyncio.Semaphore(1)
+_RECEIPT_JOB_TTL = 3600
+
+
+def _purge_stale_receipt_jobs() -> None:
+    now = time.time()
+    for job_id, job in list(_receipt_jobs.items()):
+        if (
+            job["status"] in {"completed", "failed"}
+            and now - float(job.get("created_at", now)) > _RECEIPT_JOB_TTL
+        ):
+            _receipt_jobs.pop(job_id, None)
+
+
+def _public_receipt_job(job_id: str, job: dict) -> dict:
+    return {
+        "job_id": job_id,
+        "operation": job["operation"],
+        "status": job["status"],
+        "record_id": job.get("doc_id"),
+        "document_no": job.get("document_no"),
+        "quantity": job.get("quantity"),
+        "error": job.get("error"),
+        "created_at": job["created_at"],
+        "completed_at": job.get("completed_at"),
+    }
+
+
+def _enqueue_receipt_job(
+    *,
+    operation: str,
+    house_id: int,
+    user_id: int,
+    user_name: str,
+    request: Request,
+    payload: Optional[dict] = None,
+    doc_id: Optional[int] = None,
+    document_no: Optional[str] = None,
+    quantity: Optional[int] = None,
+) -> dict:
+    _purge_stale_receipt_jobs()
+    job_id = str(uuid.uuid4())
+    _receipt_jobs[job_id] = {
+        "operation": operation,
+        "status": "queued",
+        "house_id": house_id,
+        "owner_id": user_id,
+        "user_name": user_name,
+        "request": request,
+        "payload": payload,
+        "doc_id": doc_id,
+        "document_no": document_no,
+        "quantity": quantity,
+        "error": None,
+        "created_at": time.time(),
+        "completed_at": None,
+    }
+    task = asyncio.create_task(_run_receipt_job(job_id))
+    _receipt_job_tasks.add(task)
+    task.add_done_callback(_receipt_job_tasks.discard)
+    return _public_receipt_job(job_id, _receipt_jobs[job_id])
+
+
+async def _run_receipt_job(job_id: str) -> None:
+    job = _receipt_jobs.get(job_id)
+    if job is None:
+        return
+    async with _receipt_job_semaphore:
+        job["status"] = "running"
+        try:
+            async with async_session() as db:
+                if job["operation"] == "create":
+                    payload = ReceiptCreate.model_validate(job["payload"])
+                    doc = await svc.create_receipt(
+                        db,
+                        house_id=job["house_id"],
+                        user_id=job["owner_id"],
+                        data=payload,
+                    )
+                    await db.commit()
+                    try:
+                        await log_activity(
+                            db,
+                            user_id=job["owner_id"],
+                            user_name=job["user_name"],
+                            module="inventory",
+                            action="create",
+                            record_id=doc.id,
+                            record_identifier=doc.document_no,
+                            new_values={
+                                "document_type": "receipt",
+                                "quantity": doc.total_quantity,
+                            },
+                            request=job["request"],
+                            status_code=201,
+                        )
+                    except Exception:  # noqa: BLE001 - the receipt is already durable
+                        logger.exception("Activity log failed for queued receipt %s", doc.id)
+                    job["doc_id"] = doc.id
+                    job["document_no"] = doc.document_no
+                    job["quantity"] = doc.total_quantity
+                else:
+                    deleted = await svc.permanently_delete_draft_receipt(
+                        db, house_id=job["house_id"], doc_id=job["doc_id"]
+                    )
+                    await db.commit()
+                    try:
+                        await log_activity(
+                            db,
+                            user_id=job["owner_id"],
+                            user_name=job["user_name"],
+                            module="inventory",
+                            action="permanent_delete",
+                            record_id=deleted["id"],
+                            record_identifier=deleted["document_no"],
+                            old_values={
+                                "document_type": "receipt",
+                                "status": "draft",
+                                "quantity": deleted["quantity"],
+                            },
+                            request=job["request"],
+                            status_code=204,
+                        )
+                    except Exception:  # noqa: BLE001 - the delete is already durable
+                        logger.exception(
+                            "Activity log failed for queued receipt delete %s",
+                            deleted["id"],
+                        )
+                    job["document_no"] = deleted["document_no"]
+                    job["quantity"] = deleted["quantity"]
+            job["status"] = "completed"
+        except HTTPException as exc:
+            job["status"] = "failed"
+            detail = exc.detail
+            job["error"] = detail.get("message", str(detail)) if isinstance(detail, dict) else str(detail)
+        except Exception:
+            logger.exception("Inventory receipt job %s failed", job_id)
+            job["status"] = "failed"
+            job["error"] = "Background inventory operation failed. Please try again."
+        finally:
+            job["completed_at"] = time.time() if job["status"] in {"completed", "failed"} else None
 
 
 # --------------------------------------------------------------------------- #
@@ -469,6 +619,23 @@ async def list_receipts(
     }
 
 
+@router.get("/receipts/jobs")
+async def list_receipt_jobs(
+    house_id: int = Depends(require_house_context),
+    current_user: User = Depends(VIEW),
+):
+    _purge_stale_receipt_jobs()
+    is_admin = is_admin_user(current_user)
+    jobs = [
+        _public_receipt_job(job_id, job)
+        for job_id, job in _receipt_jobs.items()
+        if job["house_id"] == house_id
+        and (is_admin or job["owner_id"] == current_user.id)
+    ]
+    jobs.sort(key=lambda job: job["created_at"], reverse=True)
+    return {"success": True, "data": jobs}
+
+
 @router.get("/receipts/{doc_id}")
 async def receipt_detail(
     doc_id: int,
@@ -526,7 +693,11 @@ async def receipt_serials(
     }
 
 
-@router.post("/receipts", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/receipts",
+    status_code=status.HTTP_201_CREATED,
+    responses={status.HTTP_202_ACCEPTED: {"description": "Large receiving queued"}},
+)
 async def create_receipt(
     payload: ReceiptCreate,
     request: Request,
@@ -534,6 +705,22 @@ async def create_receipt(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(RECEIVE),
 ):
+    serial_count = sum(len(line["serials"]) for line in svc._receipt_input_lines(payload))
+    if serial_count >= RECEIPT_BACKGROUND_THRESHOLD:
+        job = _enqueue_receipt_job(
+            operation="create",
+            house_id=house_id,
+            user_id=current_user.id,
+            user_name=current_user.name,
+            request=request,
+            payload=payload.model_dump(mode="json"),
+            quantity=serial_count,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"success": True, "job": job},
+        )
+
     doc = await svc.create_receipt(db, house_id=house_id, user_id=current_user.id, data=payload)
     response_data = _doc_out(doc, serials_count=doc.total_quantity)
     # Commit the receiving on its own (one large voucher is one transaction):
@@ -587,7 +774,11 @@ async def post_receipt(
     }
 
 
-@router.delete("/receipts/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/receipts/{doc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={status.HTTP_202_ACCEPTED: {"description": "Large draft deletion queued"}},
+)
 async def permanently_delete_receipt(
     doc_id: int,
     request: Request,
@@ -600,6 +791,33 @@ async def permanently_delete_receipt(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can permanently delete draft receivings.",
         )
+    brief = await svc.document_brief(db, house_id=house_id, doc_id=doc_id)
+    if brief is None or brief["document_type"] != "receipt":
+        raise HTTPException(status_code=404, detail="Document not found")
+    if brief["status"] != "draft":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "INVALID_STATUS",
+                "message": "Only a draft receiving can be permanently deleted",
+            },
+        )
+    if brief["total_quantity"] >= RECEIPT_BACKGROUND_THRESHOLD:
+        job = _enqueue_receipt_job(
+            operation="delete",
+            house_id=house_id,
+            user_id=current_user.id,
+            user_name=current_user.name,
+            request=request,
+            doc_id=doc_id,
+            document_no=brief["document_no"],
+            quantity=brief["total_quantity"],
+        )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"success": True, "job": job},
+        )
+
     deleted = await svc.permanently_delete_draft_receipt(
         db, house_id=house_id, doc_id=doc_id
     )

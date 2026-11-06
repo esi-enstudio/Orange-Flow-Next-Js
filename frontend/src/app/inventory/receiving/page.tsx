@@ -34,6 +34,7 @@ import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
 const PER_PAGE = 10;
 const TODAY = new Date().toISOString().slice(0, 10);
+const COMPLETED_JOB_VISIBLE_SECONDS = 5;
 
 interface ProductOption {
   id: number;
@@ -78,6 +79,18 @@ interface PaginationMeta {
   has_prev: boolean;
 }
 
+interface ReceiptJob {
+  job_id: string;
+  operation: "create" | "delete";
+  status: "queued" | "running" | "completed" | "failed";
+  record_id?: number | null;
+  document_no?: string | null;
+  quantity?: number | null;
+  error?: string | null;
+  created_at: number;
+  completed_at?: number | null;
+}
+
 interface ReceiptDetail extends ReceiptRow {
   purchase_reference?: string | null;
   notes?: string | null;
@@ -99,6 +112,8 @@ export default function StockReceivingPage() {
 
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ReceiptRow[]>([]);
+  const [receiptJobs, setReceiptJobs] = useState<ReceiptJob[]>([]);
+  const [jobsSectionDismissed, setJobsSectionDismissed] = useState(false);
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -124,6 +139,8 @@ export default function StockReceivingPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<ReceiptRow | null>(null);
   const [deletingReceiptId, setDeletingReceiptId] = useState<number | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const knownJobStatuses = useRef<Record<string, ReceiptJob["status"]>>({});
+  const jobsErrorShown = useRef(false);
 
   const canReceive = hasPermission("inventory.receive");
   const isAdminUser = Boolean(user?.roles?.some((role) =>
@@ -196,9 +213,104 @@ export default function StockReceivingPage() {
     }
   }, [houseId, page, search, statusFilter, t]);
 
+  const fetchReceiptJobs = useCallback(async () => {
+    if (!houseId) return;
+    try {
+      const res = await axios.get("/v1/inventory/receipts/jobs", {
+        headers: houseHeaders(houseId),
+      });
+      jobsErrorShown.current = false;
+      const now = Date.now() / 1000;
+      const jobs = ((res.data.data || []) as ReceiptJob[]).filter(
+        (job) =>
+          job.status !== "completed" ||
+          !job.completed_at ||
+          now - job.completed_at < COMPLETED_JOB_VISIBLE_SECONDS
+      );
+      let completedJob = false;
+      for (const job of jobs) {
+        const previous = knownJobStatuses.current[job.job_id];
+        if (job.status === "completed" && (previous === "queued" || previous === "running")) {
+          toast.success(
+            job.operation === "create"
+              ? t("inventory.receiving.job_created_toast", {
+                  document: job.document_no || "",
+                })
+              : t("inventory.receiving.job_deleted_toast", {
+                  document: job.document_no || "",
+                })
+          );
+          completedJob = true;
+        } else if (job.status === "failed" && (previous === "queued" || previous === "running")) {
+          toast.error(
+            `${t("inventory.receiving.job_failed_toast")}: ${
+              job.error || t("inventory.common.error_generic")
+            }`
+          );
+        }
+        knownJobStatuses.current[job.job_id] = job.status;
+      }
+      setReceiptJobs(jobs);
+      if (completedJob) void fetchReceipts();
+    } catch (err) {
+      if (!jobsErrorShown.current) {
+        toast.error(apiError(err, t("inventory.common.error_generic")).message);
+        jobsErrorShown.current = true;
+      }
+    }
+  }, [fetchReceipts, houseId, t]);
+
   useEffect(() => {
     fetchReceipts();
   }, [fetchReceipts]);
+
+  useEffect(() => {
+    setReceiptJobs([]);
+    knownJobStatuses.current = {};
+    fetchReceiptJobs();
+  }, [fetchReceiptJobs]);
+
+  const hasActiveReceiptJobs = receiptJobs.some(
+    (job) => job.status === "queued" || job.status === "running"
+  );
+  const visibleReceiptJobs = receiptJobs;
+  useEffect(() => {
+    if (!hasActiveReceiptJobs) return;
+    const timer = setInterval(fetchReceiptJobs, 1500);
+    return () => clearInterval(timer);
+  }, [fetchReceiptJobs, hasActiveReceiptJobs]);
+
+  useEffect(() => {
+    const expirations = receiptJobs.flatMap((job) =>
+      job.status === "completed" && typeof job.completed_at === "number"
+        ? [job.completed_at + COMPLETED_JOB_VISIBLE_SECONDS]
+        : []
+    );
+    if (expirations.length === 0) return;
+
+    const expiresAt = Math.min(...expirations);
+    const timer = setTimeout(() => {
+      const now = Date.now() / 1000;
+      setReceiptJobs((current) =>
+        current.filter(
+          (job) =>
+            job.status !== "completed" ||
+            !job.completed_at ||
+            now - job.completed_at < COMPLETED_JOB_VISIBLE_SECONDS
+        )
+      );
+    }, Math.max(0, (expiresAt - Date.now() / 1000) * 1000));
+    return () => clearTimeout(timer);
+  }, [receiptJobs]);
+
+  const rememberReceiptJob = (job: ReceiptJob) => {
+    knownJobStatuses.current[job.job_id] = job.status;
+    setJobsSectionDismissed(false);
+    setReceiptJobs((current) => [
+      job,
+      ...current.filter((existing) => existing.job_id !== job.job_id),
+    ]);
+  };
 
   useEffect(() => {
     productSearchRequest.current += 1;
@@ -353,9 +465,18 @@ export default function StockReceivingPage() {
         },
         { headers: houseHeaders(houseId), timeout: 300000 }
       );
-      toast.success(t("inventory.receiving.created_toast"));
       setShowCreate(false);
       resetCreate();
+      if (res.data?.job) {
+        rememberReceiptJob(res.data.job as ReceiptJob);
+        toast.success(
+          t("inventory.receiving.job_queued_toast", {
+            count: res.data.job.quantity || totalSerials,
+          })
+        );
+        return;
+      }
+      toast.success(t("inventory.receiving.created_toast"));
       // Refresh the list in the background: the new voucher's detail is what
       // the user is waiting for, not the list re-read.
       void fetchReceipts();
@@ -394,9 +515,19 @@ export default function StockReceivingPage() {
     const receipt = deleteConfirm;
     setDeletingReceiptId(receipt.id);
     try {
-      await axios.delete(`/v1/inventory/receipts/${receipt.id}`, {
+      const res = await axios.delete(`/v1/inventory/receipts/${receipt.id}`, {
         headers: houseHeaders(houseId),
       });
+      if (res.status === 202 && res.data?.job) {
+        rememberReceiptJob(res.data.job as ReceiptJob);
+        setDeleteConfirm(null);
+        toast.success(
+          t("inventory.receiving.job_queued_toast", {
+            count: res.data.job.quantity || receipt.total_quantity,
+          })
+        );
+        return;
+      }
       toast.success(t("inventory.receiving.deleted_toast"));
       setDeleteConfirm(null);
       if (detail?.id === receipt.id) setDetail(null);
@@ -485,6 +616,76 @@ export default function StockReceivingPage() {
             </select>
           </div>
 
+          {visibleReceiptJobs.length > 0 && !jobsSectionDismissed ? (
+            <section className="rounded-2xl border border-primary-100 dark:border-slate-700 bg-primary-50/60 dark:bg-slate-900 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                    {t("inventory.receiving.background_jobs")}
+                  </h2>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {t("inventory.receiving.background_jobs_desc")}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {hasActiveReceiptJobs ? (
+                    <Loader2 className="w-4 h-4 text-primary-600 dark:text-primary-400 animate-spin shrink-0" />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setJobsSectionDismissed(true)}
+                    className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-gray-500 hover:bg-white/70 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-slate-800 dark:hover:text-gray-100 cursor-pointer"
+                    title={t("inventory.receiving.close_background_jobs")}
+                    aria-label={t("inventory.receiving.close_background_jobs")}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {visibleReceiptJobs.slice(0, 6).map((job) => (
+                  <div
+                    key={job.job_id}
+                    className="flex items-start gap-2.5 rounded-xl border border-primary-100/80 dark:border-slate-700 bg-white/80 dark:bg-slate-800 px-3 py-2"
+                  >
+                    {job.status === "queued" || job.status === "running" ? (
+                      <Loader2 className="mt-0.5 w-4 h-4 text-primary-600 dark:text-primary-400 animate-spin shrink-0" />
+                    ) : job.status === "failed" ? (
+                      <AlertCircle className="mt-0.5 w-4 h-4 text-red-500 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="mt-0.5 w-4 h-4 text-green-600 shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                        {job.operation === "create"
+                          ? t("inventory.receiving.new_receiving_job")
+                          : t("inventory.receiving.delete_job")}
+                        {job.document_no ? ` • ${job.document_no}` : ""}
+                        {job.quantity ? ` • ${job.quantity.toLocaleString()}` : ""}
+                      </p>
+                      {job.status === "failed" && job.error ? (
+                        <p className="mt-0.5 text-[11px] text-red-600 dark:text-red-400 break-words">
+                          {job.error}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span
+                      className={`shrink-0 text-[11px] font-semibold ${
+                        job.status === "failed"
+                          ? "text-red-600 dark:text-red-400"
+                          : job.status === "completed"
+                            ? "text-green-700 dark:text-green-400"
+                            : "text-primary-700 dark:text-primary-300"
+                      }`}
+                    >
+                      {t(`inventory.receiving.job_status.${job.status}`)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
             {loading ? (
               <div className="divide-y divide-gray-50 dark:divide-slate-800">
@@ -525,8 +726,15 @@ export default function StockReceivingPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
-                      {rows.map((row) => (
-                        <tr key={row.id} className="hover:bg-gray-50/60 dark:hover:bg-slate-800/40">
+                      {rows.map((row) => {
+                        const deleteQueued = receiptJobs.some(
+                          (job) =>
+                            job.operation === "delete" &&
+                            job.record_id === row.id &&
+                            (job.status === "queued" || job.status === "running")
+                        );
+                        return (
+                          <tr key={row.id} className="hover:bg-gray-50/60 dark:hover:bg-slate-800/40">
                           <td className="px-2 py-1">
                             <p className="font-semibold text-gray-900 dark:text-gray-100">
                               {row.document_no}
@@ -574,18 +782,23 @@ export default function StockReceivingPage() {
                               {row.status === "draft" && canDeleteDraft ? (
                                 <button
                                   onClick={() => setDeleteConfirm(row)}
-                                  disabled={deletingReceiptId === row.id}
+                                  disabled={deletingReceiptId === row.id || deleteQueued}
                                   className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                                   title={t("inventory.receiving.delete_draft")}
                                   aria-label={t("inventory.receiving.delete_draft")}
                                 >
-                                  <Trash2 className="w-4 h-4" />
+                                  {deleteQueued || deletingReceiptId === row.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
                                 </button>
                               ) : null}
                             </div>
                           </td>
-                        </tr>
-                      ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -593,6 +806,12 @@ export default function StockReceivingPage() {
                 <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
                   {rows.map((row) => {
                     const open = expandedId === row.id;
+                    const deleteQueued = receiptJobs.some(
+                      (job) =>
+                        job.operation === "delete" &&
+                        job.record_id === row.id &&
+                        (job.status === "queued" || job.status === "running")
+                    );
                     return (
                       <div key={row.id}>
                         <button
@@ -629,12 +848,16 @@ export default function StockReceivingPage() {
                               {row.status === "draft" && canDeleteDraft ? (
                                 <button
                                   onClick={() => setDeleteConfirm(row)}
-                                  disabled={deletingReceiptId === row.id}
+                                  disabled={deletingReceiptId === row.id || deleteQueued}
                                   className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                                   title={t("inventory.receiving.delete_draft")}
                                   aria-label={t("inventory.receiving.delete_draft")}
                                 >
-                                  <Trash2 className="w-4 h-4" />
+                                  {deleteQueued || deletingReceiptId === row.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
                                 </button>
                               ) : null}
                             </div>

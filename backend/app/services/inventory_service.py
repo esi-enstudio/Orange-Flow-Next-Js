@@ -236,6 +236,8 @@ async def document_brief(
                 StockDocument.id,
                 StockDocument.document_type,
                 StockDocument.total_quantity,
+                StockDocument.status,
+                StockDocument.document_no,
             ).where(
                 StockDocument.id == doc_id,
                 StockDocument.house_id == house_id,
@@ -249,6 +251,8 @@ async def document_brief(
         "id": row[0],
         "document_type": row[1],
         "total_quantity": row[2],
+        "status": row[3],
+        "document_no": row[4],
     }
 
 

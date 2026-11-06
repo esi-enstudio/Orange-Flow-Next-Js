@@ -84,11 +84,11 @@ const fmtDateTime12 = (v?: string | null) => {
 export default function BillingPage() {
   const router = useRouter();
   const { t } = useLanguage();
-  const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
+  const { hasPermission, loading: authLoading } = useAuth();
   const { refresh: refreshEntitlements } = useEntitlements();
 
   const [houses, setHouses] = useState<HouseOption[]>([]);
-  const [houseId, setHouseId] = useState<number | null>(selectedHouse?.id ?? null);
+  const [houseId, setHouseId] = useState<number | null>(null);
   const [sub, setSub] = useState<Subscription | null>(null);
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -135,11 +135,10 @@ export default function BillingPage() {
       const res = await apiClient.get("houses/accessible");
       const list: HouseOption[] = res.data || [];
       setHouses(list);
-      if (!houseId && list.length > 0) setHouseId(selectedHouse?.id ?? list[0].id);
     } catch {
       /* ignore */
     }
-  }, [houseId, selectedHouse]);
+  }, []);
 
   const loadData = useCallback(async () => {
     if (!houseId) return;
@@ -275,7 +274,7 @@ export default function BillingPage() {
             onChange={(e) => setHouseId(e.target.value ? Number(e.target.value) : null)}
             className="h-10 rounded-lg border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 text-sm text-gray-700 dark:text-gray-200"
           >
-            {houses.length === 0 && <option value="">{t("billing.select_house_first")}</option>}
+            <option value="">{t("billing.select_house_first")}</option>
             {houses.map((h) => (
               <option key={h.id} value={h.id}>
                 {h.display_name || `${h.name} (${h.code})`}
