@@ -21,7 +21,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.routers.deps import (
-    get_current_user, get_db, get_house_context, has_any_permission, has_permission,
+    get_current_user, get_db, get_house_context, has_any_permission,
 )
 from app.models.house import House
 from app.models.invoice import (
@@ -32,6 +32,7 @@ from app.models.payment_method import PaymentMethod, PAYMENT_METHOD_TYPES
 from app.models.user import User
 from app.services import entitlement, invoice_pdf, payment_requests
 from app.utils.activity_logger import log_activity
+from app.utils.access_control import is_super_admin_user
 from app.utils.timezone import now_naive
 from config.settings import settings
 
@@ -45,6 +46,12 @@ async def _house_id(current_user: User, house_context: Optional[int]) -> int:
     if not h:
         raise HTTPException(status_code=400, detail="Please select a house first (X-House-ID header required)")
     return h
+
+
+async def _require_super_admin(current_user: User = Depends(get_current_user)) -> User:
+    if not is_super_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Only Super Admin can manage payment methods")
+    return current_user
 
 
 def _invoice_payload(invoice: Invoice) -> dict:
@@ -335,14 +342,13 @@ async def download_payment_proof(
 @router.get("/payment-methods")
 async def list_payment_methods(
     db: AsyncSession = Depends(get_db),
-    house_context: Optional[int] = Depends(get_house_context),
     current_user: User = Depends(has_any_permission(["billing.view", "subscription.view"])),
 ):
-    house_id = await _house_id(current_user, house_context)
     result = (await db.execute(
         select(PaymentMethod).where(
-            PaymentMethod.house_id == house_id,
+            PaymentMethod.house_id.is_(None),
             PaymentMethod.is_deleted == False,  # noqa: E712
+            PaymentMethod.is_active == True,  # noqa: E712
         ).order_by(PaymentMethod.id.asc())
     )).scalars()
     return {"success": True, "data": [
@@ -378,18 +384,17 @@ class PaymentMethodRequest(BaseModel):
 async def create_payment_method(
     payload: PaymentMethodRequest,
     db: AsyncSession = Depends(get_db),
-    house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_permission("billing.edit")),
+    current_user: User = Depends(_require_super_admin),
 ):
     if payload.method_type not in PAYMENT_METHOD_TYPES:
         raise HTTPException(status_code=400, detail=f"method_type must be one of {PAYMENT_METHOD_TYPES}")
-    house_id = await _house_id(current_user, house_context)
 
     # Check for duplicate payment method
     query = select(PaymentMethod).where(
-        PaymentMethod.house_id == house_id,
+        PaymentMethod.house_id.is_(None),
         PaymentMethod.method_type == payload.method_type,
         PaymentMethod.is_deleted == False,  # noqa: E712
+        PaymentMethod.is_active == True,  # noqa: E712
     )
     if payload.account_number:
         query = query.where(PaymentMethod.account_number == payload.account_number)
@@ -402,10 +407,10 @@ async def create_payment_method(
 
     existing = (await db.execute(query)).first()
     if existing:
-        raise HTTPException(status_code=400, detail="A payment method with these details already exists for this house.")
+        raise HTTPException(status_code=400, detail="A payment method with these details already exists.")
 
     method = PaymentMethod(
-        house_id=house_id,
+        house_id=None,
         gateway="cash" if payload.method_type == "cash" else "manual",
         method_type=payload.method_type,
         label=payload.label,
@@ -430,22 +435,20 @@ async def update_payment_method(
     method_id: int,
     payload: PaymentMethodRequest,
     db: AsyncSession = Depends(get_db),
-    house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_permission("billing.edit")),
+    current_user: User = Depends(_require_super_admin),
 ):
     if payload.method_type not in PAYMENT_METHOD_TYPES:
         raise HTTPException(status_code=400, detail=f"method_type must be one of {PAYMENT_METHOD_TYPES}")
-    house_id = await _house_id(current_user, house_context)
-
     method = await db.get(PaymentMethod, method_id)
-    if not method or method.is_deleted or method.house_id != house_id:
+    if not method or method.is_deleted or method.house_id is not None:
         raise HTTPException(status_code=404, detail="Payment method not found")
 
     # Check for duplicate if fields changed
     query = select(PaymentMethod).where(
-        PaymentMethod.house_id == house_id,
+        PaymentMethod.house_id.is_(None),
         PaymentMethod.method_type == payload.method_type,
         PaymentMethod.is_deleted == False,  # noqa: E712
+        PaymentMethod.is_active == True,  # noqa: E712
         PaymentMethod.id != method_id,
     )
     if payload.account_number:
@@ -459,7 +462,7 @@ async def update_payment_method(
 
     existing = (await db.execute(query)).first()
     if existing:
-        raise HTTPException(status_code=400, detail="A payment method with these details already exists for this house.")
+        raise HTTPException(status_code=400, detail="A payment method with these details already exists.")
 
     method.method_type = payload.method_type
     method.gateway = "cash" if payload.method_type == "cash" else "manual"
@@ -482,12 +485,10 @@ async def update_payment_method(
 async def delete_payment_method(
     method_id: int,
     db: AsyncSession = Depends(get_db),
-    house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_permission("billing.edit")),
+    current_user: User = Depends(_require_super_admin),
 ):
-    house_id = await _house_id(current_user, house_context)
     method = await db.get(PaymentMethod, method_id)
-    if not method or method.is_deleted or method.house_id != house_id:
+    if not method or method.is_deleted or method.house_id is not None:
         raise HTTPException(status_code=404, detail="Payment method not found")
 
     method.is_deleted = True

@@ -8,7 +8,7 @@ PAYMENT_METHOD_TYPES = ("cash", "bkash", "nagad", "rocket", "bank", "mobilebanki
 
 
 class PaymentMethod(Base):
-    """Manual payment instructions a house can pay into.
+    """Global manual payment instructions shared by every house.
 
     Every payment in this deployment is received offline (cash / bank /
     mobile banking) and recorded by an authorised admin — no card data or
@@ -18,7 +18,7 @@ class PaymentMethod(Base):
     __tablename__ = "payment_methods"
 
     id = Column(Integer, primary_key=True, index=True)
-    house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=True, index=True)
 
     gateway = Column(String(32), nullable=False, default="manual")
     method_type = Column(String(32), nullable=True)  # cash | bkash | nagad | rocket | bank | mobilebanking

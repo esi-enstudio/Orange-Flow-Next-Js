@@ -770,6 +770,10 @@ Avoid:
 - Inconsistent styles
 - Duplicate components
 
+## Project-wide Date Display Format
+
+Display dates consistently as `DD MMM YYYY` with an English, abbreviated month, for example `06 Nov 2026`. Apply this format throughout the project anywhere a date is presented to users, including pages, tables, reports, exports, and notifications. Keep API/database date values and machine-readable formats unchanged; format them only at the presentation boundary. When a date is unavailable or invalid, use the existing localized empty-value convention.
+
 ## Cursor Feedback (Mouse Hover)
 
 - Every clickable button and control (buttons, selects, date inputs, checkboxes, pagination controls) must show a **pointer cursor** on mouse hover using the `cursor-pointer` Tailwind class.

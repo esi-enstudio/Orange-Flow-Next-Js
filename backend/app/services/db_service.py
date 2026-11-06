@@ -1294,6 +1294,43 @@ async def _migrate_billing_tables_extra():
         logger.warning(f"Migration warning (billing tables extra columns): {e}")
 
 
+async def _migrate_global_payment_methods():
+    """Share active payment instructions across houses, preserving unique entries."""
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE payment_methods ALTER COLUMN house_id DROP NOT NULL"
+            ))
+            await conn.execute(text(
+                """
+                UPDATE payment_methods AS pm
+                SET house_id = NULL
+                WHERE pm.is_deleted = false
+                  AND pm.is_active = true
+                  AND pm.id = (
+                    SELECT MIN(candidate.id)
+                    FROM payment_methods AS candidate
+                    WHERE candidate.is_deleted = false
+                      AND candidate.is_active = true
+                      AND candidate.method_type IS NOT DISTINCT FROM pm.method_type
+                      AND candidate.label IS NOT DISTINCT FROM pm.label
+                      AND candidate.bank_name IS NOT DISTINCT FROM pm.bank_name
+                      AND candidate.account_name IS NOT DISTINCT FROM pm.account_name
+                      AND candidate.account_number IS NOT DISTINCT FROM pm.account_number
+                      AND candidate.routing_number IS NOT DISTINCT FROM pm.routing_number
+                      AND candidate.bkash_number IS NOT DISTINCT FROM pm.bkash_number
+                      AND candidate.nagad_number IS NOT DISTINCT FROM pm.nagad_number
+                      AND candidate.instructions IS NOT DISTINCT FROM pm.instructions
+                  )
+                """
+            ))
+        logger.info("Migration complete: active payment methods are shared across houses")
+    except Exception as e:
+        message = f"global payment methods migration failed: {e}"
+        STARTUP_FATAL_ERRORS.append(message)
+        logger.critical("FATAL: %s", message, exc_info=True)
+
+
 async def _migrate_payment_transaction_reference():
     """Add the transaction-reference dedupe columns/index and backfill them.
 
@@ -2332,6 +2369,7 @@ async def init_db():
         await _migrate_subscription_billing()
         await _migrate_subscription_package_live_uniqueness()
         await _migrate_billing_tables_extra()
+        await _migrate_global_payment_methods()
         await _migrate_payment_transaction_reference()
         await _migrate_receipt_batch_numbers()
         await _migrate_remove_payment_gateway_artifacts()

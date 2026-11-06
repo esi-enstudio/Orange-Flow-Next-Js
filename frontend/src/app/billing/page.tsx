@@ -61,6 +61,24 @@ function Badge({ status }: { status?: string | null }) {
 }
 
 const fmtDate = (v?: string | null) => (v ? String(v).slice(0, 10) : "—");
+const fmtDisplayDate = (v?: string | null) => {
+  if (!v) return "—";
+  const [year, month, day] = String(v).slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return "—";
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return "—";
+  }
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+};
 const fmtMoney = (n: number) => `৳${Number(n).toLocaleString()}`;
 
 // "24 Oct 2026, 07:15 PM" — tenants read the review note with its timestamp.
@@ -84,7 +102,7 @@ const fmtDateTime12 = (v?: string | null) => {
 export default function BillingPage() {
   const router = useRouter();
   const { t } = useLanguage();
-  const { hasPermission, loading: authLoading } = useAuth();
+  const { hasPermission, loading: authLoading, user } = useAuth();
   const { refresh: refreshEntitlements } = useEntitlements();
 
   const [houses, setHouses] = useState<HouseOption[]>([]);
@@ -124,6 +142,13 @@ export default function BillingPage() {
       ["subscription.renew", "subscription.cancel", "subscription.edit", "subscription.upgrade"].some(hasPermission),
     [hasPermission]
   );
+  const isSuperAdmin = useMemo(
+    () =>
+      user?.roles?.some((role) =>
+        ["super admin", "super_admin"].includes(role.name.toLowerCase())
+      ) ?? false,
+    [user]
+  );
 
   const houseHeader = useMemo(
     () => (houseId ? { "X-House-ID": String(houseId) } : {}),
@@ -151,7 +176,7 @@ export default function BillingPage() {
         apiClient.get("v1/billing/overview", { headers }).catch(() => ({ data: null })),
         apiClient.get("v1/billing/invoices", { headers }).catch(() => ({ data: { data: [], pagination: {} } })),
         apiClient.get("v1/billing/payments", { headers }).catch(() => ({ data: { data: [], pagination: {} } })),
-        apiClient.get("v1/billing/payment-methods", { headers }).catch(() => ({ data: { data: [] } })),
+        apiClient.get("v1/billing/payment-methods").catch(() => ({ data: { data: [] } })),
       ]);
       const subData = subRes.data;
       setSub(subData && typeof subData === "object" && Object.keys(subData).length ? subData : null);
@@ -453,7 +478,7 @@ export default function BillingPage() {
 
                 {/* Desktop */}
                 <div className="hidden lg:block overflow-x-auto scrollbar-custom">
-                  <table className="w-full text-left min-w-[700px]">
+                  <table className="w-full text-left min-w-[700px] whitespace-nowrap">
                     <thead>
                       <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800">
                         <th className="px-6 py-4">{t("billing.invoice_no")}</th>
@@ -474,23 +499,26 @@ export default function BillingPage() {
                       {invoices.map((inv) => (
                         <tr key={inv.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
                           <td className="px-6 py-4">
-                            <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{inv.invoice_no}</p>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{inv.description}</p>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{fmtDate(inv.due_date)}</td>
-                          <td className="px-6 py-4">
-                            <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                              {fmtMoney(inv.total)}
-                              {inv.status === "paid" && (
-                                <span className="ml-1 text-[11px] text-emerald-500">· {fmtDate(inv.paid_at)}</span>
-                              )}
+                            <p className="max-w-[220px] truncate font-bold text-gray-900 dark:text-gray-100 text-sm">{inv.invoice_no}</p>
+                            <p className="max-w-[220px] truncate text-[11px] text-gray-500 dark:text-gray-400">{inv.description}</p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                              {t("billing.created_at")}: {fmtDateTime12(inv.created_at)}
                             </p>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{fmtDisplayDate(inv.due_date)}</td>
+                          <td className="px-6 py-4">
+                            <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{fmtMoney(inv.total)}</p>
+                            {inv.paid_at && (
+                              <p className="mt-0.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                                {fmtDisplayDate(inv.paid_at)}
+                              </p>
+                            )}
                           </td>
                           <td className="px-6 py-4">
                             <Badge status={inv.status} />
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                            <div className="inline-flex items-center justify-end gap-2 whitespace-nowrap">
                               {isPayable(inv) && pendingPaymentFor(inv.id) && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">
                                   {t("billing.pending_approval")}
@@ -534,11 +562,16 @@ export default function BillingPage() {
                     <div key={inv.id}>
                       <button
                         onClick={() => setExpandedId(expandedId === inv.id ? null : inv.id)}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 min-h-[44px]"
+                        className="w-full flex items-center gap-3 px-4 py-3.5 min-h-[44px] whitespace-nowrap"
                       >
                         <div className="flex-1 text-left">
-                          <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{inv.invoice_no}</p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{fmtMoney(inv.total)} · {fmtDate(inv.due_date)}</p>
+                          <p className="truncate font-bold text-gray-900 dark:text-gray-100 text-sm">{inv.invoice_no}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                            {t("billing.created_at")}: {fmtDateTime12(inv.created_at)}
+                          </p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                            {fmtMoney(inv.total)} · {fmtDisplayDate(inv.due_date)}
+                          </p>
                         </div>
                         <Badge status={inv.status} />
                         <ChevronDown
@@ -550,7 +583,7 @@ export default function BillingPage() {
                           expandedId === inv.id ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0"
                         }`}
                       >
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">{inv.description}</p>
+                        <p className="truncate whitespace-nowrap text-[11px] text-gray-500 dark:text-gray-400 mb-2">{inv.description}</p>
                         <div className="space-y-2">
                           {isPayable(inv) && pendingPaymentFor(inv.id) && (
                             <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
@@ -661,19 +694,40 @@ export default function BillingPage() {
               <div className="rounded-3xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 p-6">
                 <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-1">{t("billing.payment_method")}</h3>
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-4">{t("billing.manual_pay_note")}</p>
+                {isSuperAdmin && (
+                  <p className="mb-4 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-700 dark:bg-primary-500/10 dark:text-primary-300">
+                    {t("billing.global_payment_method_admin_note")}
+                  </p>
+                )}
 
+                {methods.length === 0 && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t("billing.no_payment_methods")}</p>
+                )}
                 {methods.map((m) => (
                   <div key={m.id} className="mb-3 rounded-xl border border-gray-100 dark:border-slate-800 p-4 text-sm flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-bold text-gray-900 dark:text-gray-100 capitalize">{m.label || m.method_type}</p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                        {[m.bank_name, m.account_name, m.account_number, m.bkash_number || m.nagad_number]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
+                      {(m.bank_name || m.account_name) && (
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                          {[m.bank_name, m.account_name].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                      {(m.account_number || m.bkash_number || m.nagad_number) && (
+                        <p className="mt-2 text-xs text-gray-700 dark:text-gray-200">
+                          <span className="text-gray-500 dark:text-gray-400">{t("billing.account_number")}: </span>
+                          <span className="font-mono font-bold break-all">
+                            {m.account_number || m.bkash_number || m.nagad_number}
+                          </span>
+                        </p>
+                      )}
+                      {m.routing_number && (
+                        <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                          {t("billing.routing_number")}: <span className="font-mono">{m.routing_number}</span>
+                        </p>
+                      )}
                       {m.instructions && <p className="text-[11px] text-gray-400 mt-1">{m.instructions}</p>}
                     </div>
-                    {hasPermission("billing.edit") && (
+                    {isSuperAdmin && (
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
@@ -711,17 +765,17 @@ export default function BillingPage() {
                   </div>
                 ))}
 
-                {hasPermission("billing.edit") && (
+                {isSuperAdmin && (
                   <form
                     onSubmit={async (e) => {
                       e.preventDefault();
                       setBusy(true);
                       try {
                         if (editingMethodId) {
-                          await apiClient.put(`v1/billing/payment-methods/${editingMethodId}`, methodForm, { headers: houseHeader });
+                          await apiClient.put(`v1/billing/payment-methods/${editingMethodId}`, methodForm);
                           toast.success("Payment method updated successfully");
                         } else {
-                          await apiClient.post("v1/billing/payment-methods", methodForm, { headers: houseHeader });
+                          await apiClient.post("v1/billing/payment-methods", methodForm);
                           toast.success(t("billing.payment_method_saved"));
                         }
                         setEditingMethodId(null);
@@ -904,7 +958,7 @@ export default function BillingPage() {
           if (!action?.id) return;
           setBusy(true);
           try {
-            await apiClient.delete(`v1/billing/payment-methods/${action.id}`, { headers: houseHeader });
+            await apiClient.delete(`v1/billing/payment-methods/${action.id}`);
             toast.success("Payment method deleted successfully");
             if (editingMethodId === action.id) {
               setEditingMethodId(null);

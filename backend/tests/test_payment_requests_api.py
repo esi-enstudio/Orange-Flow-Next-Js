@@ -415,3 +415,65 @@ async def test_tenant_sees_the_info_request_reason(db, house, plan):
     assert row["status"] == "needs_info"
     assert row["info_request_reason"] == "Share the bkash screenshot"
     assert row["info_requested_at"]
+
+
+async def test_payment_methods_are_managed_only_by_super_admin(db, house):
+    manager = await make_user(
+        db,
+        role_name="Manager",
+        username="payment-method-manager",
+        permissions=["billing.view", "billing.edit"],
+    )
+    super_admin = await make_user(
+        db,
+        role_name="Super Admin",
+        username="payment-method-super-admin",
+    )
+    other_house = await _house_for(db)
+    payload = {
+        "method_type": "bank",
+        "label": "Main bank account",
+        "bank_name": "Example Bank",
+        "account_name": "Orange Flow",
+        "account_number": "1234567890",
+    }
+
+    async with build_client(billing.router, db, manager, house_context=house.id) as client:
+        denied_create = await client.post("/api/v1/billing/payment-methods", json=payload)
+    assert denied_create.status_code == 403
+
+    async with build_client(billing.router, db, super_admin) as client:
+        created = await client.post("/api/v1/billing/payment-methods", json=payload)
+    assert created.status_code == 200, created.text
+    method_id = created.json()["id"]
+
+    async with build_client(billing.router, db, manager, house_context=other_house.id) as client:
+        denied_update = await client.put(
+            f"/api/v1/billing/payment-methods/{method_id}",
+            json={**payload, "account_number": "9999999999"},
+        )
+        denied_delete = await client.delete(f"/api/v1/billing/payment-methods/{method_id}")
+        listed = await client.get(
+            "/api/v1/billing/payment-methods",
+            headers={"X-House-ID": str(other_house.id)},
+        )
+
+    assert denied_update.status_code == 403
+    assert denied_delete.status_code == 403
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["data"][0]["account_number"] == "1234567890"
+
+    async with build_client(billing.router, db, super_admin) as client:
+        updated = await client.put(
+            f"/api/v1/billing/payment-methods/{method_id}",
+            json={**payload, "account_number": "5555555555"},
+        )
+    assert updated.status_code == 200, updated.text
+
+    async with build_client(billing.router, db, manager, house_context=other_house.id) as client:
+        shared = await client.get(
+            "/api/v1/billing/payment-methods",
+            headers={"X-House-ID": str(other_house.id)},
+        )
+    assert shared.status_code == 200, shared.text
+    assert shared.json()["data"][0]["account_number"] == "5555555555"
