@@ -57,12 +57,23 @@ async def make_renewal_user(db, username, with_permission):
     )).scalar_one()
 
 
-async def test_renew_endpoint_requires_subscription_renew_permission(db):
+async def test_house_member_without_renew_permission_can_issue_expired_plan_invoice(db, house, plan):
     user = await make_renewal_user(db, "renew-permission-test", with_permission=False)
-    async with build_client(db, user) as client:
-        response = await client.post("/api/v1/subscription/renew")
+    user.houses.append(house)
+    await db.commit()
+    await make_sub(
+        db, house.id, plan, status="expired",
+        end=now_naive() - timedelta(days=30),
+    )
 
-    assert response.status_code == 403
+    async with build_client(db, user, house.id) as client:
+        response = await client.post(
+            "/api/v1/subscription/renew",
+            headers={"X-House-ID": str(house.id)},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["invoice"]["status"] == "issued"
 
 
 async def test_reactivate_endpoint_requires_subscription_renew_permission(db):
@@ -115,3 +126,82 @@ async def test_reactivate_endpoint_issues_invoice_during_final_three_days(db, ho
     assert response.json()["awaiting_payment"] is True
     assert response.json()["invoice"]["status"] == "issued"
     assert response.json()["subscription"]["can_reactivate"] is True
+
+
+async def test_expiring_soon_lists_only_assigned_houses_within_three_days(db, plan):
+    assigned_house = await make_house(db, code="H002", name="Assigned House")
+    other_assigned_house = await make_house(db, code="H003", name="Other Assigned House")
+    unassigned_house = await make_house(db, code="H004", name="Unassigned House")
+    user = await make_renewal_user(db, "expiry-warning-test", with_permission=False)
+    user.houses.extend([assigned_house, other_assigned_house])
+    await db.commit()
+
+    await make_sub(
+        db, assigned_house.id, plan, status="active",
+        end=now_naive() + timedelta(days=2),
+    )
+    await make_sub(
+        db, other_assigned_house.id, plan, status="active",
+        end=now_naive() + timedelta(days=4),
+    )
+    await make_sub(
+        db, unassigned_house.id, plan, status="active",
+        end=now_naive() + timedelta(days=1),
+    )
+
+    async with build_client(db, user) as client:
+        response = await client.get("/api/v1/subscription/expiring-soon")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["server_now"]
+    assert len(body["data"]) == 1
+    assert body["data"][0]["house_id"] == assigned_house.id
+    assert body["data"][0]["house_name"] == assigned_house.name
+    assert body["data"][0]["plan_name"] == plan.name
+    assert body["data"][0]["expires_at"]
+
+
+async def test_expiring_soon_uses_trial_end_for_trialing_plan(db, plan):
+    house = await make_house(db, code="H005", name="Trial House")
+    user = await make_renewal_user(db, "trial-expiry-warning-test", with_permission=False)
+    user.houses.append(house)
+    await db.commit()
+    await make_sub(
+        db,
+        house.id,
+        plan,
+        status="trialing",
+        end=now_naive() + timedelta(days=30),
+        trial_days=1,
+    )
+
+    async with build_client(db, user) as client:
+        response = await client.get("/api/v1/subscription/expiring-soon")
+
+    assert response.status_code == 200, response.text
+    assert [item["house_id"] for item in response.json()["data"]] == [house.id]
+
+
+async def test_expiring_soon_includes_already_expired_plan(db, plan):
+    house = await make_house(db, code="H006", name="Expired House")
+    user = await make_renewal_user(db, "expired-warning-test", with_permission=False)
+    user.houses.append(house)
+    await db.commit()
+    expiry_date = now_naive() - timedelta(days=30)
+    await make_sub(
+        db,
+        house.id,
+        plan,
+        status="expired",
+        end=expiry_date,
+    )
+
+    async with build_client(db, user) as client:
+        response = await client.get("/api/v1/subscription/expiring-soon")
+
+    assert response.status_code == 200, response.text
+    warning = response.json()["data"][0]
+    assert warning["house_id"] == house.id
+    assert warning["expired"] is True
+    assert warning["expires_at"].startswith(expiry_date.date().isoformat())

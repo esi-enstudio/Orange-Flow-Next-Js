@@ -93,6 +93,7 @@ _ALWAYS_EXEMPT_PREFIXES = (
 # Read-only house views stay reachable so users can see why they are blocked
 # (plan, expiry, days remaining). Mutations are still gated.
 _READ_ONLY_EXEMPT_PREFIXES = ("/api/houses",)
+_READ_ONLY_EXEMPT_PATHS = frozenset({"/api/admin/setup/status"})
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -104,6 +105,8 @@ def _matches_prefix(path: str, prefix: str) -> bool:
 def _is_exempt(request) -> bool:
     path = request.url.path
     if any(_matches_prefix(path, prefix) for prefix in _ALWAYS_EXEMPT_PREFIXES):
+        return True
+    if request.method in _SAFE_METHODS and path in _READ_ONLY_EXEMPT_PATHS:
         return True
     if request.method in _SAFE_METHODS and any(
         _matches_prefix(path, prefix) for prefix in _READ_ONLY_EXEMPT_PREFIXES

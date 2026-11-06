@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,11 +26,14 @@ from app.services import entitlement
 from app.services import subscription_service as subsvc
 from app.utils.access_control import is_admin_user
 from app.utils.timezone import now_naive
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/subscription", tags=["Subscription"])
 REACTIVATION_WINDOW = timedelta(days=3)
+EXPIRY_WARNING_WINDOW = timedelta(days=3)
+BST = timezone(timedelta(hours=6))
 
 
 def _can_reactivate(sub: HouseSubscription, at: Optional[datetime] = None) -> bool:
@@ -163,6 +166,62 @@ async def get_entitlements(
         plan_end_date=access_payload.get("plan_end_date"),
         days_remaining=access_payload.get("days_remaining"),
     )
+
+
+@router.get("/expiring-soon")
+async def expiring_subscriptions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return upcoming plan expiries for houses assigned to the caller."""
+    houses = {house.id: house for house in current_user.houses}
+    if not houses:
+        return {"server_now": now_naive().replace(tzinfo=BST).isoformat(), "data": []}
+
+    now = now_naive()
+    data = []
+    subscriptions = await entitlement.get_latest_subscriptions_for_houses(db, list(houses))
+    for sub in subscriptions.values():
+        if sub.status not in ("active", "trialing", "past_due", "expired") or not sub.package:
+            continue
+
+        period_end = sub.current_period_end or sub.end_date
+        if sub.status == "trialing":
+            expires_at = sub.trial_end or period_end
+        elif sub.status == "past_due":
+            expires_at = sub.grace_period_end or (
+                period_end + timedelta(days=settings.BILLING_GRACE_DAYS)
+            )
+        elif sub.status == "active" and entitlement.effective_status(sub, now) == "expired":
+            expires_at = period_end + timedelta(days=settings.BILLING_GRACE_DAYS)
+        else:
+            expires_at = period_end
+
+        remaining = expires_at - now
+        expired = (
+            sub.status == "expired"
+            or entitlement.effective_status(sub, now) == "expired"
+        )
+        if not expired and not timedelta(0) < remaining <= EXPIRY_WARNING_WINDOW:
+            continue
+
+        house = houses[sub.house_id]
+        aware_expiry = expires_at.replace(tzinfo=BST) if expires_at.tzinfo is None else expires_at
+        data.append(
+            {
+                "house_id": house.id,
+                "house_name": house.name,
+                "house_code": house.code,
+                "plan_name": sub.package.name,
+                "expires_at": aware_expiry.isoformat(),
+                "expired": expired,
+            }
+        )
+
+    return {
+        "server_now": now.replace(tzinfo=BST).isoformat(),
+        "data": sorted(data, key=lambda item: (item["expired"], item["expires_at"])),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -377,12 +436,16 @@ async def resume_subscription(
 async def renew_subscription(
     db: AsyncSession = Depends(get_db),
     house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_permission("subscription.renew")),
+    current_user: User = Depends(get_current_user),
 ):
-    """Issue the next renewal invoice for manual payment."""
+    """Issue the next renewal invoice for manual payment.
+
+    Any authenticated member of the selected house may request an invoice.
+    Payment approval remains restricted to billing administrators.
+    """
     house_id = await _get_house_id(current_user, house_context, require=True)
     sub = await _get_subscription_for_house(db, house_id)
-    if sub.status not in ("active", "trialing", "past_due"):
+    if sub.status not in ("active", "trialing", "past_due", "expired", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Cannot renew from status '{sub.status}'")
     if not sub.package:
         raise HTTPException(status_code=400, detail="Subscription has no plan assigned")

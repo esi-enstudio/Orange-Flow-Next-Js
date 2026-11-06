@@ -135,6 +135,7 @@ export default function BillingPage() {
       const res = await apiClient.get("houses/accessible");
       const list: HouseOption[] = res.data || [];
       setHouses(list);
+      setHouseId(list.length === 1 ? list[0].id : null);
     } catch {
       /* ignore */
     }
@@ -237,18 +238,19 @@ export default function BillingPage() {
 
   const pendingPaymentFor = (invoiceId: number) =>
     payments.find((p) => p.invoice_id === invoiceId && p.status === "pending") || null;
-  const canRequestPayment = hasPermission("billing.request_payment");
   const isPayable = (inv: Invoice) => inv.status === "issued" || inv.status === "unpaid";
 
   const activeActions = useMemo(() => {
     if (!sub) return { show: [] as string[] };
     const s = sub.status;
     const show: string[] = [];
-    if (s === "active" || s === "trialing") {
-      show.push("renew", "cancel");
+    const effectiveStatus = sub.effective_status || s;
+    if (["active", "trialing", "past_due", "expired", "cancelled"].includes(effectiveStatus)) {
+      show.push("renew");
     }
+    if (effectiveStatus === "active" || effectiveStatus === "trialing") show.push("cancel");
     if (s === "paused") show.push("resume");
-    if (s === "active" || s === "trialing") show.push("pause");
+    if (effectiveStatus === "active" || effectiveStatus === "trialing") show.push("pause");
     if (sub.can_reactivate && hasPermission("subscription.renew")) show.push("reactivate");
     return { show };
   }, [sub, hasPermission]);
@@ -494,7 +496,7 @@ export default function BillingPage() {
                                   {t("billing.pending_approval")}
                                 </span>
                               )}
-                              {isPayable(inv) && !pendingPaymentFor(inv.id) && canRequestPayment && (
+                              {isPayable(inv) && !pendingPaymentFor(inv.id) && (
                                 <button
                                   onClick={() => setRequestInvoice(inv)}
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
@@ -555,7 +557,7 @@ export default function BillingPage() {
                               {t("billing.pending_approval")}
                             </p>
                           )}
-                          {isPayable(inv) && !pendingPaymentFor(inv.id) && canRequestPayment && (
+                          {isPayable(inv) && !pendingPaymentFor(inv.id) && (
                             <button
                               onClick={() => setRequestInvoice(inv)}
                               className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-bold cursor-pointer"
@@ -868,14 +870,7 @@ export default function BillingPage() {
       <ConfirmationModal
         isOpen={action?.kind === "renew"}
         onClose={() => setAction(null)}
-        onConfirm={() => {
-          if (!hasPermission("subscription.renew")) {
-            toast.error(t("pricing.something_went_wrong"));
-            setAction(null);
-            return;
-          }
-          runAction("v1/subscription/renew", {}, t("billing.renew"));
-        }}
+        onConfirm={() => runAction("v1/subscription/renew", {}, t("billing.renew"))}
         type="info"
         title={t("billing.renew")}
         message={t("billing.renew_confirm")}

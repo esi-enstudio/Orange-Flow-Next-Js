@@ -1,7 +1,8 @@
 """HTTP surface for manual payment requests.
 
-Tenant submits (billing.request_payment), admin approves/rejects. Approval is
-the only path that activates a plan, and the paid period starts at approval.
+An authenticated house member submits the request; an admin approves/rejects.
+Approval is the only path that activates a plan, and the paid period starts at
+approval.
 """
 import io
 
@@ -348,8 +349,10 @@ async def test_refund_requires_a_reason_and_cannot_exceed_the_payment(db, house,
         assert second.status_code == 400
 
 
-async def test_non_billing_role_cannot_submit(db, house, plan):
+async def test_house_member_without_billing_permission_can_submit(db, house, plan):
     rso = await make_user(db, role_name="RSO", username="rso-user")
+    rso.houses.append(house)
+    await db.commit()
     _, invoice = await _invoice(db, house, plan)
 
     async with build_client(billing.router, db, rso, house_context=house.id) as client:
@@ -358,7 +361,8 @@ async def test_non_billing_role_cannot_submit(db, house, plan):
             data={"payment_date": PAYMENT_DATE, "invoice_id": str(invoice.id), "method": "cash"},
         )
 
-    assert res.status_code == 403
+    assert res.status_code == 201, res.text
+    assert res.json()["data"]["status"] == PAYMENT_STATUS_PENDING
 
 
 async def test_approve_requires_billing_approve_permission(db, house, plan):

@@ -106,6 +106,41 @@ async def test_guard_keeps_house_list_readable(use_test_db, db, house, plan):
     assert response.status_code == 200
 
 
+async def test_guard_keeps_setup_status_readable_for_expired_house(use_test_db, db, house, plan):
+    await make_sub(
+        db, house.id, plan, trial_days=0, status="past_due",
+        grace_period_end=now_naive() - timedelta(days=1),
+    )
+    user = await make_user(db, "setup-status-expired-test", house)
+
+    async def call_next(request):
+        return JSONResponse({"ok": True})
+
+    response = await PlanModuleGuard(None).dispatch(
+        make_request("/api/admin/setup/status", user_id=user.id), call_next
+    )
+    assert response.status_code == 200
+    assert json.loads(response.body)["ok"] is True
+
+
+async def test_guard_does_not_exempt_setup_status_mutations(use_test_db, db, house, plan):
+    await make_sub(
+        db, house.id, plan, trial_days=0, status="past_due",
+        grace_period_end=now_naive() - timedelta(days=1),
+    )
+    user = await make_user(db, "setup-status-post-expired-test", house)
+
+    async def call_next(request):
+        raise AssertionError("expired-house mutation must remain blocked")
+
+    response = await PlanModuleGuard(None).dispatch(
+        make_request("/api/admin/setup/status", method="POST", user_id=user.id),
+        call_next,
+    )
+    assert response.status_code == 403
+    assert json.loads(response.body)["error"]["code"] == "SUBSCRIPTION_EXPIRED"
+
+
 async def test_guard_lets_super_admins_through(use_test_db, db, house, plan):
     await make_sub(
         db, house.id, plan, trial_days=0, status="past_due",

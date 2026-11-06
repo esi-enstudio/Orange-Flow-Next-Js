@@ -21,7 +21,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.routers.deps import (
-    get_db, get_house_context, has_any_permission, has_permission,
+    get_current_user, get_db, get_house_context, has_any_permission, has_permission,
 )
 from app.models.house import House
 from app.models.invoice import (
@@ -249,9 +249,13 @@ async def submit_payment_request(
     proof: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
     house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_permission("billing.request_payment")),
+    current_user: User = Depends(get_current_user),
 ):
-    """Submit an offline payment for admin approval (nothing is activated yet)."""
+    """Submit an offline payment for admin approval (nothing is activated yet).
+
+    Any authenticated member of the selected house may submit a payment request;
+    only authorized billing administrators can approve or record payments.
+    """
     house_id = await _house_id(current_user, house_context)
     invoice = (await db.execute(
         select(Invoice).where(

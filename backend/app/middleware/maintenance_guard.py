@@ -30,12 +30,13 @@ ALLOWED_PREFIXES = ("/api/webhook/",)
 
 # Public read-only endpoints allowed while enforced (GET only): the maintenance
 # status drives the client countdown/redirect, brand settings let the
-# maintenance screen show the app logo/name, and the setup status probe keeps
-# AuthProvider from stalling through its retry loop on the maintenance page.
+# maintenance screen show the app logo/name, setup status lets AuthProvider
+# initialize, and subscription expiry status keeps the billing warning visible.
 ALLOWED_GET_PATHS = frozenset({
     "/api/settings/maintenance",
     "/api/settings/brand",
     "/api/admin/setup/status",
+    "/api/v1/subscription/expiring-soon",
 })
 
 _SUPER_ADMIN_CACHE_TTL = 30.0  # seconds
