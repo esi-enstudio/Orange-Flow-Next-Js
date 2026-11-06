@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
-import { getProfilePicUrl, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -103,21 +103,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                <NotificationBell />
             </div>
 
-            <div className="hidden md:block h-8 w-[1px] bg-gray-100 dark:bg-slate-800 mx-1"></div>
-            
-            <Link href="/profile" className="flex items-center gap-2 ml-1 sm:ml-0 group">
-              <div className="hidden md:block text-right">
-                <p className="text-xs font-bold text-gray-900 dark:text-gray-100 group-hover:text-primary-500 transition-colors">{user?.name || t('common.user')}</p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 capitalize">{user?.roles?.[0]?.name || t('common.user')}</p>
-              </div>
-              <div className="w-8 h-8 rounded-full bg-primary-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 group-hover:scale-110 transition-transform overflow-hidden">
-                {user?.profile_pic ? (
-                  <img src={getProfilePicUrl(user.profile_pic)!} alt="User" className="w-full h-full object-cover" />
-                ) : (
-                  user?.name?.charAt(0) || "U"
-                )}
-              </div>
-            </Link>
           </div>
         </header>
         
