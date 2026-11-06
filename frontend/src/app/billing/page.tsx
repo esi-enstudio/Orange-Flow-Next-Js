@@ -249,9 +249,9 @@ export default function BillingPage() {
     }
     if (s === "paused") show.push("resume");
     if (s === "active" || s === "trialing") show.push("pause");
-    if (s === "cancelled" || s === "expired") show.push("reactivate");
+    if (sub.can_reactivate && hasPermission("subscription.renew")) show.push("reactivate");
     return { show };
-  }, [sub]);
+  }, [sub, hasPermission]);
 
   if (!authLoading && !canView) {
     return <AccessDenied />;

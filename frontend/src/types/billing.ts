@@ -26,6 +26,7 @@ export interface Subscription {
   package_id?: number | null;
   status: string;
   effective_status?: string | null;
+  can_reactivate?: boolean;
   start_date: string;
   end_date: string;
   current_period_start?: string | null;

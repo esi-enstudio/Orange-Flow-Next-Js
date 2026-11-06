@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,6 +30,18 @@ from app.utils.timezone import now_naive
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/subscription", tags=["Subscription"])
+REACTIVATION_WINDOW = timedelta(days=3)
+
+
+def _can_reactivate(sub: HouseSubscription, at: Optional[datetime] = None) -> bool:
+    if sub.status not in ("active", "trialing"):
+        return False
+    period_end = sub.trial_end if sub.status == "trialing" and sub.trial_end else (
+        sub.current_period_end or sub.end_date
+    )
+    now = at or now_naive()
+    remaining = period_end - now
+    return timedelta(0) < remaining <= REACTIVATION_WINDOW
 
 
 async def _get_house_id(
@@ -47,6 +60,7 @@ async def _serialize_subscription(sub: Optional[HouseSubscription], house_name: 
         return None
     data = SubscriptionSchema.model_validate(sub).model_dump()
     data["effective_status"] = entitlement.effective_status(sub)
+    data["can_reactivate"] = _can_reactivate(sub)
     data["package"] = PlanSchema.model_validate(sub.package).model_dump() if sub.package else None
     if house_name:
         data["house_name"] = house_name
@@ -300,18 +314,20 @@ async def cancel_subscription(
 async def reactivate_subscription(
     db: AsyncSession = Depends(get_db),
     house_context: Optional[int] = Depends(get_house_context),
-    current_user: User = Depends(has_permission("subscription.edit")),
+    current_user: User = Depends(has_permission("subscription.renew")),
 ):
-    """Start a reactivation by issuing the invoice to pay.
+    """Issue a renewal invoice during the final three days of an active plan.
 
-    Reactivation is a paid transition: the subscription only becomes active
-    after an admin approves the payment. Issuing the invoice here (instead of
-    flipping the status) removes the old free-reactivation hole.
+    The subscription remains active until its current period ends. Payment
+    approval is still required before the next period is activated.
     """
     house_id = await _get_house_id(current_user, house_context, require=True)
     sub = await _get_subscription_for_house(db, house_id)
-    if sub.status not in ("cancelled", "expired"):
-        raise HTTPException(status_code=400, detail=f"Cannot reactivate from status '{sub.status}'. Use change-plan instead.")
+    if not _can_reactivate(sub):
+        raise HTTPException(
+            status_code=400,
+            detail="Reactivation is available only during the final three days of an active or trial subscription.",
+        )
     if not sub.package:
         raise HTTPException(status_code=400, detail="Subscription has no plan assigned")
     invoice = await subsvc.issue_invoice(
