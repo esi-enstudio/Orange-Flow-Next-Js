@@ -287,6 +287,20 @@ def _invoice_payload(invoice: Invoice) -> dict:
     }
 
 
+async def _ensure_no_open_invoice(db: AsyncSession, house_id: int) -> None:
+    try:
+        await subsvc.ensure_no_open_invoice(db, house_id)
+    except subsvc.OpenInvoiceExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "OPEN_INVOICE_EXISTS",
+                "message": "Pay the existing invoice before creating another invoice.",
+                "invoice_no": exc.invoice_no,
+            },
+        ) from exc
+
+
 @router.post("/select")
 async def select_plan(
     payload: SelectPlanRequest,
@@ -298,6 +312,7 @@ async def select_plan(
     if payload.billing_interval not in (BILLING_INTERVAL_MONTHLY, BILLING_INTERVAL_YEARLY):
         raise HTTPException(status_code=400, detail="Invalid billing interval")
     house_id = await _get_house_id(current_user, house_context, require=True)
+    await _ensure_no_open_invoice(db, house_id)
     plan = await _get_plan(db, payload.plan_id, payload.plan_slug)
 
     # Find any existing subscription for this house. If it's cancelled/expired,
@@ -317,11 +332,21 @@ async def select_plan(
     # The first invoice covers the first *paid* period (after the free tier),
     # not the free tier itself. Nothing is activated until an admin approves
     # the payment; approval then starts the paid period at that moment.
-    invoice = await subsvc.issue_invoice(
-        db, sub, plan,
-        billing_interval=payload.billing_interval,
-        period_start=subsvc.next_billing_period_start(sub),
-    )
+    try:
+        invoice = await subsvc.issue_invoice(
+            db, sub, plan,
+            billing_interval=payload.billing_interval,
+            period_start=subsvc.next_billing_period_start(sub),
+        )
+    except subsvc.OpenInvoiceExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "OPEN_INVOICE_EXISTS",
+                "message": "Pay the existing invoice before creating another invoice.",
+                "invoice_no": exc.invoice_no,
+            },
+        ) from exc
     return {
         "success": True,
         "subscription": await _serialize_subscription(sub),
@@ -340,10 +365,21 @@ async def change_plan(
     sub = await _get_subscription_for_house(db, house_id)
     if sub.status not in ("active", "trialing"):
         raise HTTPException(status_code=400, detail=f"Cannot change plan from status '{sub.status}'")
+    await _ensure_no_open_invoice(db, house_id)
     plan = await _get_plan(db, payload.plan_id, None)
     if payload.billing_interval and payload.billing_interval in (BILLING_INTERVAL_MONTHLY, BILLING_INTERVAL_YEARLY):
         sub.billing_interval = payload.billing_interval
-    result = await subsvc.upgrade_or_downgrade(db, sub, plan, changed_by=current_user.id)
+    try:
+        result = await subsvc.upgrade_or_downgrade(db, sub, plan, changed_by=current_user.id)
+    except subsvc.OpenInvoiceExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "OPEN_INVOICE_EXISTS",
+                "message": "Pay the existing invoice before changing plans.",
+                "invoice_no": exc.invoice_no,
+            },
+        ) from exc
     invoice_payload = _invoice_payload(result["prorated_invoice"]) if result.get("prorated_invoice") else None
     return {
         "success": True,
@@ -389,11 +425,21 @@ async def reactivate_subscription(
         )
     if not sub.package:
         raise HTTPException(status_code=400, detail="Subscription has no plan assigned")
-    invoice = await subsvc.issue_invoice(
-        db, sub, sub.package, billing_interval=sub.billing_interval,
-        description=f"Reactivation - {sub.package.name} ({sub.billing_interval})",
-        period_start=subsvc.next_billing_period_start(sub),
-    )
+    try:
+        invoice = await subsvc.issue_invoice(
+            db, sub, sub.package, billing_interval=sub.billing_interval,
+            description=f"Reactivation - {sub.package.name} ({sub.billing_interval})",
+            period_start=subsvc.next_billing_period_start(sub),
+        )
+    except subsvc.OpenInvoiceExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "OPEN_INVOICE_EXISTS",
+                "message": "Pay the existing invoice before creating another invoice.",
+                "invoice_no": exc.invoice_no,
+            },
+        ) from exc
     return {
         "success": True,
         "awaiting_payment": True,
@@ -449,10 +495,20 @@ async def renew_subscription(
         raise HTTPException(status_code=400, detail=f"Cannot renew from status '{sub.status}'")
     if not sub.package:
         raise HTTPException(status_code=400, detail="Subscription has no plan assigned")
-    invoice = await subsvc.issue_invoice(
-        db, sub, sub.package, billing_interval=sub.billing_interval,
-        period_start=subsvc.next_billing_period_start(sub),
-    )
+    try:
+        invoice = await subsvc.issue_invoice(
+            db, sub, sub.package, billing_interval=sub.billing_interval,
+            period_start=subsvc.next_billing_period_start(sub),
+        )
+    except subsvc.OpenInvoiceExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "OPEN_INVOICE_EXISTS",
+                "message": "Pay the existing invoice before creating another invoice.",
+                "invoice_no": exc.invoice_no,
+            },
+        ) from exc
     return {"success": True, "invoice": _invoice_payload(invoice)}
 
 

@@ -9,11 +9,13 @@ Rules under test:
   - rejection leaves the invoice open for a new request.
 """
 import io
+import os
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from fastapi import UploadFile
+from PIL import Image
 
 from app.models.invoice import INVOICE_STATUS_ISSUED, INVOICE_STATUS_PAID
 from app.models.payment import PAYMENT_STATUS_FAILED, PAYMENT_STATUS_PENDING, PAYMENT_STATUS_SUCCEEDED, PAYMENT_STATUS_NEEDS_INFO
@@ -27,7 +29,7 @@ from app.services.subscription_service import (
 )
 from app.utils.timezone import now_naive
 
-from conftest import make_sub
+from conftest import make_invoice, make_sub
 
 
 @pytest.fixture(autouse=True)
@@ -48,8 +50,14 @@ async def _first_invoice(db, house, plan, interval="monthly", trial_days=7):
     return sub, invoice
 
 
-# A real PNG header, so the magic-byte check accepts the fixture file.
-PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+def _png_bytes(size=(16, 12)) -> bytes:
+    image = Image.new("RGB", size, "orange")
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+PNG_BYTES = _png_bytes()
 
 
 def _proof(content=PNG_BYTES, filename="receipt.png") -> UploadFile:
@@ -86,7 +94,7 @@ async def test_submit_request_creates_pending_payment_without_activating(db, hou
     assert payment.paid_at is None
     assert payment.amount == invoice.total
     assert payment.payment_meta["reference"] == "BK-9001"
-    assert payment.payment_meta["proof_name"] == "receipt.png"
+    assert payment.payment_meta["proof_name"] == "receipt.webp"
     assert payment_requests.proof_disk_path(payment)
     await db.refresh(sub)
     assert sub.status == "trialing"  # nothing activated before approval
@@ -255,14 +263,14 @@ async def test_approval_is_idempotent(db, house, plan):
 
 async def test_duplicate_transaction_reference_is_rejected(db, house, plan):
     """The same real transaction may never back two invoices."""
-    _, first_invoice = await _first_invoice(db, house, plan)
+    sub, first_invoice = await _first_invoice(db, house, plan)
     await payment_requests.submit_request(
         db, first_invoice, house_id=house.id, method="bkash", reference="BK 12345",
         sender_number="01712345678",
         payment_date=now_naive().date(),
     )
 
-    _, second_invoice = await _first_invoice(db, house, plan)
+    second_invoice = await make_invoice(db, sub, plan)
     with pytest.raises(PaymentRequestError) as exc:
         # Case/whitespace-insensitive: "bk12345" is the same reference.
         await payment_requests.submit_request(
@@ -357,11 +365,9 @@ async def test_stale_payment_order_is_rejected(db, house, plan):
 async def test_superseded_payment_order_is_rejected(db, house, plan):
     sub = await make_sub(db, house.id, plan, trial_days=0, status="active")
     old_invoice = await issue_invoice(db, sub, plan)
-    # A newer open invoice for the same subscription replaces the old order.
-    await issue_invoice(
-        db, sub, plan, period_start=next_billing_period_start(sub)
-    )
+    newer_invoice = await make_invoice(db, sub, plan)
 
+    assert newer_invoice.id > old_invoice.id
     with pytest.raises(PaymentRequestError) as exc:
         await payment_requests.submit_request(
             db, old_invoice, house_id=house.id, method="cash",
@@ -502,6 +508,37 @@ async def test_proof_content_must_match_the_extension(db, house, plan):
             payment_date=now_naive().date(),
         )
     assert exc.value.code == "INVALID_PROOF_FILE"
+
+
+async def test_proof_image_is_compressed_without_changing_resolution(db, house, plan):
+    _, invoice = await _first_invoice(db, house, plan)
+    image_bytes = _png_bytes(size=(1200, 800))
+    payment = await payment_requests.submit_request(
+        db, invoice, house_id=house.id, method="cash",
+        proof=_proof(content=image_bytes),
+        payment_date=now_naive().date(),
+    )
+
+    stored_path = payment_requests.proof_disk_path(payment)
+    assert stored_path is not None
+    assert stored_path.endswith(".webp")
+    assert os.path.getsize(stored_path) < len(image_bytes)
+    with Image.open(stored_path) as stored:
+        assert stored.format == "WEBP"
+        assert stored.size == (1200, 800)
+    assert payment.payment_meta["proof_name"] == "receipt.webp"
+
+
+async def test_image_proof_over_two_mb_is_rejected(db, house, plan):
+    _, invoice = await _first_invoice(db, house, plan)
+    oversized = _proof(content=_png_bytes() + b"x" * payment_requests.PROOF_IMAGE_MAX_BYTES)
+    with pytest.raises(PaymentRequestError) as exc:
+        await payment_requests.submit_request(
+            db, invoice, house_id=house.id, method="cash",
+            proof=oversized,
+            payment_date=now_naive().date(),
+        )
+    assert exc.value.code == "PROOF_FILE_TOO_LARGE"
 
 
 async def test_request_info_moves_pending_to_needs_info(db, house, plan):

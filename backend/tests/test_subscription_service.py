@@ -1,6 +1,8 @@
 from datetime import timedelta
 from decimal import Decimal
 
+import pytest
+
 from app.models.invoice import INVOICE_STATUS_ISSUED, INVOICE_STATUS_PAID
 from app.models.subscription_change_log import SubscriptionChangeLog
 from app.services.subscription_service import (
@@ -10,6 +12,7 @@ from app.services.subscription_service import (
     issue_invoice,
     mark_invoice_paid,
     next_billing_period_start,
+    OpenInvoiceExistsError,
     pause,
     plan_price,
     reactivate,
@@ -84,9 +87,30 @@ async def test_issue_invoice_applies_tax(db, house, plan, monkeypatch):
 
 async def test_issue_invoice_for_next_period(db, house, plan):
     sub = await make_sub(db, house.id, plan, trial_days=0)
+    invoice = await issue_invoice(db, sub, plan)
+    invoice.status = INVOICE_STATUS_PAID
+    await db.commit()
     invoice = await issue_invoice(db, sub, plan, period_start=sub.current_period_end)
     assert invoice.billing_period_start == sub.current_period_end
     assert invoice.billing_period_end > invoice.billing_period_start
+
+
+async def test_issue_invoice_rejects_while_house_has_unpaid_invoice(db, house, plan):
+    sub = await make_sub(db, house.id, plan, trial_days=0)
+    existing = await issue_invoice(db, sub, plan)
+
+    with pytest.raises(OpenInvoiceExistsError, match=existing.invoice_no):
+        await issue_invoice(db, sub, plan, period_start=sub.current_period_end)
+
+
+async def test_issue_invoice_allows_new_invoice_after_existing_invoice_is_paid(db, house, plan):
+    sub = await make_sub(db, house.id, plan, trial_days=0)
+    existing = await issue_invoice(db, sub, plan)
+    existing.status = INVOICE_STATUS_PAID
+    await db.commit()
+
+    next_invoice = await issue_invoice(db, sub, plan, period_start=sub.current_period_end)
+    assert next_invoice.id != existing.id
 
 
 async def test_next_billing_period_start_clamps_lapsed_subscription(db, house, plan):

@@ -20,46 +20,41 @@ const MFS_METHODS = new Set(["bkash", "nagad", "rocket"]);
 const REFERENCE_REQUIRED = new Set(["bkash", "nagad", "rocket", "bank"]);
 const BD_MOBILE_RE = /^01[3-9]\d{8}$/;
 
-// Payment proofs are phone screenshots: they must stay readable, so the image
-// is only re-encoded above this size, and never below a 2400px long edge.
-const PROOF_MAX_DIMENSION = 2400;
+const PROOF_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 const PROOF_COMPRESS_THRESHOLD = 500 * 1024;
 
 async function compressProofImage(file: File): Promise<File> {
   if (!file.type.startsWith("image/") || file.size <= PROOF_COMPRESS_THRESHOLD) {
     return file;
   }
+  const bitmap = await createImageBitmap(file);
   try {
-    const bitmap = await createImageBitmap(file);
-    const longestEdge = Math.max(bitmap.width, bitmap.height);
-    const scale = Math.min(1, PROOF_MAX_DIMENSION / longestEdge);
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    // JPEG has no alpha channel: paint white first so a transparent PNG does
-    // not turn into black boxes.
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, width, height);
-    ctx.drawImage(bitmap, 0, 0, width, height);
+    if (!ctx) throw new Error("Could not prepare the proof image");
+    ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height);
+
+    for (const quality of [0.82, 0.7, 0.58, 0.46]) {
+      for (const type of ["image/webp", "image/jpeg"]) {
+        const blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, type, quality)
+        );
+        if (!blob || blob.type !== type) continue;
+        if (blob.size <= PROOF_IMAGE_MAX_BYTES) {
+          const extension = type === "image/webp" ? "webp" : "jpg";
+          const baseName = file.name.replace(/\.[^.]+$/, "") || "payment-proof";
+          return new File([blob], `${baseName}.${extension}`, {
+            type,
+            lastModified: Date.now(),
+          });
+        }
+      }
+    }
+    throw new Error("The image remains larger than 2 MB after compression");
+  } finally {
     bitmap.close?.();
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.85)
-    );
-    if (!blob || blob.size >= file.size) return file;
-    const baseName = file.name.replace(/\.[^.]+$/, "") || "payment-proof";
-    return new File([blob], `${baseName}.jpg`, {
-      type: "image/jpeg",
-      lastModified: Date.now(),
-    });
-  } catch {
-    // An unsupported browser must never block the upload.
-    return file;
   }
 }
 
@@ -74,7 +69,6 @@ interface Props {
 export default function PaymentRequestModal({ open, invoice, houseId, onClose, onSubmitted }: Props) {
   const { t } = useLanguage();
   const [method, setMethod] = useState<string>("bkash");
-  const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
   const [senderNumber, setSenderNumber] = useState("");
   const [bankName, setBankName] = useState("");
@@ -91,7 +85,6 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
   useEffect(() => {
     if (!open) return;
     setMethod("bkash");
-    setAmount(invoice ? String(invoice.total) : "");
     setReference("");
     setSenderNumber("");
     setBankName("");
@@ -114,7 +107,6 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
 
   const validate = (): Record<string, string> => {
     const errors: Record<string, string> = {};
-    if (!amount || Number(amount) <= 0) errors.amount = t("billing.amount_required");
     if (needsReference && reference.trim().length < 4) {
       errors.reference = t("billing.reference_required");
     }
@@ -152,7 +144,6 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
       const form = new FormData();
       form.append("invoice_id", String(invoice.id));
       form.append("method", method);
-      form.append("amount", amount);
       if (reference.trim()) form.append("reference", reference.trim());
       if (isMfs) form.append("sender_number", senderNumber.replace(/[^0-9]/g, ""));
       if (isBank) {
@@ -168,7 +159,7 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
       });
       const nextSubmitted = {
         method: t(METHOD_LABEL_KEYS[method] || "billing.method_bank"),
-        amount: `৳${Number(amount).toLocaleString()}`,
+        amount: `৳${Number(invoice.total).toLocaleString()}`,
         reference: reference.trim() || "—",
         sender_number: isMfs ? senderNumber.replace(/[^0-9]/g, "") || "—" : "—",
         bank_name: isBank ? bankName.trim() || "—" : "—",
@@ -181,12 +172,28 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
       toast.success(t("billing.request_submitted"));
       onSubmitted();
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
+      const responseData = err?.response?.data;
+      const detail = responseData?.detail;
       if (detail && typeof detail === "object") {
-        setError(detail.message || t("common.error"));
-        if (detail.fields && typeof detail.fields === "object") setFieldErrors(detail.fields);
+        const fields =
+          detail.fields && typeof detail.fields === "object" ? detail.fields : null;
+        if (fields && Object.keys(fields).length > 0) {
+          setFieldErrors(fields);
+          setError(null);
+        } else {
+          setError(detail.message || t("common.error"));
+        }
       } else {
-        setError(typeof detail === "string" ? detail : err?.message || t("common.error"));
+        const fields =
+          responseData?._fieldErrors && typeof responseData._fieldErrors === "object"
+            ? responseData._fieldErrors
+            : null;
+        if (fields && Object.keys(fields).length > 0) {
+          setFieldErrors(fields);
+          setError(null);
+        } else {
+          setError(typeof detail === "string" ? detail : err?.message || t("common.error"));
+        }
       }
     } finally {
       setSubmitting(false);
@@ -300,22 +307,16 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
                   {t("billing.amount")} <span className="text-red-500">*</span>
                 </label>
                 <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  type="text"
+                  value={`৳${Number(invoice.total).toLocaleString()}`}
+                  readOnly
+                  aria-readonly="true"
                   className={cn(
-                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400",
-                    fieldErrors.amount ? "border-red-400" : "border-gray-200 dark:border-slate-700"
+                    "w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-slate-800 border text-sm text-gray-700 dark:text-gray-200 cursor-not-allowed",
+                    "border-gray-200 dark:border-slate-700"
                   )}
                 />
-                {fieldErrors.amount ? (
-                  <p className="text-xs text-red-500 mt-1">{fieldErrors.amount}</p>
-                ) : (
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">{t("billing.amount_hint")}</p>
-                )}
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">{t("billing.amount_hint")}</p>
               </div>
 
               <div>
@@ -326,7 +327,15 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
                 <input
                   type="text"
                   value={reference}
-                  onChange={(e) => setReference(e.target.value)}
+                  onChange={(e) => {
+                    setReference(e.target.value);
+                    setFieldErrors((prev) => {
+                      if (!prev.reference) return prev;
+                      const next = { ...prev };
+                      delete next.reference;
+                      return next;
+                    });
+                  }}
                   maxLength={120}
                   required={needsReference}
                   placeholder="e.g. BKX1234567"
@@ -475,15 +484,35 @@ export default function PaymentRequestModal({ open, invoice, houseId, onClose, o
                         return;
                       }
                       setProofBusy(true);
-                      const optimized = await compressProofImage(picked);
-                      setProof(optimized);
-                      setProofBusy(false);
-                      setFieldErrors((prev) => {
-                        if (!prev.proof) return prev;
-                        const next = { ...prev };
-                        delete next.proof;
-                        return next;
-                      });
+                      try {
+                        const optimized = await compressProofImage(picked);
+                        if (
+                          optimized.type.startsWith("image/") &&
+                          optimized.size > PROOF_IMAGE_MAX_BYTES
+                        ) {
+                          setProof(null);
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            proof: t("billing.proof_image_too_large"),
+                          }));
+                          return;
+                        }
+                        setProof(optimized);
+                        setFieldErrors((prev) => {
+                          if (!prev.proof) return prev;
+                          const next = { ...prev };
+                          delete next.proof;
+                          return next;
+                        });
+                      } catch {
+                        setProof(null);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          proof: t("billing.proof_image_too_large"),
+                        }));
+                      } finally {
+                        setProofBusy(false);
+                      }
                     }}
                   />
                 </label>

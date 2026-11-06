@@ -25,7 +25,11 @@ from sqlalchemy.orm import selectinload
 from config.settings import settings
 from app.models.subscription import HouseSubscription
 from app.models.invoice import (
-    Invoice, INVOICE_STATUS_ISSUED, INVOICE_STATUS_UNPAID, INVOICE_STATUS_PAID,
+    Invoice,
+    INVOICE_STATUS_ISSUED,
+    INVOICE_STATUS_UNPAID,
+    INVOICE_STATUS_PARTIALLY_PAID,
+    INVOICE_STATUS_PAID,
 )
 from app.services.subscription_service import issue_invoice, next_billing_period_start
 from app.utils.timezone import now_naive
@@ -69,12 +73,15 @@ async def run_billing_cycle(db: AsyncSession) -> dict:
     for sub in subs:
         if sub.package is None:
             continue
-        # skip if an unpaid invoice for the next period already exists
+        # A house may have only one outstanding invoice at a time.
         has_open = (await db.execute(
             select(func.count(Invoice.id)).where(
-                Invoice.subscription_id == sub.id,
-                Invoice.billing_period_start >= sub.current_period_end,
-                Invoice.status.in_([INVOICE_STATUS_ISSUED, INVOICE_STATUS_UNPAID]),
+                Invoice.house_id == sub.house_id,
+                Invoice.status.in_([
+                    INVOICE_STATUS_ISSUED,
+                    INVOICE_STATUS_UNPAID,
+                    INVOICE_STATUS_PARTIALLY_PAID,
+                ]),
                 Invoice.is_deleted == False,  # noqa: E712
             )
         )).scalar_one()

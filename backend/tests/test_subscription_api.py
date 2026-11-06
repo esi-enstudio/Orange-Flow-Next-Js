@@ -6,9 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.models.role import Permission, Role
+from app.models.invoice import INVOICE_STATUS_PAID
 from app.models.user import User
 from app.routers import subscriptions
 from app.routers.deps import get_current_user, get_db, get_house_context
+from app.services.subscription_service import issue_invoice
 from app.utils.timezone import now_naive
 from conftest import make_house, make_plan, make_sub
 
@@ -74,6 +76,33 @@ async def test_house_member_without_renew_permission_can_issue_expired_plan_invo
 
     assert response.status_code == 200, response.text
     assert response.json()["invoice"]["status"] == "issued"
+
+
+async def test_renew_rejected_until_existing_invoice_is_paid(db, house, plan):
+    user = await make_renewal_user(db, "renew-open-invoice-test", with_permission=False)
+    user.houses.append(house)
+    await db.commit()
+    sub = await make_sub(db, house.id, plan, status="expired")
+    existing = await issue_invoice(db, sub, plan)
+
+    async with build_client(db, user, house.id) as client:
+        blocked = await client.post(
+            "/api/v1/subscription/renew",
+            headers={"X-House-ID": str(house.id)},
+        )
+
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "OPEN_INVOICE_EXISTS"
+    assert blocked.json()["detail"]["invoice_no"] == existing.invoice_no
+
+    existing.status = INVOICE_STATUS_PAID
+    await db.commit()
+    async with build_client(db, user, house.id) as client:
+        allowed = await client.post(
+            "/api/v1/subscription/renew",
+            headers={"X-House-ID": str(house.id)},
+        )
+    assert allowed.status_code == 200, allowed.text
 
 
 async def test_reactivate_endpoint_requires_subscription_renew_permission(db):

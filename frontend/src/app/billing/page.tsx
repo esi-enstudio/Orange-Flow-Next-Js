@@ -60,42 +60,59 @@ function Badge({ status }: { status?: string | null }) {
   );
 }
 
-const fmtDate = (v?: string | null) => (v ? String(v).slice(0, 10) : "—");
-const fmtDisplayDate = (v?: string | null) => {
-  if (!v) return "—";
-  const [year, month, day] = String(v).slice(0, 10).split("-").map(Number);
-  if (!year || !month || !day) return "—";
-  const date = new Date(year, month - 1, day);
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
-    return "—";
+const parseBillingDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, yearText, monthText, dayText] = dateOnly;
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    const date = new Date(Date.UTC(year, month - 1, day, 12));
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    return date;
   }
+  const normalized = raw.includes(" ") ? raw.replace(" ", "T") : raw;
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  const parsed = new Date(hasTimezone ? normalized : `${normalized}+06:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const fmtDisplayDate = (v?: string | null) => {
+  const date = parseBillingDate(v);
+  if (!date) return "—";
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: "Asia/Dhaka",
   }).format(date);
 };
 const fmtMoney = (n: number) => `৳${Number(n).toLocaleString()}`;
 
-// "24 Oct 2026, 07:15 PM" — tenants read the review note with its timestamp.
+// Render persisted timestamps in the project's canonical Bangladesh timezone.
 const fmtDateTime12 = (v?: string | null) => {
-  if (!v) return "";
-  const parsed = new Date(String(v));
-  if (Number.isNaN(parsed.getTime())) return "";
-  const date = parsed.toLocaleDateString("en-GB", {
+  const parsed = parseBillingDate(v);
+  if (!parsed) return "—";
+  const date = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  });
-  const time = parsed.toLocaleTimeString("en-US", {
+    timeZone: "Asia/Dhaka",
+  }).format(parsed);
+  const time = new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
-  });
+    timeZone: "Asia/Dhaka",
+  }).format(parsed);
   return `${date}, ${time}`;
 };
 
@@ -264,6 +281,9 @@ export default function BillingPage() {
   const pendingPaymentFor = (invoiceId: number) =>
     payments.find((p) => p.invoice_id === invoiceId && p.status === "pending") || null;
   const isPayable = (inv: Invoice) => inv.status === "issued" || inv.status === "unpaid";
+  const hasOpenInvoice = invoices.some((invoice) =>
+    ["issued", "unpaid", "partially_paid"].includes(invoice.status)
+  );
 
   const activeActions = useMemo(() => {
     if (!sub) return { show: [] as string[] };
@@ -348,7 +368,7 @@ export default function BillingPage() {
               { label: t("billing.overview"), value: overview?.effective_status || "—", icon: Building2 },
               { label: t("billing.plan"), value: overview?.plan_name || "—", icon: Receipt },
               { label: t("billing.outstanding"), value: fmtMoney(overview?.amount_due_now || 0), icon: Wallet },
-              { label: t("billing.next_billing_date"), value: fmtDate(overview?.next_billing_date), icon: CreditCard },
+              { label: t("billing.next_billing_date"), value: fmtDisplayDate(overview?.next_billing_date), icon: CreditCard },
             ].map((c) => (
               <div
                 key={c.label}
@@ -400,15 +420,15 @@ export default function BillingPage() {
                   </p>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                     {sub.package?.name || "—"} · {sub.billing_interval} ·{" "}
-                    {fmtDate(sub.start_date)} → {fmtDate(sub.end_date)}
+                    {fmtDisplayDate(sub.start_date)} → {fmtDisplayDate(sub.end_date)}
                   </p>
                   <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
                     {t("billing.auto_renew")}: {sub.auto_renew ? "ON" : "OFF"} · {t("billing.next_billing_date")}:{" "}
-                    {fmtDate(sub.current_period_end || sub.end_date)}
+                    {fmtDisplayDate(sub.current_period_end || sub.end_date)}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {activeActions.show.includes("renew") && (
+                  {activeActions.show.includes("renew") && !hasOpenInvoice && (
                     <button
                       onClick={() => setAction({ kind: "renew" })}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors"
@@ -432,7 +452,7 @@ export default function BillingPage() {
                       {t("billing.resume")}
                     </button>
                   )}
-                  {activeActions.show.includes("reactivate") && (
+                  {activeActions.show.includes("reactivate") && !hasOpenInvoice && (
                     <button
                       onClick={() => setAction({ kind: "reactivate" })}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors"
@@ -448,7 +468,7 @@ export default function BillingPage() {
                       {t("billing.cancel")}
                     </button>
                   )}
-                  {canAct && (
+                  {canAct && !hasOpenInvoice && (
                     <a
                       href="/pricing"
                       className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
@@ -655,7 +675,7 @@ export default function BillingPage() {
                               )}
                             </td>
                             <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-gray-100">{fmtMoney(p.amount)}</td>
-                            <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{fmtDate(p.paid_at)}</td>
+                            <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{fmtDisplayDate(p.paid_at)}</td>
                             <td className="px-6 py-4">
                               <Badge status={p.status} />
                             </td>

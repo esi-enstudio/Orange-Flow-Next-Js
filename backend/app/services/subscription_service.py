@@ -34,12 +34,40 @@ from app.models.invoice import (
     INVOICE_STATUS_ISSUED,
     INVOICE_STATUS_UNPAID,
     INVOICE_STATUS_PAID,
+    INVOICE_STATUS_PARTIALLY_PAID,
     INVOICE_STATUS_VOID,
 )
 from app.models.subscription_change_log import SubscriptionChangeLog
 from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
+
+
+class OpenInvoiceExistsError(Exception):
+    def __init__(self, invoice_no: str):
+        self.invoice_no = invoice_no
+        super().__init__(f"Invoice {invoice_no} must be paid before another invoice can be created")
+
+
+async def ensure_no_open_invoice(db: AsyncSession, house_id: int) -> None:
+    result = await db.execute(
+        select(Invoice.invoice_no)
+        .where(
+            Invoice.house_id == house_id,
+            Invoice.status.in_([
+                INVOICE_STATUS_ISSUED,
+                INVOICE_STATUS_UNPAID,
+                INVOICE_STATUS_PARTIALLY_PAID,
+            ]),
+            Invoice.is_deleted == False,  # noqa: E712
+        )
+        .order_by(Invoice.created_at.asc(), Invoice.id.asc())
+        .limit(1)
+    )
+    invoice_no = result.scalar_one_or_none()
+    if invoice_no:
+        raise OpenInvoiceExistsError(invoice_no)
+
 
 # Sentinel for _log(): distinguishes "not provided" from an explicit None.
 _UNSET = object()
@@ -296,6 +324,7 @@ async def issue_invoice(
     would re-issue the same "renewal" invoice forever and paying it would not
     roll the cycle.
     """
+    await ensure_no_open_invoice(db, sub.house_id)
     period = billing_interval or sub.billing_interval
     if period_start is not None:
         start = period_start
@@ -342,6 +371,8 @@ async def upgrade_or_downgrade(
     downgrades apply immediately (pricing effective on the next invoice)."""
     if sub.package_id == new_plan.id:
         return {"applied": False, "message": "Already on this plan", "invoice": None}
+
+    await ensure_no_open_invoice(db, sub.house_id)
 
     old_price = plan_price(sub.package, sub.billing_interval) if sub.package else Decimal(0)
     new_price = plan_price(new_plan, sub.billing_interval)

@@ -246,7 +246,7 @@ async def submit_payment_request(
     request: Request,
     invoice_id: int = Form(...),
     method: str = Form("manual"),
-    amount: Optional[float] = Form(None),
+    amount: Optional[str] = Form(None),
     reference: Optional[str] = Form(None),
     note: Optional[str] = Form(None),
     sender_number: Optional[str] = Form(None),

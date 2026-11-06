@@ -5,10 +5,12 @@ Approval is the only path that activates a plan, and the paid period starts at
 approval.
 """
 import io
+from decimal import Decimal
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -24,6 +26,13 @@ from app.utils.timezone import now_naive
 
 # A tenant payment request must always state when the payment was made.
 PAYMENT_DATE = now_naive().date().isoformat()
+
+
+def _png_bytes() -> bytes:
+    image = Image.new("RGB", (20, 12), "orange")
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
 
 
 @pytest.fixture(autouse=True)
@@ -120,7 +129,7 @@ async def test_tenant_submits_payment_request(db, house, plan):
             files={
                 "proof": (
                     "receipt.png",
-                    b"\x89PNG\r\n\x1a\n" + b"\x00" * 16,
+                    _png_bytes(),
                     "image/png",
                 )
             },
@@ -133,6 +142,32 @@ async def test_tenant_submits_payment_request(db, house, plan):
     assert body["has_proof"] is True
     await db.refresh(invoice)
     assert invoice.status == INVOICE_STATUS_ISSUED  # not paid by submitting
+
+
+async def test_tampered_payment_amount_is_rejected_by_backend(db, house, plan):
+    user = await make_user(
+        db, role_name="Manager", username="tampered-amount-manager",
+        permissions=["billing.request_payment"],
+    )
+    _, invoice = await _invoice(db, house, plan)
+
+    async with build_client(billing.router, db, user, house_context=house.id) as client:
+        response = await client.post(
+            "/api/v1/billing/payments/request",
+            data={
+                "payment_date": PAYMENT_DATE,
+                "invoice_id": str(invoice.id),
+                "method": "bank",
+                "amount": str(Decimal(str(invoice.total)) - Decimal("1000")),
+                "reference": "BANK-TAMPER-01",
+                "bank_name": "Example Bank",
+                "depositor_name": "Test User",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "PAYMENT_AMOUNT_MISMATCH"
+    assert (await db.execute(select(Payment))).scalars().all() == []
 
 
 async def test_payment_date_is_required_on_submission(db, house, plan):

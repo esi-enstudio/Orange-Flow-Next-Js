@@ -24,11 +24,14 @@ import logging
 import os
 import re
 import uuid
+import warnings
+from io import BytesIO
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from fastapi import UploadFile
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +58,7 @@ logger = logging.getLogger(__name__)
 
 PROOF_ROOT = os.path.join("private_uploads", "payment_proofs")
 PROOF_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+PROOF_IMAGE_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 PROOF_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
 
 # Magic bytes: the extension alone proves nothing, so the content must match.
@@ -262,6 +266,59 @@ def _ensure_proof_dirs(house_id: int) -> str:
     return directory
 
 
+def _compress_proof_image(content: bytes) -> bytes:
+    """Re-encode a proof as optimized WebP without changing its dimensions."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(content)) as image:
+                if image.format not in {"JPEG", "PNG", "WEBP"} or getattr(image, "n_frames", 1) != 1:
+                    raise ValueError("Unsupported image format")
+                image.load()
+                width, height = image.size
+                if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+                    image_to_save = image.convert("RGBA")
+                else:
+                    image_to_save = image.convert("RGB")
+
+                try:
+                    for quality in (70, 60, 50, 40):
+                        output = BytesIO()
+                        image_to_save.save(
+                            output,
+                            format="WEBP",
+                            quality=quality,
+                            method=6,
+                            exif=image.info.get("exif", b""),
+                        )
+                        compressed = output.getvalue()
+                        with Image.open(BytesIO(compressed)) as result:
+                            if result.format != "WEBP" or result.size != (width, height):
+                                raise ValueError("Image dimensions changed during compression")
+                        if compressed and len(compressed) <= PROOF_IMAGE_MAX_BYTES:
+                            return compressed
+                    raise PaymentRequestError(
+                        "Proof image could not be compressed below 2 MB",
+                        code="PROOF_FILE_TOO_LARGE",
+                        fields={"proof": "Maximum compressed image size is 2 MB"},
+                    )
+                finally:
+                    if image_to_save is not image:
+                        image_to_save.close()
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+    ) as exc:
+        raise PaymentRequestError(
+            "The proof image could not be processed",
+            code="INVALID_PROOF_FILE",
+            fields={"proof": "Upload a valid, non-animated JPG, PNG or WebP image"},
+        ) from exc
+
+
 async def _store_proof(house_id: int, proof: UploadFile) -> tuple[str, str]:
     """Persist an uploaded proof file; returns ``(relative_path, display_name)``."""
     display_name = _safe_filename(proof.filename)
@@ -272,18 +329,25 @@ async def _store_proof(house_id: int, proof: UploadFile) -> tuple[str, str]:
             code="INVALID_PROOF_FILE",
             fields={"proof": "Upload a JPG, PNG, WebP or PDF file"},
         )
-    content = await proof.read(PROOF_MAX_BYTES + 1)
+    max_bytes = PROOF_IMAGE_MAX_BYTES if ext != ".pdf" else PROOF_MAX_BYTES
+    content = await proof.read(max_bytes + 1)
     if not content:
         raise PaymentRequestError(
             "The proof file is empty",
             code="INVALID_PROOF_FILE",
             fields={"proof": "Upload a non-empty file"},
         )
-    if len(content) > PROOF_MAX_BYTES:
+    if len(content) > max_bytes:
         raise PaymentRequestError(
             "Proof file is too large",
             code="PROOF_FILE_TOO_LARGE",
-            fields={"proof": "Maximum size is 10 MB"},
+            fields={
+                "proof": (
+                    "Maximum image size is 2 MB"
+                    if ext != ".pdf"
+                    else "Maximum PDF size is 10 MB"
+                )
+            },
         )
     if not _content_matches_extension(content, ext):
         raise PaymentRequestError(
@@ -291,6 +355,10 @@ async def _store_proof(house_id: int, proof: UploadFile) -> tuple[str, str]:
             code="INVALID_PROOF_FILE",
             fields={"proof": "Upload a real JPG, PNG, WebP or PDF file"},
         )
+    if ext != ".pdf":
+        content = _compress_proof_image(content)
+        ext = ".webp"
+        display_name = f"{os.path.splitext(display_name)[0]}.webp"
     directory = _ensure_proof_dirs(house_id)
     filename = f"{uuid.uuid4().hex}{ext}"
     full_path = os.path.join(directory, filename)
@@ -421,19 +489,21 @@ async def submit_request(
         db.add(needs_info)
 
     expected = _money(invoice.total)
-    claimed = expected if amount is None else _money(amount)
-    if claimed <= 0:
+    try:
+        submitted_amount = expected if amount is None else Decimal(str(amount))
+    except (InvalidOperation, ValueError, TypeError):
         raise PaymentRequestError(
-            "Payment amount must be greater than zero",
+            "Invalid payment amount",
             code="INVALID_PAYMENT_AMOUNT",
-            fields={"amount": "Amount must be greater than zero"},
+            fields={"amount": "Amount must match the invoice total"},
         )
-    if abs(claimed - expected) > Decimal("0.01"):
+    if not submitted_amount.is_finite() or submitted_amount != expected:
         raise PaymentRequestError(
             f"Payment amount must match the invoice total ({expected} {invoice.currency})",
             code="PAYMENT_AMOUNT_MISMATCH",
             fields={"amount": f"Invoice total is {expected} {invoice.currency}"},
         )
+    claimed = expected
 
     channel = (method or "manual").strip().lower()
     if channel not in PAYMENT_CHANNELS:

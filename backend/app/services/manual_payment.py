@@ -369,14 +369,21 @@ async def record_cash_payment(
 
     invoice = await open_invoice_for(db, sub.id)
     if invoice is None:
-        invoice = await subsvc.issue_invoice(
-            db,
-            sub,
-            sub.package,
-            billing_interval=sub.billing_interval,
-            description=f"Cash payment - {sub.package.name} ({sub.billing_interval})",
-            period_start=subsvc.next_billing_period_start(sub),
-        )
+        try:
+            invoice = await subsvc.issue_invoice(
+                db,
+                sub,
+                sub.package,
+                billing_interval=sub.billing_interval,
+                description=f"Cash payment - {sub.package.name} ({sub.billing_interval})",
+                period_start=subsvc.next_billing_period_start(sub),
+            )
+        except subsvc.OpenInvoiceExistsError as exc:
+            raise ManualPaymentError(
+                str(exc),
+                code="OPEN_INVOICE_EXISTS",
+                status_code=409,
+            ) from exc
 
     return await pay_invoice_manually(
         db,

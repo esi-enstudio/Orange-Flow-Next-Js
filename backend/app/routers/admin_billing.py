@@ -209,11 +209,21 @@ async def admin_issue_invoice(
     )).scalar_one_or_none()
     if not sub or not sub.package:
         raise HTTPException(status_code=404, detail="Subscription or plan not found")
-    invoice = await subsvc.issue_invoice(
-        db, sub, sub.package, billing_interval=sub.billing_interval,
-        description=f"Manual invoice (admin {current_user.id})",
-        period_start=subsvc.next_billing_period_start(sub) if for_next_period else None,
-    )
+    try:
+        invoice = await subsvc.issue_invoice(
+            db, sub, sub.package, billing_interval=sub.billing_interval,
+            description=f"Manual invoice (admin {current_user.id})",
+            period_start=subsvc.next_billing_period_start(sub) if for_next_period else None,
+        )
+    except subsvc.OpenInvoiceExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "OPEN_INVOICE_EXISTS",
+                "message": "The existing invoice must be paid before another invoice can be created.",
+                "invoice_no": exc.invoice_no,
+            },
+        ) from exc
     return {"success": True, "invoice": {"id": invoice.id, "invoice_no": invoice.invoice_no, "total": float(invoice.total)}}
 
 

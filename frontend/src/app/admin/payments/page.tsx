@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Eye,
   Loader2,
   Paperclip,
   RefreshCw,
   Search,
+  X,
   XCircle,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
@@ -178,10 +179,10 @@ export default function AdminPaymentsPage() {
   const [perPage] = useState(20);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<Record<number, PaymentDetail>>({});
   const [detailLoading, setDetailLoading] = useState<number | null>(null);
   const [proofBusy, setProofBusy] = useState<number | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null);
 
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -271,9 +272,41 @@ export default function AdminPaymentsPage() {
       .catch(() => setHouses([]));
   }, [authLoading, canView]);
 
+  useEffect(() => {
+    if (!selectedPayment) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !approveTarget &&
+        !rejectTarget &&
+        !infoTarget &&
+        !refundTarget &&
+        !completeRefundTarget &&
+        !rejectRefundTarget
+      ) {
+        setSelectedPayment(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    selectedPayment,
+    approveTarget,
+    rejectTarget,
+    infoTarget,
+    refundTarget,
+    completeRefundTarget,
+    rejectRefundTarget,
+  ]);
+
   const loadDetail = useCallback(
-    async (id: number) => {
-      if (detail[id]) return;
+    async (id: number, forceRefresh = false) => {
+      if (!forceRefresh && detail[id]) return;
       setDetailLoading(id);
       try {
         const res = await apiClient.get(`v1/admin/payments/${id}`);
@@ -281,20 +314,21 @@ export default function AdminPaymentsPage() {
       } catch (err: any) {
         toast.error(err?.message || t("pricing.something_went_wrong"));
       } finally {
-        setDetailLoading(null);
+        setDetailLoading((current) => (current === id ? null : current));
       }
     },
     [detail, t]
   );
 
-  const toggleExpand = (id: number) => {
-    setExpandedId((prev) => (prev === id ? null : id));
-    loadDetail(id);
+  const openPaymentDetails = (payment: PaymentRow) => {
+    setSelectedPayment(payment);
+    loadDetail(payment.id);
   };
 
   const refreshAfterAction = async () => {
     setDetail({});
     await Promise.all([fetchRows(), fetchSummary()]);
+    if (selectedPayment) await loadDetail(selectedPayment.id, true);
   };
 
   const approvePayment = async () => {
@@ -364,8 +398,7 @@ export default function AdminPaymentsPage() {
       toast.success(t("admin_payments.refund_recorded"));
       setRefundTarget(null);
       setRefundReason("");
-      setDetail({});
-      await Promise.all([fetchRows(), fetchSummary()]);
+      await refreshAfterAction();
     } catch (err: any) {
       toast.error(err?.message || t("pricing.something_went_wrong"));
     } finally {
@@ -380,8 +413,7 @@ export default function AdminPaymentsPage() {
       await apiClient.post(`v1/admin/refunds/${completeRefundTarget.refundId}/complete`, {});
       toast.success(t("admin_payments.refund_completed"));
       setCompleteRefundTarget(null);
-      setDetail({});
-      await Promise.all([fetchRows(), fetchSummary()]);
+      await refreshAfterAction();
     } catch (err: any) {
       toast.error(err?.message || t("pricing.something_went_wrong"));
     } finally {
@@ -399,8 +431,7 @@ export default function AdminPaymentsPage() {
       toast.success(t("admin_payments.refund_rejected"));
       setRejectRefundTarget(null);
       setRefundRejectReason("");
-      setDetail({});
-      await Promise.all([fetchRows(), fetchSummary()]);
+      await refreshAfterAction();
     } catch (err: any) {
       toast.error(err?.message || t("pricing.something_went_wrong"));
     } finally {
@@ -460,7 +491,7 @@ export default function AdminPaymentsPage() {
   const detailPanel = (p: PaymentRow) => {
     const d = detail[p.id];
     return (
-      <div className="border-t border-gray-100 bg-gray-50/40 px-4 py-4 dark:border-slate-800 dark:bg-slate-800/30">
+      <div className="space-y-5">
         {detailLoading === p.id && !d ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -471,33 +502,63 @@ export default function AdminPaymentsPage() {
           <p className="text-xs text-gray-400">{t("common.error")}</p>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label={t("admin_payments.plan")} value={d.plan_name || "—"} />
-              <Field label={t("admin_payments.invoice")} value={d.invoice_no || "—"} />
-              <Field label={t("admin_payments.expected")} value={fmtMoney(d.expected_amount)} />
-              <Field label={t("admin_payments.submitted_at")} value={fmtDateTime12(d.submitted_at)} />
-              <Field
-                label={t("admin_payments.period")}
-                value={`${fmtLongDate(d.billing_period_start)} → ${fmtLongDate(d.billing_period_end)}`}
-              />
-              <Field label={t("admin_payments.subscription_status")} value={d.subscription_status || "—"} />
-              <Field label={t("admin_payments.payment_date")} value={fmtLongDate(d.payment_date)} />
-              <Field label={t("billing.reference")} value={d.reference || d.gateway_tran_id || "—"} />
-              <Field label={t("admin_payments.sender_number")} value={d.sender_number || "—"} />
-              <Field label={t("admin_payments.bank_name")} value={d.bank_name || "—"} />
-              <Field label={t("admin_payments.depositor_name")} value={d.depositor_name || "—"} />
-              <Field label={t("admin_payments.note")} value={d.note || "—"} />
-              <Field
-                label={t("admin_payments.submitted_by")}
-                value={
-                  d.submitted_by_name
-                    ? `${d.submitted_by_name}${d.submitted_by_role ? ` (${d.submitted_by_role})` : ""}`
-                    : d.submitted_by
-                      ? `#${d.submitted_by}`
-                      : "—"
-                }
-              />
-            </div>
+            <section>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">
+                {t("admin_payments.payment_information")}
+              </h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <Field label={t("admin_payments.house")} value={`${d.house_name || "—"}${d.house_code ? ` (${d.house_code})` : ""}`} />
+                <Field label={t("admin_payments.method")} value={d.method || d.gateway || "—"} />
+                <Field label={t("admin_payments.status")} value={<Badge status={d.status} />} />
+                <Field label={t("admin_payments.amount")} value={fmtMoney(d.amount)} />
+                <Field label={t("admin_payments.expected")} value={fmtMoney(d.expected_amount)} />
+                <Field label={t("admin_payments.submitted_at")} value={fmtDateTime12(d.submitted_at || d.created_at)} />
+                <Field label={t("admin_payments.payment_date")} value={fmtLongDate(d.payment_date)} />
+                <Field label={t("billing.reference")} value={d.reference || d.gateway_tran_id || "—"} />
+                <Field label={t("admin_payments.paid_at")} value={fmtDateTime12(d.paid_at)} />
+                <Field label={t("admin_payments.note")} value={d.note || "—"} />
+                {d.rejection_reason && <Field label={t("admin_payments.rejection_reason")} value={d.rejection_reason} />}
+                {d.info_request_reason && <Field label={t("admin_payments.info_request_reason")} value={d.info_request_reason} />}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">
+                {t("admin_payments.invoice_subscription")}
+              </h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <Field label={t("admin_payments.plan")} value={d.plan_name || "—"} />
+                <Field label={t("admin_payments.invoice")} value={d.invoice_no || `#${d.invoice_id}`} />
+                <Field label={t("admin_payments.invoice_status")} value={d.invoice_status || "—"} />
+                <Field label={t("admin_payments.invoice_due_date")} value={fmtLongDate(d.invoice_due_date)} />
+                <Field label={t("admin_payments.period")} value={`${fmtLongDate(d.billing_period_start)} → ${fmtLongDate(d.billing_period_end)}`} />
+                <Field label={t("admin_payments.subscription_status")} value={d.subscription_status || "—"} />
+                <Field label={t("admin_payments.subscription_period_end")} value={fmtLongDate(d.subscription_period_end)} />
+                <Field label={t("admin_payments.billing_interval")} value={d.plan_interval || "—"} />
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">
+                {t("admin_payments.payer_information")}
+              </h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <Field
+                  label={t("admin_payments.submitted_by")}
+                  value={
+                    d.submitted_by_name
+                      ? `${d.submitted_by_name}${d.submitted_by_role ? ` (${d.submitted_by_role})` : ""}`
+                      : d.submitted_by
+                        ? `#${d.submitted_by}`
+                        : "—"
+                  }
+                />
+                <Field label={t("admin_payments.sender_number")} value={d.sender_number || "—"} />
+                <Field label={t("admin_payments.bank_name")} value={d.bank_name || "—"} />
+                <Field label={t("admin_payments.depositor_name")} value={d.depositor_name || "—"} />
+                {d.has_proof && <Field label={t("admin_payments.proof_file")} value={d.proof_name || "—"} />}
+              </div>
+            </section>
 
             {d.has_proof && (
               <button
@@ -515,7 +576,7 @@ export default function AdminPaymentsPage() {
               </button>
             )}
 
-            <div>
+            <section>
               <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
                 {t("admin_payments.review_history")}
               </p>
@@ -537,10 +598,10 @@ export default function AdminPaymentsPage() {
                   ))}
                 </ol>
               )}
-            </div>
+            </section>
 
             {(d.refunds?.length ?? 0) > 0 && (
-              <div>
+              <section>
                 <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
                   {t("admin_payments.refunds")}
                 </p>
@@ -550,13 +611,20 @@ export default function AdminPaymentsPage() {
                       key={r.id}
                       className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900"
                     >
-                      <span className="text-xs font-bold text-gray-800 dark:text-gray-200">
-                        {fmtMoney(r.amount)}
-                      </span>
-                      <Badge status={r.status} />
-                      <span className="flex-1 truncate text-[11px] text-gray-500 dark:text-gray-400">
-                        {r.reason || "—"}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                            {fmtMoney(r.amount)}
+                          </span>
+                          <Badge status={r.status} />
+                        </div>
+                        <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                          {r.reason || "—"}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+                          {fmtDateTime12(r.refunded_at || r.created_at)}
+                        </p>
+                      </div>
                       {r.status === "processing" && canRefund && (
                         <div className="flex items-center gap-2">
                           <button
@@ -581,7 +649,7 @@ export default function AdminPaymentsPage() {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </section>
             )}
 
             {canRefund && (d.status === "succeeded" || d.status === "partially_refunded") && (
@@ -823,8 +891,16 @@ export default function AdminPaymentsPage() {
                   {rows.map((p) => (
                     <tr
                       key={p.id}
-                      onClick={() => toggleExpand(p.id)}
-                      className="cursor-pointer transition-colors hover:bg-gray-50/30 dark:hover:bg-slate-800/30"
+                      onClick={() => openPaymentDetails(p)}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openPaymentDetails(p);
+                        }
+                      }}
+                      tabIndex={0}
+                      className="cursor-pointer transition-colors hover:bg-gray-50/30 focus:outline-none focus-visible:bg-primary-50/50 dark:hover:bg-slate-800/30 dark:focus-visible:bg-primary-500/10"
                     >
                       <td className="px-2 py-1">
                         <div className="px-2 py-3">
@@ -884,11 +960,7 @@ export default function AdminPaymentsPage() {
                               <Paperclip className="h-3.5 w-3.5" />
                             )}
                           </button>
-                          <ChevronDown
-                            className={`h-4 w-4 text-gray-400 transition-transform ${
-                              expandedId === p.id ? "rotate-180" : ""
-                            }`}
-                          />
+                          <Eye className="h-4 w-4 text-gray-400" aria-hidden="true" />
                         </div>
                       </td>
                     </tr>
@@ -896,9 +968,6 @@ export default function AdminPaymentsPage() {
                 </tbody>
               </table>
             </div>
-            {expandedId && rows.some((r) => r.id === expandedId) ? (
-              <div>{detailPanel(rows.find((r) => r.id === expandedId)!)}</div>
-            ) : null}
           </>
         )}
 
@@ -950,7 +1019,7 @@ export default function AdminPaymentsPage() {
               <div key={p.id}>
                 <button
                   type="button"
-                  onClick={() => toggleExpand(p.id)}
+                  onClick={() => openPaymentDetails(p)}
                   className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 px-4 py-3.5"
                 >
                   <div className="flex-1 text-left">
@@ -962,13 +1031,8 @@ export default function AdminPaymentsPage() {
                     </p>
                   </div>
                   <Badge status={p.status} />
-                  <ChevronDown
-                    className={`h-4 w-4 text-gray-400 transition-transform ${
-                      expandedId === p.id ? "rotate-180" : ""
-                    }`}
-                  />
+                  <Eye className="h-4 w-4 text-gray-400" aria-hidden="true" />
                 </button>
-                {expandedId === p.id && detailPanel(p)}
               </div>
             ))}
         <div className="flex items-center justify-between border-t border-gray-100 p-4 dark:border-slate-800">
@@ -996,8 +1060,59 @@ export default function AdminPaymentsPage() {
         </div>
       </div>
 
+      {selectedPayment && (
+        <div
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedPayment(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-payment-detail-title"
+            className="flex max-h-[94dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl border border-gray-100 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:rounded-3xl"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4 dark:border-slate-800 sm:px-6">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                  {t("admin_payments.details_title")}
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <h2
+                    id="admin-payment-detail-title"
+                    className="break-all text-lg font-bold text-gray-900 dark:text-gray-100"
+                  >
+                    {selectedPayment.invoice_no || `#${selectedPayment.invoice_id}`}
+                  </h2>
+                  <Badge status={detail[selectedPayment.id]?.status || selectedPayment.status} />
+                </div>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {selectedPayment.house_name || "—"}
+                  {selectedPayment.house_code ? ` · ${selectedPayment.house_code}` : ""}
+                  {" · "}
+                  {t("admin_payments.payment_id", { id: selectedPayment.id })}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPayment(null)}
+                aria-label={t("common.close")}
+                className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="overflow-y-auto px-5 py-5 sm:px-6">
+              {detailPanel(selectedPayment)}
+            </div>
+          </section>
+        </div>
+      )}
+
       <ConfirmationModal
         isOpen={!!approveTarget}
+        zIndex="z-[140]"
         onClose={() => setApproveTarget(null)}
         onConfirm={approvePayment}
         type="info"
@@ -1008,6 +1123,7 @@ export default function AdminPaymentsPage() {
       />
       <ConfirmationModal
         isOpen={!!rejectTarget}
+        zIndex="z-[140]"
         onClose={() => {
           setRejectTarget(null);
           setRejectReason("");
@@ -1036,6 +1152,7 @@ export default function AdminPaymentsPage() {
       </ConfirmationModal>
       <ConfirmationModal
         isOpen={!!infoTarget}
+        zIndex="z-[140]"
         onClose={() => {
           setInfoTarget(null);
           setInfoReason("");
@@ -1065,6 +1182,7 @@ export default function AdminPaymentsPage() {
 
       <ConfirmationModal
         isOpen={!!refundTarget}
+        zIndex="z-[140]"
         onClose={() => {
           setRefundTarget(null);
           setRefundReason("");
@@ -1103,6 +1221,7 @@ export default function AdminPaymentsPage() {
 
       <ConfirmationModal
         isOpen={!!completeRefundTarget}
+        zIndex="z-[140]"
         onClose={() => setCompleteRefundTarget(null)}
         onConfirm={completeRefund}
         type="info"
@@ -1114,6 +1233,7 @@ export default function AdminPaymentsPage() {
 
       <ConfirmationModal
         isOpen={!!rejectRefundTarget}
+        zIndex="z-[140]"
         onClose={() => {
           setRejectRefundTarget(null);
           setRefundRejectReason("");
@@ -1145,7 +1265,7 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-xl border border-gray-100 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
       <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{label}</p>
-      <p className="mt-0.5 truncate text-xs font-semibold text-gray-800 dark:text-gray-200">{value}</p>
+      <p className="mt-0.5 break-words text-xs font-semibold text-gray-800 dark:text-gray-200">{value}</p>
     </div>
   );
 }
