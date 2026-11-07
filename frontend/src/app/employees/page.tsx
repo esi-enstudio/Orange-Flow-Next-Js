@@ -1767,7 +1767,7 @@ export default function EmployeesPage() {
                     {formErrors.employee_type && <p className="text-[11px] text-red-500 mt-0.5">{formErrors.employee_type}</p>}
                   </div>
 
-                  <InputField label={t('employees.field_sr_no')} value={formData.sr_no} onChange={(v: string) => setFormData({...formData, sr_no: v})} error={formErrors.sr_no} />
+                  <InputField label={t('employees.field_sr_no')} type="text" value={formData.sr_no} onChange={(v: string) => setFormData({...formData, sr_no: v})} error={formErrors.sr_no} />
                   <InputField
                     label={t('employees.field_dms_code')}
                     icon={Smartphone}
@@ -1797,8 +1797,8 @@ export default function EmployeesPage() {
                         : "text-red-500"
                     }
                   />
-                  <InputField label={t('employees.field_itop')} type="tel" icon={SmartphoneNfc} required value={formData.itop_number} onChange={(v: string) => setFormData({...formData, itop_number: v})} error={formErrors.itop_number} />
-                  <InputField label={t('employees.field_personal_number')} type="tel" icon={Phone} value={formData.personal_number} onChange={(v: string) => setFormData({...formData, personal_number: v})} error={formErrors.personal_number} />
+                  <InputField label={t('employees.field_itop')} type="number" icon={SmartphoneNfc} required value={formData.itop_number} onChange={(v: string) => setFormData({...formData, itop_number: v})} error={formErrors.itop_number} />
+                  <InputField label={t('employees.field_personal_number')} type="number" icon={Phone} value={formData.personal_number} onChange={(v: string) => setFormData({...formData, personal_number: v})} error={formErrors.personal_number} />
                 </div>
               </div>
 
@@ -1845,7 +1845,7 @@ export default function EmployeesPage() {
 
                   <InputField label={t('employees.field_assisted_retailer')} icon={Store} value={formData.assisted_retailer_code} onChange={(v: string) => setFormData({...formData, assisted_retailer_code: v})} />
                   <InputField label={t('employees.field_agency_id')} icon={Shield} value={formData.agency_id} onChange={(v: string) => setFormData({...formData, agency_id: v})} />
-                  <InputField label={t('employees.field_pool_number')} type="tel" icon={Smartphone} value={formData.pool_number} onChange={(v: string) => setFormData({...formData, pool_number: v})} error={formErrors.pool_number} />
+                  <InputField label={t('employees.field_pool_number')} type="number" icon={Smartphone} value={formData.pool_number} onChange={(v: string) => setFormData({...formData, pool_number: v})} error={formErrors.pool_number} />
                 </div>
               </div>
 
@@ -1860,13 +1860,86 @@ export default function EmployeesPage() {
                   <InputField label={t('employees.field_father_name')} icon={User} value={formData.fathers_name} onChange={(v: string) => setFormData({...formData, fathers_name: v})} />
                   <InputField label={t('employees.field_mother_name')} icon={User} value={formData.mothers_name} onChange={(v: string) => setFormData({...formData, mothers_name: v})} />
                   <InputField label={t('employees.field_dob')} icon={Calendar} type="date" value={formData.dob} onChange={(v: string) => setFormData({...formData, dob: v})} error={formErrors.dob} />
-                  <InputField label={t('employees.field_nid')} icon={CreditCard} value={formData.nid} onChange={(v: string) => setFormData({...formData, nid: v})} />
+                  <InputField label={t('employees.field_nid')} type="number" icon={CreditCard} value={formData.nid} onChange={(v: string) => setFormData({...formData, nid: v})} />
                   <InputField label={t('employees.field_present_address')} icon={MapPin} value={formData.present_address} onChange={(v: string) => setFormData({...formData, present_address: v})} />
                   <InputField label={t('employees.field_permanent_address')} icon={MapPin} value={formData.permanent_address} onChange={(v: string) => setFormData({...formData, permanent_address: v})} />
-                  <InputField label={t('employees.field_blood_group')} icon={Activity} value={formData.blood_group} onChange={(v: string) => setFormData({...formData, blood_group: v})} />
-                  <InputField label={t('employees.field_religion')} icon={User} value={formData.religion} onChange={(v: string) => setFormData({...formData, religion: v})} />
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_blood_group')}</label>
+                    <div className="relative group">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                        <Activity className="w-4 h-4" />
+                      </div>
+                      <select
+                        className="w-full p-2.5 pl-10 pr-9 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-xl text-sm dark:text-gray-100 outline-none transition-all appearance-none focus:ring-1 focus:ring-primary-500 focus:bg-white dark:focus:bg-slate-800 cursor-pointer"
+                        value={formData.blood_group}
+                        onChange={e => setFormData({...formData, blood_group: e.target.value})}
+                      >
+                        <option value="">{t('employees.field_blood_group_placeholder')}</option>
+                        {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map(group => (
+                          <option key={group} value={group}>{group}</option>
+                        ))}
+                        {formData.blood_group && !["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].includes(formData.blood_group) && (
+                          <option value={formData.blood_group}>{formData.blood_group}</option>
+                        )}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_religion')}</label>
+                    <div className="relative group">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <select
+                        className="w-full p-2.5 pl-10 pr-9 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-xl text-sm dark:text-gray-100 outline-none transition-all appearance-none focus:ring-1 focus:ring-primary-500 focus:bg-white dark:focus:bg-slate-800 cursor-pointer"
+                        value={formData.religion}
+                        onChange={e => setFormData({...formData, religion: e.target.value})}
+                      >
+                        <option value="">{t('employees.field_religion_placeholder')}</option>
+                        <option value="Islam">{t('employees.religion_islam')}</option>
+                        <option value="Hindu">{t('employees.religion_hindu')}</option>
+                        <option value="Christian">{t('employees.religion_christian')}</option>
+                        <option value="Buddhist">{t('employees.religion_buddhist')}</option>
+                        <option value="Sikh">{t('employees.religion_sikh')}</option>
+                        <option value="Jain">{t('employees.religion_jain')}</option>
+                        <option value="Others">{t('employees.religion_others')}</option>
+                        {formData.religion && !["Islam", "Hindu", "Christian", "Buddhist", "Sikh", "Jain", "Others"].includes(formData.religion) && (
+                          <option value={formData.religion}>{formData.religion}</option>
+                        )}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
                   <InputField label={t('employees.field_home_town')} icon={Home} value={formData.home_town} onChange={(v: string) => setFormData({...formData, home_town: v})} />
-                  <InputField label={t('employees.field_education')} icon={Briefcase} value={formData.last_education} onChange={(v: string) => setFormData({...formData, last_education: v})} />
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_education')}</label>
+                    <div className="relative group">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                        <Briefcase className="w-4 h-4" />
+                      </div>
+                      <select
+                        className="w-full p-2.5 pl-10 pr-9 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-xl text-sm dark:text-gray-100 outline-none transition-all appearance-none focus:ring-1 focus:ring-primary-500 focus:bg-white dark:focus:bg-slate-800 cursor-pointer"
+                        value={formData.last_education}
+                        onChange={e => setFormData({...formData, last_education: e.target.value})}
+                      >
+                        <option value="">{t('employees.field_education_placeholder')}</option>
+                        <option value="Below SSC">{t('employees.education_below_ssc')}</option>
+                        <option value="SSC">SSC</option>
+                        <option value="HSC">HSC</option>
+                        <option value="Diploma">{t('employees.education_diploma')}</option>
+                        <option value="Honours">{t('employees.education_honours')}</option>
+                        <option value="Bachelor's">{t('employees.education_bachelors')}</option>
+                        <option value="Masters">{t('employees.education_masters')}</option>
+                        <option value="PhD">PhD</option>
+                        <option value="Others">{t('employees.education_others')}</option>
+                        {formData.last_education && !["Below SSC", "SSC", "HSC", "Diploma", "Honours", "Bachelor's", "Masters", "PhD", "Others"].includes(formData.last_education) && (
+                          <option value={formData.last_education}>{formData.last_education}</option>
+                        )}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
                   <InputField label={t('employees.field_institution')} icon={Store} value={formData.institution_name} onChange={(v: string) => setFormData({...formData, institution_name: v})} />
                 </div>
               </div>
@@ -1879,9 +1952,9 @@ export default function EmployeesPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
                   <InputField label={t('employees.field_bank_name')} icon={Store} value={formData.bank_name} onChange={(v: string) => setFormData({...formData, bank_name: v})} />
-                  <InputField label={t('employees.field_account_number')} icon={CreditCard} value={formData.bank_account} onChange={(v: string) => setFormData({...formData, bank_account: v})} />
+                  <InputField label={t('employees.field_account_number')} type="number" icon={CreditCard} value={formData.bank_account} onChange={(v: string) => setFormData({...formData, bank_account: v})} />
                   <InputField label={t('employees.field_branch_name')} icon={MapPin} value={formData.branch_name} onChange={(v: string) => setFormData({...formData, branch_name: v})} />
-                  <InputField label={t('employees.field_routing_number')} icon={Network} value={formData.routing_number} onChange={(v: string) => setFormData({...formData, routing_number: v})} />
+                  <InputField label={t('employees.field_routing_number')} type="number" icon={Network} value={formData.routing_number} onChange={(v: string) => setFormData({...formData, routing_number: v})} />
                 </div>
               </div>
 
@@ -1893,7 +1966,7 @@ export default function EmployeesPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   <InputField label={t('employees.field_emergency_contact')} icon={User} value={formData.emergency_contact_person_name} onChange={(v: string) => setFormData({...formData, emergency_contact_person_name: v})} />
-                  <InputField label={t('employees.field_emergency_phone')} type="tel" icon={Phone} value={formData.emergency_contact_person_number} onChange={(v: string) => setFormData({...formData, emergency_contact_person_number: v})} error={formErrors.emergency_contact_person_number} />
+                  <InputField label={t('employees.field_emergency_phone')} type="number" icon={Phone} value={formData.emergency_contact_person_number} onChange={(v: string) => setFormData({...formData, emergency_contact_person_number: v})} error={formErrors.emergency_contact_person_number} />
                   <InputField label={t('employees.field_emergency_relation')} icon={Users2} value={formData.emergency_person_relationship} onChange={(v: string) => setFormData({...formData, emergency_person_relationship: v})} />
                 </div>
               </div>
