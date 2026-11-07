@@ -302,6 +302,16 @@ export default function EmployeesPage() {
     return members.filter(m => m.status === activeStatusTab);
   }, [members, activeStatusTab]);
 
+  // A search may match an employee that the current status tab hides (e.g. a
+  // Suspended employee while the "Active" tab is open). Surface those tabs so
+  // the record is discoverable instead of looking like it does not exist.
+  const otherStatusMatches = useMemo(() => {
+    if (!filters.search.trim()) return [];
+    return statusTabs.filter(
+      tab => tab.key !== activeStatusTab && (statusCounts[tab.key] ?? 0) > 0
+    );
+  }, [filters.search, activeStatusTab, statusCounts]);
+
   const tabTotalCount = computedStatusCounts[activeStatusTab] ?? 0;
 
   // View Modal
@@ -634,7 +644,16 @@ export default function EmployeesPage() {
         const errors: Record<string, string> = {};
         fieldErrors.forEach((e: any) => {
           const field = e.loc?.[e.loc.length - 1];
-          if (field) errors[field] = e.msg;
+          if (!field) return;
+          if (e.error_code === "dms_code_exists" && e.employee) {
+            const context = [e.employee.status, e.employee.house].filter(Boolean).join(", ");
+            errors[field] = t('employees.validation_dms_exists', {
+              name: e.employee.name || "",
+              context,
+            });
+            return;
+          }
+          errors[field] = e.msg;
         });
         setFormErrors(errors);
       } else {
@@ -987,6 +1006,22 @@ export default function EmployeesPage() {
               <Users2 className="w-8 h-8 text-gray-300" />
             </div>
             <p className="text-gray-500 font-medium">{t('employees.no_employees')}</p>
+            {otherStatusMatches.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  {t('employees.search_other_status_hint')}
+                </p>
+                {otherStatusMatches.map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => { setActiveStatusTab(tab.key); setPage(1); }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-primary-50 text-primary-700 hover:bg-primary-100 dark:bg-primary-500/10 dark:text-primary-300 dark:hover:bg-primary-500/20 transition-colors cursor-pointer"
+                  >
+                    {tab.label} ({statusCounts[tab.key] ?? 0})
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <>

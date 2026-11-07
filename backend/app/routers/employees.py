@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, File, UploadFile, Query, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import select, or_, and_, cast, Float, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -464,6 +465,33 @@ async def _count_retailers(db: AsyncSession, emp_id: int) -> int:
     )
     return result.scalar() or 0
 
+async def _dms_conflict_error(db: AsyncSession, emp: Employee) -> HTTPException:
+    """Build a duplicate-DMS-code error that names the existing employee.
+
+    A DMS code is unique system-wide, so a suspended employee (hidden under the
+    "Suspended" tab) or an employee of another house still blocks creation.
+    Without the identity/status/house in the message that looks like a phantom
+    duplicate to the user.
+    """
+    identity = emp.employee_name or emp.employee_id or f"#{emp.id}"
+    status = emp.status or "Unknown status"
+    house_name = None
+    if emp.house_id:
+        house = await db.get(House, emp.house_id)
+        if house and house.name:
+            house_name = house.name
+    context = [status] + ([house_name] if house_name else [])
+    return HTTPException(
+        status_code=422,
+        detail=[{
+            "loc": ["body", "dms_code"],
+            "msg": f"Employee with this DMS code already exists: {identity} ({', '.join(context)})",
+            "type": "value_error",
+            "error_code": "dms_code_exists",
+            "employee": {"name": identity, "status": status, "house": house_name},
+        }],
+    )
+
 @router.post("", response_model=EmployeeSchema)
 async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(has_permission("employees.create"))):
     # Mandatory profile fields for a new employee. Re-validated here because the
@@ -494,8 +522,12 @@ async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncS
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
     if emp_data.dms_code:
-        existing = (await db.execute(select(Employee).where(Employee.dms_code == emp_data.dms_code))).scalar_one_or_none()
-        if existing: raise HTTPException(status_code=422, detail=[{"loc": ["body", "dms_code"], "msg": "Employee with this DMS code already exists", "type": "value_error"}])
+        normalized_dms = emp_data.dms_code.strip()
+        existing = (await db.execute(
+            select(Employee).where(func.lower(Employee.dms_code) == normalized_dms.lower())
+        )).scalar_one_or_none()
+        if existing:
+            raise await _dms_conflict_error(db, existing)
     if emp_data.user_id:
         user = await db.get(User, emp_data.user_id)
         if not user:
@@ -504,6 +536,8 @@ async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncS
     data.pop("attachments", None)
     data.pop("remove_document_ids", None)
     data.pop("remove_photo", None)
+    if data.get("dms_code"):
+        data["dms_code"] = data["dms_code"].strip()
     attachments = emp_data.attachments or []
     employee_type = data.get("employee_type") or "unknown"
     employee_id = await generate_employee_id(db, employee_type)
@@ -511,7 +545,17 @@ async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncS
     data["employee_type"] = employee_type
     new_emp = Employee(**data)
     db.add(new_emp)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if data.get("dms_code"):
+            existing = (await db.execute(
+                select(Employee).where(func.lower(Employee.dms_code) == data["dms_code"].lower())
+            )).scalar_one_or_none()
+            if existing:
+                raise await _dms_conflict_error(db, existing)
+        raise
     await db.refresh(new_emp)
     # Auto-managed markings (BP / RSO) follow the assisted codes.
     await run_auto_marking_sync(db)
@@ -551,9 +595,19 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
     house = await db.get(House, emp_data.house_id)
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
-    if emp_data.dms_code and emp_data.dms_code != emp.dms_code:
-        existing = (await db.execute(select(Employee).where(Employee.dms_code == emp_data.dms_code))).scalar_one_or_none()
-        if existing: raise HTTPException(status_code=422, detail=[{"loc": ["body", "dms_code"], "msg": "DMS code already in use by another employee", "type": "value_error"}])
+    if emp_data.dms_code is not None:
+        normalized_dms = emp_data.dms_code.strip()
+        if not normalized_dms:
+            raise HTTPException(status_code=422, detail=[{"loc": ["body", "dms_code"], "msg": "DMS Code is required", "type": "value_error"}])
+        if normalized_dms.lower() != (emp.dms_code or "").strip().lower():
+            existing = (await db.execute(
+                select(Employee).where(
+                    func.lower(Employee.dms_code) == normalized_dms.lower(),
+                    Employee.id != emp.id,
+                )
+            )).scalar_one_or_none()
+            if existing:
+                raise await _dms_conflict_error(db, existing)
     # Tagged user is optional. Only validate when the tag is actually being changed;
     # a legacy/dangling user_id that is left untouched must not block the save.
     if emp_data.user_id and emp_data.user_id != emp.user_id:
@@ -576,6 +630,8 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
     updates.pop("attachments", None)
     updates.pop("remove_document_ids", None)
     updates.pop("remove_photo", None)
+    if updates.get("dms_code"):
+        updates["dms_code"] = updates["dms_code"].strip()
     attachments = emp_data.attachments or []
     remove_document_ids = emp_data.remove_document_ids or []
     remove_photo = bool(emp_data.remove_photo)
@@ -592,7 +648,20 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
         setattr(emp, key, value)
     if emp.status == "Resigned" and not emp.resigned_date:
         emp.resigned_date = now_naive().strftime("%Y-%m-%d")
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if updates.get("dms_code"):
+            existing = (await db.execute(
+                select(Employee).where(
+                    func.lower(Employee.dms_code) == updates["dms_code"].lower(),
+                    Employee.id != emp_id,
+                )
+            )).scalar_one_or_none()
+            if existing:
+                raise await _dms_conflict_error(db, existing)
+        raise
     await db.refresh(emp)
     # Auto-managed markings (BP / RSO) follow the assisted codes: a type change or a
     # resignation must drop the marking from this employee's assisted-code retailer.
