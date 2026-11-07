@@ -459,6 +459,36 @@ async def get_employee_filter_options(
         "religions": religions,
     }
 
+@router.get("/dms-code-availability")
+async def check_dms_code_availability(
+    dms_code: str = Query(..., min_length=1),
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(has_permission("employees.create")),
+):
+    normalized_dms = dms_code.strip()
+    if not normalized_dms:
+        raise HTTPException(status_code=422, detail="DMS Code cannot be blank")
+    existing = (
+        await db.execute(
+            select(Employee, House)
+            .outerjoin(House, Employee.house_id == House.id)
+            .where(func.lower(Employee.dms_code) == normalized_dms.lower())
+            .limit(1)
+        )
+    ).first()
+    if not existing:
+        return {"available": True}
+
+    employee, house = existing
+    return {
+        "available": False,
+        "employee": {
+            "name": employee.employee_name or employee.employee_id or employee.dms_code,
+            "house": house.name if house else None,
+            "status": employee.status,
+        },
+    }
+
 async def _count_retailers(db: AsyncSession, emp_id: int) -> int:
     result = await db.execute(
         select(func.count()).select_from(Retailer).where(Retailer.employee_id == emp_id)
@@ -499,7 +529,6 @@ async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncS
     required_fields = [
         ("status", emp_data.status, "Status"),
         ("employee_type", emp_data.employee_type, "Employee Type"),
-        ("dms_code", emp_data.dms_code, "DMS Code"),
         ("itop_number", emp_data.itop_number, "iTop Number"),
         ("joining_date", emp_data.joining_date, "Joining Date"),
         ("employee_name", emp_data.employee_name, "Full Name"),
@@ -521,7 +550,7 @@ async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncS
     house = await db.get(House, emp_data.house_id)
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
-    if emp_data.dms_code:
+    if emp_data.dms_code and emp_data.dms_code.strip():
         normalized_dms = emp_data.dms_code.strip()
         existing = (await db.execute(
             select(Employee).where(func.lower(Employee.dms_code) == normalized_dms.lower())
@@ -536,8 +565,7 @@ async def create_employee(emp_data: EmployeeCreate, request: Request, db: AsyncS
     data.pop("attachments", None)
     data.pop("remove_document_ids", None)
     data.pop("remove_photo", None)
-    if data.get("dms_code"):
-        data["dms_code"] = data["dms_code"].strip()
+    data["dms_code"] = (data.get("dms_code") or "").strip() or None
     attachments = emp_data.attachments or []
     employee_type = data.get("employee_type") or "unknown"
     employee_id = await generate_employee_id(db, employee_type)
@@ -596,10 +624,8 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
     if not house:
         raise HTTPException(status_code=422, detail=[{"loc": ["body", "house_id"], "msg": "House not found", "type": "value_error"}])
     if emp_data.dms_code is not None:
-        normalized_dms = emp_data.dms_code.strip()
-        if not normalized_dms:
-            raise HTTPException(status_code=422, detail=[{"loc": ["body", "dms_code"], "msg": "DMS Code is required", "type": "value_error"}])
-        if normalized_dms.lower() != (emp.dms_code or "").strip().lower():
+        normalized_dms = emp_data.dms_code.strip() or None
+        if normalized_dms and normalized_dms.lower() != (emp.dms_code or "").strip().lower():
             existing = (await db.execute(
                 select(Employee).where(
                     func.lower(Employee.dms_code) == normalized_dms.lower(),
@@ -630,8 +656,8 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
     updates.pop("attachments", None)
     updates.pop("remove_document_ids", None)
     updates.pop("remove_photo", None)
-    if updates.get("dms_code"):
-        updates["dms_code"] = updates["dms_code"].strip()
+    if "dms_code" in updates:
+        updates["dms_code"] = (updates["dms_code"] or "").strip() or None
     attachments = emp_data.attachments or []
     remove_document_ids = emp_data.remove_document_ids or []
     remove_photo = bool(emp_data.remove_photo)

@@ -64,7 +64,7 @@ interface Employee {
   user?: User;
   house_id?: number;
   house?: House;
-  dms_code: string;
+  dms_code: string | null;
   itop_number: string;
   personal_number: string;
   employee_name?: string;
@@ -144,7 +144,7 @@ interface PerfHistory {
   summary: { total_activations: number; total_months: number };
 }
 
-function InputField({ label, value, onChange, required, type = "text", icon: Icon, error }: any) {
+function InputField({ label, value, onChange, onBlur, required, type = "text", icon: Icon, error, statusText, statusClassName }: any) {
   return (
     <div className="space-y-1">
       <label className="text-[11px] font-bold text-gray-500 uppercase">
@@ -170,10 +170,12 @@ function InputField({ label, value, onChange, required, type = "text", icon: Ico
           )}
           value={value || ""}
           onChange={e => onChange(e.target.value)}
+          onBlur={onBlur}
           required={required}
         />
       </div>
       {error && <p className="text-[11px] text-red-500 mt-0.5">{error}</p>}
+      {!error && statusText && <p className={cn("text-[11px] mt-0.5", statusClassName)}>{statusText}</p>}
     </div>
   );
 }
@@ -227,6 +229,9 @@ export default function EmployeesPage() {
 
   // Form State
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [dmsCodeCheck, setDmsCodeCheck] = useState<"checking" | "available" | "taken" | "error" | null>(null);
+  const [dmsCodeOwner, setDmsCodeOwner] = useState<{ name: string | null; house: string | null; status: string | null } | null>(null);
+  const dmsCodeCheckRequestId = useRef(0);
   const [formData, setFormData] = useState({
     user_id: null as number | null,
     house_id: undefined as number | undefined,
@@ -475,6 +480,9 @@ export default function EmployeesPage() {
   const openAddModal = () => {
     setEditingMember(null);
     setFormErrors({});
+    dmsCodeCheckRequestId.current += 1;
+    setDmsCodeCheck(null);
+    setDmsCodeOwner(null);
     attachmentRef.current = { ...EMPTY_ATTACHMENT_PAYLOAD };
     // Pre-select the house only when the user is assigned to exactly one house.
     // Users assigned to multiple houses start with no selection so they must choose.
@@ -526,6 +534,9 @@ export default function EmployeesPage() {
   const openEditModal = (m: Employee) => {
     setEditingMember(m);
     setFormErrors({});
+    dmsCodeCheckRequestId.current += 1;
+    setDmsCodeCheck(null);
+    setDmsCodeOwner(null);
     attachmentRef.current = { ...EMPTY_ATTACHMENT_PAYLOAD };
     setFormData({
       // Tagged user is optional. Use the resolved linked user (not the raw
@@ -533,7 +544,7 @@ export default function EmployeesPage() {
       user_id: m.user?.id ?? null,
       house_id: m.house_id,
       employee_name: m.employee_name || "",
-      dms_code: m.dms_code,
+      dms_code: m.dms_code || "",
       itop_number: m.itop_number,
       personal_number: m.personal_number,
       employee_type: m.employee_type || "",
@@ -573,6 +584,30 @@ export default function EmployeesPage() {
     setIsFormModalOpen(true);
   };
 
+  const checkDmsCodeAvailability = async () => {
+    const code = formData.dms_code.trim();
+    const requestId = ++dmsCodeCheckRequestId.current;
+    if (!code) {
+      setDmsCodeCheck(null);
+      return;
+    }
+
+    setDmsCodeCheck("checking");
+    const params = new URLSearchParams({ dms_code: code });
+    try {
+      const response = await apiClient.get(`employees/dms-code-availability?${params.toString()}`);
+      if (requestId === dmsCodeCheckRequestId.current && formData.dms_code.trim() === code) {
+        setDmsCodeCheck(response.data.available ? "available" : "taken");
+        setDmsCodeOwner(response.data.employee ?? null);
+      }
+    } catch {
+      if (requestId === dmsCodeCheckRequestId.current && formData.dms_code.trim() === code) {
+        setDmsCodeCheck("error");
+        setDmsCodeOwner(null);
+      }
+    }
+  };
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     // Required profile fields. Validated here so the messages are localized and
@@ -581,7 +616,6 @@ export default function EmployeesPage() {
       { key: "house_id", labelKey: "field_house" },
       { key: "status", labelKey: "field_status" },
       { key: "employee_type", labelKey: "field_emp_type" },
-      { key: "dms_code", labelKey: "field_dms_code" },
       { key: "itop_number", labelKey: "field_itop" },
       { key: "joining_date", labelKey: "field_joining_date" },
       { key: "employee_name", labelKey: "field_full_name" },
@@ -604,7 +638,7 @@ export default function EmployeesPage() {
     }
     setFormLoading(true);
     setFormErrors({});
-    const payload = { ...formData, ...attachmentRef.current };
+    const payload = { ...formData, dms_code: formData.dms_code.trim() || null, ...attachmentRef.current };
     try {
       if (editingMember) {
         const newStatus = formData.status;
@@ -1734,7 +1768,35 @@ export default function EmployeesPage() {
                   </div>
 
                   <InputField label={t('employees.field_sr_no')} value={formData.sr_no} onChange={(v: string) => setFormData({...formData, sr_no: v})} error={formErrors.sr_no} />
-                  <InputField label={t('employees.field_dms_code')} icon={Smartphone} required value={formData.dms_code} onChange={(v: string) => setFormData({...formData, dms_code: v})} error={formErrors.dms_code} />
+                  <InputField
+                    label={t('employees.field_dms_code')}
+                    icon={Smartphone}
+                    value={formData.dms_code}
+                    onChange={(v: string) => {
+                      dmsCodeCheckRequestId.current += 1;
+                      setDmsCodeCheck(null);
+                      setDmsCodeOwner(null);
+                      setFormData({...formData, dms_code: v});
+                    }}
+                    onBlur={editingMember ? undefined : checkDmsCodeAvailability}
+                    error={formErrors.dms_code}
+                    statusText={
+                      dmsCodeCheck === "checking" ? t("employees.dms_checking")
+                        : dmsCodeCheck === "available" ? t("employees.dms_available")
+                        : dmsCodeCheck === "taken" ? t("employees.dms_taken", {
+                            name: dmsCodeOwner?.name || "—",
+                            house: dmsCodeOwner?.house || "—",
+                            status: dmsCodeOwner?.status || "—",
+                          })
+                        : dmsCodeCheck === "error" ? t("employees.dms_check_failed")
+                        : undefined
+                    }
+                    statusClassName={
+                      dmsCodeCheck === "available" ? "text-green-600 dark:text-green-400"
+                        : dmsCodeCheck === "checking" ? "text-gray-500 dark:text-gray-400"
+                        : "text-red-500"
+                    }
+                  />
                   <InputField label={t('employees.field_itop')} type="tel" icon={SmartphoneNfc} required value={formData.itop_number} onChange={(v: string) => setFormData({...formData, itop_number: v})} error={formErrors.itop_number} />
                   <InputField label={t('employees.field_personal_number')} type="tel" icon={Phone} value={formData.personal_number} onChange={(v: string) => setFormData({...formData, personal_number: v})} error={formErrors.personal_number} />
                 </div>
