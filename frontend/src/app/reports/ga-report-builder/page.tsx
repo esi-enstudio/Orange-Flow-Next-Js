@@ -94,7 +94,6 @@ interface Payload {
   targets: TargetEntry[];
   joining_start_date: string | null;
   joining_end_date: string | null;
-  always_active: boolean;
 }
 
 interface TargetEntry {
@@ -124,6 +123,8 @@ function emptyEventConfig(): Partial<Payload> {
     },
     sort_by: "retailer_code",
     sort_order: "desc",
+    joining_start_date: null,
+    joining_end_date: null,
   };
 }
 
@@ -147,8 +148,13 @@ function emptyPayload(): Payload {
     targets: [],
     joining_start_date: null,
     joining_end_date: null,
-    always_active: false,
   };
+}
+
+function joiningModeFor(start: string | null, end: string | null): "nov_1_7_2026" | "custom" | null {
+  if (!start && !end) return null;
+  if (start === "2026-11-01" && end === "2026-11-07") return "nov_1_7_2026";
+  return "custom";
 }
 
 function persistableKey(p: Payload): string {
@@ -168,6 +174,8 @@ function persistableKey(p: Payload): string {
     sort_by: p.sort_by,
     sort_order: p.sort_order,
     targets: sortedTargets,
+    joining_start_date: p.joining_start_date,
+    joining_end_date: p.joining_end_date,
   });
 }
 
@@ -663,6 +671,8 @@ function EventManagerModal({
       },
       sort_by: cfg.sort_by ?? "retailer_code",
       sort_order: cfg.sort_order ?? "desc",
+      joining_start_date: cfg.joining_start_date ?? null,
+      joining_end_date: cfg.joining_end_date ?? null,
     });
     setUploadedTargets([]);
     setUploadRows([]);
@@ -870,6 +880,8 @@ function EventManagerModal({
           },
           sort_by: config.sort_by ?? "retailer_code",
           sort_order: config.sort_order ?? "desc",
+          joining_start_date: config.joining_start_date ?? null,
+          joining_end_date: config.joining_end_date ?? null,
         },
         targets: {
           target_type: config.target_type ?? "retailer",
@@ -1040,74 +1052,6 @@ function EventManagerModal({
                       </button>
                     ))}
                   </div>
-                </div>
-
-                {/* New joining period filter */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                    {t("ga_report_builder.filters.joining_period")}
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setJoiningPeriod('nov_1_7_2026')}
-                      className={cn(
-                        "min-h-[44px] rounded-xl border text-sm font-medium transition-colors",
-                        joiningPeriod === 'nov_1_7_2026' ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800'
-                      )}
-                    >
-                      {t("ga_report_builder.filters.nov_1_7_26")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setJoiningPeriod('custom')}
-                      className={cn(
-                        "min-h-[44px] rounded-xl border text-sm font-medium transition-colors",
-                        joiningPeriod === 'custom' ? 'bg-primary-600 border-primary-600 text-white' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800'
-                      )}
-                    >
-                      {t("ga_report_builder.filters.custom")}
-                    </button>
-                  </div>
-                  {joiningPeriod === 'custom' && (
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
-                          From
-                        </label>
-                        <input
-                          type="date"
-                          value={joiningStartDate}
-                          onChange={(e) => setJoiningStartDate(e.target.value)}
-                          className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
-                          To
-                        </label>
-                        <input
-                          type="date"
-                          value={joiningEndDate}
-                          onChange={(e) => setJoiningEndDate(e.target.value)}
-                          className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Always active toggle */}
-                <div className="mt-4">
-                  <label className="flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
-                    <input
-                      type="checkbox"
-                      checked={alwaysActive}
-                      onChange={(e) => setAlwaysActive(e.target.checked)}
-                      className="w-4 h-4 rounded border-primary-500 focus:ring-primary-500"
-                    />
-                    {t("ga_report_builder.filters.always_active")}
-                  </label>
                 </div>
 
                 {/* Entity selection */}
@@ -1656,10 +1600,7 @@ export default function GaReportBuilderPage() {
     rso: [], bp: [], retailer: [],
   });
 
-  const [joiningPeriod, setJoiningPeriod] = useState<string | null>(null);
-  const [joiningStartDate, setJoiningStartDate] = useState<string>("");
-  const [joiningEndDate, setJoiningEndDate] = useState<string>("");
-  const [alwaysActive, setAlwaysActive] = useState<boolean>(false);
+  const [joiningPeriod, setJoiningPeriod] = useState<"nov_1_7_2026" | "custom" | null>(null);
   const [configEntityLoading, setConfigEntityLoading] = useState(false);
 
   const [payload, setPayload] = useState<Payload>(emptyPayload());
@@ -1849,6 +1790,8 @@ export default function GaReportBuilderPage() {
               filters: target.filters,
               sort_by: target.sort_by,
               sort_order: target.sort_order,
+              joining_start_date: target.joining_start_date,
+              joining_end_date: target.joining_end_date,
             },
             targets: {
               target_type: target.target_type,
@@ -1888,9 +1831,8 @@ export default function GaReportBuilderPage() {
       sort_by: cfg.sort_by ?? "retailer_code",
       sort_order: cfg.sort_order ?? "desc",
       targets: [],
-      joining_start_date: null,
-      joining_end_date: null,
-      always_active: false,
+      joining_start_date: cfg.joining_start_date ?? null,
+      joining_end_date: cfg.joining_end_date ?? null,
     };
   }, []);
 
@@ -1920,6 +1862,7 @@ export default function GaReportBuilderPage() {
     }
     appliedPersistableRef.current = persistableKey(next);
     setPayload(next);
+    setJoiningPeriod(joiningModeFor(next.joining_start_date, next.joining_end_date));
     if (autoBuild) {
       await buildReport(next);
     }
@@ -1928,6 +1871,7 @@ export default function GaReportBuilderPage() {
   useEffect(() => {
     if (!effectiveHouseId) return;
     setPayload((p) => ({ ...emptyPayload(), columns: p.columns }));
+    setJoiningPeriod(null);
     loadEvents(effectiveHouseId).then((list) => {
       if (list.length > 0) void applyEvent(list[0], true);
     });
@@ -2027,15 +1971,12 @@ export default function GaReportBuilderPage() {
   };
 
   const build = () => {
-    void buildReport({
-      joining_start_date: joiningPeriod === 'custom' ? joiningStartDate : null,
-      joining_end_date: joiningPeriod === 'custom' ? joiningEndDate : null,
-      always_active: alwaysActive,
-    });
+    void buildReport();
   };
 
   const reset = () => {
     setPayload(emptyPayload());
+    setJoiningPeriod(null);
     setReport(null);
   };
 
@@ -2048,7 +1989,7 @@ export default function GaReportBuilderPage() {
       await apiClient.post("/ga-report-builder/templates", {
         name: name.trim(),
         event_id: payload.event_id,
-        config: { ...payload, event_id: payload.event_id, joining_start_date: payload.joining_start_date, joining_end_date: payload.joining_end_date, always_active: payload.always_active },
+        config: { ...payload, event_id: payload.event_id, joining_start_date: payload.joining_start_date, joining_end_date: payload.joining_end_date },
       }, { params: { house_id: effectiveHouseId } });
       toast.success(t("ga_report_builder.builder.template_saved"));
       loadTemplates(effectiveHouseId);
@@ -2081,8 +2022,8 @@ export default function GaReportBuilderPage() {
       targets: cfg.targets ?? [],
       joining_start_date: cfg.joining_start_date ?? null,
       joining_end_date: cfg.joining_end_date ?? null,
-      always_active: cfg.always_active ?? false,
     });
+    setJoiningPeriod(joiningModeFor(cfg.joining_start_date ?? null, cfg.joining_end_date ?? null));
     setReport(null);
     toast.success(`Loaded: ${template.name}`);
   };
@@ -2468,6 +2409,77 @@ export default function GaReportBuilderPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Joining period / always active filters (RSO & BP reports) */}
+              {((payload.target_type ?? "retailer") === "rso" || (payload.target_type ?? "retailer") === "bp") && (
+                <div className="mb-4 space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                      {t("ga_report_builder.filters.joining_period")}
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJoiningPeriod("nov_1_7_2026");
+                          updatePayload({ joining_start_date: "2026-11-01", joining_end_date: "2026-11-07" });
+                        }}
+                        className={cn(
+                          "min-h-[44px] rounded-xl border text-sm font-medium transition-colors cursor-pointer",
+                          joiningPeriod === "nov_1_7_2026"
+                            ? "bg-primary-600 border-primary-600 text-white"
+                            : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        {t("ga_report_builder.filters.nov_1_7_26")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (joiningPeriod === "nov_1_7_2026") {
+                            updatePayload({ joining_start_date: null, joining_end_date: null });
+                          }
+                          setJoiningPeriod("custom");
+                        }}
+                        className={cn(
+                          "min-h-[44px] rounded-xl border text-sm font-medium transition-colors cursor-pointer",
+                          joiningPeriod === "custom"
+                            ? "bg-primary-600 border-primary-600 text-white"
+                            : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        {t("ga_report_builder.filters.custom")}
+                      </button>
+                    </div>
+                    {joiningPeriod === "custom" && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+                            {t("ga_report_builder.filters.from")}
+                          </label>
+                          <input
+                            type="date"
+                            value={payload.joining_start_date ?? ""}
+                            onChange={(e) => updatePayload({ joining_start_date: e.target.value || null })}
+                            className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+                            {t("ga_report_builder.filters.to")}
+                          </label>
+                          <input
+                            type="date"
+                            value={payload.joining_end_date ?? ""}
+                            onChange={(e) => updatePayload({ joining_end_date: e.target.value || null })}
+                            className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Retailers */}
               {(payload.target_type ?? "retailer") === "retailer" && (

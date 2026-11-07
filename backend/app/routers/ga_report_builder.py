@@ -237,7 +237,6 @@ class ReportPayload(BaseModel):
     targets: list = []
     joining_start_date: Optional[str] = None
     joining_end_date: Optional[str] = None
-    always_active: bool = False
 
     @field_validator("target_type")
     @classmethod

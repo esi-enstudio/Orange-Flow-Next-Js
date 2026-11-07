@@ -3,6 +3,8 @@
 Covers the report rows themselves and the entity pickers that feed the builder.
 """
 
+from sqlalchemy import update
+
 from app.models.employee import Employee
 from app.models.ga_report_event import GaReportEvent  # noqa: F401  (FK target)
 from app.models.ga_report_target import GaReportTarget  # noqa: F401  (FK target)
@@ -50,19 +52,25 @@ async def test_rso_report_only_contains_active_rso_employees(db):
     db.add_all(
         [
             _employee(house, "RSO-ACTIVE", "rso", "Active", "Active RSO"),
-            # Legacy rows: uppercase type and a missing status must still report.
-            _employee(house, "RSO-LEGACY", "RSO", None, "Legacy RSO"),
+            # Case-insensitive matching: uppercase type / lowercase status still count.
+            _employee(house, "RSO-UPPER", "RSO", "active", "Uppercase RSO"),
+            # A blank or missing status is unknown, not active — never report it.
+            _employee(house, "RSO-NO-STATUS", "rso", None, "No Status RSO"),
+            _employee(house, "RSO-BLANK", "rso", "   ", "Blank Status RSO"),
             _employee(house, "RSO-RESIGNED", "rso", "Resigned", "Resigned RSO"),
             _employee(house, "RSO-INACTIVE", "rso", "Inactive", "Inactive RSO"),
             _employee(house, "BP-ACTIVE", "bp", "Active", "Active BP"),
         ]
     )
     await db.commit()
+    # The model default fills a status on insert; force a real NULL to prove it is excluded.
+    await db.execute(update(Employee).where(Employee.dms_code == "RSO-NO-STATUS").values(status=None))
+    await db.commit()
 
     report = await _build_employee_report(db, house, "rso")
     names = {row["rso_name"] for row in report["rows"]}
 
-    assert names == {"Active RSO", "Legacy RSO"}
+    assert names == {"Active RSO", "Uppercase RSO"}
 
 
 async def test_bp_report_only_contains_active_bp_employees(db):
@@ -70,17 +78,20 @@ async def test_bp_report_only_contains_active_bp_employees(db):
     db.add_all(
         [
             _employee(house, "BP-ACTIVE", "bp", "Active", "Active BP"),
-            _employee(house, "BP-UPPER", "BP", "active", "Legacy BP"),
+            _employee(house, "BP-UPPER", "BP", "active", "Uppercase BP"),
+            _employee(house, "BP-NO-STATUS", "bp", None, "No Status BP"),
             _employee(house, "BP-SUSPENDED", "bp", "Suspended", "Suspended BP"),
             _employee(house, "RSO-ACTIVE", "rso", "Active", "Active RSO"),
         ]
     )
     await db.commit()
+    await db.execute(update(Employee).where(Employee.dms_code == "BP-NO-STATUS").values(status=None))
+    await db.commit()
 
     report = await _build_employee_report(db, house, "bp")
     names = {row["bp_name"] for row in report["rows"]}
 
-    assert names == {"Active BP", "Legacy BP"}
+    assert names == {"Active BP", "Uppercase BP"}
 
 
 async def test_retailer_report_only_contains_enabled_retailers(db):
@@ -162,18 +173,21 @@ async def test_entity_pickers_only_offer_active_employees_and_enabled_retailers(
     db.add_all(
         [
             _employee(house, "RSO-ACTIVE", "rso", "Active", "Active RSO"),
-            _employee(house, "RSO-LEGACY", "RSO", None, "Legacy RSO"),
+            _employee(house, "RSO-UPPER", "RSO", "active", "Uppercase RSO"),
+            _employee(house, "RSO-NO-STATUS", "rso", None, "No Status RSO"),
             _employee(house, "RSO-RESIGNED", "rso", "Resigned", "Resigned RSO"),
             Retailer(house_id=house.id, retailer_code="RET-YES", name="Enabled", enabled="Yes"),
             Retailer(house_id=house.id, retailer_code="RET-NO", name="Disabled", enabled="No"),
         ]
     )
     await db.commit()
+    await db.execute(update(Employee).where(Employee.dms_code == "RSO-NO-STATUS").values(status=None))
+    await db.commit()
 
     service = GaReportBuilderService(db, ReportConfig({"house_id": house.id}))
 
     rso_codes = {row["code"] for row in await service.get_entities("rso", None)}
-    assert rso_codes == {"RSO-ACTIVE", "RSO-LEGACY"}
+    assert rso_codes == {"RSO-ACTIVE", "RSO-UPPER"}
 
     retailer_codes = {row["code"] for row in await service.get_entities("retailer", None)}
     assert retailer_codes == {"RET-YES"}
