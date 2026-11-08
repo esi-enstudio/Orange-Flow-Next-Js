@@ -950,7 +950,10 @@ function EventManagerModal({
         toast.success(t("ga_report_builder.event.create_success"));
       }
       reset();
-      if (savedId) onSaved(savedId);
+      if (savedId) {
+        if (!editingId) onClose();
+        onSaved(savedId);
+      }
     } catch (e) {
       toast.error((e as Error).message || "Save failed");
     } finally {
@@ -989,14 +992,14 @@ function EventManagerModal({
   };
 
   return (
-    <div className={cn("fixed inset-0 z-[90] flex items-center justify-center bg-black/65 backdrop-blur-md p-4", !open && "hidden")}>
+    <div className={cn("fixed inset-0 z-[90] flex items-stretch justify-center bg-black/65 backdrop-blur-md p-0 sm:items-center sm:p-4", !open && "hidden")}>
       <motion.div
         initial={{ scale: 0.96, y: 16, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
-        className="w-full max-w-2xl max-h-[92vh] bg-white dark:bg-slate-900 rounded-3xl border border-gray-200 dark:border-slate-700/80 shadow-2xl flex flex-col overflow-hidden"
+        className="flex h-[100dvh] max-h-[100dvh] w-full min-w-0 flex-col overflow-hidden border border-gray-200 bg-white shadow-2xl dark:border-slate-700/80 dark:bg-slate-900 sm:h-auto sm:max-h-[92dvh] sm:max-w-2xl sm:rounded-3xl"
       >
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
+        <div className="flex shrink-0 items-center gap-3 border-b border-gray-100 px-3 py-2.5 dark:border-slate-800 sm:px-6 sm:py-4">
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
             {editingId ? (
               <Pencil className="w-5 h-5 text-primary-600 dark:text-primary-400" />
             ) : canCreate ? (
@@ -1026,14 +1029,10 @@ function EventManagerModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+        <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 sm:px-5 sm:py-4">
           {/* form */}
           {(canCreate || canEdit) && (
-          <div className="rounded-2xl border border-gray-200 dark:border-slate-700/60 p-4 space-y-3">
-            <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-              {editingId ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-              {editingId ? t("ga_report_builder.event.edit") : t("ga_report_builder.event.create")}
-            </p>
+          <div className="space-y-3">
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.event.name")}</label>
               <input
@@ -1086,7 +1085,7 @@ function EventManagerModal({
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
                     {t("ga_report_builder.target.type")}
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {(["rso", "bp", "retailer"] as const).map((tp) => (
                       <button
                         key={tp}
@@ -1118,6 +1117,7 @@ function EventManagerModal({
                     noResultsMessage={t("ga_report_builder.filters.no_results")}
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
+                    portal
                   />
                 )}
 
@@ -1133,6 +1133,7 @@ function EventManagerModal({
                     noResultsMessage={t("ga_report_builder.filters.no_results")}
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
+                    portal
                   />
                 )}
 
@@ -1148,6 +1149,7 @@ function EventManagerModal({
                     noResultsMessage={t("ga_report_builder.filters.no_results")}
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
+                    portal
                   />
                 )}
 
@@ -1174,9 +1176,9 @@ function EventManagerModal({
                       {t("ga_report_builder.target.targets")}
                     </label>
                     {entityRows.length > 0 && (
-                      <div className="mb-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/30 p-3 space-y-2">
-                        <div className="flex flex-col sm:flex-row sm:items-end gap-2">
-                          <div className="flex-1">
+                      <div className="mb-2 min-w-0 rounded-lg border border-gray-200 bg-gray-50/60 p-2 dark:border-slate-700 dark:bg-slate-800/30 sm:p-3">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                          <div className="min-w-0 flex-1">
                             <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
                               {t("ga_report_builder.target.percent_label")}
                             </label>
@@ -1194,14 +1196,14 @@ function EventManagerModal({
                             </div>
                           </div>
                           {(config.slabs ?? 1) > 1 && (
-                            <div>
+                            <div className="min-w-0 md:w-36 md:shrink-0">
                               <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
                                 {t("ga_report_builder.target.percent_slab")}
                               </label>
                               <select
                                 value={percentSlab}
                                 onChange={(e) => setPercentSlab(Number(e.target.value))}
-                                className="min-h-[44px] px-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                                className="min-h-[44px] w-full rounded-lg border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 dark:border-slate-700 dark:bg-slate-900"
                               >
                                 {Array.from({ length: config.slabs ?? 1 }).map((_, i) => (
                                   <option key={i} value={i + 1}>
@@ -1215,7 +1217,7 @@ function EventManagerModal({
                             type="button"
                             onClick={applyPercentTargets}
                             disabled={!percentInput || Number(percentInput) <= 0 || monthlyTargetsLoading}
-                            className="min-h-[44px] px-4 rounded-lg bg-primary-600 text-white text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                            className="min-h-[44px] w-full rounded-lg bg-primary-600 px-4 text-sm font-bold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto md:shrink-0"
                           >
                             {t("ga_report_builder.target.percent_apply")}
                           </button>
@@ -1287,17 +1289,17 @@ function EventManagerModal({
 
                 {/* Retailer Excel upload */}
                 {config.target_type === "retailer" && (
-                  <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-3 space-y-2">
+                  <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-2 sm:p-3 space-y-2">
                     <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block">
                       {t("ga_report_builder.target.upload_title")}
                     </label>
-                    <div className="flex items-center gap-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-2 md:flex md:items-center">
                       <input
                         ref={fileInputRef}
                         type="file"
                         accept=".xlsx,.xls"
                         onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); }}
-                        className="flex-1 text-sm text-gray-500 dark:text-gray-400 file:mr-2 file:min-h-[44px] file:rounded-lg file:border-0 file:bg-primary-600 file:px-3 file:text-white file:text-sm file:font-medium hover:file:bg-primary-700"
+                        className="w-full min-w-0 text-sm text-gray-500 dark:text-gray-400 file:mr-2 file:min-h-[44px] file:rounded-lg file:border-0 file:bg-primary-600 file:px-3 file:text-white file:text-sm file:font-medium hover:file:bg-primary-700 md:flex-1"
                       />
                       <label className="text-xs text-gray-500 dark:text-gray-400 shrink-0">{t("ga_report_builder.slab.label", { number: uploadSlab })}</label>
                       <input
@@ -1347,7 +1349,7 @@ function EventManagerModal({
                       selected={config.columns ?? []}
                       onChange={(cols) => updateConfig({ columns: cols })}
                     />
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div>
                         <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.sort_by")}</label>
                         <select
@@ -1401,6 +1403,7 @@ function EventManagerModal({
                         selectAllLabel={t("ga_report_builder.target.select_all")}
                         clearLabel={t("ga_report_builder.target.deselect_all")}
                         selectedLabel={t("ga_report_builder.filters.selected_short")}
+                        portal
                       />
                     </div>
               </div>
@@ -2510,13 +2513,13 @@ export default function GaReportBuilderPage() {
 
       {/* ── Report Configuration Modal ── */}
       {configOpen && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/65 backdrop-blur-md p-1 sm:p-4">
+        <div className="fixed inset-0 z-[90] flex items-stretch justify-center bg-black/65 backdrop-blur-md p-0 sm:items-center sm:p-4">
           <motion.div
             initial={{ scale: 0.96, y: 16, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
-            className="w-full max-w-2xl max-h-[98vh] sm:max-h-[92vh] bg-white dark:bg-slate-900 rounded-xl sm:rounded-3xl border border-gray-200 dark:border-slate-700/80 shadow-2xl flex flex-col overflow-hidden"
+            className="flex h-[100dvh] max-h-[100dvh] w-full min-w-0 flex-col overflow-hidden border border-gray-200 bg-white shadow-2xl dark:border-slate-700/80 dark:bg-slate-900 sm:h-auto sm:max-h-[92dvh] sm:max-w-2xl sm:rounded-3xl"
           >
-            <div className="px-3 py-2.5 sm:px-6 sm:py-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-3 border-b border-gray-100 px-3 py-2.5 dark:border-slate-800 sm:px-6 sm:py-4">
               <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
                 <SlidersHorizontal className="w-5 h-5 text-primary-600 dark:text-primary-400" />
               </div>
@@ -2528,16 +2531,16 @@ export default function GaReportBuilderPage() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4 space-y-3">
+            <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 sm:px-5 sm:py-4">
 
               {/* Event */}
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block">{t("ga_report_builder.filters.event")}</label>
-                <div className="flex gap-2">
+                <div className="flex min-w-0 gap-2">
                   <select
                     value={payload.event_id ?? ""}
                     onChange={(e) => selectEvent(e.target.value ? Number(e.target.value) : null)}
-                    className="flex-1 min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 dark:border-slate-700 dark:bg-slate-800"
                   >
                     <option value="">{t("ga_report_builder.filters.no_event")}</option>
                     {events.map((e) => (
@@ -2558,8 +2561,8 @@ export default function GaReportBuilderPage() {
               </div>
 
               {/* Date range */}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <div>
+              <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="min-w-0">
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.from")}</label>
                   <input
                     type="date"
@@ -2568,7 +2571,7 @@ export default function GaReportBuilderPage() {
                     className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40"
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.to")}</label>
                   <input
                     type="date"
@@ -2582,7 +2585,7 @@ export default function GaReportBuilderPage() {
               {/* Target type */}
               <div>
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.target.type")}</label>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                   {(["rso", "bp", "retailer"] as const).map((tp) => (
                     <button
                       key={tp}
@@ -2608,7 +2611,7 @@ export default function GaReportBuilderPage() {
                     <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
                       {t("ga_report_builder.filters.joining_period")}
                     </label>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -2643,7 +2646,7 @@ export default function GaReportBuilderPage() {
                       </button>
                     </div>
                     {joiningPeriod === "custom" && (
-                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                         <div>
                           <label className="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
                             {t("ga_report_builder.filters.from")}
@@ -2686,6 +2689,7 @@ export default function GaReportBuilderPage() {
                     noResultsMessage={t("ga_report_builder.filters.no_results")}
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
+                    portal
                   />
                 </>
               )}
@@ -2704,6 +2708,7 @@ export default function GaReportBuilderPage() {
                     noResultsMessage={t("ga_report_builder.filters.no_results")}
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
+                    portal
                   />
                 </>
               )}
@@ -2722,6 +2727,7 @@ export default function GaReportBuilderPage() {
                     noResultsMessage={t("ga_report_builder.filters.no_results")}
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
+                    portal
                   />
                 </>
               )}
@@ -2745,9 +2751,9 @@ export default function GaReportBuilderPage() {
                 <div>
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.target.targets")}</label>
                   {configEntityRows.length > 0 && (
-                    <div className="mb-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/30 p-2 sm:p-3 space-y-2">
-                      <div className="flex flex-col sm:flex-row sm:items-end gap-2">
-                        <div className="flex-1">
+                    <div className="mb-2 min-w-0 rounded-lg border border-gray-200 bg-gray-50/60 p-2 dark:border-slate-700 dark:bg-slate-800/30 sm:p-3">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                        <div className="min-w-0 flex-1">
                           <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
                             {t("ga_report_builder.target.percent_label")}
                           </label>
@@ -2765,14 +2771,14 @@ export default function GaReportBuilderPage() {
                           </div>
                         </div>
                         {(payload.slabs ?? 1) > 1 && (
-                          <div>
+                          <div className="min-w-0 md:w-36 md:shrink-0">
                             <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
                               {t("ga_report_builder.target.percent_slab")}
                             </label>
                             <select
                               value={percentSlab}
                               onChange={(e) => setPercentSlab(Number(e.target.value))}
-                              className="min-h-[44px] px-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                              className="min-h-[44px] w-full rounded-lg border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 dark:border-slate-700 dark:bg-slate-900"
                             >
                               {Array.from({ length: payload.slabs ?? 1 }).map((_, i) => (
                                 <option key={i} value={i + 1}>
@@ -2786,7 +2792,7 @@ export default function GaReportBuilderPage() {
                           type="button"
                           onClick={applyPercentTargets}
                           disabled={!percentInput || Number(percentInput) <= 0 || monthlyTargetsLoading}
-                          className="min-h-[44px] px-4 rounded-lg bg-primary-600 text-white text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                          className="min-h-[44px] w-full rounded-lg bg-primary-600 px-4 text-sm font-bold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto md:shrink-0"
                         >
                           {t("ga_report_builder.target.percent_apply")}
                         </button>
@@ -2866,7 +2872,7 @@ export default function GaReportBuilderPage() {
 
               {/* Sort */}
               {(payload.target_type ?? "retailer") === "retailer" && (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 <div>
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.sort_by")}</label>
                   <select
@@ -2926,6 +2932,7 @@ export default function GaReportBuilderPage() {
                   selectAllLabel={t("ga_report_builder.target.select_all")}
                   clearLabel={t("ga_report_builder.target.deselect_all")}
                   selectedLabel={t("ga_report_builder.filters.selected_short")}
+                  portal
                 />
               </div>
 
@@ -2939,7 +2946,7 @@ export default function GaReportBuilderPage() {
                   {building ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
                   {building ? t("ga_report_builder.builder.building") : t("ga_report_builder.builder.build")}
                 </button>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   <button
                     onClick={reset}
                     className="flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"

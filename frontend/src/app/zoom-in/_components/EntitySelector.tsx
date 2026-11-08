@@ -433,7 +433,7 @@ export default function EntitySelector({
                 bottom: portalPos.bottom,
                 left: portalPos.left,
                 width: portalPos.width,
-                zIndex: 50,
+                zIndex: 100,
               }}
               className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl shadow-lg animate-in fade-in slide-in-from-top-1 duration-150"
             >
