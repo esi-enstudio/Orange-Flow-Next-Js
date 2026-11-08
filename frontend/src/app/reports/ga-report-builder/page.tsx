@@ -214,7 +214,7 @@ function Skeleton({ className }: { className?: string }) {
 
 function PageSkeleton() {
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-2 md:p-6 max-w-7xl mx-auto space-y-6">
       <div>
         <Skeleton className="h-9 w-64" />
         <Skeleton className="h-4 w-80 mt-2" />
@@ -2223,27 +2223,27 @@ export default function GaReportBuilderPage() {
   const achievedPercent = targetValue > 0 ? (achievementValue / targetValue) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-4 text-slate-900 dark:bg-[#070913] dark:text-gray-100 md:px-6">
+    <div className="min-h-screen bg-slate-50 px-1.5 py-2 text-slate-900 dark:bg-[#070913] dark:text-gray-100 md:px-6 md:py-4">
       <div className="mx-auto max-w-[1600px]">
-        <header className="relative z-20 mb-6 overflow-visible rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl dark:border-gray-800/60 dark:bg-[#0b1021]/80 dark:backdrop-blur-md lg:px-5">
+        <header className="relative z-20 mb-6 overflow-visible rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-xl dark:border-gray-800/60 dark:bg-[#0b1021]/80 dark:backdrop-blur-md sm:p-4 lg:px-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-rose-600 to-pink-500 shadow-lg shadow-rose-500/30">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-rose-600 to-pink-500 shadow-lg shadow-rose-500/30 sm:h-10 sm:w-10">
                 <Columns3 className="h-5 w-5 text-white" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">GA Report Builder</h1>
-                <p className="text-xs text-slate-500 dark:text-gray-400">Build customizable retailer activation reports for a date range, event or live data</p>
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white sm:text-xl">GA Report Builder</h1>
+                <p className="text-[11px] leading-relaxed text-slate-500 dark:text-gray-400 sm:text-xs">Build customizable retailer activation reports for a date range, event or live data</p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-3 self-stretch lg:self-auto">
               {houses.length > 1 ? (
-                <div className="w-full sm:w-[260px]">
+                <div className="w-full sm:w-[260px] lg:w-[260px]">
                   <HouseSelector houses={houses} selected={selectedHouseId} onSelect={setSelectedHouseId} loading={housesLoading} />
                 </div>
               ) : effectiveHouseId ? (
-                <div className="flex min-w-[220px] items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 dark:border-gray-700/60 dark:bg-[#131b31]">
+                <div className="flex min-w-0 w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 dark:border-gray-700/60 dark:bg-[#131b31] sm:w-auto sm:min-w-[220px]">
                   <Building2 className="h-4 w-4 text-rose-500" />
                   <div className="min-w-0">
                     <span className="block text-[10px] text-slate-500 dark:text-gray-400">House</span>
@@ -2415,32 +2415,38 @@ export default function GaReportBuilderPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:pb-0">
+              <div className="flex w-full items-center justify-end gap-2 pb-1 sm:w-auto sm:pb-0">
                 {events.length > 0 && (
                   <button
+                    type="button"
                     onClick={() => setConfigOpen(true)}
-                    className="flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 dark:border-gray-700/60 dark:bg-[#1b243d] dark:text-gray-200 dark:hover:bg-[#232f52]"
+                    aria-label="Configure Report"
+                    title="Configure Report"
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-slate-700 transition hover:bg-slate-200 dark:border-gray-700/60 dark:bg-[#1b243d] dark:text-gray-200 dark:hover:bg-[#232f52]"
                   >
-                    <SlidersHorizontal className="h-3.5 w-3.5 text-slate-500 dark:text-gray-400" />
-                    Configure Report
+                    <SlidersHorizontal className="h-4 w-4 text-slate-500 dark:text-gray-400" />
                   </button>
                 )}
                 {report && canExport && (
                   <button
+                    type="button"
                     onClick={exportExcel}
-                    className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-300"
+                    aria-label="Export Excel"
+                    title="Export Excel"
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-300"
                   >
-                    <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                    Export Excel
+                    <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                   </button>
                 )}
                 {report && canSend && (
                   <button
+                    type="button"
                     onClick={() => setWaModalOpen(true)}
-                    className="flex shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-700"
+                    aria-label="Share on WhatsApp"
+                    title="Share on WhatsApp"
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-700"
                   >
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    Share on WhatsApp
+                    <MessageCircle className="h-4 w-4" />
                   </button>
                 )}
               </div>
