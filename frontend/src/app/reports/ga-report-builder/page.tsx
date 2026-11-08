@@ -279,10 +279,10 @@ function HouseSelector({
   if (houses.length <= 1) return null;
 
   return (
-    <div ref={ref} className="relative z-30 mb-6">
+    <div ref={ref} className="relative z-30">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 text-left min-h-[48px]"
+        className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-gray-700/60 bg-slate-100 dark:bg-[#131b31] text-left min-h-[44px] transition-colors hover:bg-slate-200 dark:hover:bg-[#1a2542]"
       >
         <Building2 className="w-5 h-5 text-primary-500" />
         <div className="flex-1 min-w-0">
@@ -290,21 +290,36 @@ function HouseSelector({
           <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
             {selectedHouse ? selectedHouse.name : loading ? "..." : "—"}
           </p>
+          {selectedHouse?.code && (
+            <p className="truncate text-[10px] text-slate-500 dark:text-gray-400">
+              {selectedHouse.code}
+            </p>
+          )}
         </div>
         <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute z-50 mt-2 w-full max-h-72 overflow-y-auto bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-xl">
+        <div className="absolute z-50 mt-2 w-full max-h-72 overflow-y-auto bg-white dark:bg-[#131b31] rounded-xl border border-slate-200 dark:border-gray-700 shadow-2xl">
           {houses.map((h) => (
             <button
               key={h.id}
               onClick={() => { onSelect(h.id); setOpen(false); }}
               className={cn(
-                "w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-slate-700/50 min-h-[44px]",
+                "w-full flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-slate-700/50 min-h-[44px]",
                 h.id === selected ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
               )}
             >
-              <span className="truncate">{h.name}</span>
+              <span className="flex min-w-0 items-center gap-2.5">
+                <Building2 className="h-4 w-4 shrink-0 text-primary-500" aria-hidden="true" />
+                <span className="flex min-w-0 flex-col items-start">
+                  <span className="max-w-full truncate">{h.name}</span>
+                  {h.code && (
+                    <span className="text-[10px] font-normal text-slate-500 dark:text-gray-400">
+                      {h.code}
+                    </span>
+                  )}
+                </span>
+              </span>
               {h.id === selected && <Check className="w-4 h-4 shrink-0" />}
             </button>
           ))}
@@ -1479,6 +1494,14 @@ function ReportTable({
   const { t } = useLanguage();
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [sortedRows, setSortedRows] = useState<ReportRow[]>(rows);
+  const displayColumns = columns.includes("rso_name")
+    ? columns.filter((column) => column !== "rso_dms_code" && column !== "rso_itop_number")
+    : columns;
+  const rsoIdentifier = (row: ReportRow) =>
+    [row.rso_dms_code, row.rso_itop_number]
+      .filter((value) => value != null && String(value).trim() !== "")
+      .map(String)
+      .join(" · ");
 
   useEffect(() => { setSortedRows(rows); }, [rows]);
 
@@ -1512,7 +1535,7 @@ function ReportTable({
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/30 px-4 py-10 text-center">
+      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center dark:border-gray-700 dark:bg-[#0f1526]/50">
         <p className="text-sm text-gray-500 dark:text-gray-400">{t("ga_report_builder.builder.no_data")}</p>
       </div>
     );
@@ -1522,39 +1545,50 @@ function ReportTable({
     <>
       {/* Desktop table */}
       <div className="hidden lg:block overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full border-collapse text-left text-xs">
           <thead>
-            <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60">
-              <th className="px-2 py-2 text-left font-semibold text-xs text-gray-500 dark:text-gray-400 w-10">#</th>
-              {columns.map((c) => (
-                <th key={c} className={cn("px-2 py-2 font-semibold text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap", isNum(c) || isPct(c) ? "text-center" : "text-left")}>
+            <tr className="border-b border-slate-200 bg-slate-100/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:border-gray-800 dark:bg-[#0f1526]/70 dark:text-gray-400">
+              <th className="w-10 px-4 py-3.5 text-left">#</th>
+              {displayColumns.map((c) => (
+                <th key={c} className={cn("whitespace-nowrap px-4 py-3.5", isNum(c) || isPct(c) ? "text-right" : "text-left")}>
                   {label(c)}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+          <tbody className="divide-y divide-slate-200/80 text-xs text-slate-700 dark:divide-gray-800/60 dark:text-gray-300">
             {sortedRows.map((row, i) => (
-              <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-800/40">
-                <td className="px-2 py-1 text-gray-400 text-xs">{i + 1}</td>
-                {columns.map((c) => (
-                  <td key={c} className={cn("px-2 py-1", (isNum(c) || isPct(c)) && "text-center tabular-nums")}>
-                    <span className={cn(isNum(c) && "font-medium")}>{fmt(c, row[c])}</span>
+              <tr key={i} className="transition-colors hover:bg-slate-100 dark:hover:bg-[#151d33]">
+                <td className="px-2 py-1 font-medium text-slate-400">{i + 1}</td>
+                {displayColumns.map((c) => (
+                  <td key={c} className={cn("px-2 py-1", (isNum(c) || isPct(c)) && "text-right tabular-nums")}>
+                    {c === "rso_name" ? (
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-slate-900 dark:text-white">{fmt(c, row[c])}</p>
+                        {rsoIdentifier(row) && (
+                          <p className="text-[11px] font-normal text-slate-500 dark:text-gray-400">
+                            {rsoIdentifier(row)}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className={cn(isNum(c) && "font-medium", /name/.test(c) && "font-semibold text-slate-900 dark:text-white", /code|number/.test(c) && "font-mono text-[11px]")}>{fmt(c, row[c])}</span>
+                    )}
                   </td>
                 ))}
               </tr>
             ))}
             {Object.keys(totals).length > 0 && (
-              <tr className="border-t-2 border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60">
-                <td className="px-2 py-2">
-                  <span className="text-xs text-gray-400 uppercase">{t("ga_report_builder.builder.totals")}</span>
+              <tr className="border-t border-slate-300 bg-slate-100 font-bold text-slate-900 dark:border-gray-700 dark:bg-[#0b1021] dark:text-white">
+                <td className="px-2 py-1">
+                  <span className="text-xs uppercase">{t("ga_report_builder.builder.totals")}</span>
                 </td>
-                {columns.map((c) => (
-                  <td key={c} className={cn("px-2 py-2", (isNum(c) || isPct(c)) && "text-center")}>
+                {displayColumns.map((c) => (
+                  <td key={c} className={cn("px-2 py-1", (isNum(c) || isPct(c)) && "text-right")}>
                     {c in totals ? (
-                      <span className="font-bold text-primary-600 dark:text-primary-400 tabular-nums">{fmt(c, totals[c])}</span>
+                      <span className="text-sm font-bold text-rose-600 dark:text-rose-500 tabular-nums">{fmt(c, totals[c])}</span>
                     ) : (
-                      <span className="text-xs text-gray-400 uppercase">—</span>
+                      <span className="text-xs uppercase text-slate-400">—</span>
                     )}
                   </td>
                 ))}
@@ -1565,9 +1599,9 @@ function ReportTable({
       </div>
 
       {/* Mobile accordion */}
-      <div className="lg:hidden divide-y divide-gray-100 dark:divide-slate-800">
+      <div className="divide-y divide-slate-200 dark:divide-gray-800 lg:hidden">
         {sortedRows.map((row, i) => {
-          const primaryKey = columns.find((c) => c === "retailer_name" || c === "retailer_code" || c === "rso_name" || c === "bp_name") ?? columns[0];
+          const primaryKey = displayColumns.find((c) => c === "retailer_name" || c === "retailer_code" || c === "rso_name" || c === "bp_name") ?? displayColumns[0];
           const expanded = expandedId === i;
           return (
             <div key={i} className="py-1">
@@ -1581,14 +1615,16 @@ function ReportTable({
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm text-gray-800 dark:text-gray-200 truncate">{String(row[primaryKey] ?? "")}</p>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                    {columns.filter((c) => c !== primaryKey).slice(0, 2).map((c) => `${label(c)}: ${fmt(c, row[c])}`).join(" · ")}
+                    {primaryKey === "rso_name"
+                      ? rsoIdentifier(row)
+                      : displayColumns.filter((c) => c !== primaryKey).slice(0, 2).map((c) => `${label(c)}: ${fmt(c, row[c])}`).join(" · ")}
                   </p>
                 </div>
                 <ChevronDown className={cn("w-4 h-4 text-gray-400 shrink-0 transition-transform", expanded && "rotate-180")} />
               </button>
               {expanded && (
                 <div className="px-2 pb-3 space-y-1.5">
-                  {columns.map((c) => (
+                  {displayColumns.map((c) => (
                     <div key={c} className="flex items-center justify-between gap-3 px-3 py-1.5 rounded-lg bg-gray-50 dark:bg-slate-800/50">
                       <span className="text-xs text-gray-500 dark:text-gray-400">{label(c)}</span>
                       <span className={cn("text-sm font-medium text-gray-800 dark:text-gray-200", (isNum(c) || isPct(c)) && "tabular-nums")}>
@@ -1900,13 +1936,11 @@ export default function GaReportBuilderPage() {
     if (!effectiveHouseId) return;
     setPayload((p) => ({ ...emptyPayload(), columns: p.columns }));
     setJoiningPeriod(null);
-    loadEvents(effectiveHouseId).then((list) => {
-      if (list.length > 0) void applyEvent(list[0], true);
-    });
+    void loadEvents(effectiveHouseId);
     loadTemplates(effectiveHouseId);
     loadExclusions(effectiveHouseId);
     setReport(null);
-  }, [effectiveHouseId, loadEvents, loadTemplates, loadExclusions, applyEvent]);
+  }, [effectiveHouseId, loadEvents, loadTemplates, loadExclusions]);
 
   /* ── entity search ── */
   const searchRsos = useCallback(async (q: string) => {
@@ -2089,10 +2123,9 @@ export default function GaReportBuilderPage() {
     const ev = list.find((e) => e.id === savedEventId);
     if (ev) {
       void applyEvent(ev, true);
-    } else if (list.length > 0) {
-      void applyEvent(list[0], true);
     } else {
       setPayload((p) => ({ ...emptyPayload(), columns: p.columns }));
+      setJoiningPeriod(null);
       setReport(null);
     }
   };
@@ -2185,71 +2218,179 @@ export default function GaReportBuilderPage() {
 
   const targetValue = report ? Number(report.totals?.slab_1_target ?? 0) : 0;
   const achievementValue = report ? Math.max(0, Number(report.totals?.slab_1_target ?? 0) - Number(report.totals?.slab_1_remaining ?? 0)) : 0;
-  const remainingValue = report ? Math.max(0, Number(report.totals?.slab_1_remaining ?? 378)) : 378;
+  const remainingValue = report ? Math.max(0, Number(report.totals?.slab_1_remaining ?? 0)) : 0;
   const liveActivationValue = report ? Number(report.totals?.live_activation ?? 0) : 0;
   const achievedPercent = targetValue > 0 ? (achievementValue / targetValue) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 dark:bg-[radial-gradient(circle_at_top_left,_rgba(238,82,135,0.18),_transparent_25%),radial-gradient(circle_at_50%_30%,_rgba(14,165,233,0.12),_transparent_30%),linear-gradient(180deg,#020b1e_0%,#071a2d_100%)] dark:text-white px-3 py-4 sm:px-5 lg:px-8">
-      <div className="mx-auto max-w-[1500px]">
-        <header className="relative z-20 mb-5 overflow-visible rounded-[22px] border border-slate-200 bg-white/85 px-4 py-4 shadow-[0_20px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm dark:border-white/10 dark:bg-[#08162b]/80 dark:shadow-[0_20px_40px_rgba(2,6,23,0.45)] lg:px-6">
+    <div className="min-h-screen bg-slate-50 px-4 py-4 text-slate-900 dark:bg-[#070913] dark:text-gray-100 md:px-6">
+      <div className="mx-auto max-w-[1600px]">
+        <header className="relative z-20 mb-6 overflow-visible rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl dark:border-gray-800/60 dark:bg-[#0b1021]/80 dark:backdrop-blur-md lg:px-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 to-fuchsia-600 shadow-[0_8px_20px_rgba(236,72,153,0.45)]">
-                <SlidersHorizontal className="h-6 w-6 text-white" />
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-rose-600 to-pink-500 shadow-lg shadow-rose-500/30">
+                <Columns3 className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">GA Report Builder</h1>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Build customizable retailer activation reports for a date range, event or live data</p>
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">GA Report Builder</h1>
+                <p className="text-xs text-slate-500 dark:text-gray-400">Build customizable retailer activation reports for a date range, event or live data</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 self-stretch lg:self-auto">
-              <div className="flex-1 lg:w-[360px]">
-                <HouseSelector houses={houses} selected={selectedHouseId} onSelect={setSelectedHouseId} loading={housesLoading} />
-              </div>
-              <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-right shadow-inner shadow-emerald-100 dark:border-white/10 dark:bg-slate-900/70 dark:shadow-slate-950/50">
-                <div className="flex h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.75)]" />
-                <span className="text-sm font-medium text-emerald-700 dark:text-slate-200">Live</span>
-              </div>
+            <div className="flex flex-wrap items-center justify-end gap-3 self-stretch lg:self-auto">
+              {houses.length > 1 ? (
+                <div className="w-full sm:w-[260px]">
+                  <HouseSelector houses={houses} selected={selectedHouseId} onSelect={setSelectedHouseId} loading={housesLoading} />
+                </div>
+              ) : effectiveHouseId ? (
+                <div className="flex min-w-[220px] items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 dark:border-gray-700/60 dark:bg-[#131b31]">
+                  <Building2 className="h-4 w-4 text-rose-500" />
+                  <div className="min-w-0">
+                    <span className="block text-[10px] text-slate-500 dark:text-gray-400">House</span>
+                    <span className="block truncate text-xs font-semibold text-slate-800 dark:text-gray-200">
+                      {houses.find((house) => house.id === effectiveHouseId)?.name}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </header>
 
-        <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">
-          <section className="rounded-[22px] border border-slate-200 bg-white/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] dark:border-[#1d375a] dark:bg-[#071b2d]/80">
-            <EventMultiSelect
-              label="Events"
-              description="Select one or more events to view report"
-              items={events.map((ev): EventMultiSelectItem => ({
-                id: ev.id,
-                name: ev.name,
-                startDate: ev.start_date,
-                endDate: ev.end_date,
-                description: ev.description,
-                color: "bg-pink-400",
-              }))}
-              selectedIds={payload.event_id != null ? [payload.event_id] : []}
-              onChange={(ids) => {
-                const nextId = ids.length > 0 ? Number(ids[ids.length - 1]) : null;
-                selectEvent(nextId);
-              }}
-              onDelete={canDelete ? (item) => {
-                const match = events.find((ev) => String(ev.id) === String(item.id));
-                if (match) quickDeleteEvent(match);
-              } : undefined}
-              onViewAll={() => selectEvent(null)}
-              showDelete={Boolean(canDelete)}
-              singleSelect
-              placeholder="Search event..."
-              emptyMessage="No matching events"
-              noResultsMessage="No matching events"
-              viewAllLabel="View all"
-              clearLabel="Clear all"
-            />
-          </section>
+        {effectiveHouseId !== null && (
+          <div className="relative z-10 mb-6 grid grid-cols-1 gap-4">
+            <section className="relative min-w-0">
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-gray-300">
+                <CalendarDays className="h-3.5 w-3.5 text-rose-500" />
+                Events
+              </label>
+              <p className="mb-2 text-[11px] text-slate-500 dark:text-gray-400">Select an event to view its report</p>
+              <EventMultiSelect
+                items={events.map((ev, index): EventMultiSelectItem => ({
+                  id: ev.id,
+                  name: ev.name,
+                  startDate: ev.start_date,
+                  endDate: ev.end_date,
+                  description: ev.description,
+                  color: [
+                    "bg-[#ff365c]",
+                    "bg-[#f5a4bd]",
+                    "bg-[#819cda]",
+                    "bg-[#d2d9e8]",
+                    "bg-[#bd91c9]",
+                    "bg-[#58c5d5]",
+                    "bg-[#f0a34d]",
+                    "bg-[#8bc99a]",
+                    "bg-[#e68eb0]",
+                    "bg-[#e2b65e]",
+                    "bg-[#67a8e8]",
+                    "bg-[#c38ee9]",
+                    "bg-[#5bcbb0]",
+                    "bg-[#e48b62]",
+                  ][index % 14],
+                }))}
+                selectedIds={payload.event_id != null ? [payload.event_id] : []}
+                onChange={(ids) => {
+                  const selectedEventId = ids.length > 0 ? Number(ids[0]) : null;
+                  const selectedEvent = events.find((event) => event.id === selectedEventId);
+                  if (selectedEvent) void applyEvent(selectedEvent, true);
+                  else {
+                    selectEvent(null);
+                    setReport(null);
+                  }
+                }}
+                onDelete={canDelete ? (item) => {
+                  const match = events.find((ev) => String(ev.id) === String(item.id));
+                  if (match) quickDeleteEvent(match);
+                } : undefined}
+                showDelete={Boolean(canDelete)}
+                singleSelect
+                placeholder="Search event..."
+                emptyMessage="No events available"
+                noResultsMessage="No matching events"
+                viewAllLabel="View all"
+              />
+            </section>
 
-        </div>
+          </div>
+        )}
+
+        {effectiveHouseId !== null && (
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              {
+                label: "Target",
+                value: targetValue,
+                detail: "Total report target",
+                color: "blue",
+                icon: Target,
+              },
+              {
+                label: "Achievement",
+                value: achievementValue,
+                detail: `${achievedPercent.toFixed(2)}% achieved`,
+                color: "emerald",
+                icon: Check,
+              },
+              {
+                label: "Remaining",
+                value: remainingValue,
+                detail: "Pending target",
+                color: "amber",
+                icon: CalendarDays,
+              },
+              {
+                label: "Live Activation",
+                value: liveActivationValue,
+                detail: "Real-time data",
+                color: "purple",
+                icon: Zap,
+              },
+            ].map(({ label, value, detail, color, icon: Icon }) => (
+              <div
+                key={label}
+                className="group relative flex min-h-[142px] flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-lg transition-colors hover:border-slate-300 dark:border-gray-800 dark:bg-[#111729] dark:hover:border-gray-700"
+              >
+                <div className="flex items-center justify-between">
+                  <div className={cn(
+                    "flex h-10 w-10 items-center justify-center rounded-xl",
+                    color === "blue" && "bg-blue-500/10 text-blue-500 dark:text-blue-400",
+                    color === "emerald" && "bg-emerald-500/10 text-emerald-500 dark:text-emerald-400",
+                    color === "amber" && "bg-amber-500/10 text-amber-500 dark:text-amber-400",
+                    color === "purple" && "bg-purple-500/10 text-purple-500 dark:text-purple-400"
+                  )}>
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div className="flex h-6 items-end gap-1" aria-hidden="true">
+                    {[2, 3.5, 5, 6].map((height, index) => (
+                      <span
+                        key={height}
+                        className={cn(
+                          "w-1.5 rounded-t",
+                          color === "blue" && "bg-blue-500",
+                          color === "emerald" && "bg-emerald-500",
+                          color === "amber" && "bg-amber-500",
+                          color === "purple" && "bg-purple-500",
+                          index < 3 && "opacity-40"
+                        )}
+                        style={{ height: `${height * 4}px` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{Number(value).toLocaleString()}</p>
+                  <p className={cn(
+                    "mt-0.5 text-xs",
+                    label === "Achievement" ? "text-emerald-600 dark:text-emerald-400" : "text-slate-500 dark:text-gray-400"
+                  )}>
+                    {detail}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {!effectiveHouseId ? (
           <div className="mt-5 flex flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-200 bg-white/80 py-20 text-center shadow-[0_10px_30px_rgba(15,23,42,0.04)] dark:border-slate-700 dark:bg-slate-900/30">
@@ -2257,115 +2398,51 @@ export default function GaReportBuilderPage() {
             <p className="mt-3 text-slate-600 dark:text-slate-400">Select a house to load the report builder</p>
           </div>
         ) : (
-          <div className="mt-5 rounded-[22px] border border-slate-200 bg-white/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] dark:border-[#1d375a] dark:bg-[#071b2d]/80">
-            <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-gray-800 dark:bg-[#111729]">
+            <div className="flex flex-col items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-gray-800/80 sm:p-5 sm:flex-row sm:items-center">
               <div>
                 <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-pink-500/15 to-violet-500/10 text-pink-500 dark:text-pink-400">
-                    <Columns3 className="h-4 w-4" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-rose-600 to-pink-500 shadow-md">
+                    <Columns3 className="h-4 w-4 text-white" />
                   </div>
-                  <h2 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white">Report Preview</h2>
+                  <div>
+                    <h2 className="text-base font-bold tracking-tight text-slate-900 dark:text-white">Report Preview</h2>
+                    {report && (
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-gray-400">
+                        {formatDisplayDateRange(report.window.start, report.window.end)} · {t("ga_report_builder.builder.rows", { count: report.rows.length })}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                {report && (
-                  <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                    {formatDisplayDateRange(report.window.start, report.window.end)} · {t("ga_report_builder.builder.rows", { count: report.rows.length })}
-                  </p>
-                )}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:pb-0">
                 {events.length > 0 && (
                   <button
                     onClick={() => setConfigOpen(true)}
-                    className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:border-pink-500 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200 dark:hover:text-white"
+                    className="flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 dark:border-gray-700/60 dark:bg-[#1b243d] dark:text-gray-200 dark:hover:bg-[#232f52]"
                   >
-                    <SlidersHorizontal className="h-4 w-4" />
+                    <SlidersHorizontal className="h-3.5 w-3.5 text-slate-500 dark:text-gray-400" />
                     Configure Report
                   </button>
                 )}
                 {report && canExport && (
                   <button
                     onClick={exportExcel}
-                    className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200 dark:hover:text-white"
+                    className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-300"
                   >
-                    <FileSpreadsheet className="h-4 w-4" />
+                    <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                     Export Excel
                   </button>
                 )}
                 {report && canSend && (
                   <button
                     onClick={() => setWaModalOpen(true)}
-                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(16,185,129,0.45)] hover:brightness-110"
+                    className="flex shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-700"
                   >
-                    <MessageCircle className="h-4 w-4" />
+                    <MessageCircle className="h-3.5 w-3.5" />
                     Share on WhatsApp
                   </button>
                 )}
-              </div>
-            </div>
-
-            <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-[20px] border border-sky-200 bg-[linear-gradient(135deg,_rgba(59,130,246,0.08),_rgba(191,219,254,0.12))] p-4 shadow-inner shadow-sky-500/5 dark:border-sky-400/30 dark:bg-[linear-gradient(135deg,_rgba(59,130,246,0.15),_rgba(7,89,133,0.08))]">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-600 dark:bg-sky-500/20 dark:text-sky-300">
-                    <Target className="h-6 w-6" />
-                  </div>
-                  <div className="h-12 w-20 rounded-xl bg-gradient-to-r from-sky-500/15 via-sky-400/20 to-transparent" />
-                </div>
-                <div className="mt-4 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-slate-600 dark:text-slate-300">Target</p>
-                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{targetValue}</p>
-                  </div>
-                  <span className="text-xs text-sky-600 dark:text-sky-200">Goal set</span>
-                </div>
-              </div>
-
-              <div className="rounded-[20px] border border-emerald-200 bg-[linear-gradient(135deg,_rgba(16,185,129,0.08),_rgba(209,250,229,0.12))] p-4 shadow-inner shadow-emerald-500/5 dark:border-emerald-400/30 dark:bg-[linear-gradient(135deg,_rgba(16,185,129,0.15),_rgba(6,78,59,0.08))]">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300">
-                    <Check className="h-6 w-6" />
-                  </div>
-                  <div className="h-12 w-20 rounded-xl bg-gradient-to-r from-emerald-500/15 via-emerald-400/20 to-transparent" />
-                </div>
-                <div className="mt-4 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-slate-600 dark:text-slate-300">Achievement</p>
-                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{achievementValue}</p>
-                  </div>
-                  <span className="text-xs text-emerald-600 dark:text-emerald-300">{achievedPercent.toFixed(2)}% achieved</span>
-                </div>
-              </div>
-
-              <div className="rounded-[20px] border border-amber-200 bg-[linear-gradient(135deg,_rgba(251,191,36,0.08),_rgba(254,243,199,0.12))] p-4 shadow-inner shadow-amber-500/5 dark:border-amber-400/30 dark:bg-[linear-gradient(135deg,_rgba(251,191,36,0.12),_rgba(120,53,15,0.08))]">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-300">
-                    <CalendarDays className="h-6 w-6" />
-                  </div>
-                  <div className="h-12 w-20 rounded-xl bg-gradient-to-r from-amber-500/15 via-amber-400/20 to-transparent" />
-                </div>
-                <div className="mt-4 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-slate-600 dark:text-slate-300">Remaining</p>
-                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{remainingValue}</p>
-                  </div>
-                  <span className="text-xs text-amber-600 dark:text-amber-300">Pending target</span>
-                </div>
-              </div>
-
-              <div className="rounded-[20px] border border-violet-200 bg-[linear-gradient(135deg,_rgba(168,85,247,0.08),_rgba(233,213,255,0.12))] p-4 shadow-inner shadow-violet-500/5 dark:border-violet-400/30 dark:bg-[linear-gradient(135deg,_rgba(168,85,247,0.14),_rgba(88,28,135,0.08))]">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-200">
-                    <Zap className="h-6 w-6" />
-                  </div>
-                  <div className="h-12 w-20 rounded-xl bg-gradient-to-r from-violet-500/15 via-violet-400/20 to-transparent" />
-                </div>
-                <div className="mt-4 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-slate-600 dark:text-slate-300">Live Activation</p>
-                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{liveActivationValue}</p>
-                  </div>
-                  <span className="text-xs text-violet-600 dark:text-violet-200">Real-time data</span>
-                </div>
               </div>
             </div>
 
@@ -2373,14 +2450,14 @@ export default function GaReportBuilderPage() {
               <div className="space-y-2">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-4 px-2 py-3 animate-pulse">
-                    <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                    <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-slate-700 shrink-0" />
                     <div className="space-y-2 flex-1">
-                      <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                      <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                      <div className="h-3 w-32 bg-slate-200 dark:bg-slate-700 rounded-md" />
+                      <div className="h-2.5 w-24 bg-slate-100 dark:bg-slate-800 rounded-md" />
                     </div>
                     <div className="hidden sm:block flex-1 space-y-2">
-                      <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                      <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                      <div className="h-3 w-20 bg-slate-200 dark:bg-slate-700 rounded-md" />
+                      <div className="h-2.5 w-16 bg-slate-100 dark:bg-slate-800 rounded-md" />
                     </div>
                   </div>
                 ))}
@@ -2389,8 +2466,8 @@ export default function GaReportBuilderPage() {
               <ReportTable columns={report.columns.filter((c) => c !== "activation_count")} rows={report.rows} totals={report.totals} columnMeta={columnMeta} />
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <ArrowUpDown className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
-                <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+                <ArrowUpDown className="mb-3 h-10 w-10 text-slate-300 dark:text-gray-600" />
+                <p className="max-w-sm text-sm text-slate-500 dark:text-gray-400">
                   {t("ga_report_builder.builder.empty_hint")}
                 </p>
               </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Search, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,14 +18,10 @@ interface EventMultiSelectProps {
   selectedIds: Array<string | number>;
   onChange: (ids: Array<string | number>) => void;
   onDelete?: (item: EventMultiSelectItem) => void;
-  onViewAll?: () => void;
-  label?: string;
-  description?: string;
   placeholder?: string;
   emptyMessage?: string;
   noResultsMessage?: string;
   viewAllLabel?: string;
-  clearLabel?: string;
   showDelete?: boolean;
   singleSelect?: boolean;
   disabled?: boolean;
@@ -79,25 +75,41 @@ export default function EventMultiSelect({
   selectedIds,
   onChange,
   onDelete,
-  onViewAll,
   placeholder = "Search event...",
   emptyMessage = "No matching events",
-  noResultsMessage = "No results found",
+  noResultsMessage = "No matching events",
+  viewAllLabel = "View all",
   showDelete = false,
   singleSelect = false,
   disabled = false,
 }: EventMultiSelectProps) {
   const [search, setSearch] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const [open, setOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const listVisible = open;
 
-  const selectedItem = items.find((item) => String(item.id) === String(selectedIds[0] ?? ""));
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return items;
 
     return items.filter((item) => {
-      const haystack = [item.name, item.description ?? "", item.startDate ?? "", item.endDate ?? ""].join(" ").toLowerCase();
+      const haystack = [
+        item.name,
+        item.description ?? "",
+        item.startDate ?? "",
+        item.endDate ?? "",
+        formatEventRange(item.startDate, item.endDate),
+      ].join(" ").toLowerCase();
       return haystack.includes(query);
     });
   }, [items, search]);
@@ -106,9 +118,10 @@ export default function EventMultiSelect({
     if (disabled) return;
 
     if (singleSelect) {
-      onChange([id]);
-      setOpen(false);
+      onChange(selectedSet.has(String(id)) ? [] : [id]);
       setSearch("");
+      setShowAll(false);
+      setOpen(false);
       return;
     }
 
@@ -120,91 +133,141 @@ export default function EventMultiSelect({
     onChange(next);
   };
 
-  const clearSelection = () => {
-    if (disabled) return;
-    onChange([]);
-    setOpen(false);
-    setSearch("");
-  };
-
   const selectedSet = new Set(selectedIds.map(String));
+  const selectedItems = items.filter((item) => selectedSet.has(String(item.id)));
+  const selectedDisplayValue = selectedItems
+    .map((item) => {
+      const dateRange = formatEventRange(item.startDate, item.endDate);
+      return dateRange ? `${item.name} (${dateRange})` : item.name;
+    })
+    .join(", ");
+  const displayItems = search.trim() ? filteredItems : showAll ? items : filteredItems.slice(0, 7);
+  const visibleCount = displayItems.length;
+  const showViewAll = !showAll && displayItems.length < items.length;
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => !disabled && setOpen((prev) => !prev)}
-        disabled={disabled}
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-sm text-slate-800 shadow-sm transition-colors hover:border-pink-300 focus:border-pink-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-100"
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-pink-50 text-pink-500 dark:bg-pink-500/10 dark:text-pink-300">
-            <Search className="h-3.5 w-3.5" />
-          </span>
-          <span className="truncate">
-            {selectedItem ? selectedItem.name : placeholder}
-          </span>
-        </span>
-        <span className="flex items-center gap-2">
-          {selectedIds.length > 0 && !singleSelect && (
-            <span className="rounded-full bg-pink-100 px-2 py-0.5 text-[10px] font-semibold text-pink-600 dark:bg-pink-500/20 dark:text-pink-200">
-              {selectedIds.length}
-            </span>
-          )}
-          <ChevronDown className={cn("h-4 w-4 text-slate-500 transition-transform dark:text-slate-400", open && "rotate-180")} />
-        </span>
-      </button>
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-slate-400" aria-hidden="true" />
+        <input
+          ref={searchInputRef}
+          type="search"
+          role="combobox"
+          value={singleSelect && !open && selectedDisplayValue ? selectedDisplayValue : search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setShowAll(false);
+            setOpen(true);
+          }}
+          onFocus={() => {
+            setSearch("");
+            setShowAll(false);
+            setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setSearch("");
+              setShowAll(false);
+              setOpen(false);
+              searchInputRef.current?.blur();
+            }
+            if (event.key === "ArrowDown" && listVisible) {
+              event.preventDefault();
+              const firstOption = document.getElementById("event-multi-select-option-0");
+              firstOption?.focus();
+            }
+          }}
+          placeholder={placeholder}
+          autoComplete="off"
+          aria-label="Search events"
+          aria-autocomplete="list"
+          aria-expanded={listVisible}
+          aria-controls="event-multi-select-list"
+          disabled={disabled}
+          className="h-[40px] w-full rounded-[10px] border border-slate-200 bg-white py-2 pl-10 pr-12 text-sm text-slate-800 placeholder:text-slate-500 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed dark:border-[#344b6a] dark:bg-[#101e34] dark:text-slate-100 dark:placeholder:text-slate-400"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            if (!disabled) {
+              if (open) {
+                setOpen(false);
+                setSearch("");
+                searchInputRef.current?.blur();
+              } else {
+                setOpen(true);
+                searchInputRef.current?.focus();
+              }
+            }
+          }}
+          disabled={disabled}
+          aria-label={listVisible ? "Hide event list" : viewAllLabel}
+          className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed dark:text-slate-400 dark:hover:bg-slate-700"
+        >
+          <ChevronDown className={cn("h-4 w-4 transition-transform", listVisible && "rotate-180")} />
+        </button>
+      </div>
 
-      {open && (
-        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.12)] dark:border-slate-700 dark:bg-slate-900">
-          <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={placeholder}
-                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-2 text-sm text-slate-800 outline-none ring-0 focus:border-pink-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <div className="max-h-[300px] overflow-y-auto bg-white dark:bg-slate-900">
+      {listVisible && (
+        <div className="absolute z-30 mt-1.5 w-full overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.18)] dark:border-[#344b6a] dark:bg-[#0b1629]">
+          <div
+            id="event-multi-select-list"
+            role="listbox"
+            aria-label="Events"
+            className="max-h-[220px] overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:#64748b_transparent]"
+          >
             {filteredItems.length === 0 ? (
-              <div className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400">{noResultsMessage || emptyMessage}</div>
+              <div className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400">
+                {search.trim() ? noResultsMessage : emptyMessage}
+              </div>
             ) : (
-              filteredItems.map((item) => {
+              displayItems.map((item, index) => {
                 const isSelected = selectedSet.has(String(item.id));
                 const dateRange = formatEventRange(item.startDate, item.endDate);
+                const displayName = dateRange ? `${item.name} (${dateRange})` : item.name;
 
                 return (
                   <div
                     key={String(item.id)}
                     className={cn(
-                      "group flex items-center gap-2 border-b border-slate-100 px-3 py-2.5 last:border-b-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/80",
-                      isSelected && "bg-pink-50 dark:bg-pink-500/5"
+                      "flex min-h-[31px] items-center gap-2.5 px-2.5 transition-colors hover:bg-slate-100 dark:hover:bg-white/[0.05]",
+                      isSelected && "bg-pink-50 dark:bg-[rgba(190,35,100,0.22)]"
                     )}
                   >
                     <button
+                      id={`event-multi-select-option-${index}`}
                       type="button"
+                      role="option"
+                      aria-selected={isSelected}
                       onClick={() => toggleItem(item.id)}
-                      className="flex flex-1 items-center gap-3 text-left"
+                      onKeyDown={(event) => {
+                        if (event.key === "ArrowDown") {
+                          event.preventDefault();
+                          document.getElementById(`event-multi-select-option-${index + 1}`)?.focus();
+                        } else if (event.key === "ArrowUp") {
+                          event.preventDefault();
+                          if (index === 0) searchInputRef.current?.focus();
+                          else document.getElementById(`event-multi-select-option-${index - 1}`)?.focus();
+                        }
+                      }}
+                       title={displayName}
+                       className="flex min-w-0 flex-1 items-center gap-2.5 py-1 text-left text-sm text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 dark:text-slate-100"
                     >
-                      <span className={cn("mt-0.5 h-3.5 w-3.5 rounded-full border-2 border-slate-300 bg-white dark:border-slate-500 dark:bg-slate-900", isSelected && "border-pink-500 bg-pink-500") } />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{item.name}</span>
-                        {dateRange && (
-                          <span className="mt-0.5 block truncate text-[11px] text-slate-500 dark:text-slate-400">{dateRange}</span>
+                       <span
+                         aria-hidden="true"
+                        className={cn(
+                          "h-2 w-2 shrink-0 rounded-full",
+                          item.color ?? "bg-[#7da7e8]"
                         )}
-                      </span>
+                      />
+                      <span className="min-w-0 flex-1 truncate font-normal">{displayName}</span>
                     </button>
 
                     {showDelete && onDelete && (
                       <button
                         type="button"
                         onClick={() => onDelete(item)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-300"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-red-500/10 dark:hover:text-red-300"
                         aria-label={`Delete ${item.name}`}
                         title="Delete event"
                       >
@@ -217,23 +280,24 @@ export default function EventMultiSelect({
             )}
           </div>
 
-          {(!singleSelect || selectedIds.length > 0) && (
-            <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                {filteredItems.length} result{filteredItems.length === 1 ? "" : "s"}
-              </span>
-              {selectedIds.length > 0 && !singleSelect && (
-                <button type="button" onClick={clearSelection} className="text-[11px] font-medium text-pink-600 hover:text-pink-500 dark:text-pink-300">
-                  Clear
-                </button>
-              )}
-              {onViewAll && (
-                <button type="button" onClick={() => { setOpen(false); setSearch(""); onViewAll(); }} className="text-[11px] font-medium text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
-                  View all
-                </button>
-              )}
-            </div>
-          )}
+          <footer className="flex h-[35px] items-center justify-between border-t border-slate-200 px-2.5 text-xs text-slate-500 dark:border-white/[0.08] dark:text-[#8494ac]">
+            <span aria-live="polite">
+              Showing {visibleCount} of {items.length} events
+            </span>
+            {showViewAll && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setShowAll(true);
+                  setOpen(true);
+                }}
+                className="flex h-full cursor-pointer items-center gap-1 font-medium text-pink-600 hover:text-pink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-[#ff365c] dark:hover:text-pink-300"
+              >
+                {viewAllLabel} <span aria-hidden="true">→</span>
+              </button>
+            )}
+          </footer>
         </div>
       )}
     </div>
