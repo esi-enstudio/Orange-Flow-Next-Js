@@ -110,6 +110,12 @@ function defaultColumns(): string[] {
   return ["retailer_code", "retailer_name"];
 }
 
+function normalizePercent(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function formatDisplayDate(value: string | null | undefined): string {
   if (!value) return "—";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -700,6 +706,7 @@ function EventManagerModal({
     setDescription(e.description ?? "");
     setStart(e.start_date);
     setEnd(e.end_date);
+    setPercentInput(String(normalizePercent(e.config?.monthly_target_percent) ?? ""));
     const type = cfg.target_type ?? "retailer";
     setConfig({
       target_type: type,
@@ -925,6 +932,7 @@ function EventManagerModal({
           sort_order: config.sort_order ?? "desc",
           joining_start_date: config.joining_start_date ?? null,
           joining_end_date: config.joining_end_date ?? null,
+          monthly_target_percent: normalizePercent(percentInput),
         },
         targets: {
           target_type: config.target_type ?? "retailer",
@@ -1821,8 +1829,9 @@ export default function GaReportBuilderPage() {
     } catch { /* silent */ }
   }, []);
 
-  const buildReport = useCallback(async (p?: Payload) => {
+  const buildReport = useCallback(async (p?: Payload, percentInputOverride?: string) => {
     const target = p ?? payloadRef.current;
+    const reportPercent = normalizePercent(percentInputOverride ?? percentInput);
     if (!effectiveHouseId) {
       toast.error("Select a house first");
       return;
@@ -1841,7 +1850,9 @@ export default function GaReportBuilderPage() {
       const res = await apiClient.post("/ga-report-builder/report", body, { timeout: 300000 });
       setReport(res.data?.data ?? null);
       setConfigOpen(false);
-      if (target.event_id && canEdit && persistableKey(target) !== appliedPersistableRef.current) {
+      const selectedEvent = events.find((event) => event.id === target.event_id);
+      const percentChanged = normalizePercent(selectedEvent?.config?.monthly_target_percent) !== reportPercent;
+      if (target.event_id && canEdit && (persistableKey(target) !== appliedPersistableRef.current || percentChanged)) {
         try {
           await apiClient.patch(`/ga-report-builder/events/${target.event_id}`, {
             config: {
@@ -1856,6 +1867,7 @@ export default function GaReportBuilderPage() {
               sort_order: target.sort_order,
               joining_start_date: target.joining_start_date,
               joining_end_date: target.joining_end_date,
+              monthly_target_percent: reportPercent,
             },
             targets: {
               target_type: target.target_type,
@@ -1874,7 +1886,7 @@ export default function GaReportBuilderPage() {
     } finally {
       setBuilding(false);
     }
-  }, [effectiveHouseId, t, canEdit, loadEvents]);
+  }, [effectiveHouseId, t, canEdit, loadEvents, percentInput, events]);
 
   const eventToPayload = useCallback((ev: EventItem): Payload => {
     const cfg = (ev.config ?? {}) as Partial<Payload>;
@@ -1902,6 +1914,8 @@ export default function GaReportBuilderPage() {
 
   const applyEvent = useCallback(async (ev: EventItem, autoBuild = true) => {
     const next = eventToPayload(ev);
+    const selectedPercent = String(normalizePercent(ev.config?.monthly_target_percent) ?? "");
+    setPercentInput(selectedPercent);
     try {
       const res = await apiClient.get(`/ga-report-builder/events/${ev.id}/targets`);
       const list = (res.data?.data ?? []) as Array<{
@@ -1928,7 +1942,7 @@ export default function GaReportBuilderPage() {
     setPayload(next);
     setJoiningPeriod(joiningModeFor(next.joining_start_date, next.joining_end_date));
     if (autoBuild) {
-      await buildReport(next);
+      await buildReport(next, selectedPercent);
     }
   }, [eventToPayload, buildReport]);
 
@@ -2260,10 +2274,22 @@ export default function GaReportBuilderPage() {
         {effectiveHouseId !== null && (
           <div className="relative z-10 mb-6 grid grid-cols-1 gap-4">
             <section className="relative min-w-0">
-              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-gray-300">
-                <CalendarDays className="h-3.5 w-3.5 text-rose-500" />
-                Events
-              </label>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <label className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-gray-300">
+                  <CalendarDays className="h-3.5 w-3.5 text-rose-500" />
+                  Events
+                </label>
+                {canCreate && (
+                  <button
+                    type="button"
+                    onClick={() => setEventModalOpen(true)}
+                    className="inline-flex min-h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-500/20 dark:text-rose-300"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t("ga_report_builder.event.create")}
+                  </button>
+                )}
+              </div>
               <p className="mb-2 text-[11px] text-slate-500 dark:text-gray-400">Select an event to view its report</p>
               <EventMultiSelect
                 items={events.map((ev, index): EventMultiSelectItem => ({
@@ -2484,14 +2510,14 @@ export default function GaReportBuilderPage() {
 
       {/* ── Report Configuration Modal ── */}
       {configOpen && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/65 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/65 backdrop-blur-md p-1 sm:p-4">
           <motion.div
             initial={{ scale: 0.96, y: 16, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
-            className="w-full max-w-2xl max-h-[92vh] bg-white dark:bg-slate-900 rounded-3xl border border-gray-200 dark:border-slate-700/80 shadow-2xl flex flex-col overflow-hidden"
+            className="w-full max-w-2xl max-h-[98vh] sm:max-h-[92vh] bg-white dark:bg-slate-900 rounded-xl sm:rounded-3xl border border-gray-200 dark:border-slate-700/80 shadow-2xl flex flex-col overflow-hidden"
           >
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
+            <div className="px-3 py-2.5 sm:px-6 sm:py-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
+              <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-primary-50 dark:bg-primary-500/10 flex items-center justify-center shrink-0">
                 <SlidersHorizontal className="w-5 h-5 text-primary-600 dark:text-primary-400" />
               </div>
               <div className="flex-1 min-w-0">
@@ -2502,11 +2528,10 @@ export default function GaReportBuilderPage() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-              <div className="rounded-2xl border border-gray-200 dark:border-slate-700/60 p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4 space-y-3">
 
               {/* Event */}
-              <div className="space-y-1.5 mb-4">
+              <div className="space-y-1.5">
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block">{t("ga_report_builder.filters.event")}</label>
                 <div className="flex gap-2">
                   <select
@@ -2533,7 +2558,7 @@ export default function GaReportBuilderPage() {
               </div>
 
               {/* Date range */}
-              <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.from")}</label>
                   <input
@@ -2555,9 +2580,9 @@ export default function GaReportBuilderPage() {
               </div>
 
               {/* Target type */}
-              <div className="mb-4">
+              <div>
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.target.type")}</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {(["rso", "bp", "retailer"] as const).map((tp) => (
                     <button
                       key={tp}
@@ -2578,12 +2603,12 @@ export default function GaReportBuilderPage() {
 
               {/* Joining period / always active filters (RSO & BP reports) */}
               {((payload.target_type ?? "retailer") === "rso" || (payload.target_type ?? "retailer") === "bp") && (
-                <div className="mb-4 space-y-3">
+                <div className="space-y-3">
                   <div>
                     <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
                       {t("ga_report_builder.filters.joining_period")}
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -2618,7 +2643,7 @@ export default function GaReportBuilderPage() {
                       </button>
                     </div>
                     {joiningPeriod === "custom" && (
-                      <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <div>
                           <label className="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
                             {t("ga_report_builder.filters.from")}
@@ -2649,7 +2674,7 @@ export default function GaReportBuilderPage() {
 
               {/* Retailers */}
               {(payload.target_type ?? "retailer") === "retailer" && (
-                <div className="mb-4">
+                <>
                   <EntitySelector
                     label={t("ga_report_builder.filters.retailers")}
                     items={configEntityItems.retailer}
@@ -2662,12 +2687,12 @@ export default function GaReportBuilderPage() {
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
                   />
-                </div>
+                </>
               )}
 
               {/* RSOs */}
               {(payload.target_type ?? "retailer") === "rso" && (
-                <div className="mb-4">
+                <>
                   <EntitySelector
                     label={t("ga_report_builder.filters.rso")}
                     items={configEntityItems.rso}
@@ -2680,12 +2705,12 @@ export default function GaReportBuilderPage() {
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
                   />
-                </div>
+                </>
               )}
 
               {/* BPs */}
               {(payload.target_type ?? "retailer") === "bp" && (
-                <div className="mb-4">
+                <>
                   <EntitySelector
                     label={t("ga_report_builder.filters.bp")}
                     items={configEntityItems.bp}
@@ -2698,11 +2723,11 @@ export default function GaReportBuilderPage() {
                     selectAllLabel={t("ga_report_builder.target.select_all")}
                     clearLabel={t("ga_report_builder.target.deselect_all")}
                   />
-                </div>
+                </>
               )}
 
               {/* Slabs */}
-              <div className="mb-4">
+              <div>
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.target.slabs")}</label>
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => adjustPayloadSlabs(-1)} className="w-[44px] h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300">
@@ -2717,10 +2742,10 @@ export default function GaReportBuilderPage() {
 
               {/* Targets */}
               {(payload.target_type ?? "retailer") !== "retailer" && (
-                <div className="mb-4">
+                <div>
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.target.targets")}</label>
                   {configEntityRows.length > 0 && (
-                    <div className="mb-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/30 p-3 space-y-2">
+                    <div className="mb-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/30 p-2 sm:p-3 space-y-2">
                       <div className="flex flex-col sm:flex-row sm:items-end gap-2">
                         <div className="flex-1">
                           <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
@@ -2836,14 +2861,12 @@ export default function GaReportBuilderPage() {
 
               {/* Columns */}
               {(payload.target_type ?? "retailer") === "retailer" && (
-                <div className="mb-4">
-                  <ColumnPicker allColumns={columnsMeta} selected={payload.columns} onChange={(cols) => updatePayload({ columns: cols })} />
-                </div>
+                <ColumnPicker allColumns={columnsMeta} selected={payload.columns} onChange={(cols) => updatePayload({ columns: cols })} />
               )}
 
               {/* Sort */}
               {(payload.target_type ?? "retailer") === "retailer" && (
-              <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">{t("ga_report_builder.filters.sort_by")}</label>
                   <select
@@ -2871,7 +2894,7 @@ export default function GaReportBuilderPage() {
               )}
 
               {/* Exclusions */}
-              <div className="mb-4 space-y-3">
+              <div className="space-y-3">
                 <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
                   <Filter className="w-3.5 h-3.5" /> {t("ga_report_builder.filters.exclusions")}
                 </p>
@@ -2916,7 +2939,7 @@ export default function GaReportBuilderPage() {
                   {building ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
                   {building ? t("ga_report_builder.builder.building") : t("ga_report_builder.builder.build")}
                 </button>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <button
                     onClick={reset}
                     className="flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
@@ -2935,11 +2958,9 @@ export default function GaReportBuilderPage() {
                   )}
                 </div>
               </div>
-            </div>
-
             {/* Templates */}
-            <div className="rounded-2xl border border-gray-100 dark:border-slate-700/50 bg-white dark:bg-slate-800/60 p-5">
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-3">
+            <div className="border-t border-gray-200 pt-3 dark:border-slate-700">
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-2">
                 <FolderOpen className="w-4 h-4 text-primary-500" />
                 {t("ga_report_builder.builder.templates")}
               </p>
