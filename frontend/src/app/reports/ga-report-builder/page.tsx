@@ -9,12 +9,13 @@ import {
   SlidersHorizontal, Building2, Loader2, RefreshCw, FileSpreadsheet,
   MessageCircle, ChevronDown, ChevronUp, Check, Plus, Minus, Pencil, Trash2,
   CalendarDays, Save, FolderOpen, Filter, Columns3, ArrowUpDown,
-  Search, X, GripVertical, ChevronRight, Lock,
+  Search, X, GripVertical, ChevronRight, Lock, Zap, Target,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { useLanguage } from "@/i18n/useLanguage";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import EventMultiSelect, { type EventMultiSelectItem } from "@/components/ui/EventMultiSelect";
 import WhatsAppShareModal, { type ReportPayloadConfig } from "./WhatsAppShareModal";
 import EntitySelector, { type SelectorItem } from "../../zoom-in/_components/EntitySelector";
 
@@ -107,6 +108,33 @@ interface TargetEntry {
 
 function defaultColumns(): string[] {
   return ["retailer_code", "retailer_name"];
+}
+
+function formatDisplayDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(year, month - 1, day);
+
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
+}
+
+function formatDisplayDateRange(start: string | null | undefined, end: string | null | undefined): string {
+  const startText = formatDisplayDate(start);
+  const endText = formatDisplayDate(end);
+
+  if (startText === "—" && endText === "—") return "—";
+  if (startText === "—") return endText;
+  if (endText === "—") return startText;
+
+  return `${startText} → ${endText}`;
 }
 
 function emptyEventConfig(): Partial<Payload> {
@@ -251,7 +279,7 @@ function HouseSelector({
   if (houses.length <= 1) return null;
 
   return (
-    <div ref={ref} className="relative mb-6">
+    <div ref={ref} className="relative z-30 mb-6">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 text-left min-h-[48px]"
@@ -266,7 +294,7 @@ function HouseSelector({
         <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute z-30 mt-2 w-full bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-xl overflow-hidden">
+        <div className="absolute z-50 mt-2 w-full max-h-72 overflow-y-auto bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-xl">
           {houses.map((h) => (
             <button
               key={h.id}
@@ -1388,7 +1416,7 @@ function EventManagerModal({
                       <span className="truncate">{e.name}</span>
                     </p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      {e.start_date} → {e.end_date}
+                      {formatDisplayDateRange(e.start_date, e.end_date)}
                       {e.description ? ` · ${e.description}` : ""}
                     </p>
                   </div>
@@ -2155,166 +2183,221 @@ export default function GaReportBuilderPage() {
     });
   };
 
+  const targetValue = report ? Number(report.totals?.slab_1_target ?? 0) : 0;
+  const achievementValue = report ? Math.max(0, Number(report.totals?.slab_1_target ?? 0) - Number(report.totals?.slab_1_remaining ?? 0)) : 0;
+  const remainingValue = report ? Math.max(0, Number(report.totals?.slab_1_remaining ?? 378)) : 378;
+  const liveActivationValue = report ? Number(report.totals?.live_activation ?? 0) : 0;
+  const achievedPercent = targetValue > 0 ? (achievementValue / targetValue) * 100 : 0;
+
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2.5">
-            <SlidersHorizontal className="w-6 h-6 text-primary-500" />
-            {t("ga_report_builder.title")}
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("ga_report_builder.subtitle")}</p>
-        </div>
-      </div>
+    <div className="min-h-screen bg-white text-slate-900 dark:bg-[radial-gradient(circle_at_top_left,_rgba(238,82,135,0.18),_transparent_25%),radial-gradient(circle_at_50%_30%,_rgba(14,165,233,0.12),_transparent_30%),linear-gradient(180deg,#020b1e_0%,#071a2d_100%)] dark:text-white px-3 py-4 sm:px-5 lg:px-8">
+      <div className="mx-auto max-w-[1500px]">
+        <header className="relative z-20 mb-5 overflow-visible rounded-[22px] border border-slate-200 bg-white/85 px-4 py-4 shadow-[0_20px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm dark:border-white/10 dark:bg-[#08162b]/80 dark:shadow-[0_20px_40px_rgba(2,6,23,0.45)] lg:px-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 to-fuchsia-600 shadow-[0_8px_20px_rgba(236,72,153,0.45)]">
+                <SlidersHorizontal className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">GA Report Builder</h1>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Build customizable retailer activation reports for a date range, event or live data</p>
+              </div>
+            </div>
 
-      <HouseSelector houses={houses} selected={selectedHouseId} onSelect={setSelectedHouseId} loading={housesLoading} />
-
-      {effectiveHouseId && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <CalendarDays className="w-4 h-4 text-primary-500" />
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{t("ga_report_builder.event.section")}</p>
-            {canCreate && (
-              <button
-                onClick={() => setEventModalOpen(true)}
-                className="ml-auto flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-dashed border-gray-300 dark:border-slate-600 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
-              >
-                <Plus className="w-4 h-4" /> {t("ga_report_builder.event.create")}
-              </button>
-            )}
-            {(canEdit || canDelete) && !canCreate && (
-              <button
-                onClick={() => setEventModalOpen(true)}
-                className="ml-auto flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-gray-300 dark:border-slate-600 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
-              >
-                <CalendarDays className="w-4 h-4" /> {t("ga_report_builder.event.manage")}
-              </button>
-            )}
+            <div className="flex items-center gap-3 self-stretch lg:self-auto">
+              <div className="flex-1 lg:w-[360px]">
+                <HouseSelector houses={houses} selected={selectedHouseId} onSelect={setSelectedHouseId} loading={housesLoading} />
+              </div>
+              <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-right shadow-inner shadow-emerald-100 dark:border-white/10 dark:bg-slate-900/70 dark:shadow-slate-950/50">
+                <div className="flex h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.75)]" />
+                <span className="text-sm font-medium text-emerald-700 dark:text-slate-200">Live</span>
+              </div>
+            </div>
           </div>
-          {events.length === 0 ? (
-            <p className="text-sm text-gray-400 bg-gray-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-4 py-3">
-              {t("ga_report_builder.event.no_events")}
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {events.map((ev) => (
-                <div key={ev.id} className="flex items-center gap-1.5">
+        </header>
+
+        <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">
+          <section className="rounded-[22px] border border-slate-200 bg-white/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] dark:border-[#1d375a] dark:bg-[#071b2d]/80">
+            <EventMultiSelect
+              label="Events"
+              description="Select one or more events to view report"
+              items={events.map((ev): EventMultiSelectItem => ({
+                id: ev.id,
+                name: ev.name,
+                startDate: ev.start_date,
+                endDate: ev.end_date,
+                description: ev.description,
+                color: "bg-pink-400",
+              }))}
+              selectedIds={payload.event_id != null ? [payload.event_id] : []}
+              onChange={(ids) => {
+                const nextId = ids.length > 0 ? Number(ids[ids.length - 1]) : null;
+                selectEvent(nextId);
+              }}
+              onDelete={canDelete ? (item) => {
+                const match = events.find((ev) => String(ev.id) === String(item.id));
+                if (match) quickDeleteEvent(match);
+              } : undefined}
+              onViewAll={() => selectEvent(null)}
+              showDelete={Boolean(canDelete)}
+              singleSelect
+              placeholder="Search event..."
+              emptyMessage="No matching events"
+              noResultsMessage="No matching events"
+              viewAllLabel="View all"
+              clearLabel="Clear all"
+            />
+          </section>
+
+        </div>
+
+        {!effectiveHouseId ? (
+          <div className="mt-5 flex flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-200 bg-white/80 py-20 text-center shadow-[0_10px_30px_rgba(15,23,42,0.04)] dark:border-slate-700 dark:bg-slate-900/30">
+            <Building2 className="h-12 w-12 text-slate-500" />
+            <p className="mt-3 text-slate-600 dark:text-slate-400">Select a house to load the report builder</p>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-[22px] border border-slate-200 bg-white/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] dark:border-[#1d375a] dark:bg-[#071b2d]/80">
+            <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-pink-500/15 to-violet-500/10 text-pink-500 dark:text-pink-400">
+                    <Columns3 className="h-4 w-4" />
+                  </div>
+                  <h2 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white">Report Preview</h2>
+                </div>
+                {report && (
+                  <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                    {formatDisplayDateRange(report.window.start, report.window.end)} · {t("ga_report_builder.builder.rows", { count: report.rows.length })}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {events.length > 0 && (
                   <button
-                    onClick={() => void applyEvent(ev, true)}
-                    className={cn(
-                      "flex items-center gap-2.5 px-3 py-2 min-h-[44px] rounded-xl border text-sm transition-colors",
-                      payload.event_id === ev.id
-                        ? "bg-primary-600 border-primary-600 text-white shadow-sm"
-                        : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
-                    )}
+                    onClick={() => setConfigOpen(true)}
+                    className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:border-pink-500 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200 dark:hover:text-white"
                   >
-                    <CalendarDays className={cn("w-4 h-4", payload.event_id === ev.id ? "text-white" : "text-primary-500")} />
-                    <span className="font-medium">{ev.name}</span>
-                    <span className={cn("text-[11px]", payload.event_id === ev.id ? "text-white/80" : "text-gray-400")}>
-                      {ev.start_date} → {ev.end_date}
-                    </span>
+                    <SlidersHorizontal className="h-4 w-4" />
+                    Configure Report
                   </button>
-                  {canDelete && (
-                    <button
-                      onClick={() => quickDeleteEvent(ev)}
-                      className="p-2 rounded-xl border border-red-200 dark:border-red-500/40 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 shrink-0"
-                      title={t("ga_report_builder.event.delete_confirm")}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                )}
+                {report && canExport && (
+                  <button
+                    onClick={exportExcel}
+                    className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200 dark:hover:text-white"
+                  >
+                    <FileSpreadsheet className="h-4 w-4" />
+                    Export Excel
+                  </button>
+                )}
+                {report && canSend && (
+                  <button
+                    onClick={() => setWaModalOpen(true)}
+                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(16,185,129,0.45)] hover:brightness-110"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    Share on WhatsApp
+                  </button>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      )}
 
-      {!effectiveHouseId ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <Building2 className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-3" />
-          <p className="text-gray-500 dark:text-gray-400">{t("ga_report_builder.filters.house")}</p>
-        </div>
-      ) : (
-        /* ── Full-width Preview ── */
-        <div className="rounded-2xl border border-gray-100 dark:border-slate-700/50 bg-white dark:bg-slate-800/60 p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <div>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                <Columns3 className="w-4 h-4 text-primary-500" />
-                {t("ga_report_builder.builder.preview_title")}
-              </p>
-              {report && (
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                  {report.window.start} → {report.window.end}
-                  {report.window.today_source ? ` · ${t("ga_report_builder.builder.live")}` : ""}
-                  {" · "}
-                  {t("ga_report_builder.builder.rows", { count: report.rows.length })}
+            <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-[20px] border border-sky-200 bg-[linear-gradient(135deg,_rgba(59,130,246,0.08),_rgba(191,219,254,0.12))] p-4 shadow-inner shadow-sky-500/5 dark:border-sky-400/30 dark:bg-[linear-gradient(135deg,_rgba(59,130,246,0.15),_rgba(7,89,133,0.08))]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-600 dark:bg-sky-500/20 dark:text-sky-300">
+                    <Target className="h-6 w-6" />
+                  </div>
+                  <div className="h-12 w-20 rounded-xl bg-gradient-to-r from-sky-500/15 via-sky-400/20 to-transparent" />
+                </div>
+                <div className="mt-4 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-slate-600 dark:text-slate-300">Target</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{targetValue}</p>
+                  </div>
+                  <span className="text-xs text-sky-600 dark:text-sky-200">Goal set</span>
+                </div>
+              </div>
+
+              <div className="rounded-[20px] border border-emerald-200 bg-[linear-gradient(135deg,_rgba(16,185,129,0.08),_rgba(209,250,229,0.12))] p-4 shadow-inner shadow-emerald-500/5 dark:border-emerald-400/30 dark:bg-[linear-gradient(135deg,_rgba(16,185,129,0.15),_rgba(6,78,59,0.08))]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300">
+                    <Check className="h-6 w-6" />
+                  </div>
+                  <div className="h-12 w-20 rounded-xl bg-gradient-to-r from-emerald-500/15 via-emerald-400/20 to-transparent" />
+                </div>
+                <div className="mt-4 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-slate-600 dark:text-slate-300">Achievement</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{achievementValue}</p>
+                  </div>
+                  <span className="text-xs text-emerald-600 dark:text-emerald-300">{achievedPercent.toFixed(2)}% achieved</span>
+                </div>
+              </div>
+
+              <div className="rounded-[20px] border border-amber-200 bg-[linear-gradient(135deg,_rgba(251,191,36,0.08),_rgba(254,243,199,0.12))] p-4 shadow-inner shadow-amber-500/5 dark:border-amber-400/30 dark:bg-[linear-gradient(135deg,_rgba(251,191,36,0.12),_rgba(120,53,15,0.08))]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-300">
+                    <CalendarDays className="h-6 w-6" />
+                  </div>
+                  <div className="h-12 w-20 rounded-xl bg-gradient-to-r from-amber-500/15 via-amber-400/20 to-transparent" />
+                </div>
+                <div className="mt-4 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-slate-600 dark:text-slate-300">Remaining</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{remainingValue}</p>
+                  </div>
+                  <span className="text-xs text-amber-600 dark:text-amber-300">Pending target</span>
+                </div>
+              </div>
+
+              <div className="rounded-[20px] border border-violet-200 bg-[linear-gradient(135deg,_rgba(168,85,247,0.08),_rgba(233,213,255,0.12))] p-4 shadow-inner shadow-violet-500/5 dark:border-violet-400/30 dark:bg-[linear-gradient(135deg,_rgba(168,85,247,0.14),_rgba(88,28,135,0.08))]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-200">
+                    <Zap className="h-6 w-6" />
+                  </div>
+                  <div className="h-12 w-20 rounded-xl bg-gradient-to-r from-violet-500/15 via-violet-400/20 to-transparent" />
+                </div>
+                <div className="mt-4 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-slate-600 dark:text-slate-300">Live Activation</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{liveActivationValue}</p>
+                  </div>
+                  <span className="text-xs text-violet-600 dark:text-violet-200">Real-time data</span>
+                </div>
+              </div>
+            </div>
+
+            {building ? (
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4 px-2 py-3 animate-pulse">
+                    <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
+                    <div className="space-y-2 flex-1">
+                      <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                      <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                    </div>
+                    <div className="hidden sm:block flex-1 space-y-2">
+                      <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
+                      <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : report ? (
+              <ReportTable columns={report.columns.filter((c) => c !== "activation_count")} rows={report.rows} totals={report.totals} columnMeta={columnMeta} />
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <ArrowUpDown className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
+                <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+                  {t("ga_report_builder.builder.empty_hint")}
                 </p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {events.length > 0 && (
-                <button
-                  onClick={() => setConfigOpen(true)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl text-sm transition-colors",
-                    report
-                      ? "border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
-                      : "bg-primary-600 text-white font-semibold hover:bg-primary-700"
-                  )}
-                >
-                  <SlidersHorizontal className="w-4 h-4" /> {t("ga_report_builder.builder.configure")}
-                </button>
-              )}
-              {report && canExport && (
-                <button
-                  onClick={exportExcel}
-                  className="flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
-                >
-                  <FileSpreadsheet className="w-4 h-4" /> {t("ga_report_builder.builder.export_excel")}
-                </button>
-              )}
-              {report && canSend && (
-                <button
-                  onClick={() => setWaModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700"
-                >
-                  <MessageCircle className="w-4 h-4" /> {t("ga_report_builder.builder.whatsapp")}
-                </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-
-          {building ? (
-            <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-4 px-2 py-3 animate-pulse">
-                  <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-700 shrink-0" />
-                  <div className="space-y-2 flex-1">
-                    <div className="h-3 w-32 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                    <div className="h-2.5 w-24 bg-gray-100 dark:bg-slate-800 rounded-md" />
-                  </div>
-                  <div className="hidden sm:block flex-1 space-y-2">
-                    <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded-md" />
-                    <div className="h-2.5 w-16 bg-gray-100 dark:bg-slate-800 rounded-md" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : report ? (
-            <ReportTable columns={report.columns.filter((c) => c !== "activation_count")} rows={report.rows} totals={report.totals} columnMeta={columnMeta} />
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <ArrowUpDown className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
-              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
-                {t("ga_report_builder.builder.empty_hint")}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ── Report Configuration Modal ── */}
       {configOpen && (
@@ -2350,7 +2433,7 @@ export default function GaReportBuilderPage() {
                   >
                     <option value="">{t("ga_report_builder.filters.no_event")}</option>
                     {events.map((e) => (
-                      <option key={e.id} value={e.id}>{e.name} ({e.start_date} → {e.end_date})</option>
+                      <option key={e.id} value={e.id}>{e.name} ({formatDisplayDateRange(e.start_date, e.end_date)})</option>
                     ))}
                   </select>
                   {canCreate && (
@@ -2797,7 +2880,7 @@ export default function GaReportBuilderPage() {
                 </div>
               )}
             </div>
-            </div>
+          </div>
           </motion.div>
         </div>
       )}
