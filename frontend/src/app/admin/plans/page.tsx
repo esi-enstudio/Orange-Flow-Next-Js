@@ -25,9 +25,6 @@ interface PlanForm {
   trial_days: string;
   sort_order: string;
   is_active: boolean;
-  features: string;
-  feature_flags: string;
-  limits: string;
   description: string;
   allowed_modules: string[];
 }
@@ -42,9 +39,6 @@ const EMPTY_FORM: PlanForm = {
   trial_days: "0",
   sort_order: "0",
   is_active: true,
-  features: "",
-  feature_flags: "",
-  limits: "",
   description: "",
   allowed_modules: [],
 };
@@ -130,9 +124,6 @@ export default function AdminPlansPage() {
       trial_days: String(plan.trial_days ?? 0),
       sort_order: String(plan.sort_order ?? 0),
       is_active: plan.is_active,
-      features: plan.features || "",
-      feature_flags: (plan.feature_flags || []).join(", "),
-      limits: plan.limits ? JSON.stringify(plan.limits, null, 2) : "",
       description: plan.description || "",
       allowed_modules: expandGrantsToLeaves(plan.allowed_modules || []),
     });
@@ -176,13 +167,6 @@ export default function AdminPlansPage() {
     const fe: Record<string, string> = {};
     if (!form.name.trim()) fe.name = t("plans.name") + " required";
     if (form.trial_days && Number(form.trial_days) < 0) fe.trial_days = "invalid";
-    if (form.limits.trim()) {
-      try {
-        JSON.parse(form.limits);
-      } catch {
-        fe.limits = "invalid JSON";
-      }
-    }
     setFieldErrors(fe);
     return Object.keys(fe).length === 0;
   };
@@ -214,15 +198,9 @@ export default function AdminPlansPage() {
         trial_days: Number(form.trial_days) || 0,
         sort_order: Number(form.sort_order) || 0,
         is_active: form.is_active,
-        features: form.features,
-        feature_flags: form.feature_flags
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
         description: form.description || null,
         allowed_modules: selectedModules.length > 0 ? selectedModules : null,
       };
-      if (form.limits.trim()) payload.limits = JSON.parse(form.limits);
       if (editing) {
         await apiClient.patch(`v1/plans/${editing.id}`, payload);
         toast.success(t("plans.toast_update_success"));
@@ -649,34 +627,6 @@ export default function AdminPlansPage() {
                   {fieldErrors.allowed_modules && (
                     <p className="text-xs text-red-500 mt-1">{fieldErrors.allowed_modules}</p>
                   )}
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("plans.features")}</label>
-                  <input
-                    value={form.features}
-                    onChange={(e) => setForm({ ...form, features: e.target.value })}
-                    className={inputCls}
-                    placeholder="Fast retail sync, GA report, ..."
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("plans.feature_flags")}</label>
-                  <input
-                    value={form.feature_flags}
-                    onChange={(e) => setForm({ ...form, feature_flags: e.target.value })}
-                    className={inputCls}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("plans.limits")}</label>
-                  <textarea
-                    rows={2}
-                    value={form.limits}
-                    onChange={(e) => setForm({ ...form, limits: e.target.value })}
-                    className={inputCls}
-                    placeholder='{"retailers": 500}'
-                  />
-                  {fieldErrors.limits && <p className="text-xs text-red-500 mt-1">{fieldErrors.limits}</p>}
                 </div>
                 <div className="md:col-span-2">
                   <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("plans.field_description")}</label>
