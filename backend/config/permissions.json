@@ -8,7 +8,9 @@
         "houses.edit",
         "houses.delete",
         "houses.import",
-        "houses.export"
+        "houses.export",
+        "houses.letterhead_view",
+        "houses.letterhead_edit"
       ]
     },
     "users": {
@@ -79,7 +81,10 @@
         "employees.assign",
         "employees.document_view",
         "employees.document_upload",
-        "employees.document_delete"
+        "employees.document_delete",
+        "employees.resignation_view",
+        "employees.resignation_upload",
+        "employees.resignation_generate"
       ]
     },
     "location": {
@@ -581,9 +586,14 @@
       "name": "Distributor",
       "permissions": [
         "houses.view",
+        "houses.letterhead_view",
+        "houses.letterhead_edit",
         "retailers.view",
         "employees.view",
         "employees.assign",
+        "employees.resignation_view",
+        "employees.resignation_upload",
+        "employees.resignation_generate",
         "bts.view",
         "reports.view",
         "sim_status.view",
@@ -638,6 +648,10 @@
         "retailers.view",
         "employees.view",
         "employees.assign",
+        "employees.resignation_view",
+        "employees.resignation_upload",
+        "employees.resignation_generate",
+        "houses.letterhead_view",
         "bts.view",
         "sim_status.view",
         "activations.view",

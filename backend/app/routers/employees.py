@@ -1,8 +1,8 @@
+import logging
 import os
 import shutil
 from datetime import date
 from typing import Optional
-
 from fastapi import APIRouter, Depends, Form, HTTPException, File, UploadFile, Query, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import select, or_, and_, cast, Float, func
@@ -14,6 +14,7 @@ from app.routers.deps import get_db, has_permission, has_any_permission, get_cur
 from app.schemas.employee import EmployeeSchema, EmployeeCreate, EmployeeSelfUpdate
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.employee import DEMO_EMPLOYEE_ID_PREFIX, Employee
+from app.models.employee_document import EmployeeDocument
 from app.models.house import House
 from app.models.user import User, user_roles
 from app.models.retailer import Retailer
@@ -36,14 +37,21 @@ from app.services.employee_documents import (
     clear_employee_photo,
     document_file_path,
     get_document,
+    latest_document,
     list_documents,
+    serialize_document,
     soft_delete_documents,
     stage_upload,
+    store_image_document,
     user_has_permission,
 )
+from app.services import house_letterhead
+from app.services.resignation_pdf import build_resignation_html, render_pdf, safe_pdf_filename
 from app.models.role import Role
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
+
+logger = logging.getLogger(__name__)
 
 PREFIX_MAP = {
     "rso": "RSO", "manager": "MGR", "supervisor": "SUP",
@@ -833,6 +841,193 @@ async def delete_employee_document(
         request=request, status_code=200,
     )
     return {"message": "Document deleted", "deleted": deleted}
+
+
+# --------------------------------------------------------------------------- #
+# Resignation documentation (RSO / BP)
+#
+# After an RSO/BP is resigned the operator uploads the handwritten resignation
+# letter, the system picks the employee's NID/Voter ID scan and renders a
+# three-page PDF: letter, NID, and the house letterhead application with the six
+# dynamic values filled in Bangla.
+# --------------------------------------------------------------------------- #
+
+RESIGNATION_LETTER_TYPES = ("resignation_letter",)
+# `nid_front` / `voter_id` only match rows uploaded before the single NID type.
+NID_TYPES = ("nid", "voter_id", "nid_front")
+
+
+def _assert_resignation_employee(emp: Employee) -> None:
+    if (emp.employee_type or "").lower() not in ("rso", "bp"):
+        raise HTTPException(
+            status_code=422,
+            detail="Resignation documents are only supported for RSO and BP employees",
+        )
+
+
+@router.get("/{emp_id}/resignation-documents")
+async def get_resignation_documents(
+    emp_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.resignation_view")),
+):
+    emp = await db.get(Employee, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
+    _assert_resignation_employee(emp)
+
+    house = await db.get(House, emp.house_id)
+    letter = await latest_document(db, emp.id, RESIGNATION_LETTER_TYPES)
+    nid_doc = await latest_document(db, emp.id, NID_TYPES)
+
+    letterhead_ready = bool(house and house_letterhead.configured(house))
+    missing = []
+    if not letter:
+        missing.append("resignation_letter")
+    if not nid_doc:
+        missing.append("nid")
+    if not letterhead_ready:
+        missing.append("letterhead")
+
+    return {
+        "employee": {
+            "id": emp.id,
+            "employee_name": emp.employee_name,
+            "fathers_name": emp.fathers_name,
+            "nid": emp.nid,
+            "dms_code": emp.dms_code,
+            "employee_type": emp.employee_type,
+            "status": emp.status,
+            "joining_date": emp.joining_date,
+            "resigned_date": emp.resigned_date,
+            "house_id": emp.house_id,
+            "house_name": house.name if house else None,
+        },
+        "resignation_letter": serialize_document(letter) if letter else None,
+        "nid": serialize_document(nid_doc) if nid_doc else None,
+        "letterhead": (
+            {"house_id": house.id, "house_name": house.name, "configured": letterhead_ready}
+            if house else None
+        ),
+        "missing": missing,
+        "can_generate": not missing,
+    }
+
+
+@router.post("/{emp_id}/resignation-documents")
+async def upload_resignation_document(
+    emp_id: int,
+    request: Request,
+    kind: str = Form(..., description="resignation_letter or nid"),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.resignation_upload")),
+):
+    emp = await db.get(Employee, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
+    _assert_resignation_employee(emp)
+    if kind not in ("resignation_letter", "nid"):
+        raise HTTPException(status_code=422, detail="kind must be 'resignation_letter' or 'nid'")
+    if kind == "resignation_letter" and emp.status != "Resigned":
+        raise HTTPException(status_code=422, detail="The resignation letter can only be uploaded after the employee has resigned")
+    try:
+        doc = await store_image_document(db, emp, file, kind, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if kind == "resignation_letter":
+        # Keep a single active letter: the newest upload replaces the old scan.
+        previous = await db.execute(
+            select(EmployeeDocument).where(
+                EmployeeDocument.employee_id == emp.id,
+                EmployeeDocument.doc_type == "resignation_letter",
+                EmployeeDocument.is_deleted.is_(False),
+                EmployeeDocument.id != doc.id,
+            )
+        )
+        for row in previous.unique().scalars().all():
+            row.is_deleted = True
+            row.deleted_at = now_naive()
+            row.deleted_by = current_user.id
+
+    await db.commit()
+    await db.refresh(doc)
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "create",
+        record_id=emp.id,
+        record_identifier=emp.employee_id or emp.dms_code,
+        new_values={"entity": "resignation_document", "doc_type": doc.doc_type, "file_name": doc.file_name},
+        request=request, status_code=201,
+    )
+    return serialize_document(doc)
+
+
+@router.post("/{emp_id}/resignation-package")
+async def generate_resignation_package(
+    emp_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.resignation_generate")),
+):
+    emp = await db.get(Employee, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
+    _assert_resignation_employee(emp)
+    if emp.status != "Resigned":
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "EMPLOYEE_NOT_RESIGNED", "message": "The employee has not resigned yet"},
+        )
+
+    house = await db.get(House, emp.house_id)
+    letter = await latest_document(db, emp.id, RESIGNATION_LETTER_TYPES)
+    nid_doc = await latest_document(db, emp.id, NID_TYPES)
+
+    if not letter:
+        raise HTTPException(status_code=422, detail={"code": "RESIGNATION_LETTER_MISSING", "message": "Upload the handwritten resignation letter first"})
+    if not nid_doc:
+        raise HTTPException(status_code=422, detail={"code": "NID_MISSING", "message": "Upload the employee's NID/Voter ID card first"})
+    if not house or not house_letterhead.configured(house):
+        raise HTTPException(status_code=422, detail={"code": "LETTERHEAD_NOT_CONFIGURED", "message": "This house has no letterhead configured"})
+
+    letter_path = document_file_path(letter)
+    nid_path = document_file_path(nid_doc)
+    if not letter_path or not nid_path:
+        raise HTTPException(status_code=422, detail={"code": "RESIGNATION_FILE_MISSING", "message": "A stored resignation document file is missing"})
+
+    try:
+        with open(letter_path, "rb") as fh:
+            letter_bytes = fh.read()
+        with open(nid_path, "rb") as fh:
+            nid_bytes = fh.read()
+        html_document = build_resignation_html(house, emp.__dict__, letter_bytes, nid_bytes)
+        pdf = await render_pdf(html_document)
+    except Exception as exc:  # noqa: BLE001 - the operator gets a clear message
+        logger.exception("Resignation package generation failed for employee %s", emp.id)
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "PDF_GENERATION_FAILED", "message": "The PDF could not be generated. Check the uploaded images and the letterhead layout."},
+        ) from exc
+
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "export",
+        record_id=emp.id,
+        record_identifier=emp.employee_id or emp.dms_code,
+        new_values={"entity": "resignation_package", "letter_document_id": letter.id, "nid_document_id": nid_doc.id},
+        request=request, status_code=200,
+    )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_pdf_filename(emp)}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 class ReassignRequest(BaseModel):

@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
 from fastapi import UploadFile
-from PIL import Image
+from PIL import Image, ImageOps
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -323,6 +323,85 @@ async def claim_attachments(
         claimed.append({"kind": "document", "id": doc.id, "doc_type": doc.doc_type})
 
     return {"claimed": claimed, "photo_replaced": photo_replaced}
+
+
+async def store_image_document(
+    db: AsyncSession,
+    employee: Employee,
+    file: UploadFile,
+    doc_type: str,
+    current_user: User,
+    max_bytes: int = DOCUMENT_MAX_BYTES,
+    max_dimension: int = 2000,
+) -> EmployeeDocument:
+    """Store one image attachment immediately (no staging step).
+
+    Used by the resignation flow, where the employee already exists. The image
+    is normalised to JPEG so the stored scan stays small and orientation-safe.
+    Raises ValueError with a user-presentable message on rejection.
+    """
+    if not is_valid_document_type(doc_type):
+        raise ValueError("Invalid document type.")
+    original_name = safe_display_name(file.filename)
+    ext = _extension(original_name)
+    if ext not in IMAGE_EXTENSIONS:
+        raise ValueError("Only JPG, PNG or WEBP images are allowed.")
+    contents = await file.read(max_bytes + 1)
+    if not contents:
+        raise ValueError("The uploaded file is empty.")
+    if len(contents) > max_bytes:
+        raise ValueError(f"File is too large. Maximum size is {max_bytes // (1024 * 1024)} MB.")
+    if not _looks_like(contents, ext):
+        raise ValueError("The file content does not match its extension.")
+    try:
+        image = Image.open(io.BytesIO(contents))
+        image.load()
+    except Exception as exc:  # noqa: BLE001 - surfaced to the user
+        logger.warning("Rejected employee image %s: %s", original_name, exc)
+        raise ValueError("The image could not be read. Please choose another image.") from exc
+
+    image = ImageOps.exif_transpose(image)
+    if image.mode not in ("RGB", "L"):
+        image = image.convert("RGB")
+    image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85, optimize=True)
+
+    dest = _unique_document_path(employee.house_id, employee.id, ".jpg")
+    with open(dest, "wb") as fh:
+        fh.write(buffer.getvalue())
+
+    doc = EmployeeDocument(
+        employee_id=employee.id,
+        house_id=employee.house_id,
+        doc_type=doc_type,
+        title=safe_title(os.path.splitext(original_name)[0]),
+        file_name=original_name,
+        storage_path=os.path.relpath(dest, PRIVATE_STORAGE_ROOT).replace("\\", "/"),
+        file_size=os.path.getsize(dest),
+        mime_type=MIME_BY_EXTENSION[".jpg"],
+        uploaded_by=current_user.id,
+    )
+    db.add(doc)
+    await db.flush()
+    return doc
+
+
+async def latest_document(
+    db: AsyncSession, employee_id: int, doc_types: Iterable[str]
+) -> Optional[EmployeeDocument]:
+    """Newest active document of one of the given types."""
+    result = await db.execute(
+        select(EmployeeDocument)
+        .where(
+            EmployeeDocument.employee_id == employee_id,
+            EmployeeDocument.doc_type.in_(tuple(doc_types)),
+            EmployeeDocument.is_deleted.is_(False),
+        )
+        .order_by(EmployeeDocument.created_at.desc(), EmployeeDocument.id.desc())
+        .limit(1)
+    )
+    return result.unique().scalar_one_or_none()
 
 
 # --------------------------------------------------------------------------- #

@@ -8,14 +8,14 @@ from app.utils.timezone import now_naive
 # Keep in sync with the frontend list in
 # frontend/src/components/employees/EmployeeAttachmentsPanel.tsx
 EMPLOYEE_DOCUMENT_TYPES = (
-    "nid_front",
-    "nid_back",
+    "nid",
     "education_certificate",
     "experience_certificate",
     "driving_license",
     "bank_document",
     "appointment_letter",
     "medical_certificate",
+    "resignation_letter",
     "other",
 )
 
@@ -35,7 +35,7 @@ class EmployeeDocument(Base):
     house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
 
     doc_type = Column(String(40), nullable=False, default="other",
-                      comment="nid_front, nid_back, education_certificate, ...")
+                      comment="nid, education_certificate, ...")
     title = Column(String(200), nullable=True)
     file_name = Column(String(255), nullable=False, comment="Original file name, for display/download")
     storage_path = Column(String(500), nullable=False, comment="Relative path inside the private storage root")

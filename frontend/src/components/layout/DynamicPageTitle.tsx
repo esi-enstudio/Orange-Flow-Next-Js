@@ -38,6 +38,8 @@ const ROUTE_TITLE_MAP: Record<string, { en: string; bn: string }> = {
   "/database-backups": { en: "Database Backups", bn: "ডাটাবেস ব্যাকআপ" },
   "/restore-points": { en: "Restore Points", bn: "রিস্টোর পয়েন্ট" },
   "/live-location/travel-history": { en: "Travel History", bn: "ভ্রমণ ইতিহাস" },
+  "/employees/resignation-documents": { en: "Resignation Documents", bn: "পদত্যাগপত্র ডকুমেন্ট" },
+  "/houses/letterhead": { en: "House Letterhead", bn: "হাউস লেটারহেড" },
 };
 
 const PATTERN_TITLES: { match: (p: string) => boolean; en: string; bn: string }[] = [

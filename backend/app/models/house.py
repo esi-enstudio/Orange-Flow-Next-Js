@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy import Column, ForeignKey, Integer, String, DateTime, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.models.base import Base
@@ -54,6 +55,14 @@ class House(Base):
     # Telegram report delivery (shared bots, manual chat linking)
     telegram_chat_id = Column(String(64), nullable=True)
     telegram_chat_name = Column(String(200), nullable=True)
+
+    # Resignation letterhead (per house). The image is the full-page design;
+    # `letterhead_layout` stores the field positions (percentages) overlaid on
+    # it. Files live under private_uploads/letterheads/{house_id}/.
+    letterhead_image_path = Column(String(500), nullable=True)
+    letterhead_layout = Column(JSONB, nullable=True)
+    letterhead_updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    letterhead_updated_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

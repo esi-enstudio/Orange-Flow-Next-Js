@@ -156,6 +156,7 @@ export const navItems: NavItem[] = [
     children: [
       { title: "Employee Management", translationKey: "nav.employees", href: "/employees", permission: "employees.view" },
       { title: "Supervisors", translationKey: "nav.supervisors", href: "/employees/supervisors", permission: "employees.view" },
+      { title: "Resignation Documents", translationKey: "nav.resignation_docs", href: "/employees/resignation-documents", permission: "employees.resignation_view" },
     ]
   },
   {

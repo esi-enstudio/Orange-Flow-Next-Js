@@ -652,6 +652,29 @@ async def _migrate_house_show_pull_button():
     except Exception as e:
         logger.warning(f"Migration warning (houses.show_pull_button): {e}")
 
+async def _migrate_house_letterhead():
+    """Add the resignation-letterhead columns to houses (image + field layout)."""
+    columns = {
+        "letterhead_image_path": "VARCHAR(500)",
+        "letterhead_layout": "JSONB",
+        "letterhead_updated_by": "INTEGER",
+        "letterhead_updated_at": "TIMESTAMP",
+    }
+    for name, ddl in columns.items():
+        try:
+            async with engine.begin() as conn:
+                result = await conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='houses' AND column_name='{name}'"
+                ))
+                if result.scalar():
+                    continue
+                logger.info("Migrating houses: adding %s column...", name)
+                await conn.execute(text(f"ALTER TABLE houses ADD COLUMN {name} {ddl}"))
+                logger.info("Migration complete: houses.%s", name)
+        except Exception as e:
+            logger.warning(f"Migration warning (houses.{name}): {e}")
+
 async def _migrate_house_billing_deactivation():
     """Add deactivated_for_billing column to houses table.
 
@@ -2351,6 +2374,7 @@ async def init_db():
         await _migrate_retailer_marking_assignment_unique()
         await _migrate_house_live_sync_enabled()
         await _migrate_house_show_pull_button()
+        await _migrate_house_letterhead()
         await _migrate_house_billing_deactivation()
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()

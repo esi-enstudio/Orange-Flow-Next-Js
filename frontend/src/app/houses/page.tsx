@@ -295,8 +295,10 @@ export default function HousesPage() {
                 onEdit={() => openEditModal(house)}
                 onDelete={() => handleDeleteClick(house.id)}
                 onToggleStatus={() => toggleStatus(house)}
+                onLetterhead={() => router.push(`/houses/letterhead?house_id=${house.id}`)}
                 canEdit={hasPermission("houses.edit")}
                 canDelete={hasPermission("houses.delete")}
+                canLetterhead={hasPermission("houses.letterhead_view")}
               />
             ))}
           </div>

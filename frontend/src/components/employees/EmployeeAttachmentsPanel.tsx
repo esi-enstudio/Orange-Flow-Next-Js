@@ -65,8 +65,7 @@ export const EMPTY_ATTACHMENT_PAYLOAD: AttachmentPayload = {
 };
 
 export const EMPLOYEE_DOCUMENT_TYPES = [
-  "nid_front",
-  "nid_back",
+  "nid",
   "education_certificate",
   "experience_certificate",
   "driving_license",

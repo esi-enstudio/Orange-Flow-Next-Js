@@ -14,6 +14,7 @@ import {
   Key,
   Crown,
   CalendarClock,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -55,11 +56,13 @@ interface Props {
   onEdit: (house: House) => void;
   onDelete: (id: number) => void;
   onToggleStatus: (house: House) => void;
+  onLetterhead: (house: House) => void;
   canEdit: boolean;
   canDelete: boolean;
+  canLetterhead: boolean;
 }
 
-export default function HouseCard({ house, onEdit, onDelete, onToggleStatus, canEdit, canDelete }: Props) {
+export default function HouseCard({ house, onEdit, onDelete, onToggleStatus, onLetterhead, canEdit, canDelete, canLetterhead }: Props) {
   const [expanded, setExpanded] = useState(false);
   const { t } = useLanguage();
 
@@ -336,19 +339,30 @@ export default function HouseCard({ house, onEdit, onDelete, onToggleStatus, can
           </div>
 
           {/* Actions */}
-          {canEdit && (
-            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 flex justify-end">
-              <button
-                onClick={() => onToggleStatus(house)}
-                className={cn(
-                  "px-4 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer",
-                  house.is_active
-                    ? "bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-slate-600"
-                    : "bg-emerald-500 text-white hover:bg-emerald-600"
-                )}
-              >
-                {house.is_active ? 'Deactivate' : 'Activate'}
-              </button>
+          {(canEdit || canLetterhead) && (
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 flex flex-wrap justify-end gap-2">
+              {canLetterhead && (
+                <button
+                  onClick={() => onLetterhead(house)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer bg-primary-500 text-white hover:bg-primary-600 flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4" />
+                  {t("houses.letterhead.open")}
+                </button>
+              )}
+              {canEdit && (
+                <button
+                  onClick={() => onToggleStatus(house)}
+                  className={cn(
+                    "px-4 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer",
+                    house.is_active
+                      ? "bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-slate-600"
+                      : "bg-emerald-500 text-white hover:bg-emerald-600"
+                  )}
+                >
+                  {house.is_active ? t("houses.deactivate") : t("houses.activate")}
+                </button>
+              )}
             </div>
           )}
         </div>

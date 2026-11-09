@@ -1,7 +1,9 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import select, or_, and_, func as sa_func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,10 +13,12 @@ from app.schemas.house import HouseSchema, HouseCreate
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.house import House
 from app.models.user import User
-from app.services import entitlement
+from app.services import entitlement, house_letterhead
 from app.services.house_purge import HousePurgeError, purge_house
+from app.services.resignation_pdf import build_preview_html, render_pdf
 from app.utils.access_control import is_admin_user, is_super_admin_user
 from app.utils.activity_logger import log_activity
+from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
 
@@ -274,3 +278,188 @@ async def delete_house(
         )
 
     return {"message": "House deleted successfully", "deleted": deleted}
+
+
+# --------------------------------------------------------------------------- #
+# Letterhead (resignation application page)
+#
+# Each house uploads one full-page letterhead image and positions the six
+# dynamic values on it. The layout is stored as percentages on `houses` so the
+# renderer is independent of the image resolution.
+# --------------------------------------------------------------------------- #
+
+class LetterheadLayoutIn(BaseModel):
+    layout: dict
+
+
+class LetterheadPreviewIn(BaseModel):
+    layout: Optional[dict] = None
+
+
+async def _load_letterhead_house(db: AsyncSession, house_id: int, current_user: User) -> House:
+    house = await db.get(House, house_id)
+    if not house:
+        raise HTTPException(status_code=404, detail="House not found")
+    if not is_admin_user(current_user):
+        own_ids = [h.id for h in current_user.houses]
+        if house_id not in own_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to this house")
+    return house
+
+
+def _touch_letterhead(house: House, current_user: User) -> None:
+    house.letterhead_updated_by = current_user.id
+    house.letterhead_updated_at = now_naive()
+
+
+async def _log_letterhead(db, house, request, current_user, action, old_values=None, new_values=None):
+    await log_activity(
+        db, current_user.id, current_user.name, "houses", action,
+        record_id=house.id,
+        record_identifier=house.code or house.name,
+        old_values=old_values,
+        new_values=new_values,
+        request=request,
+        status_code=200,
+    )
+
+
+@router.get("/{house_id}/letterhead")
+async def get_house_letterhead(
+    house_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.letterhead_view")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    return house_letterhead.serialize(house)
+
+
+@router.get("/{house_id}/letterhead/image")
+async def stream_house_letterhead_image(
+    house_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.letterhead_view")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    path = house_letterhead.image_fs_path(house)
+    if not path:
+        raise HTTPException(status_code=404, detail="This house has no letterhead image")
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.post("/{house_id}/letterhead/image")
+async def upload_house_letterhead_image(
+    house_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.letterhead_edit")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    previous = house.letterhead_image_path
+    try:
+        await house_letterhead.store_image(house, file)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _touch_letterhead(house, current_user)
+    await db.commit()
+    await db.refresh(house)
+    await _log_letterhead(
+        db, house, request, current_user, "edit",
+        old_values={"letterhead_image": previous},
+        new_values={"letterhead_image": house.letterhead_image_path},
+    )
+    return house_letterhead.serialize(house)
+
+
+@router.delete("/{house_id}/letterhead/image")
+async def delete_house_letterhead_image(
+    house_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.letterhead_edit")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    previous = house.letterhead_image_path
+    if not previous:
+        raise HTTPException(status_code=404, detail="This house has no letterhead image")
+    house_letterhead.delete_image(house)
+    _touch_letterhead(house, current_user)
+    await db.commit()
+    await db.refresh(house)
+    await _log_letterhead(
+        db, house, request, current_user, "delete",
+        old_values={"letterhead_image": previous},
+    )
+    return house_letterhead.serialize(house)
+
+
+@router.put("/{house_id}/letterhead")
+async def update_house_letterhead(
+    house_id: int,
+    payload: LetterheadLayoutIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.letterhead_edit")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    try:
+        layout = house_letterhead.validate_layout(payload.layout)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    previous = house.letterhead_layout
+    house.letterhead_layout = layout
+    _touch_letterhead(house, current_user)
+    await db.commit()
+    await db.refresh(house)
+    await _log_letterhead(
+        db, house, request, current_user, "edit",
+        old_values={"letterhead_layout": previous},
+        new_values={"letterhead_layout": layout},
+    )
+    return house_letterhead.serialize(house)
+
+
+@router.post("/{house_id}/letterhead/preview")
+async def preview_house_letterhead(
+    house_id: int,
+    request: Request,
+    payload: Optional[LetterheadPreviewIn] = Body(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.letterhead_view")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    if not house_letterhead.image_fs_path(house):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "LETTERHEAD_IMAGE_MISSING", "message": "Upload the letterhead image first"},
+        )
+    layout = None
+    if payload and payload.layout:
+        try:
+            layout = house_letterhead.validate_layout(payload.layout)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    else:
+        layout = house.letterhead_layout or house_letterhead.default_layout()
+
+    try:
+        pdf = await render_pdf(build_preview_html(house, layout))
+    except Exception as exc:  # noqa: BLE001 - operator gets a clear message
+        logger.exception("Letterhead preview failed for house %s", house.id)
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "PDF_GENERATION_FAILED", "message": "The preview could not be generated"},
+        ) from exc
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'inline; filename="letterhead-preview.pdf"',
+            "Cache-Control": "private, no-store",
+        },
+    )
