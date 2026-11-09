@@ -200,6 +200,42 @@ async def test_documents_endpoint_reports_missing_pieces(api, db):
     assert body["can_generate"] is False
 
 
+async def test_overview_lists_only_resigned_with_readiness(api, db):
+    app, client = api
+    house, employee = await _resigned_employee(db)
+    db.add(Employee(house_id=house.id, dms_code="RS000333", employee_name="Still Active", employee_type="rso", status="Active"))
+    db.add(Employee(house_id=house.id, dms_code="RS000444", employee_name="A Manager", employee_type="manager", status="Resigned"))
+    await db.commit()
+    app.dependency_overrides[get_current_user] = lambda: _user(house, role="Admin")
+
+    response = await client.get("/api/employees/resignation-overview")
+
+    assert response.status_code == 200
+    body = response.json()
+    # Active employees and non-RSO/BP types never appear in the picker.
+    assert [row["dms_code"] for row in body["data"]] == ["RS000111"]
+    row = body["data"][0]
+    assert row["missing"] == ["resignation_letter", "nid", "letterhead"]
+    assert row["ready"] is False
+    assert body["pagination"]["total"] == 1
+
+
+async def test_overview_reports_ready_when_all_pieces_exist(api, db):
+    app, client = api
+    house, employee = await _resigned_employee(db)
+    await _add_document(db, employee, "resignation_letter", "letter")
+    await _add_document(db, employee, "voter_id", "nid")
+    await _configure_letterhead(db, house)
+    app.dependency_overrides[get_current_user] = lambda: _user(house, role="Admin")
+
+    response = await client.get("/api/employees/resignation-overview")
+
+    assert response.status_code == 200
+    row = response.json()["data"][0]
+    assert row["missing"] == []
+    assert row["ready"] is True
+
+
 async def test_generation_blocks_with_codes(api, db):
     app, client = api
     house, employee = await _resigned_employee(db)

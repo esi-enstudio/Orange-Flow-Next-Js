@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import apiClient, { resolveImageUrl } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -43,6 +44,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
@@ -1579,6 +1581,11 @@ export default function EmployeesPage() {
 
             {/* Footer with actions */}
             <div className="shrink-0 p-3 sm:p-4 border-t border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex flex-col-reverse sm:flex-row justify-end gap-2">
+              {viewingMember.status === "Resigned" && (viewingMember.employee_type === "rso" || viewingMember.employee_type === "bp") && hasPermission("employees.resignation_view") && (
+                <Link href={`/employees/resignation-documents?emp_id=${viewingMember.id}`} onClick={() => setIsViewModalOpen(false)} className="px-4 sm:px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95">
+                  <FileText className="w-4 h-4" /> {t('resignation_docs.page_title')}
+                </Link>
+              )}
               <button onClick={() => { setIsViewModalOpen(false); openEditModal(viewingMember); }} className="px-4 sm:px-5 py-2.5 bg-primary-500 hover:bg-primary-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-primary-200 dark:shadow-none">
                 <Edit2 className="w-4 h-4" /> Edit
               </button>

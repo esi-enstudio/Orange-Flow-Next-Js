@@ -865,6 +865,132 @@ def _assert_resignation_employee(emp: Employee) -> None:
         )
 
 
+@router.get("/resignation-overview")
+async def list_resignation_overview(
+    pagination: PaginationParams = Depends(),
+    search: Optional[str] = Query(None, description="Search by employee name, DMS code, iTop number or NID"),
+    status: Optional[str] = Query(None, description="Filter by status: Resigned (default) or Inactive"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.resignation_view")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    """Resigned RSO/BP employees with their resignation-package readiness.
+
+    The resignation documents page can be opened without an `emp_id` (from the
+    sidebar), so it needs a pickable list. Every row reports whether the three
+    required pieces exist: the handwritten letter, the NID/Voter ID scan and a
+    configured house letterhead.
+    """
+    base_query = select(Employee).where(Employee.employee_type.in_(("rso", "bp")))
+
+    if status:
+        base_query = base_query.where(Employee.status == status)
+    else:
+        # A resignation package is only meaningful once the employee left.
+        base_query = base_query.where(Employee.status.in_(("Resigned", "Inactive")))
+
+    if house_id:
+        base_query = base_query.where(Employee.house_id == house_id)
+    elif is_admin_user(current_user):
+        pass
+    else:
+        user_house_ids = [h.id for h in current_user.houses]
+        if user_house_ids:
+            base_query = base_query.where(Employee.house_id.in_(user_house_ids))
+        else:
+            base_query = base_query.where(Employee.house_id == -1)
+
+    if search:
+        pattern = f"%{search}%"
+        base_query = base_query.where(
+            or_(
+                Employee.employee_name.ilike(pattern),
+                Employee.dms_code.ilike(pattern),
+                Employee.itop_number.ilike(pattern),
+                Employee.nid.ilike(pattern),
+            )
+        )
+
+    total_result = await db.execute(select(func.count(Employee.id)).where(base_query.whereclause))
+    total = total_result.scalar() or 0
+
+    offset = (pagination.page - 1) * pagination.per_page
+    result = await db.execute(
+        base_query
+        .order_by(Employee.resigned_date.desc().nullslast(), Employee.id.desc())
+        .offset(offset)
+        .limit(pagination.per_page)
+    )
+    employees = result.unique().scalars().all()
+
+    emp_ids = [e.id for e in employees]
+    letter_emp_ids: set[int] = set()
+    nid_emp_ids: set[int] = set()
+    if emp_ids:
+        docs_result = await db.execute(
+            select(EmployeeDocument.employee_id, EmployeeDocument.doc_type).where(
+                EmployeeDocument.employee_id.in_(emp_ids),
+                EmployeeDocument.is_deleted.is_(False),
+                EmployeeDocument.doc_type.in_(RESIGNATION_LETTER_TYPES + NID_TYPES),
+            )
+        )
+        for doc_emp_id, doc_type in docs_result.all():
+            if doc_type in RESIGNATION_LETTER_TYPES:
+                letter_emp_ids.add(doc_emp_id)
+            else:
+                nid_emp_ids.add(doc_emp_id)
+
+    employee_house_ids = {e.house_id for e in employees if e.house_id}
+    houses: dict[int, House] = {}
+    if employee_house_ids:
+        houses_result = await db.execute(select(House).where(House.id.in_(employee_house_ids)))
+        houses = {h.id: h for h in houses_result.unique().scalars().all()}
+    letterhead_ready_house_ids = {
+        hid for hid, house in houses.items() if house_letterhead.configured(house)
+    }
+
+    data = []
+    for emp in employees:
+        missing = []
+        if emp.id not in letter_emp_ids:
+            missing.append("resignation_letter")
+        if emp.id not in nid_emp_ids:
+            missing.append("nid")
+        if emp.house_id not in letterhead_ready_house_ids:
+            missing.append("letterhead")
+        house = houses.get(emp.house_id)
+        data.append({
+            "id": emp.id,
+            "employee_name": emp.employee_name,
+            "dms_code": emp.dms_code,
+            "employee_type": emp.employee_type,
+            "status": emp.status,
+            "joining_date": emp.joining_date,
+            "resigned_date": emp.resigned_date,
+            "house_id": emp.house_id,
+            "house_name": house.name if house else None,
+            "has_letter": emp.id in letter_emp_ids,
+            "has_nid": emp.id in nid_emp_ids,
+            "letterhead_configured": emp.house_id in letterhead_ready_house_ids,
+            "missing": missing,
+            "ready": not missing,
+        })
+
+    total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
+    return PaginatedResponse(
+        success=True,
+        data=data,
+        pagination=PaginationMeta(
+            page=pagination.page,
+            per_page=pagination.per_page,
+            total=total,
+            total_pages=total_pages,
+            has_next=pagination.page < total_pages,
+            has_prev=pagination.page > 1,
+        ),
+    )
+
+
 @router.get("/{emp_id}/resignation-documents")
 async def get_resignation_documents(
     emp_id: int,
