@@ -42,6 +42,16 @@ BANGLA_MONTHS = (
 _BN_DIGITS = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
 _PLACEHOLDER_RE = re.compile(r"{{\s*([a-z_]+)\s*}}")
 
+# Full designation printed in the letter body (falls back to the raw type).
+DESIGNATIONS = {
+    "rso": "RSO (Retail Sales Officer)",
+    "bp": "BP (Business Partner)",
+    "bsp": "BSP (Business Service Partner)",
+    "rbsp": "RBSP (Retail Business Service Partner)",
+    "supervisor": "Supervisor",
+    "manager": "Manager",
+}
+
 # Sample employee used by the letterhead preview endpoint.
 SAMPLE_EMPLOYEE = {
     "employee_name": "মোঃ আব্দুল করিম",
@@ -85,6 +95,7 @@ def bn_date(value) -> str:
 
 
 def _base_values(house: House, employee: dict, application_date: date) -> dict:
+    employee_type = str(employee.get("employee_type") or "").strip().lower()
     return {
         "application_date": bn_date(application_date),
         "employee_name": employee.get("employee_name") or employee.get("dms_code") or "",
@@ -92,11 +103,14 @@ def _base_values(house: House, employee: dict, application_date: date) -> dict:
         "nid": bn_digits(employee.get("nid") or ""),
         "joining_date": bn_date(employee.get("joining_date")),
         "resigned_date": bn_date(employee.get("resigned_date")),
-        "employee_type": str(employee.get("employee_type") or "").upper(),
+        "employee_type": employee_type.upper(),
+        "designation": DESIGNATIONS.get(employee_type, employee_type.upper()),
         "dms_code": employee.get("dms_code") or "",
         "house_name": house.name or "",
         "house_code": house.code or "",
         "house_address": house.address or "",
+        "proprietor_name": house.proprietor_name or "",
+        "proprietor_contact": house.proprietor_contact or "",
     }
 
 

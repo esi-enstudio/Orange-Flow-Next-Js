@@ -52,6 +52,7 @@ interface LetterheadData {
   image_url: string | null;
   layout: LetterheadLayout;
   default_layout: LetterheadLayout;
+  body_placeholders?: string[];
   configured: boolean;
 }
 
@@ -82,9 +83,29 @@ const SAMPLE_VALUES: Record<string, string> = {
   employee_name: "মোঃ আব্দুল করিম",
   fathers_name: "মোঃ আব্দুল রহমান",
   nid: "১২৩৪৫৬৭৮৯০১২৩",
+  designation: "RSO (Retail Sales Officer)",
   joining_date: "১৫ জানুয়ারি ২০২১",
   resigned_date: "৩০ জুন ২০২৬",
+  dms_code: "R123456",
+  proprietor_name: "সামছুজ্জামান পাটোয়ারী",
+  proprietor_contact: "০১৯১৭৭৪৭৫৫৫",
 };
+
+const PLACEHOLDER_KEYS = [
+  "application_date",
+  "employee_name",
+  "fathers_name",
+  "nid",
+  "designation",
+  "joining_date",
+  "resigned_date",
+  "dms_code",
+  "house_name",
+  "house_address",
+  "house_code",
+  "proprietor_name",
+  "proprietor_contact",
+];
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -131,6 +152,7 @@ export default function HouseLetterheadPage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const bodyTextRef = useRef<HTMLTextAreaElement>(null);
 
   const fieldLabel = (key: string) => t(`houses.letterhead.field_labels.${key}`);
 
@@ -363,16 +385,33 @@ export default function HouseLetterheadPage() {
     toast.success(t("houses.letterhead.toast_reset_done"));
   };
 
+  // Canvas preview uses the real house values and sample employee data.
+  const sampleValue = (key: string) => {
+    if (key === "house_name") return data?.house_name ?? "";
+    if (key === "house_address") return data?.house_address ?? "";
+    if (key === "house_code") return data?.house_code ?? "";
+    return SAMPLE_VALUES[key] ?? "";
+  };
+
   const substitute = (text: string) =>
-    text
-      .replace(/\{\{house_name\}\}/g, data?.house_name ?? "")
-      .replace(/\{\{house_address\}\}/g, data?.house_address ?? "")
-      .replace(/\{\{employee_name\}\}/g, SAMPLE_VALUES.employee_name)
-      .replace(/\{\{fathers_name\}\}/g, SAMPLE_VALUES.fathers_name)
-      .replace(/\{\{nid\}\}/g, SAMPLE_VALUES.nid)
-      .replace(/\{\{joining_date\}\}/g, SAMPLE_VALUES.joining_date)
-      .replace(/\{\{resigned_date\}\}/g, SAMPLE_VALUES.resigned_date)
-      .replace(/\{\{application_date\}\}/g, SAMPLE_VALUES.application_date);
+    text.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_match, key: string) => sampleValue(key));
+
+  /** Insert a dynamic value at the caret so the body text stays hand-editable. */
+  const insertPlaceholder = (key: string) => {
+    if (!canEdit || !layout) return;
+    const token = `{{${key}}}`;
+    const element = bodyTextRef.current;
+    const text = layout.body.text ?? "";
+    const start = element?.selectionStart ?? text.length;
+    const end = element?.selectionEnd ?? text.length;
+    updateBlock("body", { text: text.slice(0, start) + token + text.slice(end) });
+    requestAnimationFrame(() => {
+      if (!element) return;
+      element.focus();
+      const caret = start + token.length;
+      element.setSelectionRange(caret, caret);
+    });
+  };
 
   const blockStyle = (block: Block) => ({
     left: `${block.x}%`,
@@ -726,12 +765,35 @@ export default function HouseLetterheadPage() {
                         {t("houses.letterhead.body_text")}
                       </label>
                       <textarea
+                        ref={bodyTextRef}
                         rows={8}
                         value={layout.body.text}
                         disabled={!canEdit}
                         onChange={(e) => updateBlock("body", { text: e.target.value })}
                         className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bengali outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                        {t("houses.letterhead.dynamic_values")}
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(data?.body_placeholders ?? PLACEHOLDER_KEYS).map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => insertPlaceholder(key)}
+                            disabled={!canEdit}
+                            title={t(`houses.letterhead.placeholder_labels.${key}`)}
+                            className="px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-[11px] font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            {`{{${key}}}`}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                        {t("houses.letterhead.dynamic_hint")}
+                      </p>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">

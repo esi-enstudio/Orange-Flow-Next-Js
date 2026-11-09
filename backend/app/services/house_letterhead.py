@@ -39,22 +39,44 @@ FIELD_KEYS = (
 ALIGNMENTS = ("left", "center", "right", "justify")
 ALLOWED_FORMATS = ("JPEG", "PNG", "WEBP")
 
+# Editable Bangla template printed on the letterhead page. `{{placeholder}}`
+# tokens are filled from the employee + house records at generation time
+# (see `resignation_pdf._base_values`). The operator may rewrite every line in
+# the letterhead editor; only the placeholders stay dynamic.
 DEFAULT_BODY_TEXT = (
-    "বরাবর,\n"
-    "ব্যবস্থাপক\n"
+    "তারিখঃ {{application_date}}ইং\n"
+    "প্রাপকঃ\n"
     "{{house_name}}\n"
     "{{house_address}}\n\n"
-    "বিষয়: পদত্যাগপত্র জমাদান প্রসঙ্গে।\n\n"
-    "জনাব,\n"
-    "সবিনয় নিবেদন এই যে, আমি {{employee_name}}, পিতা: {{fathers_name}}, "
-    "জাতীয় পরিচয়পত্র নম্বর: {{nid}}, {{joining_date}} তারিখে {{house_name}}-এ "
-    "যোগদান করি এবং {{resigned_date}} তারিখে ব্যক্তিগত কারণে স্বেচ্ছায় পদত্যাগ করছি।\n\n"
-    "অতএব, মহোদয়ের নিকট বিনীত অনুরোধ, আমার পদত্যাগপত্র গ্রহণ করে আমাকে "
-    "সকল দায়দায়িত্ব থেকে অব্যাহতি প্রদান করবেন।\n\n"
-    "ধন্যবাদান্তে,\n\n"
-    "তারিখ: {{application_date}}\n"
-    "নাম: {{employee_name}}\n"
-    "স্বাক্ষর: ____________________"
+    "বিষয়ঃ অনাপত্তি সনদ (No Objection Certificate - NOC)\n\n"
+    "সম্মানিত,\n\n"
+    "যার দ্বারা প্রত্যায়ন করা যাচ্ছে যে, {{employee_name}}, পিতাঃ {{fathers_name}}, "
+    "জাতীয় পরিচয়পত্র নংঃ {{nid}}, আমাদের {{house_name}}-এ {{joining_date}}ইং থেকে "
+    "{{resigned_date}}ইং পর্যন্ত {{designation}} পদে কর্মরত ছিলেন।\n\n"
+    "তিনি স্বেচ্ছায় চাকরি থেকে পদত্যাগ করেছেন এবং তার কার্যক্রম ও আচরণ সন্তোষজনক ছিল। "
+    "আমাদের পক্ষ থেকে রেজিগনেশন প্রক্রিয়া সম্পন্ন করার জন্য কোন আপত্তি নেই।\n\n"
+    "এই অনাপত্তি সনদ তার প্রয়োজনীয় কাজে ব্যবহারের জন্য প্রদান করা হইলো।\n\n\n\n"
+    "{{proprietor_name}}\n"
+    "ডিস্ট্রিবিউটর\n"
+    "{{house_name}}\n"
+    "{{proprietor_contact}}"
+)
+
+# Placeholders the body text may use, in the order the editor lists them.
+BODY_PLACEHOLDERS = (
+    "application_date",
+    "employee_name",
+    "fathers_name",
+    "nid",
+    "designation",
+    "joining_date",
+    "resigned_date",
+    "dms_code",
+    "house_name",
+    "house_address",
+    "house_code",
+    "proprietor_name",
+    "proprietor_contact",
 )
 
 
@@ -230,6 +252,7 @@ def serialize(house: House) -> dict:
         "image_url": f"/api/houses/{house.id}/letterhead/image" if house.letterhead_image_path else None,
         "layout": house.letterhead_layout or default_layout(),
         "default_layout": default_layout(),
+        "body_placeholders": list(BODY_PLACEHOLDERS),
         "configured": configured(house),
         "updated_at": house.letterhead_updated_at.isoformat() if house.letterhead_updated_at else None,
         "updated_by": house.letterhead_updated_by,

@@ -148,6 +148,26 @@ def test_application_page_has_body_and_six_positioned_fields():
     assert "মোঃ আব্দুল করিম" in page
 
 
+def test_noc_template_fills_employee_and_proprietor_values():
+    house = House(
+        code="NOC-1",
+        name="পাটোয়ারী টেলিকম",
+        address="বঙ্গবন্ধু সরণি রোড, ভৈরব, কিশোরগঞ্জ",
+        proprietor_name="সামছুজ্জামান পাটোয়ারী",
+        proprietor_contact="০১৯১৭৭৪৭৫৫৫",
+    )
+    house.letterhead_layout = hl.default_layout()
+
+    page = rp.build_application_page(house, rp.sample_values(house), image_uri="data:image/jpeg;base64,AAA")
+
+    # Every placeholder resolves — nothing is left as a raw token.
+    assert "{{" not in page
+    assert "No Objection Certificate" in page
+    assert "RSO (Retail Sales Officer)" in page
+    assert "সামছুজ্জামান পাটোয়ারী" in page
+    assert "০১৯১৭৭৪৭৫৫৫" in page
+
+
 def test_document_html_is_a4():
     html = rp.build_document_html(["<div>1</div>", "<div>2</div>", "<div>3</div>"])
 

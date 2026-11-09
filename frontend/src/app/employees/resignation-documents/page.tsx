@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, FileText, CheckCircle2, AlertCircle, HelpCircle, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, FileText, CheckCircle2, AlertCircle, HelpCircle, Search, ChevronLeft, ChevronRight, Upload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
@@ -33,12 +33,20 @@ export default function ResignationDocumentsPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
-  const fetchData = async () => {
+  // Document cards upload straight from the card (no modal in between).
+  const letterInputRef = useRef<HTMLInputElement>(null);
+  const nidInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingLetter, setUploadingLetter] = useState(false);
+  const [uploadingNid, setUploadingNid] = useState(false);
+
+  // `silent` keeps the cards on screen (no skeleton) when only the document
+  // status changed, e.g. right after an upload inside the modal.
+  const fetchData = async (silent = false) => {
     if (!hasEmpId) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const res = await apiClient.get(`employees/${empId}/resignation-documents`);
       setData(res.data);
@@ -75,6 +83,34 @@ export default function ResignationDocumentsPage() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasEmpId, page, search]);
+
+  const uploadDocument = async (kind: "resignation_letter" | "nid", file: File) => {
+    const setBusy = kind === "resignation_letter" ? setUploadingLetter : setUploadingNid;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("kind", kind);
+      form.append("file", file);
+      await apiClient.post(`employees/${empId}/resignation-documents`, form);
+      toast.success(t("resignation_docs.upload_success"));
+      await fetchData(true);
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : t("resignation_docs.upload_failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleFileSelected = (
+    kind: "resignation_letter" | "nid",
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again still fires onChange.
+    e.target.value = "";
+    if (file) void uploadDocument(kind, file);
+  };
 
   if (!hasPermission("employees.resignation_view")) {
     return <AccessDenied />;
@@ -398,6 +434,7 @@ export default function ResignationDocumentsPage() {
               employeeStatus={data.employee?.status || ""}
               employeeHouseId={data.employee?.house_id}
               employeeHouseName={data.employee?.house_name || ""}
+              onUploaded={() => fetchData(true)}
             />
           </div>
         </div>
@@ -435,6 +472,29 @@ export default function ResignationDocumentsPage() {
                   {data.resignation_letter.file_name}
                 </p>
               )}
+              {!data.resignation_letter && hasPermission("employees.resignation_upload") && (
+                <div className="mt-2">
+                  <input
+                    ref={letterInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => handleFileSelected("resignation_letter", e)}
+                  />
+                  <button
+                    onClick={() => letterInputRef.current?.click()}
+                    disabled={uploadingLetter}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {uploadingLetter ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    {t("resignation_docs.upload_letter")}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -469,6 +529,29 @@ export default function ResignationDocumentsPage() {
                   {data.nid.file_name}
                   {data.nid.source && ` (${data.nid.source})`}
                 </p>
+              )}
+              {!data.nid && hasPermission("employees.resignation_upload") && (
+                <div className="mt-2">
+                  <input
+                    ref={nidInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => handleFileSelected("nid", e)}
+                  />
+                  <button
+                    onClick={() => nidInputRef.current?.click()}
+                    disabled={uploadingNid}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {uploadingNid ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    {t("resignation_docs.upload_nid")}
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -535,8 +618,8 @@ export default function ResignationDocumentsPage() {
         </div>
       )}
 
-      {/* Generate Button */}
-      <div className="flex items-center justify-end">
+      {/* Actions */}
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <button
           onClick={() => openModal(data.employee)}
           disabled={!data.can_generate}

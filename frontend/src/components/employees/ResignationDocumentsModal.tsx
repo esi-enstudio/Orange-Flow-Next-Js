@@ -15,6 +15,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
 import { toast } from "react-hot-toast";
@@ -30,6 +31,8 @@ interface Props {
   employeeStatus: string;
   employeeHouseId: number;
   employeeHouseName: string;
+  /** Told after an upload so the parent page can refresh its document cards. */
+  onUploaded?: () => void;
 }
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -48,8 +51,12 @@ export default function ResignationDocumentsModal({
   employeeStatus,
   employeeHouseId,
   employeeHouseName,
+  onUploaded,
 }: Props) {
   const { t } = useLanguage();
+  const { hasPermission } = useAuth();
+  const canUpload = hasPermission("employees.resignation_upload");
+  const canGenerate = hasPermission("employees.resignation_generate");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [data, setData] = useState<{
@@ -89,6 +96,7 @@ export default function ResignationDocumentsModal({
       toast.success(t("resignation_docs.generate_success"));
       setLetterFile(null);
       fetchData();
+      onUploaded?.();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || t("resignation_docs.generate_failed"));
     }
@@ -104,6 +112,7 @@ export default function ResignationDocumentsModal({
       toast.success(t("resignation_docs.generate_success"));
       setNidFile(null);
       fetchData();
+      onUploaded?.();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || t("resignation_docs.generate_failed"));
     }
@@ -272,7 +281,7 @@ export default function ResignationDocumentsModal({
                         )}
                       </div>
                     </div>
-                    {!data.resignation_letter && (
+                    {!data.resignation_letter && canUpload && (
                       <div className="mt-3 space-y-2">
                         <input
                           type="file"
@@ -325,7 +334,7 @@ export default function ResignationDocumentsModal({
                         )}
                       </div>
                     </div>
-                    {!data.nid && (
+                    {!data.nid && canUpload && (
                       <div className="mt-3 space-y-2">
                         <input
                           type="file"
@@ -396,6 +405,12 @@ export default function ResignationDocumentsModal({
                 </div>
               </div>
 
+              {data.missing.length > 0 && !canUpload && (
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  {t("resignation_docs.no_upload_permission")}
+                </p>
+              )}
+
               {/* Generate Button */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t dark:border-slate-700">
                 <button
@@ -406,7 +421,7 @@ export default function ResignationDocumentsModal({
                 </button>
                 <button
                   onClick={generatePdf}
-                  disabled={!data.can_generate || generating}
+                  disabled={!data.can_generate || generating || !canGenerate}
                   className={cn(
                     "px-6 py-2.5 rounded-xl font-medium cursor-pointer transition-colors flex items-center gap-2",
                     generating
