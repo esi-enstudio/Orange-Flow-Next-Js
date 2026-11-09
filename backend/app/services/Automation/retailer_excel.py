@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select, func
 
 from app.models.retailer import Retailer
-from app.models.employee import Employee # Essential for auto-linking
+from app.models.employee import DEMO_EMPLOYEE_ID_PREFIX, Employee # Essential for auto-linking
 from app.models.house import House
 from app.services.db_service import async_session
 
@@ -99,6 +99,18 @@ async def process_retailer_excel(file_path, progress_callback=None):
             
             emp_res = await session.execute(select(Employee.itop_number, Employee.assisted_retailer_code, Employee.id, Employee.status))
             emp_rows = emp_res.all()
+            incoming_codes = {
+                code for code in (clean(value) for value in df.get('RETAILER_CODE', [])) if code
+            }
+            demo_res = await session.execute(
+                select(Retailer.retailer_code, Retailer.employee_id)
+                .join(Employee, Employee.id == Retailer.employee_id)
+                .where(
+                    Retailer.retailer_code.in_(incoming_codes),
+                    Employee.employee_id.like(f"{DEMO_EMPLOYEE_ID_PREFIX}%"),
+                )
+            )
+            demo_owner_by_retailer = {row.retailer_code: row.employee_id for row in demo_res.all()}
 
             def _is_active_emp(status) -> bool:
                 return (status or "").strip().lower() == "active"
@@ -152,6 +164,15 @@ async def process_retailer_excel(file_path, progress_callback=None):
                 else:
                     itop_sr_no = clean(row.get('I_TOP_UP_SR_NUMBER'))
                     linked_emp_id = rso_map.get(itop_sr_no) if itop_sr_no else None
+
+                # Preserve an explicit demo handoff when no active owner matches.
+                # Once an active successor appears, the normal ownership mapping wins.
+                demo_owner_id = demo_owner_by_retailer.get(r_code)
+                mapped_owner = emp_by_id.get(linked_emp_id)
+                if demo_owner_id is not None and not (
+                    mapped_owner and _is_active_emp(mapped_owner.status)
+                ):
+                    linked_emp_id = demo_owner_id
                 
                 # 4. Get house ID via DISTRIBUTOR_CODE (DD Code)
                 distributor_code_val = clean(row.get('DISTRIBUTOR_CODE'))

@@ -345,6 +345,8 @@ export default function EmployeesPage() {
   const [reassignLoading, setReassignLoading] = useState(false);
   const [reassignTargets, setReassignTargets] = useState<Employee[]>([]);
   const [reassignTargetsLoading, setReassignTargetsLoading] = useState(false);
+  const [reassignTargetsLoaded, setReassignTargetsLoaded] = useState(false);
+  const [reassignTargetsLoadFailed, setReassignTargetsLoadFailed] = useState(false);
 
   // Reassign Supervisor Team
   const [reassignTeamData, setReassignTeamData] = useState<{ emp: Employee; newStatus: string; memberCount: number } | null>(null);
@@ -655,6 +657,9 @@ export default function EmployeesPage() {
             const res = await apiClient.get(`employees/${editingMember.id}/retailer-count`);
             const count = res.data.count;
             if (count > 0) {
+              setReassignTargetsLoaded(false);
+              setReassignTargetsLoadFailed(false);
+              setReassignTargetId(0);
               setReassignData({ emp: editingMember as any, newStatus, retailerCount: count });
               setFormLoading(false);
               return;
@@ -773,6 +778,8 @@ export default function EmployeesPage() {
         const res = await apiClient.get(`employees/${empId}/retailer-count`);
         const count = res.data.count;
         if (count > 0) {
+          setReassignTargetsLoaded(false);
+          setReassignTargetsLoadFailed(false);
           setReassignData({ emp, newStatus, retailerCount: count });
           setReassignTargetId(0);
           return;
@@ -808,21 +815,34 @@ export default function EmployeesPage() {
     }
   };
 
-  const handleReassignConfirm = async () => {
-    if (!reassignData || !reassignTargetId) return;
+  const handleReassignConfirm = async (createDemoEmployee = false) => {
+    if (!reassignData || (!createDemoEmployee && !reassignTargetId)) return;
     setReassignLoading(true);
+    const statusLabel = reassignData.newStatus === "Resigned"
+      ? t("employees.reassign_status_resigned")
+      : t("employees.reassign_status_inactive");
     try {
-      await apiClient.post(`employees/${reassignData.emp.id}/reassign`, {
-        new_employee_id: reassignTargetId,
-        status: reassignData.newStatus
+      const response = await apiClient.post(`employees/${reassignData.emp.id}/reassign`, {
+        new_employee_id: createDemoEmployee ? null : reassignTargetId,
+        create_demo_employee: createDemoEmployee,
+        status: reassignData.newStatus,
       });
-      toast.success(`Transferred ${reassignData.retailerCount} retailers and status set to ${reassignData.newStatus}`);
+      toast.success(createDemoEmployee
+        ? t("employees.reassign_demo_success", {
+            count: response.data.retailers_transferred,
+            name: response.data.demo_employee_name,
+            status: statusLabel,
+          })
+        : t("employees.reassign_success", {
+            count: response.data.retailers_transferred,
+            status: statusLabel,
+          }));
       setReassignData(null);
       setReassignTargetId(0);
       setIsFormModalOpen(false);
       fetchData();
-    } catch {
-      toast.error(t('common.action_failed'));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || t('common.action_failed'));
     } finally {
       setReassignLoading(false);
     }
@@ -880,6 +900,8 @@ export default function EmployeesPage() {
 
   const fetchReassignTargets = async (emp: Employee) => {
     setReassignTargetsLoading(true);
+    setReassignTargetsLoaded(false);
+    setReassignTargetsLoadFailed(false);
     setReassignTargets([]);
     try {
       const params = new URLSearchParams();
@@ -892,7 +914,9 @@ export default function EmployeesPage() {
       const res = await apiClient.get(`employees?${params.toString()}`, { headers });
       const list = (res.data.data || []).filter((m: Employee) => m.id !== emp.id);
       setReassignTargets(list);
+      setReassignTargetsLoaded(true);
     } catch {
+      setReassignTargetsLoadFailed(true);
       toast.error(t('common.action_failed'));
     } finally {
       setReassignTargetsLoading(false);
@@ -2105,21 +2129,25 @@ export default function EmployeesPage() {
                   <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-amber-100 dark:bg-amber-500/20">
                     <AlertTriangle className="w-10 h-10 text-amber-600 dark:text-amber-400" />
                   </div>
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Reassign Retailers</h3>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{t("employees.reassign_title")}</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                    This employee has <strong className="text-gray-700 dark:text-gray-200">{reassignData.retailerCount} retailers</strong> assigned. 
-                    Reassign them to another employee before setting status to {reassignData.newStatus}.
+                    {t("employees.reassign_message", {
+                      count: reassignData.retailerCount,
+                      status: reassignData.newStatus === "Resigned"
+                        ? t("employees.reassign_status_resigned")
+                        : t("employees.reassign_status_inactive"),
+                    })}
                   </p>
                 </div>
 
                 <div className="space-y-2 mb-6">
-                  <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Transfer to</label>
+                  <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t("employees.reassign_transfer_to")}</label>
                   <select
                     value={reassignTargetId}
                     onChange={e => setReassignTargetId(Number(e.target.value))}
-                    className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 appearance-none"
+                    className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer"
                   >
-                    <option value={0} disabled>Select an employee...</option>
+                    <option value={0} disabled>{t("employees.reassign_select_placeholder")}</option>
                     {reassignTargets.map(m => (
                       <option key={m.id} value={m.id}>
                         {employeeDisplayName(m)} — {m.dms_code || "N/A"} {m.itop_number ? `(${m.itop_number})` : ""}
@@ -2129,28 +2157,56 @@ export default function EmployeesPage() {
                   {reassignTargetsLoading ? (
                     <div className="flex items-center gap-2 mt-1 animate-pulse">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-primary-500" />
-                      <p className="text-xs text-gray-400">Loading active RSO employees...</p>
+                      <p className="text-xs text-gray-400">{t("employees.reassign_loading_targets")}</p>
                     </div>
-                  ) : reassignTargets.length === 0 && (
-                    <p className="text-xs text-red-500 mt-1">No active RSO employees available in this house to transfer to.</p>
-                  )}
+                  ) : reassignTargetsLoadFailed ? (
+                    <p className="text-xs text-red-500 mt-1">{t("employees.reassign_target_load_failed")}</p>
+                  ) : reassignTargetsLoaded && reassignTargets.length === 0 ? (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">{t("employees.reassign_no_targets")}</p>
+                  ) : null}
                 </div>
               </div>
 
               <div className="px-5 sm:px-8 pb-5 sm:pb-6 flex flex-col gap-3">
-                <button
-                  onClick={handleReassignConfirm}
-                  disabled={!reassignTargetId || reassignLoading}
-                  className="w-full py-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-50"
-                >
-                  {reassignLoading ? "Processing..." : `Transfer & Set ${reassignData.newStatus}`}
-                </button>
+                  <button
+                    onClick={() => handleReassignConfirm()}
+                    disabled={!reassignTargetId || reassignLoading}
+                    className="w-full py-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {reassignLoading
+                      ? t("employees.reassign_processing")
+                      : t("employees.reassign_button", {
+                          status: reassignData.newStatus === "Resigned"
+                            ? t("employees.reassign_status_resigned")
+                            : t("employees.reassign_status_inactive"),
+                        })}
+                  </button>
+                  {reassignTargetsLoaded && !reassignTargetsLoadFailed && (
+                    <>
+                      <p className="text-xs text-center text-gray-500 dark:text-gray-400">
+                        {t("employees.reassign_demo_hint")}
+                      </p>
+                      <button
+                        onClick={() => handleReassignConfirm(true)}
+                        disabled={reassignLoading}
+                        className="w-full py-4 rounded-2xl border border-primary-500 text-primary-700 dark:text-primary-300 font-bold hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        {reassignLoading
+                          ? t("employees.reassign_processing")
+                          : t("employees.reassign_demo_button", {
+                              status: reassignData.newStatus === "Resigned"
+                                ? t("employees.reassign_status_resigned")
+                                : t("employees.reassign_status_inactive"),
+                            })}
+                      </button>
+                    </>
+                  )}
                 <button
                   onClick={() => { setReassignData(null); setReassignTargetId(0); }}
                   disabled={reassignLoading}
-                  className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
+                  className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Cancel
+                  {t("employees.reassign_cancel")}
                 </button>
               </div>
             </motion.div>

@@ -12,6 +12,7 @@ import app.models.retailer
 import app.models.retailer_marking
 import app.models.rule_config
 import app.models.employee
+from app.models.employee import DEMO_EMPLOYEE_ID_PREFIX
 import app.models.employee_document
 import app.models.supervisor_assignment
 import app.models.bts
@@ -695,8 +696,14 @@ async def _migrate_retailer_employee_link():
                 FROM employees e
                 WHERE e.assisted_retailer_code = r.retailer_code
                   AND r.employee_id IS DISTINCT FROM e.id
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM employees demo
+                      WHERE demo.id = r.employee_id
+                        AND demo.employee_id LIKE :demo_employee_id_prefix
+                  )
                 """
-            ))
+            ), {"demo_employee_id_prefix": f"{DEMO_EMPLOYEE_ID_PREFIX}%"})
             if fixed.rowcount:
                 logger.info(f"Migration complete: re-linked {fixed.rowcount} retailer(s) to their assisted-code owner")
     except Exception as e:

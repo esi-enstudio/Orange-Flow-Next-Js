@@ -18,6 +18,7 @@ import { Suspense } from "react";
 import PageProgressIndicator from "@/components/ui/PageProgressIndicator";
 import { DynamicPageTitle } from "@/components/layout/DynamicPageTitle";
 import { PWARegister } from "@/components/PWARegister";
+import { NetworkStatusNotifier } from "@/components/layout/NetworkStatusNotifier";
 
 const EXTENSION_ATTRIBUTES = ["bis_skin_checked"] as const;
 
@@ -110,6 +111,7 @@ export default async function RootLayout({
             <ColorProvider>
               <BrandProvider>
               <MaintenanceProvider>
+              <NetworkStatusNotifier />
               <MaintenanceGate>
               <EntitlementsProvider>
               <FullscreenProvider>

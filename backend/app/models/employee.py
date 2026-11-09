@@ -3,6 +3,9 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.models.base import Base
 
+DEMO_EMPLOYEE_ID_PREFIX = "DEMO-"
+
+
 class Employee(Base):
     __tablename__ = "employees"
 

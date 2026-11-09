@@ -61,6 +61,11 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (authLoading) return;
+    if (!user) {
+      setEntitlements(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {

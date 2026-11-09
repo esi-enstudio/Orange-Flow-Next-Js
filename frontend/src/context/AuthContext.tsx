@@ -59,43 +59,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   const checkSystemStatus = async () => {
-    // The backend can still be booting when the SPA loads (it runs migrations
-    // and starts the automation engine before Uvicorn accepts connections). That
-    // surfaces as an Axios "Network Error" on the very first request. Retry a
-    // few times before giving up so a normal cold start does not log a scary
-    // console error.
-    const MAX_ATTEMPTS = 4;
-    const RETRY_DELAY_MS = 1500;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      try {
-        const response = await apiClient.get("admin/setup/status");
-        setInitialized(response.data.initialized);
-        return response.data.initialized;
-      } catch (error) {
-        const isLastAttempt = attempt === MAX_ATTEMPTS;
-        if (!isLastAttempt) {
-          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-          continue;
-        }
-        // Only a genuine outage reaches here. `error.response` is undefined for
-        // transport failures, which is what "Network Error" means.
-        const isTransportError = !axios.isAxiosError(error) || !error.response;
-        if (isTransportError) {
-          console.warn(
-            `Backend unreachable after ${MAX_ATTEMPTS} attempts — continuing without a status check.`,
-            error
-          );
-        } else {
-          console.error("Failed to check system status", error);
-        }
-        setInitialized(true);
-        return true;
+    try {
+      const response = await apiClient.get("backend-ready");
+      setInitialized(response.data.initialized);
+      return response.data.initialized;
+    } catch (error) {
+      if (axios.isAxiosError(error) && !error.response) {
+        console.warn("Backend readiness check could not reach the application.", error);
+      } else {
+        console.error("Failed to check system status", error);
       }
+      setInitialized(true);
+      return true;
     }
-
-    setInitialized(true);
-    return true;
   };
 
   const refreshStatus = async () => {

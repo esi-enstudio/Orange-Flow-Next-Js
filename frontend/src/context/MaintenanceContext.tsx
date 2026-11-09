@@ -91,7 +91,7 @@ export function formatCountdown(ms: number): string {
 }
 
 export function MaintenanceProvider({ children }: { children: React.ReactNode }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, initialized: authInitialized } = useAuth();
   const [status, setStatus] = useState<MaintenanceStatus>(OFF_STATUS);
   const [graceEndLocal, setGraceEndLocal] = useState<number | null>(null);
   const [now, setNow] = useState<number>(() => Date.now());
@@ -132,6 +132,7 @@ export function MaintenanceProvider({ children }: { children: React.ReactNode })
   );
 
   const refresh = useCallback(async () => {
+    if (authInitialized === null) return;
     try {
       const res = await apiClient.get("settings/maintenance");
       const data = res.data as MaintenanceStatus;
@@ -144,7 +145,7 @@ export function MaintenanceProvider({ children }: { children: React.ReactNode })
     } finally {
       setInitialized(true);
     }
-  }, [applyStatus]);
+  }, [applyStatus, authInitialized]);
 
   // Seed from localStorage after mount (avoids SSR hydration mismatch), then
   // fetch the authoritative status.

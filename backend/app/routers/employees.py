@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.routers.deps import get_db, has_permission, has_any_permission, get_current_user, get_house_context
 from app.schemas.employee import EmployeeSchema, EmployeeCreate, EmployeeSelfUpdate
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
-from app.models.employee import Employee
+from app.models.employee import DEMO_EMPLOYEE_ID_PREFIX, Employee
 from app.models.house import House
 from app.models.user import User, user_roles
 from app.models.retailer import Retailer
@@ -836,7 +836,8 @@ async def delete_employee_document(
 
 
 class ReassignRequest(BaseModel):
-    new_employee_id: int
+    new_employee_id: Optional[int] = None
+    create_demo_employee: bool = False
     status: str
 
 
@@ -854,6 +855,7 @@ async def get_employee_retailer_count(
     emp = result.scalar_one_or_none()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
     count_result = await db.execute(
         select(Retailer.id).where(Retailer.employee_id == emp_id)
     )
@@ -913,6 +915,7 @@ async def _transfer_employee_targets(
 async def reassign_employee_retailers(
     emp_id: int,
     req: ReassignRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("employees.edit"))
 ):
@@ -920,28 +923,114 @@ async def reassign_employee_retailers(
     emp = result.scalar_one_or_none()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
-    new_emp_result = await db.execute(select(Employee).where(Employee.id == req.new_employee_id))
-    new_emp = new_emp_result.scalar_one_or_none()
-    if not new_emp:
-        raise HTTPException(status_code=404, detail="New employee not found")
-    if emp.house_id != new_emp.house_id:
-        raise HTTPException(status_code=422, detail="Employees must be in the same house")
+    _assert_house_access(emp, current_user)
+    old_status = emp.status
     if req.status not in ("Active", "Resigned", "Suspended", "Inactive"):
         raise HTTPException(status_code=422, detail="Invalid status")
-    # Transfer all retailers
+    if req.create_demo_employee:
+        if req.new_employee_id is not None:
+            raise HTTPException(status_code=422, detail="Choose either an employee or a demo employee")
+        if req.status not in ("Resigned", "Inactive"):
+            raise HTTPException(status_code=422, detail="Demo reassignment is only allowed when resigning or deactivating")
+        if (emp.employee_type or "").lower() != "rso":
+            raise HTTPException(status_code=422, detail="Demo retailer reassignment is only supported for RSOs")
+        successor_itop_numbers = set(
+            (await db.execute(
+                select(Retailer.itop_sr_number).where(
+                    Retailer.employee_id == emp.id,
+                    Retailer.itop_sr_number.is_not(None),
+                    Retailer.itop_sr_number != "",
+                )
+            )).scalars().all()
+        )
+        if emp.itop_number:
+            successor_itop_numbers.add(emp.itop_number)
+        active_successor_id = (
+            await db.execute(
+                select(Employee.id)
+                .where(
+                    Employee.house_id == emp.house_id,
+                    Employee.employee_type == "rso",
+                    Employee.status == "Active",
+                    Employee.id != emp.id,
+                    Employee.itop_number.in_(successor_itop_numbers),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none() if successor_itop_numbers else None
+        if active_successor_id is not None:
+            raise HTTPException(status_code=409, detail="An active successor RSO is available for reassignment")
+
+        source_name = (
+            (emp.employee_name or "").strip()
+            or (emp.dms_code or "").strip()
+            or (emp.employee_id or "").strip()
+            or f"Employee {emp.id}"
+        )
+        source_reference = (
+            (emp.dms_code or "").strip()
+            or (emp.employee_id or "").strip()
+            or f"ID {emp.id}"
+        )
+        new_emp = Employee(
+            house_id=emp.house_id,
+            employee_name=f"Demo - Formerly {source_name} [{source_reference}]",
+            employee_id=f"{DEMO_EMPLOYEE_ID_PREFIX}{emp.id}",
+            employee_type="rso",
+            status="Inactive",
+        )
+        db.add(new_emp)
+        await db.flush()
+    else:
+        if req.new_employee_id is None:
+            raise HTTPException(status_code=422, detail="A new employee is required")
+        new_emp_result = await db.execute(
+            select(Employee).where(Employee.id == req.new_employee_id)
+        )
+        new_emp = new_emp_result.scalar_one_or_none()
+        if not new_emp:
+            raise HTTPException(status_code=404, detail="New employee not found")
+        _assert_house_access(new_emp, current_user)
+        if emp.house_id != new_emp.house_id:
+            raise HTTPException(status_code=422, detail="Employees must be in the same house")
+
+    retailer_count = await _count_retailers(db, emp_id)
     await db.execute(
-        Retailer.__table__.update().where(Retailer.employee_id == emp_id).values(employee_id=req.new_employee_id)
+        Retailer.__table__.update().where(Retailer.employee_id == emp_id).values(employee_id=new_emp.id)
     )
-    # Transfer monthly targets so reports keep showing them under the successor
-    targets_transferred = await _transfer_employee_targets(db, emp, new_emp)
+    # A placeholder is not a real successor and must not inherit active targets.
+    targets_transferred = (
+        0 if req.create_demo_employee else await _transfer_employee_targets(db, emp, new_emp)
+    )
     # Update employee status
     emp.status = req.status
     if emp.status == "Resigned" and not emp.resigned_date:
         emp.resigned_date = now_naive().strftime("%Y-%m-%d")
-    await db.commit()
+    await log_activity(
+        db,
+        current_user.id,
+        current_user.name,
+        "employees",
+        "reassign_retailers",
+        record_id=emp.id,
+        record_identifier=emp.employee_id or emp.dms_code,
+        old_values={"status": old_status, "retailer_count": retailer_count},
+        new_values={
+            "status": req.status,
+            "retailer_count": retailer_count,
+            "new_employee_id": new_emp.id,
+            "new_employee_name": new_emp.employee_name,
+            "demo_employee": req.create_demo_employee,
+        },
+        request=request,
+        status_code=200,
+    )
     await db.refresh(emp)
     return {
-        "message": f"Transferred retailers and {targets_transferred} target month(s) to {new_emp.dms_code or new_emp.id} and status set to {req.status}",
+        "message": f"Transferred {retailer_count} retailer(s) and {targets_transferred} target month(s) to {new_emp.employee_name or new_emp.dms_code or new_emp.id} and status set to {req.status}",
+        "demo_employee_id": new_emp.id if req.create_demo_employee else None,
+        "demo_employee_name": new_emp.employee_name if req.create_demo_employee else None,
+        "retailers_transferred": retailer_count,
         "targets_transferred": targets_transferred,
     }
 
