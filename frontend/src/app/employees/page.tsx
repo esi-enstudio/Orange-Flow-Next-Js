@@ -195,6 +195,13 @@ function employeeDisplayName(m: Employee): string {
   return (m.employee_name || m.dms_code || `#${m.id}`).trim();
 }
 
+function employeePoolOrItopNumber(m: Employee): string {
+  const employeeType = m.employee_type?.toLowerCase();
+  return employeeType === "bp" || employeeType === "supervisor"
+    ? m.pool_number || "N/A"
+    : m.itop_number || "N/A";
+}
+
 function typeBadgeColor(type: string): string {
   const colors: Record<string, string> = {
     rso: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
@@ -356,7 +363,7 @@ export default function EmployeesPage() {
   const buildQueryString = () => {
     const params = new URLSearchParams();
     params.set("page", String(page));
-    params.set("per_page", "5");
+    params.set("per_page", "10");
     params.set("sort_by", sortField);
     params.set("sort_order", sortDir);
     if (filters.search) params.set("search", filters.search);
@@ -913,7 +920,7 @@ export default function EmployeesPage() {
   if (!hasPermission("employees.view")) return <AccessDenied />;
 
   return (
-    <div className="-mx-2 -mt-2 sm:mx-0 sm:mt-0 max-w-7xl mx-auto space-y-3 sm:space-y-6">
+    <div className="-mx-2 -mt-2 sm:mx-0 sm:mt-0 w-full space-y-3 sm:space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
         <div>
@@ -1064,44 +1071,39 @@ export default function EmployeesPage() {
               <table className="w-full text-left whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-800 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b dark:border-slate-800">
-                    <th className="px-6 py-4">
+                    <th className="px-3 py-2">
                       <button onClick={() => handleSort("house")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
                         {t('employees.table_house')}
                         {sortField === "house" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
                       </button>
                     </th>
-                    <th className="px-6 py-4">
+                    <th className="px-3 py-2">
                       <button onClick={() => handleSort("name")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
                         {t('employees.table_info')}
                         {sortField === "name" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
                       </button>
                     </th>
-                    <th className="px-6 py-4">
-                      <button onClick={() => handleSort("dms_code")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
-                        {t('employees.table_dms')}
-                        {sortField === "dms_code" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
-                      </button>
-                    </th>
-                    <th className="px-6 py-4">
+                    <th className="px-3 py-2">{t('employees.field_sr_no')}</th>
+                    <th className="px-3 py-2">
                       <button onClick={() => handleSort("assisted_code")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
                         Assisted Code
                         {sortField === "assisted_code" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
                       </button>
                     </th>
-                    <th className="px-6 py-4">
+                    <th className="px-3 py-2">
                       <button onClick={() => handleSort("status")} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
                         {t('employees.table_status')}
                         {sortField === "status" ? (sortDir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-30" />}
                       </button>
                     </th>
-                    <th className="px-6 py-4">Retailers</th>
-                    <th className="px-6 py-4 text-right">{t('employees.table_actions')}</th>
+                    <th className="px-3 py-2">Retailers</th>
+                    <th className="px-3 py-2 text-right">{t('employees.table_actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y dark:divide-slate-800 text-sm">
                   {filteredMembers.map((m) => (
                     <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors group">
-                      <td className="px-6 py-4">
+                      <td className="px-2 py-1">
                         {m.house ? (
                           <div className="flex flex-col">
                             <span className="font-bold text-gray-700 dark:text-gray-300">{m.house.name}</span>
@@ -1111,7 +1113,7 @@ export default function EmployeesPage() {
                           <span className="text-gray-400 italic text-xs">{t('employees.no_house')}</span>
                         )}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-2 py-1">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-500/10 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs shadow-inner overflow-hidden shrink-0">
                             {m.photo_url || m.user?.profile_pic ? (
@@ -1130,17 +1132,14 @@ export default function EmployeesPage() {
                                 )}>{m.employee_type}</span>
                               )}
                             </div>
-                            <p className="text-[10px] text-gray-500 font-medium flex items-center gap-1"><Phone className="w-3 h-3"/> {m.personal_number}</p>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
+                              {m.dms_code || "N/A"} <span className="mx-1 text-[15px] font-bold leading-none">·</span> {employeePoolOrItopNumber(m)}
+                            </p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="space-y-1">
-                          <p className="text-xs font-mono font-bold text-primary-600 bg-primary-50 dark:bg-primary-500/5 px-2 py-0.5 rounded-lg inline-block">{m.dms_code}</p>
-                          <p className="text-[10px] text-gray-500 flex items-center gap-1 font-medium"><Smartphone className="w-3 h-3"/> {m.itop_number || "N/A"}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
+                      <td className="px-2 py-1">{m.sr_no || ""}</td>
+                      <td className="px-2 py-1">
                         {m.assisted_retailer_code ? (
                           <span className="text-xs font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-300 px-2 py-0.5 rounded-lg inline-flex items-center gap-1">
                             <Store className="w-3 h-3" />
@@ -1150,7 +1149,7 @@ export default function EmployeesPage() {
                           <span className="text-[10px] text-gray-400 italic">—</span>
                         )}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-2 py-1">
                         <div className="relative inline-block">
                           <div className={cn(
                             "px-2 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1",
@@ -1174,7 +1173,7 @@ export default function EmployeesPage() {
                           </select>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-2 py-1">
                         {m.employee_type?.toLowerCase() === "rso" ? (
                           <div className="flex flex-col gap-1">
                             <span className={cn(
@@ -1196,7 +1195,7 @@ export default function EmployeesPage() {
                           <span className="text-[10px] text-gray-400 italic">—</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-2 py-1 text-right">
                         <div className="flex justify-end gap-1">
                           <button onClick={() => openViewModal(m)} className="p-2 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg text-gray-400 hover:text-blue-600 transition-all"><Eye className="w-4 h-4"/></button>
                           <button onClick={() => {setDeletingId(m.id); setIsConfirmOpen(true);}} className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg text-gray-400 hover:text-red-600 transition-all"><Trash2 className="w-4 h-4"/></button>
@@ -1236,7 +1235,7 @@ export default function EmployeesPage() {
                       <div className="flex items-center gap-1 min-w-0">
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{m.dms_code}</p>
                         <span className="text-[12px] text-gray-500 dark:text-gray-400 shrink-0 leading-none">•</span>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{m.itop_number || "N/A"}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{employeePoolOrItopNumber(m)}</p>
                       </div>
                     </div>
                     <ChevronDown className={cn(
@@ -1251,7 +1250,7 @@ export default function EmployeesPage() {
                     <div className="px-3 pb-3 space-y-3">
                       <div className="pt-2 border-t dark:border-slate-800 space-y-2">
                         <p className="text-[11px] text-gray-500 flex items-center gap-1.5"><Phone className="w-3 h-3" /> {m.personal_number}</p>
-                        <p className="text-[11px] text-gray-500 flex items-center gap-1.5"><Smartphone className="w-3 h-3" /> {m.itop_number || "N/A"}</p>
+                        <p className="text-[11px] text-gray-500 flex items-center gap-1.5"><Smartphone className="w-3 h-3" /> {employeePoolOrItopNumber(m)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{t('employees.table_house')}</p>
@@ -1323,7 +1322,7 @@ export default function EmployeesPage() {
             </div>
             <div className="p-3 sm:p-4 border-t dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-gray-50/30 dark:bg-slate-900/30">
               <p className="text-xs text-gray-500 font-medium">
-                {t('employees.showing_results', { start: tabTotalCount === 0 ? 0 : (page - 1) * 5 + 1, end: Math.min(page * 5, tabTotalCount), total: tabTotalCount })}
+                {t('employees.showing_results', { start: tabTotalCount === 0 ? 0 : (page - 1) * 10 + 1, end: Math.min(page * 10, tabTotalCount), total: tabTotalCount })}
               </p>
               <div className="flex gap-2">
                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center border dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer disabled:cursor-not-allowed"><ChevronLeft className="w-4 h-4"/></button>
