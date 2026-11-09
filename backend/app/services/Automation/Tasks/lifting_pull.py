@@ -233,16 +233,22 @@ def decode_deposit_slip(slip: Optional[str]) -> tuple[bytes, str, str]:
             raw = base64.b64decode(payload)
         except Exception as exc:
             raise LiftingPullError(f"Could not decode the bank deposit slip: {exc}") from exc
-        ext = mimetypes.guess_extension(mime) or ".jpg"
+        # DMS serves manually uploaded JPEG slips as .jpeg; using .jpg here
+        # creates a link that its GetFile endpoint does not resolve.
+        ext = (
+            ".jpeg"
+            if mime.lower() == "image/jpeg"
+            else (mimetypes.guess_extension(mime) or ".jpg")
+        )
         if ext == ".jpe":
-            ext = ".jpg"
+            ext = ".jpeg"
         return raw, mime, f"deposit_slip{ext}"
 
     # Older records may contain a plain base64 string or a local file path.
     try:
         raw = base64.b64decode(slip, validate=True)
         if raw:
-            return raw, "image/jpeg", "deposit_slip.jpg"
+            return raw, "image/jpeg", "deposit_slip.jpeg"
     except Exception:
         pass
 
