@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
 import ResignationDocumentsModal from "@/components/employees/ResignationDocumentsModal";
+import { formatYMD } from "@/components/date-picker/format";
 
 export default function ResignationDocumentsPage() {
   const { t } = useLanguage();
@@ -253,9 +254,9 @@ export default function ResignationDocumentsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-800/60 border-b border-gray-200 dark:border-slate-700">
+                    <th className="px-2 py-2 text-left text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("resignation_docs.employee_house")}</th>
                     <th className="px-2 py-2 text-left text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("resignation_docs.employee")}</th>
                     <th className="px-2 py-2 text-left text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("resignation_docs.employee_type")}</th>
-                    <th className="px-2 py-2 text-left text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("resignation_docs.employee_house")}</th>
                     <th className="px-2 py-2 text-left text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("resignation_docs.employee_resigned")}</th>
                     <th className="px-2 py-2 text-left text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("resignation_docs.docs_status")}</th>
                     <th className="px-2 py-2 text-right text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("common.action")}</th>
@@ -265,12 +266,17 @@ export default function ResignationDocumentsPage() {
                   {rows.map((emp: any) => (
                     <tr key={emp.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-2 py-1">
+                        <p className="text-xs text-gray-900 dark:text-gray-100">{emp.house_name || "-"}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">{emp.house_code || "-"}</p>
+                      </td>
+                      <td className="px-2 py-1">
                         <p className="font-medium text-gray-900 dark:text-gray-100">{emp.employee_name || "-"}</p>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400">{emp.dms_code || "-"}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          {emp.dms_code || "-"} · {emp.itop_number || "-"}
+                        </p>
                       </td>
                       <td className="px-2 py-1 uppercase text-xs text-gray-600 dark:text-gray-300">{emp.employee_type || "-"}</td>
-                      <td className="px-2 py-1 text-xs text-gray-600 dark:text-gray-300">{emp.house_name || "-"}</td>
-                      <td className="px-2 py-1 text-xs text-gray-600 dark:text-gray-300">{emp.resigned_date || "-"}</td>
+                      <td className="px-2 py-1 text-xs text-gray-600 dark:text-gray-300">{formatYMD(emp.resigned_date, "en")}</td>
                       <td className="px-2 py-1">
                         {emp.ready ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-green-50 dark:bg-green-900/30 text-[11px] font-medium text-green-700 dark:text-green-300">
@@ -312,14 +318,14 @@ export default function ResignationDocumentsPage() {
                     <div className="min-w-0">
                       <p className="font-semibold text-gray-900 dark:text-gray-100 truncate">{emp.employee_name || "-"}</p>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                        {emp.dms_code || "-"} · {(emp.employee_type || "-").toUpperCase()}
+                        {emp.dms_code || "-"} · {emp.itop_number || "-"} · {(emp.employee_type || "-").toUpperCase()}
                       </p>
                     </div>
                     <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-                    <span>{emp.house_name || "-"}</span>
-                    {emp.resigned_date && <span>· {emp.resigned_date}</span>}
+                    <span>{emp.house_name || "-"} · {emp.house_code || "-"}</span>
+                    <span>· {formatYMD(emp.resigned_date, "en")}</span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {emp.ready ? (

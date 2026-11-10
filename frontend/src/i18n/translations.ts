@@ -98,6 +98,7 @@ export const translations = {
       page_guide: "Guide",
       page_guide_tooltip: "How to use this page",
       overview: "Overview",
+      details: "Details",
       close: "Close",
       save: "Save",
       saving: "Saving...",
@@ -6068,6 +6069,7 @@ export const translations = {
       not_found: "পাওয়া যায়নি",
       no_address: "কোনো ঠিকানা নেই",
       overview: "সংক্ষিপ্ত বিবরণ",
+      details: "বিস্তারিত",
       close: "বন্ধ করুন",
       date_range: {
         label: "তারিখের রেঞ্জ",

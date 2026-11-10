@@ -62,6 +62,7 @@ async def _resigned_employee(db, status="Resigned"):
     employee = Employee(
         house_id=house.id,
         dms_code="RS000111",
+        itop_number="1915270101",
         employee_name="Md Karim",
         fathers_name="Md Rahim",
         nid="1234567890123",
@@ -235,6 +236,8 @@ async def test_overview_lists_only_resigned_with_readiness(api, db):
     # Active employees and non-RSO/BP types never appear in the picker.
     assert [row["dms_code"] for row in body["data"]] == ["RS000111"]
     row = body["data"][0]
+    assert row["itop_number"] == "1915270101"
+    assert row["house_code"] == "RSN-1"
     assert row["missing"] == ["resignation_letter", "nid", "letterhead"]
     assert row["ready"] is False
     assert body["pagination"]["total"] == 1
