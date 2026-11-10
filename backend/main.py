@@ -146,6 +146,7 @@ from app.routers.database_backups import router as database_backups_router
 from app.routers.restore_points import router as restore_points_router
 from app.routers.location import router as location_router
 from app.routers.monitoring import router as monitoring_router
+from app.routers.documents import router as documents_router
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -219,6 +220,7 @@ app.include_router(database_backups_router)
 app.include_router(restore_points_router)
 app.include_router(location_router)
 app.include_router(monitoring_router)
+app.include_router(documents_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)

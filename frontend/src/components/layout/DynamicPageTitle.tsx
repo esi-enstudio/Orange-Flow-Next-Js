@@ -39,10 +39,12 @@ const ROUTE_TITLE_MAP: Record<string, { en: string; bn: string }> = {
   "/restore-points": { en: "Restore Points", bn: "রিস্টোর পয়েন্ট" },
   "/live-location/travel-history": { en: "Travel History", bn: "ভ্রমণ ইতিহাস" },
   "/employees/resignation-documents": { en: "Resignation Documents", bn: "পদত্যাগপত্র ডকুমেন্ট" },
+  "/documents/templates": { en: "Document Templates", bn: "ডকুমেন্ট টেমপ্লেট" },
   "/houses/letterhead": { en: "House Letterhead", bn: "হাউস লেটারহেড" },
 };
 
 const PATTERN_TITLES: { match: (p: string) => boolean; en: string; bn: string }[] = [
+  { match: (p) => /^\/documents\/templates\/\d+/.test(p), en: "Document Template", bn: "ডকুমেন্ট টেমপ্লেট" },
   { match: (p) => /^\/zoom-in\/\d+/.test(p), en: "Zoom-In Event Details", bn: "জুম-ইন ইভেন্ট বিবরণ" },
   { match: (p) => /^\/cv\/.+\/edit$/.test(p), en: "Edit Digital CV", bn: "সিভি সম্পাদনা" },
   { match: (p) => /^\/cv\/.+/.test(p), en: "Digital CV", bn: "ডিজিটাল সিভি" },

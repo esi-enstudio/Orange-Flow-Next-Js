@@ -20,6 +20,7 @@ async def log_activity(
     request: Optional[Request] = None,
     status_code: int = 200,
     duration_ms: Optional[int] = None,
+    commit: bool = True,
 ):
     log = ActivityLog(
         user_id=user_id,
@@ -38,4 +39,7 @@ async def log_activity(
         duration_ms=duration_ms,
     )
     db.add(log)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()

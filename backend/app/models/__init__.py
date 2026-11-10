@@ -88,4 +88,14 @@ from app.models.restore_point import RestorePoint
 from app.models.notification import Notification
 from app.models.employee_location import EmployeeLiveLocation, EmployeeLocation
 from app.models.system_monitoring import SystemMetricSample, ContainerMetricSample, MonitoringAlert, AutomationJobRecord
+from app.models.documents import (
+    DocumentType,
+    DocumentTemplate,
+    DocumentTemplateVersion,
+    DocumentLetterhead,
+    DocumentSignatory,
+    GeneratedDocument,
+    DocumentVersion,
+    DocumentNumberSequence,
+)
 

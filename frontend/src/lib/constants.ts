@@ -160,6 +160,15 @@ export const navItems: NavItem[] = [
     ]
   },
   {
+    title: "Documents",
+    translationKey: "nav.documents",
+    moduleKey: "documents",
+    href: "/documents/templates",
+    icon: FileText,
+    color: "text-sky-500",
+    permission: "documents.templates.view",
+  },
+  {
     title: "Retailers",
     translationKey: "nav.retailers",
     moduleKey: "retailers",

@@ -54,6 +54,9 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/v1/database-backups", "administration"),
     ("/api/v1/restore-points", "administration"),
     ("/api/v1/deploy", "administration"),
+    ("/api/v1/documents", "documents"),
+    # audit trail is a system-wide admin surface (gated by `audit.view`)
+    ("/api/v1/activity-logs", "administration"),
     ("/api/rule-config", "administration"),
     ("/api/settings", "administration"),
     ("/api/users", "administration"),
@@ -118,6 +121,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/sim-issues", "reports"),
 
     ("/api/v1/inventory", "inventory"),
+    ("/api/v1/adjustments", "inventory"),
     ("/api/v1/sales", "field_sales"),
     ("/api/v1/finance", "finance"),
     ("/api/v1/ev-kit", "sim_management"),
@@ -215,6 +219,7 @@ MODULE_LEAF_ROUTES: dict = {
     "performance": ("/dashboard/manager", "/dashboard/supervisor", "/dashboard/rso"),
     "targets": ("/targets/house", "/targets/supervisor", "/targets/rso", "/targets/bp"),
     "roles_permissions": ("/roles", "/permissions"),
+    "documents": ("/documents/templates",),
     "zoom_in": (
         "/zoom-in",
         "/zoom-in/event-types",
@@ -342,6 +347,11 @@ LEAF_TO_API_PREFIXES: dict = {
     # ---- roles_permissions ----
     "/roles": ("/api/roles",),
     "/permissions": ("/api/permissions",),
+
+    # ---- documents ----
+    # Phase 1/2 expose template management only; document generation pages
+    # (Phase 4) will add their own leaves and prefixes.
+    "/documents/templates": ("/api/v1/documents",),
 
     # ---- zoom_in ----
     "/zoom-in": ("/api/zoom-in/events", "/api/zoom-in/dashboard/summary"),

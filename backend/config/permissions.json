@@ -13,6 +13,23 @@
         "houses.letterhead_edit"
       ]
     },
+    "documents": {
+      "display_name": "Documents",
+      "permissions": [
+        "documents.view",
+        "documents.create",
+        "documents.edit",
+        "documents.generate",
+        "documents.download",
+        "documents.regenerate",
+        "documents.void",
+        "documents.templates.view",
+        "documents.templates.manage",
+        "documents.letterheads.manage",
+        "documents.signatories.manage",
+        "documents.audit.view"
+      ]
+    },
     "users": {
       "display_name": "Users",
       "permissions": [
@@ -588,6 +605,18 @@
         "houses.view",
         "houses.letterhead_view",
         "houses.letterhead_edit",
+        "documents.view",
+        "documents.create",
+        "documents.edit",
+        "documents.generate",
+        "documents.download",
+        "documents.regenerate",
+        "documents.void",
+        "documents.templates.view",
+        "documents.templates.manage",
+        "documents.letterheads.manage",
+        "documents.signatories.manage",
+        "documents.audit.view",
         "retailers.view",
         "employees.view",
         "employees.assign",
@@ -652,6 +681,11 @@
         "employees.resignation_upload",
         "employees.resignation_generate",
         "houses.letterhead_view",
+        "documents.view",
+        "documents.create",
+        "documents.generate",
+        "documents.download",
+        "documents.templates.view",
         "bts.view",
         "sim_status.view",
         "activations.view",

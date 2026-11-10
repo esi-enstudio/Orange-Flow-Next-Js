@@ -47,6 +47,7 @@ import app.models.ga_report_template
 import app.models.ga_report_target
 import app.models.database_backup
 import app.models.notification
+import app.models.documents
 
 logger = logging.getLogger(__name__)
 
@@ -674,6 +675,44 @@ async def _migrate_house_letterhead():
                 logger.info("Migration complete: houses.%s", name)
         except Exception as e:
             logger.warning(f"Migration warning (houses.{name}): {e}")
+
+
+async def _migrate_documents_module():
+    """Seed the Document Automation module and add its scope indexes.
+
+    `create_all` already created the tables (the models are imported above);
+    this pass adds the partial unique indexes that keep template names unique
+    per scope and inserts the document types + the global NOC template.
+    Idempotent: safe to run on every start.
+    """
+    index_statements = (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_document_templates_global_name "
+        "ON document_templates (document_type_id, lower(name)) "
+        "WHERE house_id IS NULL AND is_deleted = false",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_document_templates_house_name "
+        "ON document_templates (house_id, document_type_id, lower(name)) "
+        "WHERE house_id IS NOT NULL AND is_deleted = false",
+    )
+    for statement in index_statements:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(statement))
+        except Exception as e:
+            message = f"documents scope index migration failed: {e}"
+            STARTUP_FATAL_ERRORS.append(message)
+            logger.critical("FATAL: %s", message, exc_info=True)
+            return
+
+    try:
+        from app.services.document_seed import seed_documents_module
+
+        async with async_session() as session:
+            await seed_documents_module(session)
+    except Exception as e:
+        message = f"documents module seed failed: {e}"
+        STARTUP_FATAL_ERRORS.append(message)
+        logger.critical("FATAL: %s", message, exc_info=True)
+
 
 async def _migrate_house_billing_deactivation():
     """Add deactivated_for_billing column to houses table.
@@ -2375,6 +2414,7 @@ async def init_db():
         await _migrate_house_live_sync_enabled()
         await _migrate_house_show_pull_button()
         await _migrate_house_letterhead()
+        await _migrate_documents_module()
         await _migrate_house_billing_deactivation()
         await _migrate_app_settings_daily_sync()
         await _migrate_app_settings_favicon()
