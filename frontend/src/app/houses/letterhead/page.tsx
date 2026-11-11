@@ -96,6 +96,10 @@ const PLACEHOLDER_KEYS = [
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
+// A4 width in points (210mm). The PDF renders the body in points on a real A4
+// page, so the on-screen preview scales that same size with the canvas width.
+const A4_WIDTH_PT = 595.28;
+
 const HTML_TAG_RE = /<\/?(b|strong|i|em|u|s|strike|br|div|p|span|ul|ol|li|img)\b/i;
 
 function escapeHtml(text: string): string {
@@ -153,6 +157,7 @@ export default function HouseLetterheadPage() {
   const [imageVersion, setImageVersion] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const bodyTextRef = useRef<RichTextEditorHandle>(null);
+  const [canvasWidth, setCanvasWidth] = useState(0);
 
   const fetchData = async () => {
     if (!houseId) {
@@ -201,6 +206,20 @@ export default function HouseLetterheadPage() {
       if (objectUrl) window.URL.revokeObjectURL(objectUrl);
     };
   }, [houseId, data?.has_image, imageVersion]);
+
+  // The A4 preview shrinks on small screens; the body font has to shrink with
+  // it, otherwise the text overflows the page on mobile.
+  const hasCanvas = !loading && Boolean(data) && Boolean(layout);
+  useEffect(() => {
+    const element = canvasRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver((entries) => {
+      setCanvasWidth(entries[0]?.contentRect.width ?? 0);
+    });
+    observer.observe(element);
+    setCanvasWidth(element.getBoundingClientRect().width);
+    return () => observer.disconnect();
+  }, [hasCanvas]);
 
   const updateBody = (patch: Partial<BodyBlock>) => {
     setLayout((prev) =>
@@ -388,7 +407,9 @@ export default function HouseLetterheadPage() {
     left: `${block.x}%`,
     top: `${block.y}%`,
     width: `${block.w}%`,
-    fontSize: `${block.size}pt`,
+    fontSize: canvasWidth
+      ? `${(block.size * canvasWidth) / A4_WIDTH_PT}px`
+      : `${block.size}pt`,
     fontWeight: block.bold ? 700 : 400,
   });
 
@@ -473,10 +494,10 @@ export default function HouseLetterheadPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         {/* Canvas */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
-          <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between gap-3">
+        <div className="min-w-0 bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+          <div className="p-3 sm:p-4 border-b border-gray-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
             <h3 className="font-semibold text-gray-900 dark:text-gray-100">
               {t("houses.letterhead.editor_title")}
             </h3>
@@ -524,7 +545,7 @@ export default function HouseLetterheadPage() {
             {layout.body.enabled && (
               <div
                 className={cn(
-                  "absolute border-2 border-dashed p-1.5 cursor-move overflow-hidden",
+                  "absolute border border-dashed p-1 sm:border-2 sm:p-1.5 cursor-move overflow-hidden",
                   selected === "body"
                     ? "border-primary-500 bg-primary-50/30 dark:bg-primary-900/20"
                     : "border-emerald-400/70 bg-emerald-50/20 dark:bg-emerald-900/10"
@@ -553,7 +574,7 @@ export default function HouseLetterheadPage() {
         </div>
 
         {/* Right panel */}
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           {/* Image */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-4">
             <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
