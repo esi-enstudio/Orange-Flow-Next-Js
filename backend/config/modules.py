@@ -219,7 +219,13 @@ MODULE_LEAF_ROUTES: dict = {
     "performance": ("/dashboard/manager", "/dashboard/supervisor", "/dashboard/rso"),
     "targets": ("/targets/house", "/targets/supervisor", "/targets/rso", "/targets/bp"),
     "roles_permissions": ("/roles", "/permissions"),
-    "documents": ("/documents/templates",),
+    "documents": (
+        "/documents",
+        "/documents/create",
+        "/documents/templates",
+        "/documents/letterheads",
+        "/documents/signatories",
+    ),
     "zoom_in": (
         "/zoom-in",
         "/zoom-in/event-types",
@@ -349,9 +355,21 @@ LEAF_TO_API_PREFIXES: dict = {
     "/permissions": ("/api/permissions",),
 
     # ---- documents ----
-    # Phase 1/2 expose template management only; document generation pages
-    # (Phase 4) will add their own leaves and prefixes.
-    "/documents/templates": ("/api/v1/documents",),
+    "/documents": (
+        "/api/v1/documents/records",
+    ),
+    "/documents/templates": (
+        "/api/v1/documents/templates",
+        "/api/v1/documents/types",
+        "/api/v1/documents/variables",
+    ),
+    "/documents/letterheads": ("/api/v1/documents/letterheads",),
+    "/documents/signatories": ("/api/v1/documents/signatories",),
+    "/documents/create": (
+        "/api/v1/documents",
+        "/api/v1/documents/",
+        "/api/v1/documents/employees",
+    ),
 
     # ---- zoom_in ----
     "/zoom-in": ("/api/zoom-in/events", "/api/zoom-in/dashboard/summary"),
@@ -390,6 +408,7 @@ MODULE_SHARED_API_PREFIXES: dict = {
     "sim_management": ("/api/v1/ev-kit", "/api/v1/sim-products"),
     "reports": ("/api/itopup-details", "/api/itopup-balance"),
     "zoom_in": ("/api/zoom-in/filter-options",),
+    "documents": ("/api/v1/documents/render/preview",),
 }
 
 

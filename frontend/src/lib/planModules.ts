@@ -132,14 +132,19 @@ export function allLeafKeys(): string[] {
 /** Resolve an exact leaf route or a sub-route (e.g. "/retailers/markings/123") to its leaf. */
 export function leafForRoute(route: string): string | null {
   const path = route.replace(/^\/+/, "").replace(/\/+$/, "");
+  let bestMatch: string | null = null;
+  let bestLength = -1;
   for (const group of buildPlanModuleTree()) {
     if (BASE_MODULES.has(group.moduleKey) || isAlwaysReachable(group.moduleKey)) continue;
     for (const child of group.children) {
       const leaf = child.href.replace(/^\/+/, "").replace(/\/+$/, "");
-      if (path === leaf || path.startsWith(`${leaf}/`)) return child.href;
+      if ((path === leaf || path.startsWith(`${leaf}/`)) && leaf.length > bestLength) {
+        bestMatch = child.href;
+        bestLength = leaf.length;
+      }
     }
   }
-  return null;
+  return bestMatch;
 }
 
 /** Resolve an allowed key (module key or leaf route) to its top-level module. */

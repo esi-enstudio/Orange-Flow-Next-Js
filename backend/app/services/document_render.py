@@ -292,6 +292,9 @@ def _page_css(page: dict, *, embed_fonts: bool = True) -> str:
         + ".sig .sig-line{line-height:1.45}"
         + ".doc-footer{position:fixed;left:0;right:0;bottom:0;text-align:center;"
         "font-size:8pt;color:#555;border-top:0.3mm solid #bbb;padding-top:1.5mm}"
+        + "@media print{html,body{background:#fff!important;-webkit-print-color-adjust:exact;"
+        "print-color-adjust:exact}.doc-heading,.sig{break-inside:avoid;page-break-inside:avoid}"
+        ".page-break{break-after:page;page-break-after:always}.doc-footer{position:fixed}}"
     )
 
 

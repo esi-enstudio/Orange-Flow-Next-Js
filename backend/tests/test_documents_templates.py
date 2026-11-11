@@ -5,18 +5,27 @@ prints, so the escaping and path-traversal tests here are as important as the
 CRUD ones.
 """
 
+import io
 from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
+from PIL import Image
 from sqlalchemy import select
 
 from app.models.activity_log import ActivityLog
-from app.models.documents import DocumentTemplate
+from app.models.documents import (
+    DocumentLetterhead,
+    DocumentSignatory,
+    DocumentTemplate,
+    DocumentVersion,
+    GeneratedDocument,
+)
 from app.routers.deps import get_current_user, get_db
 from app.routers.documents import router
-from app.services import document_render, document_seed
+from app.services import document_assets
+from app.services import document_numbering, document_pdf, document_render, document_seed
 from app.services import document_service as svc
 
 DOC_PERMISSIONS = (
@@ -196,6 +205,413 @@ async def test_super_admin_can_create_global_template(api, db):
     )
     assert response.status_code == 201, response.text
     assert response.json()["data"]["scope"] == "global"
+
+
+async def test_letterhead_crud_is_house_scoped_and_soft_deleted(api, db):
+    client, state = api
+    house = await _make_house(db)
+    other_house = await _make_house(db, code="H002", name="Other House")
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+
+    created = await client.post(
+        "/api/v1/documents/letterheads",
+        headers=headers,
+        json={
+            "name": "Primary",
+            "organization_name": "Orange Distribution",
+            "phone_numbers": ["01700000000"],
+            "is_default": True,
+        },
+    )
+    assert created.status_code == 201, created.text
+    asset_id = created.json()["data"]["id"]
+    assert created.json()["data"]["house_id"] == house.id
+
+    listed = await client.get("/api/v1/documents/letterheads", headers=headers)
+    assert [row["id"] for row in listed.json()["data"]] == [asset_id]
+
+    cross_house = await client.get(
+        "/api/v1/documents/letterheads",
+        headers={"X-House-ID": str(other_house.id)},
+    )
+    assert cross_house.status_code == 403
+
+    updated = await client.patch(
+        f"/api/v1/documents/letterheads/{asset_id}",
+        headers=headers,
+        json={"organization_name": "Orange Flow Distribution"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["data"]["organization_name"] == "Orange Flow Distribution"
+
+    deleted = await client.delete(f"/api/v1/documents/letterheads/{asset_id}", headers=headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["data"]["deleted"] is True
+    assert (await client.get("/api/v1/documents/letterheads", headers=headers)).json()["data"] == []
+
+    logs = (
+        await db.execute(
+            select(ActivityLog).where(
+                ActivityLog.module == "documents",
+                ActivityLog.record_identifier == "letterhead: Primary",
+            )
+        )
+    ).scalars().all()
+    assert {log.action for log in logs} == {"create", "edit", "delete"}
+
+
+async def test_tenant_cannot_create_global_document_assets(api, db):
+    client, state = api
+    house = await _make_house(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    response = await client.post(
+        "/api/v1/documents/signatories",
+        headers=headers,
+        json={"scope": "global", "name": "Global signer", "designation": "Director"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "GLOBAL_DOCUMENT_ASSET_FORBIDDEN"
+
+
+async def test_signatory_default_and_ambiguity_resolution(api, db):
+    client, state = api
+    house = await _make_house(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+
+    first = await client.post(
+        "/api/v1/documents/signatories",
+        headers=headers,
+        json={"name": "First", "designation": "Director"},
+    )
+    second = await client.post(
+        "/api/v1/documents/signatories",
+        headers=headers,
+        json={"name": "Second", "designation": "Manager"},
+    )
+    assert first.status_code == second.status_code == 201
+    with pytest.raises(HTTPException) as exc_info:
+        await svc.resolve_signatory(db, house_id=house.id)
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "SIGNATORY_AMBIGUOUS"
+
+    selected = await client.patch(
+        f"/api/v1/documents/signatories/{second.json()['data']['id']}",
+        headers=headers,
+        json={"is_default": True},
+    )
+    assert selected.status_code == 200
+    resolved = await svc.resolve_signatory(db, house_id=house.id)
+    assert resolved is not None
+    assert resolved.id == second.json()["data"]["id"]
+    assert svc.snapshot_signatory(resolved)["name"] == "Second"
+
+    deleted = await client.delete(
+        f"/api/v1/documents/signatories/{first.json()['data']['id']}",
+        headers=headers,
+    )
+    assert deleted.status_code == 200
+    signatory_logs = (
+        await db.execute(
+            select(ActivityLog).where(
+                ActivityLog.module == "documents",
+                ActivityLog.record_identifier == "signatory: First",
+            )
+        )
+    ).scalars().all()
+    assert {log.action for log in signatory_logs} == {"create", "delete"}
+
+
+async def test_letterhead_resolution_prefers_house_and_rejects_ambiguity(api, db):
+    client, state = api
+    house = await _make_house(db)
+    state["user"] = _user(None, role="Super Admin", permissions=())
+    global_result = await client.post(
+        "/api/v1/documents/letterheads",
+        json={
+            "scope": "global",
+            "name": "Global",
+            "organization_name": "Global Organization",
+            "is_default": True,
+        },
+    )
+    assert global_result.status_code == 201
+
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    for name in ("House One", "House Two"):
+        response = await client.post(
+            "/api/v1/documents/letterheads",
+            headers=headers,
+            json={"name": name, "organization_name": name},
+        )
+        assert response.status_code == 201, response.text
+
+    with pytest.raises(HTTPException) as exc_info:
+        await svc.resolve_letterhead(db, house.id)
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "LETTERHEAD_AMBIGUOUS"
+
+    house_default = await client.patch(
+        f"/api/v1/documents/letterheads/{response.json()['data']['id']}",
+        headers=headers,
+        json={"is_default": True},
+    )
+    assert house_default.status_code == 200
+    resolved = await svc.resolve_letterhead(db, house.id)
+    assert resolved is not None
+    assert resolved.house_id == house.id
+    assert resolved.name == "House Two"
+
+
+async def test_document_asset_image_upload_is_normalized_and_private(api, db, tmp_path, monkeypatch):
+    client, state = api
+    house = await _make_house(db)
+    state["user"] = _user(house)
+    monkeypatch.setattr(document_assets, "PRIVATE_ROOT", str(tmp_path))
+    headers = {"X-House-ID": str(house.id)}
+    created = await client.post(
+        "/api/v1/documents/letterheads",
+        headers=headers,
+        json={"name": "With Logo", "organization_name": "Orange"},
+    )
+    assert created.status_code == 201
+
+    image_buffer = io.BytesIO()
+    Image.new("RGBA", (32, 24), (255, 0, 0, 128)).save(image_buffer, format="PNG")
+    uploaded = await client.post(
+        f"/api/v1/documents/letterheads/{created.json()['data']['id']}/logo",
+        headers=headers,
+        files={"file": ("logo.png", image_buffer.getvalue(), "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["data"]["has_logo"] is True
+
+    streamed = await client.get(
+        f"/api/v1/documents/letterheads/{created.json()['data']['id']}/logo",
+        headers=headers,
+    )
+    assert streamed.status_code == 200
+    assert streamed.headers["cache-control"] == "private, no-store"
+    normalized = Image.open(io.BytesIO(streamed.content))
+    assert normalized.format == "JPEG"
+
+
+async def test_generate_and_regenerate_are_immutable_and_download_scoped(api, db, tmp_path, monkeypatch):
+    client, state = api
+    house = await _make_house(db)
+    other_house = await _make_house(db, code="H002", name="Other House")
+    noc = await _seed(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    template = await client.post(
+        "/api/v1/documents/templates",
+        headers=headers,
+        json={
+            "document_type_id": noc.id,
+            "name": "Generated NOC",
+            "content_json": _ast(),
+            "variables_schema": _schema("employee_name"),
+        },
+    )
+    assert template.status_code == 201, template.text
+    draft = await client.post(
+        "/api/v1/documents",
+        headers=headers,
+        json={
+            "template_id": template.json()["data"]["id"],
+            "document_data": {"employee_name": "Ada"},
+        },
+    )
+    assert draft.status_code == 201, draft.text
+    document_id = draft.json()["data"]["id"]
+    assert draft.json()["data"]["status"] == "DRAFT"
+
+    sequence = {"number": 0}
+
+    async def allocate(*args, **kwargs):
+        sequence["number"] += 1
+        return f"NOC-2026-{sequence['number']:06d}"
+
+    pdfs = [b"%PDF-1.4 first immutable version", b"%PDF-1.4 second immutable version"]
+
+    async def render(_html):
+        return pdfs.pop(0)
+
+    monkeypatch.setattr(document_numbering, "allocate_document_number", allocate)
+    monkeypatch.setattr(document_pdf, "render_pdf", render)
+    monkeypatch.setattr(document_pdf, "PRIVATE_ROOT", str(tmp_path))
+
+    generated = await client.post(f"/api/v1/documents/{document_id}/generate", headers=headers)
+    assert generated.status_code == 200, generated.text
+    first = generated.json()["data"]
+    assert first["document"]["status"] == "GENERATED"
+    assert first["document"]["document_number"] == "NOC-2026-000001"
+    assert first["version"]["version_number"] == 1
+
+    first_download = await client.get(
+        f"/api/v1/documents/{document_id}/versions/1/download",
+        headers=headers,
+    )
+    assert first_download.status_code == 200
+    assert first_download.content == b"%PDF-1.4 first immutable version"
+    assert first_download.headers["cache-control"] == "private, no-store"
+
+    regenerated = await client.post(
+        f"/api/v1/documents/records/{document_id}/regenerate",
+        headers=headers,
+    )
+    assert regenerated.status_code == 200, regenerated.text
+    second = regenerated.json()["data"]
+    assert second["document"]["document_number"] == "NOC-2026-000001"
+    assert second["version"]["version_number"] == 2
+    assert first["version"]["file_checksum"] != second["version"]["file_checksum"]
+    assert sequence["number"] == 1
+
+    listed = await client.get(
+        "/api/v1/documents/records",
+        headers=headers,
+        params={"search": "NOC-2026", "status": "GENERATED", "page": 1, "per_page": 1},
+    )
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["pagination"]["total"] == 1
+    record = listed.json()["data"][0]
+    assert record["id"] == document_id
+    assert record["document_type_name"] == "No Objection Certificate"
+
+    summary = await client.get("/api/v1/documents/records/summary", headers=headers)
+    assert summary.status_code == 200
+    assert summary.json()["data"]["generated"] == 1
+
+    details = await client.get(f"/api/v1/documents/records/{document_id}", headers=headers)
+    assert details.status_code == 200
+    assert details.json()["data"]["template_name"] == "Generated NOC"
+    assert len(details.json()["data"]["versions"]) == 2
+
+    audit = await client.get(f"/api/v1/documents/records/{document_id}/audit", headers=headers)
+    assert audit.status_code == 200
+    assert [entry["action"] for entry in audit.json()["data"]] == ["regenerate", "generate", "create"]
+
+    state["user"] = _user(
+        house,
+        permissions=tuple(permission for permission in DOC_PERMISSIONS if permission != "documents.audit.view"),
+    )
+    other_house_list = await client.get(
+        "/api/v1/documents/records",
+        headers=headers,
+    )
+    assert other_house_list.status_code == 200
+    denied_audit = await client.get(f"/api/v1/documents/records/{document_id}/audit", headers=headers)
+    assert denied_audit.status_code == 403
+    state["user"] = _user(other_house)
+    other_house_list = await client.get(
+        "/api/v1/documents/records",
+        headers={"X-House-ID": str(other_house.id)},
+    )
+    assert other_house_list.status_code == 200
+    assert other_house_list.json()["data"] == []
+    denied_audit = await client.get(
+        f"/api/v1/documents/records/{document_id}",
+        headers={"X-House-ID": str(other_house.id)},
+    )
+    assert denied_audit.status_code == 404
+    state["user"] = _user(house)
+
+    voided = await client.post(
+        f"/api/v1/documents/records/{document_id}/void",
+        headers=headers,
+    )
+    assert voided.status_code == 200, voided.text
+    assert voided.json()["data"]["status"] == "VOID"
+    void_audit = await client.get(
+        f"/api/v1/documents/records/{document_id}/audit",
+        headers=headers,
+    )
+    assert void_audit.json()["data"][0]["action"] == "void"
+
+    first_after_regenerate = await client.get(
+        f"/api/v1/documents/{document_id}/versions/1/download",
+        headers=headers,
+    )
+    assert first_after_regenerate.content == b"%PDF-1.4 first immutable version"
+    second_download = await client.get(
+        f"/api/v1/documents/records/{document_id}/versions/2/download",
+        headers=headers,
+    )
+    assert second_download.status_code == 200
+    assert second_download.content == b"%PDF-1.4 second immutable version"
+    cross_house = await client.get(
+        f"/api/v1/documents/{document_id}/versions/1/download",
+        headers={"X-House-ID": str(other_house.id)},
+    )
+    assert cross_house.status_code == 403
+
+    versions = (
+        await db.execute(
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == document_id)
+            .order_by(DocumentVersion.version_number)
+        )
+    ).scalars().all()
+    assert [version.version_number for version in versions] == [1, 2]
+
+
+async def test_pdf_failure_keeps_draft_and_does_not_store_a_version(api, db, tmp_path, monkeypatch):
+    client, state = api
+    house = await _make_house(db)
+    noc = await _seed(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    template = await client.post(
+        "/api/v1/documents/templates",
+        headers=headers,
+        json={
+            "document_type_id": noc.id,
+            "name": "Failure Test NOC",
+            "content_json": _ast(),
+            "variables_schema": _schema("employee_name"),
+        },
+    )
+    draft = await client.post(
+        "/api/v1/documents",
+        headers=headers,
+        json={
+            "template_id": template.json()["data"]["id"],
+            "document_data": {"employee_name": "Ada"},
+        },
+    )
+    document_id = draft.json()["data"]["id"]
+
+    async def allocate(*args, **kwargs):
+        return "NOC-2026-000001"
+
+    async def fail_render(_html):
+        raise RuntimeError("Chromium unavailable")
+
+    monkeypatch.setattr(document_numbering, "allocate_document_number", allocate)
+    monkeypatch.setattr(document_pdf, "render_pdf", fail_render)
+    monkeypatch.setattr(document_pdf, "PRIVATE_ROOT", str(tmp_path))
+
+    failed = await client.post(f"/api/v1/documents/{document_id}/generate", headers=headers)
+    assert failed.status_code == 500
+    assert failed.json()["detail"]["code"] == "PDF_GENERATION_FAILED"
+
+    stored = (
+        await db.execute(
+            select(GeneratedDocument).where(GeneratedDocument.id == document_id)
+        )
+    ).scalar_one()
+    assert stored.status == "DRAFT"
+    assert stored.current_version == 0
+    assert stored.document_number.startswith("DRAFT-")
+    assert (
+        await db.execute(
+            select(DocumentVersion).where(DocumentVersion.document_id == document_id)
+        )
+    ).scalars().all() == []
+    assert list(tmp_path.rglob("*.pdf")) == []
 
 
 async def test_cross_house_template_is_forbidden(api, db):
@@ -511,6 +927,16 @@ def test_preview_html_has_no_embedded_font_payload():
     # The PDF path keeps the embeddable face (empty only if the font files are
     # missing in the test container).
     assert "font-family:NotoBengali" in pdf_html
+
+
+def test_renderer_includes_print_styles_for_page_breaks_and_color():
+    ast = document_render.document_ast.validate_ast(_ast("Printable text"))
+    html_document = document_render.render_html(ast, {})
+
+    assert "@media print{" in html_document
+    assert "-webkit-print-color-adjust:exact" in html_document
+    assert "break-inside:avoid" in html_document
+    assert "break-after:page" in html_document
 
 
 async def test_preview_endpoint_returns_html(api, db):

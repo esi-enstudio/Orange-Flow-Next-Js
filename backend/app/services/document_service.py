@@ -27,6 +27,7 @@ from app.models.documents import (
     DocumentTemplateVersion,
     DocumentType,
 )
+from app.services import document_assets
 from app.services import document_ast
 from app.utils.access_control import is_super_admin_user
 from app.utils.timezone import now_naive
@@ -82,6 +83,78 @@ def serialize_version(version: DocumentTemplateVersion, *, include_content: bool
     if include_content:
         payload["content_json"] = version.content_json
     return payload
+
+
+def serialize_letterhead(letterhead: DocumentLetterhead) -> dict:
+    return {
+        "id": letterhead.id,
+        "house_id": letterhead.house_id,
+        "scope": "global" if letterhead.house_id is None else "house",
+        "name": letterhead.name,
+        "organization_name": letterhead.organization_name,
+        "subtitle": letterhead.subtitle,
+        "address": letterhead.address,
+        "phone_numbers": list(letterhead.phone_numbers or []),
+        "email": letterhead.email,
+        "footer_text": letterhead.footer_text,
+        "has_logo": document_assets.image_fs_path(letterhead.logo_path) is not None,
+        "logo_url": f"/api/v1/documents/letterheads/{letterhead.id}/logo"
+        if letterhead.logo_path
+        else None,
+        "is_default": letterhead.is_default,
+        "is_active": letterhead.is_active,
+        "created_at": letterhead.created_at.isoformat() if letterhead.created_at else None,
+        "updated_at": letterhead.updated_at.isoformat() if letterhead.updated_at else None,
+    }
+
+
+def serialize_signatory(signatory: DocumentSignatory) -> dict:
+    return {
+        "id": signatory.id,
+        "house_id": signatory.house_id,
+        "scope": "global" if signatory.house_id is None else "house",
+        "name": signatory.name,
+        "designation": signatory.designation,
+        "phone": signatory.phone,
+        "has_signature": document_assets.image_fs_path(signatory.signature_path) is not None,
+        "signature_url": f"/api/v1/documents/signatories/{signatory.id}/signature"
+        if signatory.signature_path
+        else None,
+        "is_default": signatory.is_default,
+        "is_active": signatory.is_active,
+        "created_at": signatory.created_at.isoformat() if signatory.created_at else None,
+        "updated_at": signatory.updated_at.isoformat() if signatory.updated_at else None,
+    }
+
+
+def snapshot_letterhead(letterhead: Optional[DocumentLetterhead]) -> Optional[dict]:
+    if letterhead is None:
+        return None
+    return {
+        "id": letterhead.id,
+        "house_id": letterhead.house_id,
+        "name": letterhead.name,
+        "organization_name": letterhead.organization_name,
+        "subtitle": letterhead.subtitle,
+        "address": letterhead.address,
+        "phone_numbers": list(letterhead.phone_numbers or []),
+        "email": letterhead.email,
+        "footer_text": letterhead.footer_text,
+        "logo_path": letterhead.logo_path,
+    }
+
+
+def snapshot_signatory(signatory: Optional[DocumentSignatory]) -> Optional[dict]:
+    if signatory is None:
+        return None
+    return {
+        "id": signatory.id,
+        "house_id": signatory.house_id,
+        "name": signatory.name,
+        "designation": signatory.designation,
+        "phone": signatory.phone,
+        "signature_path": signatory.signature_path,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -558,8 +631,27 @@ async def _resolve_scope(db: AsyncSession, document_type_id: int, house_id: Opti
     )
 
 
-async def resolve_letterhead(db: AsyncSession, house_id: int) -> Optional[DocumentLetterhead]:
+async def resolve_letterhead(
+    db: AsyncSession, house_id: int, letterhead_id: Optional[int] = None
+) -> Optional[DocumentLetterhead]:
     """House letterhead first, then the global one; ambiguity is an error."""
+    if letterhead_id is not None:
+        letterhead = await db.get(DocumentLetterhead, letterhead_id)
+        if (
+            letterhead is None
+            or letterhead.is_deleted
+            or not letterhead.is_active
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "LETTERHEAD_NOT_FOUND", "message": "Letterhead not found"},
+            )
+        if letterhead.house_id is not None and letterhead.house_id != house_id:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "LETTERHEAD_FORBIDDEN", "message": "This letterhead belongs to another house"},
+            )
+        return letterhead
     for scope_house_id in (house_id, None):
         scope_filter = (
             DocumentLetterhead.house_id.is_(None)
@@ -605,7 +697,11 @@ async def resolve_signatory(
 ) -> Optional[DocumentSignatory]:
     if signatory_id is not None:
         signatory = await db.get(DocumentSignatory, signatory_id)
-        if signatory is None or signatory.is_deleted:
+        if (
+            signatory is None
+            or signatory.is_deleted
+            or not signatory.is_active
+        ):
             raise HTTPException(status_code=404, detail={"code": "SIGNATORY_NOT_FOUND", "message": "Signatory not found"})
         if signatory.house_id is not None and signatory.house_id != house_id:
             raise HTTPException(
@@ -629,9 +725,26 @@ async def resolve_signatory(
                 )
             )
         ).unique().scalars().all()
+        if not rows:
+            continue
         defaults = [row for row in rows if row.is_default]
-        if defaults:
+        if len(defaults) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "AMBIGUOUS_DEFAULT_SIGNATORY",
+                    "message": "More than one default signatory is active",
+                },
+            )
+        if len(defaults) == 1:
             return defaults[0]
         if len(rows) == 1:
             return rows[0]
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SIGNATORY_AMBIGUOUS",
+                "message": "Several signatories are active. Mark one as default.",
+            },
+        )
     return None

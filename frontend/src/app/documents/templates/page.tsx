@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { FileText, RefreshCw, Search } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -189,7 +190,7 @@ export default function DocumentTemplatesPage() {
                 {templates.map((template) => (
                   <tr key={template.id}>
                     <td className="px-2 py-1">
-                      <p className="font-medium text-gray-900 dark:text-gray-100">{template.name}</p>
+                      <Link href={`/documents/templates/${template.id}`} className="font-medium text-primary-700 hover:underline dark:text-primary-300">{template.name}</Link>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400">
                         {template.template_mode === "VISUAL" ? t("documents.visual") : t("documents.predefined")}
                         {template.is_default ? ` · ${t("documents.default")}` : ""}
@@ -208,7 +209,7 @@ export default function DocumentTemplatesPage() {
           <div className="space-y-3 lg:hidden">
             {templates.map((template) => (
               <article key={template.id} className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-                <h2 className="font-semibold text-gray-900 dark:text-gray-100">{template.name}</h2>
+                <h2 className="font-semibold text-gray-900 dark:text-gray-100"><Link href={`/documents/templates/${template.id}`} className="hover:text-primary-700 hover:underline dark:hover:text-primary-300">{template.name}</Link></h2>
                 <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
                   {template.template_mode === "VISUAL" ? t("documents.visual") : t("documents.predefined")}
                   {template.is_default ? ` · ${t("documents.default")}` : ""}

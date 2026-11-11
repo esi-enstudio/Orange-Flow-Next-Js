@@ -290,13 +290,36 @@ def test_documents_module_is_mapped_for_plan_gating():
         ALL_LEAF_ROUTES,
         LEAF_TO_API_PREFIXES,
         MODULE_KEYS,
+        leaf_owners_for_path,
         module_for_path,
     )
 
     assert "documents" in MODULE_KEYS
     assert module_for_path("/api/v1/documents/templates") == "documents"
+    assert "/documents" in ALL_LEAF_ROUTES
+    assert LEAF_TO_API_PREFIXES["/documents"] == (
+        "/api/v1/documents/records",
+    )
+    assert leaf_owners_for_path("documents", "/api/v1/documents/records/17") == [
+        "/documents",
+    ]
     assert "/documents/templates" in ALL_LEAF_ROUTES
-    assert LEAF_TO_API_PREFIXES["/documents/templates"] == ("/api/v1/documents",)
+    assert LEAF_TO_API_PREFIXES["/documents/templates"] == (
+        "/api/v1/documents/templates",
+        "/api/v1/documents/types",
+        "/api/v1/documents/variables",
+    )
+    assert LEAF_TO_API_PREFIXES["/documents/letterheads"] == (
+        "/api/v1/documents/letterheads",
+    )
+    assert LEAF_TO_API_PREFIXES["/documents/signatories"] == (
+        "/api/v1/documents/signatories",
+    )
+    assert LEAF_TO_API_PREFIXES["/documents/create"] == (
+        "/api/v1/documents",
+        "/api/v1/documents/",
+        "/api/v1/documents/employees",
+    )
 
 
 def test_number_statement_compiles_to_postgres_upsert_with_returning():
