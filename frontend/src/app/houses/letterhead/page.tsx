@@ -20,6 +20,11 @@ import { cn } from "@/lib/utils";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { RichTextEditor, type RichTextEditorHandle } from "@/components/ui/RichTextEditor";
 import PageGuideModal from "@/components/PageGuideModal";
+import {
+  LETTERHEAD_SAMPLE_VALUES,
+  previewBlockStyle,
+  substituteLetterheadPlaceholders,
+} from "@/lib/letterhead";
 
 type Align = "left" | "center" | "right" | "justify";
 
@@ -65,19 +70,6 @@ interface DragState {
   grabY: number;
 }
 
-const SAMPLE_VALUES: Record<string, string> = {
-  application_date: "৩০ নভেম্বর ২০২৬",
-  employee_name: "মোঃ আব্দুল করিম",
-  fathers_name: "মোঃ আব্দুল রহমান",
-  nid: "১২৩৪৫৬৭৮৯০১২৩",
-  designation: "RSO (Retail Sales Officer)",
-  joining_date: "১৫ জানুয়ারি ২০২১",
-  resigned_date: "৩০ জুন ২০২৬",
-  dms_code: "R123456",
-  proprietor_name: "সামছুজ্জামান পাটোয়ারী",
-  proprietor_contact: "০১৯১৭৭৪৭৫৫৫",
-};
-
 const PLACEHOLDER_KEYS = [
   "application_date",
   "employee_name",
@@ -95,23 +87,6 @@ const PLACEHOLDER_KEYS = [
 ];
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-
-// A4 width in points (210mm). The PDF renders the body in points on a real A4
-// page, so the on-screen preview scales that same size with the canvas width.
-const A4_WIDTH_PT = 595.28;
-
-const HTML_TAG_RE = /<\/?(b|strong|i|em|u|s|strike|br|div|p|span|ul|ol|li|img)\b/i;
-
-function escapeHtml(text: string): string {
-  const map: Record<string, string> = {
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  };
-  return text.replace(/[&<>"']/g, (char) => map[char]);
-}
 
 /** Keep a block on the page and inside the allowed value ranges. */
 function clampBlock<T extends Block>(block: T): T {
@@ -343,7 +318,19 @@ export default function HouseLetterheadPage() {
     if (!layout) return;
     setSaving(true);
     try {
-      const res = await apiClient.put(`houses/${houseId}/letterhead`, { layout });
+      // Get the latest HTML from the RichTextEditor directly to ensure
+      // the image and all content are included, even if there's a state sync issue.
+      // The ref type doesn't include getHTML(), so we access it directly.
+      const editor = bodyTextRef.current;
+      const latestHtml = (editor as any)?.getHTML?.() ?? layout.body.text;
+      const updatedLayout = {
+        ...layout,
+        body: {
+          ...layout.body,
+          text: latestHtml,
+        },
+      };
+      const res = await apiClient.put(`houses/${houseId}/letterhead`, { layout: updatedLayout });
       setData(res.data);
       setLayout(res.data.layout);
       toast.success(t("houses.letterhead.toast_save_success"));
@@ -382,19 +369,11 @@ export default function HouseLetterheadPage() {
   };
 
   // Canvas preview uses the real house values and sample employee data.
-  const sampleValue = (key: string) => {
-    if (key === "house_name") return data?.house_name ?? "";
-    if (key === "house_address") return data?.house_address ?? "";
-    if (key === "house_code") return data?.house_code ?? "";
-    return SAMPLE_VALUES[key] ?? "";
-  };
-
-  /** Fill placeholders in the (sanitized) rich-text body for the live preview. */
-  const substituteHtml = (text: string) => {
-    const source = HTML_TAG_RE.test(text) ? text : escapeHtml(text);
-    return source.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_match, key: string) =>
-      escapeHtml(sampleValue(key))
-    );
+  const previewValues: Record<string, string> = {
+    ...LETTERHEAD_SAMPLE_VALUES,
+    house_name: data?.house_name ?? "",
+    house_address: data?.house_address ?? "",
+    house_code: data?.house_code ?? "",
   };
 
   /** Insert a dynamic value at the caret so the body text stays hand-editable. */
@@ -402,16 +381,6 @@ export default function HouseLetterheadPage() {
     if (!canEdit || !layout) return;
     bodyTextRef.current?.insertText(`{{${key}}}`);
   };
-
-  const blockStyle = (block: Block) => ({
-    left: `${block.x}%`,
-    top: `${block.y}%`,
-    width: `${block.w}%`,
-    fontSize: canvasWidth
-      ? `${(block.size * canvasWidth) / A4_WIDTH_PT}px`
-      : `${block.size}pt`,
-    fontWeight: block.bold ? 700 : 400,
-  });
 
   if (!canView) return <AccessDenied />;
 
@@ -551,7 +520,7 @@ export default function HouseLetterheadPage() {
                     : "border-emerald-400/70 bg-emerald-50/20 dark:bg-emerald-900/10"
                 )}
                 style={{
-                  ...blockStyle(layout.body),
+                  ...previewBlockStyle(layout.body, canvasWidth),
                   lineHeight: layout.body.line_height,
                   textAlign: layout.body.align,
                 }}
@@ -559,7 +528,9 @@ export default function HouseLetterheadPage() {
               >
                 <div
                   className="pointer-events-none whitespace-pre-wrap break-words font-bengali text-gray-900 [&_p]:m-0 [&_ul]:list-disc [&_ol]:list-decimal"
-                  dangerouslySetInnerHTML={{ __html: substituteHtml(layout.body.text) }}
+                  dangerouslySetInnerHTML={{
+                    __html: substituteLetterheadPlaceholders(layout.body.text, previewValues),
+                  }}
                 />
                 {canEdit && (
                   <span

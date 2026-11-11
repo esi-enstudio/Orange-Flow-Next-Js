@@ -14,6 +14,7 @@ import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import PageGuideModal from "@/components/PageGuideModal";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 import ResignationDocumentsModal from "@/components/employees/ResignationDocumentsModal";
+import LetterheadPreview from "@/components/houses/LetterheadPreview";
 import { formatYMD } from "@/components/date-picker/format";
 
 /** Compact size for a document card, e.g. 348 KB / 1.2 MB. */
@@ -708,12 +709,8 @@ export default function ResignationDocumentsPage() {
             : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
         )}>
           <div className="flex items-start gap-4">
-            <DocumentThumb
-              path={
-                data.letterhead?.configured && data.letterhead?.house_id
-                  ? `houses/${data.letterhead.house_id}/letterhead/image`
-                  : null
-              }
+            <LetterheadPreview
+              houseId={data.letterhead?.configured ? data.letterhead?.house_id : null}
               title={data.letterhead?.house_name || t("resignation_docs.letterhead")}
               label={t("resignation_docs.preview_document")}
               fallback={
