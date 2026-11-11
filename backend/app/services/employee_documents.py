@@ -365,7 +365,9 @@ async def store_image_document(
         image = image.convert("RGB")
     image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=85, optimize=True)
+    # Scans stay at full readable resolution; the quality drop is what removes
+    # most of the bytes (85 -> 70 is roughly half the file for a phone photo).
+    image.save(buffer, format="JPEG", quality=70, optimize=True, progressive=True)
 
     dest = _unique_document_path(employee.house_id, employee.id, ".jpg")
     with open(dest, "wb") as fh:

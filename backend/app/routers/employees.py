@@ -1094,6 +1094,36 @@ async def upload_resignation_document(
     return serialize_document(doc)
 
 
+@router.delete("/{emp_id}/resignation-documents/{doc_id}")
+async def delete_resignation_document(
+    emp_id: int,
+    doc_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.resignation_delete")),
+):
+    """Remove the letter or NID scan from the resignation package (soft delete)."""
+    emp = await db.get(Employee, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
+    _assert_resignation_employee(emp)
+    doc = await get_document(db, emp.id, doc_id)
+    if not doc or doc.doc_type not in (*RESIGNATION_LETTER_TYPES, *NID_TYPES):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    deleted = await soft_delete_documents(db, emp, [doc.id], current_user)
+    await db.commit()
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "delete",
+        record_id=emp.id,
+        record_identifier=emp.employee_id or emp.dms_code,
+        old_values={"entity": "resignation_document", "doc_type": doc.doc_type, "file_name": doc.file_name},
+        request=request, status_code=200,
+    )
+    return {"message": "Document removed", "deleted": deleted}
+
+
 @router.post("/{emp_id}/resignation-package")
 async def generate_resignation_package(
     emp_id: int,
@@ -1119,7 +1149,7 @@ async def generate_resignation_package(
     if not letter:
         raise HTTPException(status_code=422, detail={"code": "RESIGNATION_LETTER_MISSING", "message": "Upload the handwritten resignation letter first"})
     if not nid_doc:
-        raise HTTPException(status_code=422, detail={"code": "NID_MISSING", "message": "Upload the employee's NID/Voter ID card first"})
+        raise HTTPException(status_code=422, detail={"code": "NID_MISSING", "message": "Upload the employee's NID card first"})
     if not house or not house_letterhead.configured(house):
         raise HTTPException(status_code=422, detail={"code": "LETTERHEAD_NOT_CONFIGURED", "message": "This house has no letterhead configured"})
 

@@ -301,7 +301,7 @@ export default function ResignationDocumentsModal({
                     )}
                   </div>
 
-                  {/* NID / Voter ID */}
+                  {/* NID */}
                   <div className={cn(
                     "p-4 rounded-xl border transition-all",
                     data.nid

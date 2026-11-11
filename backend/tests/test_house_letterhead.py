@@ -81,6 +81,29 @@ def test_validate_layout_rejects_non_objects():
         hl.validate_layout([])
 
 
+def test_body_html_is_sanitized_before_storage():
+    layout = hl.validate_layout(
+        {
+            "body": {
+                "text": (
+                    '<b>Bold</b><script>alert(1)</script>'
+                    '<img src=x onerror=alert(2)>'
+                    '<div style="text-align:center;background:url(x)">Mid</div>'
+                    '<a href="javascript:alert(3)">link</a>'
+                )
+            }
+        }
+    )
+    text = layout["body"]["text"]
+
+    assert "<b>Bold</b>" in text
+    assert "<script" not in text and "alert(1)" not in text
+    assert "<img" not in text
+    assert 'style="text-align:center"' in text
+    assert "background" not in text
+    assert "<a " not in text and "link" in text
+
+
 # --------------------------------------------------------------------------- #
 # Image storage
 # --------------------------------------------------------------------------- #

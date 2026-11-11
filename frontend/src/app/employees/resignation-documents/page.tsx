@@ -7,13 +7,21 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, FileText, CheckCircle2, AlertCircle, HelpCircle, Search, ChevronLeft, ChevronRight, Upload, Loader2 } from "lucide-react";
+import { ArrowLeft, FileText, CheckCircle2, AlertCircle, HelpCircle, Search, ChevronLeft, ChevronRight, Upload, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import PageGuideModal from "@/components/PageGuideModal";
 import ImageLightbox from "@/components/ui/ImageLightbox";
 import ResignationDocumentsModal from "@/components/employees/ResignationDocumentsModal";
 import { formatYMD } from "@/components/date-picker/format";
+
+/** Compact size for a document card, e.g. 348 KB / 1.2 MB. */
+function fileSize(bytes: number): string {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 
 /** Authenticated image endpoint turned into an object URL (plain <img> gets 401). */
 function useAuthImage(path: string | null) {
@@ -97,6 +105,8 @@ export default function ResignationDocumentsPage() {
   const nidInputRef = useRef<HTMLInputElement>(null);
   const [uploadingLetter, setUploadingLetter] = useState(false);
   const [uploadingNid, setUploadingNid] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<"letter" | "nid" | "letterhead" | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   // `silent` keeps the cards on screen (no skeleton) when only the document
   // status changed, e.g. right after an upload inside the modal.
@@ -169,6 +179,28 @@ export default function ResignationDocumentsPage() {
     // Reset so picking the same file again still fires onChange.
     e.target.value = "";
     if (file) void uploadDocument(kind, file);
+  };
+
+  // Soft delete: the file leaves the card but stays on disk for the audit trail.
+  const removeAttachment = async () => {
+    if (!pendingRemove) return;
+    setRemoving(true);
+    try {
+      if (pendingRemove === "letterhead") {
+        await apiClient.delete(`houses/${data.letterhead.house_id}/letterhead/image`);
+      } else {
+        const doc = pendingRemove === "letter" ? data.resignation_letter : data.nid;
+        await apiClient.delete(`employees/${empId}/resignation-documents/${doc.id}`);
+      }
+      toast.success(t("resignation_docs.remove_success"));
+      setPendingRemove(null);
+      await fetchData(true);
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : t("resignation_docs.remove_failed"));
+    } finally {
+      setRemoving(false);
+    }
   };
 
   if (!hasPermission("employees.resignation_view")) {
@@ -545,6 +577,8 @@ export default function ResignationDocumentsPage() {
               {data.resignation_letter && (
                 <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
                   {data.resignation_letter.file_name}
+                  {data.resignation_letter.file_size > 0 &&
+                    ` · ${fileSize(data.resignation_letter.file_size)}`}
                 </p>
               )}
               {hasPermission("employees.resignation_upload") && (
@@ -574,11 +608,20 @@ export default function ResignationDocumentsPage() {
                   </button>
                 </div>
               )}
+              {data.resignation_letter && hasPermission("employees.resignation_delete") && (
+                <button
+                  onClick={() => setPendingRemove("letter")}
+                  className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:underline cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {t("resignation_docs.remove_letter")}
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* NID / Voter ID */}
+        {/* NID */}
         <div className={cn(
           "p-6 rounded-2xl border transition-all",
           data.nid
@@ -613,6 +656,7 @@ export default function ResignationDocumentsPage() {
               {data.nid && (
                 <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
                   {data.nid.file_name}
+                  {data.nid.file_size > 0 && ` · ${fileSize(data.nid.file_size)}`}
                   {data.nid.source && ` (${data.nid.source})`}
                 </p>
               )}
@@ -642,6 +686,15 @@ export default function ResignationDocumentsPage() {
                     )}
                   </button>
                 </div>
+              )}
+              {data.nid && hasPermission("employees.resignation_delete") && (
+                <button
+                  onClick={() => setPendingRemove("nid")}
+                  className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:underline cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {t("resignation_docs.remove_nid")}
+                </button>
               )}
             </div>
           </div>
@@ -699,6 +752,15 @@ export default function ResignationDocumentsPage() {
                       : "resignation_docs.configure_letterhead"
                   )}
                 </Link>
+              )}
+              {data.letterhead?.configured && hasPermission("houses.letterhead_edit") && (
+                <button
+                  onClick={() => setPendingRemove("letterhead")}
+                  className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:underline cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {t("resignation_docs.remove_letterhead")}
+                </button>
               )}
             </div>
           </div>
@@ -773,6 +835,17 @@ export default function ResignationDocumentsPage() {
           </div>
         </details>
       </div>
+
+      <ConfirmationModal
+        isOpen={pendingRemove !== null}
+        onClose={() => setPendingRemove(null)}
+        onConfirm={removeAttachment}
+        title={t("resignation_docs.remove_confirm_title")}
+        message={t("resignation_docs.remove_confirm_message")}
+        confirmText={t("common.delete")}
+        type="danger"
+        loading={removing}
+      />
     </div>
   );
 }

@@ -258,6 +258,75 @@ async def test_reupload_keeps_one_active_scan(api, db, tmp_path, monkeypatch, ki
     assert [row.is_deleted for row in result.unique().scalars().all()].count(False) == 1
 
 
+async def test_removing_an_uploaded_scan_clears_the_card(api, db, tmp_path, monkeypatch):
+    from app.services import employee_documents as ed
+
+    monkeypatch.setattr(ed, "PRIVATE_STORAGE_ROOT", str(tmp_path / "documents"))
+    app, client = api
+    house, employee = await _resigned_employee(db)
+    app.dependency_overrides[get_current_user] = lambda: _user(house, role="Admin")
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (600, 800), "#ffffff").save(buffer, format="JPEG")
+    uploaded = await client.post(
+        f"/api/employees/{employee.id}/resignation-documents",
+        data={"kind": "nid"},
+        files={"file": ("scan.jpg", buffer.getvalue(), "image/jpeg")},
+    )
+    assert uploaded.status_code == 200
+
+    removed = await client.delete(
+        f"/api/employees/{employee.id}/resignation-documents/{uploaded.json()['id']}"
+    )
+    assert removed.status_code == 200
+
+    status = await client.get(f"/api/employees/{employee.id}/resignation-documents")
+    assert status.json()["nid"] is None
+    assert "nid" in status.json()["missing"]
+
+
+def test_application_page_keeps_rich_text_markup_and_fills_placeholders():
+    house = House(code="RICH", name="Rich House", address="Dhaka")
+    house.letterhead_layout = hl.default_layout()
+    house.letterhead_layout["body"]["text"] = (
+        "<b>নাম:</b> {{employee_name}}<ul><li>প্রথম</li></ul>"
+    )
+
+    page = rp.build_application_page(house, rp.sample_values(house), image_uri="data:image/jpeg;base64,AAA")
+
+    assert "<b>নাম:</b>" in page
+    assert "<li>প্রথম</li>" in page
+    assert "মোঃ আব্দুল করিম" in page
+
+
+async def test_uploaded_scan_is_compressed_without_losing_resolution(api, db, tmp_path, monkeypatch):
+    from app.services import employee_documents as ed
+
+    monkeypatch.setattr(ed, "PRIVATE_STORAGE_ROOT", str(tmp_path / "documents"))
+    app, client = api
+    house, employee = await _resigned_employee(db)
+    app.dependency_overrides[get_current_user] = lambda: _user(house, role="Admin")
+
+    # Noise compresses badly, so the quality drop is visible in the byte count.
+    image = Image.frombytes("RGB", (1600, 1200), os.urandom(1600 * 1200 * 3))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=95)
+    original_size = len(buffer.getvalue())
+
+    response = await client.post(
+        f"/api/employees/{employee.id}/resignation-documents",
+        data={"kind": "nid"},
+        files={"file": ("scan.jpg", buffer.getvalue(), "image/jpeg")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["file_size"] < original_size * 0.8
+
+    doc = await ed.get_document(db, employee.id, body["id"])
+    with Image.open(ed.document_file_path(doc)) as stored:
+        assert stored.size == (1600, 1200)
+
+
 async def test_overview_lists_only_resigned_with_readiness(api, db):
     app, client = api
     house, employee = await _resigned_employee(db)

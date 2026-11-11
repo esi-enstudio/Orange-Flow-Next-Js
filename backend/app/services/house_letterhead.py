@@ -8,12 +8,15 @@ Files are private (`private_uploads/letterheads/{house_id}/`) and are only
 served through the permission-guarded stream endpoint.
 """
 
+import html
 import io
 import logging
 import os
+import re
 import uuid
 
 from fastapi import UploadFile
+from lxml import html as lxml_html
 from PIL import Image, ImageOps
 
 from app.models.house import House
@@ -28,6 +31,30 @@ LETTERHEAD_MAX_DIMENSION = 2480  # A4 at ~300 dpi
 
 ALIGNMENTS = ("left", "center", "right", "justify")
 ALLOWED_FORMATS = ("JPEG", "PNG", "WEBP")
+
+# Tags the body editor may produce (bold/italic/underline, lists, aligned
+# paragraphs, inline signature images). Everything else is stripped before the
+# HTML reaches the PDF renderer or the page preview.
+BODY_HTML_TAGS = frozenset(
+    {
+        "b", "strong", "i", "em", "u", "s", "strike", "br",
+        "div", "p", "span", "ul", "ol", "li", "img",
+    }
+)
+_STYLE_PATTERNS = {
+    "text-align": re.compile(r"(left|center|right|justify)"),
+    "font-weight": re.compile(r"(normal|bold|[1-9]00)"),
+    "font-style": re.compile(r"(normal|italic)"),
+    "text-decoration": re.compile(r"(none|underline|line-through|underline line-through)"),
+    "font-size": re.compile(r"\d{1,2}(\.\d+)?pt"),
+    "width": re.compile(r"\d{1,3}%"),
+}
+
+# A signature image is embedded as a base64 data URI so it travels with the
+# layout and the PDF renderer. SVG is never accepted (script vector).
+_IMAGE_SRC_RE = re.compile(r"data:image/(?:png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+")
+IMAGE_SRC_MAX_CHARS = 520_000
+BODY_HTML_MAX_CHARS = 1_500_000
 
 # Editable Bangla template printed on the letterhead page. `{{placeholder}}`
 # tokens are filled from the employee + house records at generation time
@@ -94,10 +121,87 @@ def _num(value, default: float, low: float, high: float) -> float:
     return max(low, min(high, number))
 
 
-def _clean_text(value, limit: int = 20000) -> str:
+def _clean_text(value, limit: int = BODY_HTML_MAX_CHARS) -> str:
     if not isinstance(value, str):
         return ""
     return value.replace("\x00", "")[:limit]
+
+
+def _valid_image_src(src: str) -> bool:
+    """Accept only inline base64 raster images produced by the editor."""
+    return len(src) <= IMAGE_SRC_MAX_CHARS and _IMAGE_SRC_RE.fullmatch(src) is not None
+
+
+def _clean_style(raw: str) -> str:
+    """Keep only the alignment/weight/decoration properties the editor emits."""
+    kept = []
+    for chunk in (raw or "").split(";"):
+        prop, _, value = chunk.partition(":")
+        prop = prop.strip().lower()
+        value = " ".join(value.split()).lower()
+        pattern = _STYLE_PATTERNS.get(prop)
+        if pattern and pattern.fullmatch(value):
+            kept.append(f"{prop}:{value}")
+    return ";".join(kept)
+
+
+def sanitize_body_html(value) -> str:
+    """Allow-list HTML for the letter body (rich text editor output).
+
+    Plain text (legacy layouts) passes through unchanged apart from escaping
+    `<`/`&`, so existing letterheads keep rendering exactly as before.
+    """
+    text = _clean_text(value)
+    if not text.strip():
+        return ""
+    try:
+        root = lxml_html.fragment_fromstring(text, create_parent="div")
+    except (ValueError, lxml_html.etree.ParserError):
+        return html.escape(text)
+
+    # Drop a script/style element together with its content; unwrap any other
+    # tag that is not in the allow list so the operator never loses typed text.
+    for _ in range(20):
+        removed = False
+        for node in list(root.iterdescendants()):
+            tag = node.tag.lower() if isinstance(node.tag, str) else ""
+            if tag in ("script", "style"):
+                node.drop_tree()
+                removed = True
+            elif tag == "img":
+                # Drop any image that is not a safe inline base64 raster.
+                if not _valid_image_src(node.get("src") or ""):
+                    node.drop_tree()
+                    removed = True
+                    continue
+                for name in list(node.attrib):
+                    if name == "style":
+                        cleaned = _clean_style(node.get("style") or "")
+                        if cleaned:
+                            node.set("style", cleaned)
+                        else:
+                            del node.attrib[name]
+                    elif name != "src":
+                        del node.attrib[name]
+            elif tag not in BODY_HTML_TAGS:
+                node.drop_tag()
+                removed = True
+            else:
+                for name in list(node.attrib):
+                    if name == "style":
+                        cleaned = _clean_style(node.get("style") or "")
+                        if cleaned:
+                            node.set("style", cleaned)
+                        else:
+                            del node.attrib[name]
+                    else:
+                        del node.attrib[name]
+        if not removed:
+            break
+
+    return (root.text or "") + "".join(
+        lxml_html.tostring(child, encoding="unicode") for child in root
+    )
 
 
 def _clean_block(raw: dict, fallback: dict) -> dict:
@@ -122,7 +226,7 @@ def validate_layout(payload) -> dict:
     body = _clean_block(body_raw, defaults["body"])
     body["x"] = min(body["x"], 100 - body["w"])
     body["enabled"] = bool(body_raw.get("enabled", defaults["body"]["enabled"]))
-    body["text"] = _clean_text(body_raw.get("text", defaults["body"]["text"]))
+    body["text"] = sanitize_body_html(body_raw.get("text", defaults["body"]["text"]))
     body["line_height"] = _num(body_raw.get("line_height"), defaults["body"]["line_height"], 1.0, 3.0)
 
     return {"body": body}
@@ -199,6 +303,10 @@ def configured(house: House) -> bool:
 
 
 def serialize(house: House) -> dict:
+    layout = house.letterhead_layout or default_layout()
+    body = layout.get("body") or {}
+    # Always hand sanitized HTML to the browser: older rows may predate the editor.
+    layout = {**layout, "body": {**body, "text": sanitize_body_html(body.get("text", ""))}}
     return {
         "house_id": house.id,
         "house_name": house.name,
@@ -206,7 +314,7 @@ def serialize(house: House) -> dict:
         "house_address": house.address or "",
         "has_image": image_fs_path(house) is not None,
         "image_url": f"/api/houses/{house.id}/letterhead/image" if house.letterhead_image_path else None,
-        "layout": house.letterhead_layout or default_layout(),
+        "layout": layout,
         "default_layout": default_layout(),
         "body_placeholders": list(BODY_PLACEHOLDERS),
         "configured": configured(house),

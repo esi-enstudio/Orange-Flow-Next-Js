@@ -101,6 +101,7 @@
         "employees.document_delete",
         "employees.resignation_view",
         "employees.resignation_upload",
+        "employees.resignation_delete",
         "employees.resignation_generate"
       ]
     },
@@ -622,6 +623,7 @@
         "employees.assign",
         "employees.resignation_view",
         "employees.resignation_upload",
+        "employees.resignation_delete",
         "employees.resignation_generate",
         "bts.view",
         "reports.view",
@@ -679,6 +681,7 @@
         "employees.assign",
         "employees.resignation_view",
         "employees.resignation_upload",
+        "employees.resignation_delete",
         "employees.resignation_generate",
         "houses.letterhead_view",
         "documents.view",

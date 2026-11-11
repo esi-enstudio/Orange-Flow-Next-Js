@@ -15,10 +15,10 @@ import {
   Save,
   Eye,
   RotateCcw,
-  Bold,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { RichTextEditor, type RichTextEditorHandle } from "@/components/ui/RichTextEditor";
 import PageGuideModal from "@/components/PageGuideModal";
 
 type Align = "left" | "center" | "right" | "justify";
@@ -65,8 +65,6 @@ interface DragState {
   grabY: number;
 }
 
-const ALIGNMENTS: Align[] = ["left", "center", "right", "justify"];
-
 const SAMPLE_VALUES: Record<string, string> = {
   application_date: "৩০ নভেম্বর ২০২৬",
   employee_name: "মোঃ আব্দুল করিম",
@@ -97,6 +95,19 @@ const PLACEHOLDER_KEYS = [
 ];
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+const HTML_TAG_RE = /<\/?(b|strong|i|em|u|s|strike|br|div|p|span|ul|ol|li|img)\b/i;
+
+function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  };
+  return text.replace(/[&<>"']/g, (char) => map[char]);
+}
 
 /** Keep a block on the page and inside the allowed value ranges. */
 function clampBlock<T extends Block>(block: T): T {
@@ -141,7 +152,7 @@ export default function HouseLetterheadPage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const bodyTextRef = useRef<HTMLTextAreaElement>(null);
+  const bodyTextRef = useRef<RichTextEditorHandle>(null);
 
   const fetchData = async () => {
     if (!houseId) {
@@ -359,24 +370,18 @@ export default function HouseLetterheadPage() {
     return SAMPLE_VALUES[key] ?? "";
   };
 
-  const substitute = (text: string) =>
-    text.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_match, key: string) => sampleValue(key));
+  /** Fill placeholders in the (sanitized) rich-text body for the live preview. */
+  const substituteHtml = (text: string) => {
+    const source = HTML_TAG_RE.test(text) ? text : escapeHtml(text);
+    return source.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_match, key: string) =>
+      escapeHtml(sampleValue(key))
+    );
+  };
 
   /** Insert a dynamic value at the caret so the body text stays hand-editable. */
   const insertPlaceholder = (key: string) => {
     if (!canEdit || !layout) return;
-    const token = `{{${key}}}`;
-    const element = bodyTextRef.current;
-    const text = layout.body.text ?? "";
-    const start = element?.selectionStart ?? text.length;
-    const end = element?.selectionEnd ?? text.length;
-    updateBody({ text: text.slice(0, start) + token + text.slice(end) });
-    requestAnimationFrame(() => {
-      if (!element) return;
-      element.focus();
-      const caret = start + token.length;
-      element.setSelectionRange(caret, caret);
-    });
+    bodyTextRef.current?.insertText(`{{${key}}}`);
   };
 
   const blockStyle = (block: Block) => ({
@@ -531,9 +536,10 @@ export default function HouseLetterheadPage() {
                 }}
                 onMouseDown={(e) => startDrag(e, "move")}
               >
-                <span className="pointer-events-none block whitespace-pre-wrap break-words font-bengali text-gray-900">
-                  {substitute(layout.body.text)}
-                </span>
+                <div
+                  className="pointer-events-none whitespace-pre-wrap break-words font-bengali text-gray-900 [&_p]:m-0 [&_ul]:list-disc [&_ol]:list-decimal"
+                  dangerouslySetInnerHTML={{ __html: substituteHtml(layout.body.text) }}
+                />
                 {canEdit && (
                   <span
                     onMouseDown={(e) => startDrag(e, "resize")}
@@ -648,55 +654,17 @@ export default function HouseLetterheadPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
-                    {t("houses.letterhead.align_label")}
-                  </label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {ALIGNMENTS.map((align) => (
-                      <button
-                        key={align}
-                        onClick={() => updateBody({ align })}
-                        disabled={!canEdit}
-                        className={cn(
-                          "px-2 py-2 rounded-xl text-xs font-medium border transition-colors",
-                          layout.body.align === align
-                            ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 text-primary-700 dark:text-primary-300"
-                            : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700",
-                          canEdit ? "cursor-pointer" : "cursor-not-allowed"
-                        )}
-                      >
-                        {t(`houses.letterhead.align_${align}`)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => updateBody({ bold: !layout.body.bold })}
-                  disabled={!canEdit}
-                  className={cn(
-                    "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-colors",
-                    layout.body.bold
-                      ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 text-primary-700 dark:text-primary-300"
-                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300",
-                    canEdit ? "cursor-pointer" : "cursor-not-allowed"
-                  )}
-                >
-                  <Bold className="w-4 h-4" />
-                  {t("houses.letterhead.bold")}
-                </button>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
                     {t("houses.letterhead.body_text")}
                   </label>
-                  <textarea
+                  <RichTextEditor
                     ref={bodyTextRef}
-                    rows={8}
                     value={layout.body.text}
+                    onChange={(text) => updateBody({ text })}
                     disabled={!canEdit}
-                    onChange={(e) => updateBody({ text: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bengali outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed"
                   />
+                  <p className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    {t("houses.letterhead.editor_hint")}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">

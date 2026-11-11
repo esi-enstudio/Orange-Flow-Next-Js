@@ -114,10 +114,14 @@ def _base_values(house: House, employee: dict, application_date: date) -> dict:
     }
 
 
-def _substitute(text: str, values: dict) -> str:
-    """Escape first, then fill the whitelisted placeholders with escaped values."""
+def _substitute(html_text: str, values: dict) -> str:
+    """Fill the whitelisted placeholders with escaped values.
+
+    `html_text` is already sanitized HTML (see `house_letterhead`), so escaping
+    the markup again would print the tags instead of applying them.
+    """
     escaped_values = {key: html.escape(str(value)) for key, value in values.items()}
-    return _PLACEHOLDER_RE.sub(lambda m: escaped_values.get(m.group(1), ""), html.escape(text))
+    return _PLACEHOLDER_RE.sub(lambda m: escaped_values.get(m.group(1), ""), html_text)
 
 
 def _font_face() -> str:
@@ -162,6 +166,10 @@ def _page_style() -> str:
         + ".t{position:absolute;font-family:NotoBengali;font-weight:400;line-height:1.45;"
           "white-space:pre-wrap;overflow-wrap:break-word;color:#000}"
         + ".t.b{font-weight:700}"
+        # Rich-text body: paragraphs/lists must not add their own browser margins.
+        + ".t p{margin:0}"
+        + ".t ul,.t ol{margin:0;padding-left:1.2em}"
+        + ".t img{max-width:100%;height:auto;vertical-align:middle}"
     )
 
 
@@ -191,8 +199,9 @@ def build_application_page(
     parts = [f'<div class="page"><div class="bg" style="height:100%;'
              f'background-image:url({image_uri})"></div>']
     body = layout.get("body") or {}
-    if body.get("enabled") and body.get("text"):
-        parts.append(_text_block(body, _substitute(body["text"], values)))
+    body_html = house_letterhead.sanitize_body_html(body.get("text")) if body.get("enabled") else ""
+    if body_html:
+        parts.append(_text_block(body, _substitute(body_html, values)))
     parts.append("</div>")
     return "".join(parts)
 
