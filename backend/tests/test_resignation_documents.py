@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from PIL import Image
+from sqlalchemy import select
 
 from app.models.employee import Employee
 from app.models.employee_document import EmployeeDocument
@@ -135,7 +136,7 @@ def test_application_page_escapes_tenant_text():
     assert "<img src=x" not in page
 
 
-def test_application_page_has_body_and_six_positioned_fields():
+def test_application_page_renders_only_the_body_text():
     house = House(code="BLK", name="Block House", address="Dhaka")
     house.letterhead_layout = hl.default_layout()
 
@@ -143,8 +144,8 @@ def test_application_page_has_body_and_six_positioned_fields():
         house, rp.sample_values(house), image_uri="data:image/jpeg;base64,AAA"
     )
 
-    # One body block + the six dynamic value blocks.
-    assert page.count('<div class="t') == 7
+    # One body block; everything else comes from the letterhead image.
+    assert page.count('<div class="t') == 1
     assert "১২৩৪৫৬৭৮৯০১২৩" in page  # NID rendered in Bangla digits
     assert "মোঃ আব্দুল করিম" in page
 
@@ -219,6 +220,42 @@ async def test_documents_endpoint_reports_missing_pieces(api, db):
     body = response.json()
     assert body["missing"] == ["resignation_letter", "nid", "letterhead"]
     assert body["can_generate"] is False
+
+
+@pytest.mark.parametrize("kind", ["resignation_letter", "nid"])
+async def test_reupload_keeps_one_active_scan(api, db, tmp_path, monkeypatch, kind):
+    from app.services import employee_documents as ed
+
+    monkeypatch.setattr(ed, "PRIVATE_STORAGE_ROOT", str(tmp_path / "documents"))
+    app, client = api
+    house, employee = await _resigned_employee(db)
+    app.dependency_overrides[get_current_user] = lambda: _user(house, role="Admin")
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (600, 800), "#ffffff").save(buffer, format="JPEG")
+    image = buffer.getvalue()
+
+    async def upload():
+        return await client.post(
+            f"/api/employees/{employee.id}/resignation-documents",
+            data={"kind": kind},
+            files={"file": ("scan.jpg", image, "image/jpeg")},
+        )
+
+    first = await upload()
+    assert first.status_code == 200
+    second = await upload()
+    assert second.status_code == 200
+    assert second.json()["id"] != first.json()["id"]
+
+    result = await db.execute(
+        select(EmployeeDocument).where(
+            EmployeeDocument.employee_id == employee.id,
+            EmployeeDocument.doc_type == kind,
+        )
+    )
+    # The re-upload replaces the old scan instead of stacking a second one.
+    assert [row.is_deleted for row in result.unique().scalars().all()].count(False) == 1
 
 
 async def test_overview_lists_only_resigned_with_readiness(api, db):

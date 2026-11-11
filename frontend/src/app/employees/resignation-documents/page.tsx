@@ -11,8 +11,66 @@ import { ArrowLeft, FileText, CheckCircle2, AlertCircle, HelpCircle, Search, Che
 import { cn } from "@/lib/utils";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import PageGuideModal from "@/components/PageGuideModal";
+import ImageLightbox from "@/components/ui/ImageLightbox";
 import ResignationDocumentsModal from "@/components/employees/ResignationDocumentsModal";
 import { formatYMD } from "@/components/date-picker/format";
+
+/** Authenticated image endpoint turned into an object URL (plain <img> gets 401). */
+function useAuthImage(path: string | null) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setUrl(null);
+    if (!path) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    apiClient
+      .get(path, { responseType: "blob" })
+      .then((res) => {
+        if (cancelled) return;
+        objectUrl = window.URL.createObjectURL(new Blob([res.data]));
+        setUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (objectUrl) window.URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+  return url;
+}
+
+/** Document thumbnail on the card; clicking it opens the full-screen viewer. */
+function DocumentThumb({
+  path,
+  title,
+  label,
+  fallback,
+}: {
+  path: string | null;
+  title: string;
+  label: string;
+  fallback: React.ReactNode;
+}) {
+  const url = useAuthImage(path);
+  const [open, setOpen] = useState(false);
+  if (!url) return <>{fallback}</>;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={label}
+        aria-label={label}
+        className="h-32 shrink-0 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer hover:ring-2 hover:ring-primary-500 transition-all"
+      >
+        {/* Height is fixed so the image cannot inflate the card; width follows the aspect ratio. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={title} className="h-full w-auto max-w-none" />
+      </button>
+      <ImageLightbox open={open} src={url} alt={title} title={title} onClose={() => setOpen(false)} />
+    </>
+  );
+}
 
 export default function ResignationDocumentsPage() {
   const { t } = useLanguage();
@@ -456,14 +514,25 @@ export default function ResignationDocumentsPage() {
             : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
         )}>
           <div className="flex items-start gap-4">
-            <div className={cn(
-              "p-3 rounded-xl",
-              data.resignation_letter
-                ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-            )}>
-              <FileText className="w-6 h-6" />
-            </div>
+            <DocumentThumb
+              path={
+                data.resignation_letter
+                  ? `employees/${empId}/documents/${data.resignation_letter.id}/file`
+                  : null
+              }
+              title={data.resignation_letter?.file_name || t("resignation_docs.resignation_letter")}
+              label={t("resignation_docs.preview_document")}
+              fallback={
+                <div className={cn(
+                  "p-3 rounded-xl",
+                  data.resignation_letter
+                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                    : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                )}>
+                  <FileText className="w-6 h-6" />
+                </div>
+              }
+            />
             <div className="flex-1">
               <h3 className="font-semibold text-gray-900 dark:text-gray-100">
                 {t("resignation_docs.resignation_letter")}
@@ -478,7 +547,7 @@ export default function ResignationDocumentsPage() {
                   {data.resignation_letter.file_name}
                 </p>
               )}
-              {!data.resignation_letter && hasPermission("employees.resignation_upload") && (
+              {hasPermission("employees.resignation_upload") && (
                 <div className="mt-2">
                   <input
                     ref={letterInputRef}
@@ -497,7 +566,11 @@ export default function ResignationDocumentsPage() {
                     ) : (
                       <Upload className="w-4 h-4" />
                     )}
-                    {t("resignation_docs.upload_letter")}
+                    {t(
+                      data.resignation_letter
+                        ? "resignation_docs.replace_letter"
+                        : "resignation_docs.upload_letter"
+                    )}
                   </button>
                 </div>
               )}
@@ -513,14 +586,21 @@ export default function ResignationDocumentsPage() {
             : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
         )}>
           <div className="flex items-start gap-4">
-            <div className={cn(
-              "p-3 rounded-xl",
-              data.nid
-                ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-            )}>
-              <FileText className="w-6 h-6" />
-            </div>
+            <DocumentThumb
+              path={data.nid ? `employees/${empId}/documents/${data.nid.id}/file` : null}
+              title={data.nid?.file_name || t("resignation_docs.nid")}
+              label={t("resignation_docs.preview_document")}
+              fallback={
+                <div className={cn(
+                  "p-3 rounded-xl",
+                  data.nid
+                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                    : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                )}>
+                  <FileText className="w-6 h-6" />
+                </div>
+              }
+            />
             <div className="flex-1">
               <h3 className="font-semibold text-gray-900 dark:text-gray-100">
                 {t("resignation_docs.nid")}
@@ -536,7 +616,7 @@ export default function ResignationDocumentsPage() {
                   {data.nid.source && ` (${data.nid.source})`}
                 </p>
               )}
-              {!data.nid && hasPermission("employees.resignation_upload") && (
+              {hasPermission("employees.resignation_upload") && (
                 <div className="mt-2">
                   <input
                     ref={nidInputRef}
@@ -555,7 +635,11 @@ export default function ResignationDocumentsPage() {
                     ) : (
                       <Upload className="w-4 h-4" />
                     )}
-                    {t("resignation_docs.upload_nid")}
+                    {t(
+                      data.nid
+                        ? "resignation_docs.replace_nid"
+                        : "resignation_docs.upload_nid"
+                    )}
                   </button>
                 </div>
               )}
@@ -571,14 +655,25 @@ export default function ResignationDocumentsPage() {
             : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
         )}>
           <div className="flex items-start gap-4">
-            <div className={cn(
-              "p-3 rounded-xl",
-              data.letterhead?.configured
-                ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-            )}>
-              <HelpCircle className="w-6 h-6" />
-            </div>
+            <DocumentThumb
+              path={
+                data.letterhead?.configured && data.letterhead?.house_id
+                  ? `houses/${data.letterhead.house_id}/letterhead/image`
+                  : null
+              }
+              title={data.letterhead?.house_name || t("resignation_docs.letterhead")}
+              label={t("resignation_docs.preview_document")}
+              fallback={
+                <div className={cn(
+                  "p-3 rounded-xl",
+                  data.letterhead?.configured
+                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                    : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                )}>
+                  <HelpCircle className="w-6 h-6" />
+                </div>
+              }
+            />
             <div className="flex-1">
               <h3 className="font-semibold text-gray-900 dark:text-gray-100">
                 {t("resignation_docs.letterhead")}
@@ -593,12 +688,16 @@ export default function ResignationDocumentsPage() {
                   {data.letterhead.house_name}
                 </p>
               )}
-              {!data.letterhead?.configured && data.letterhead?.house_id && (
+              {data.letterhead?.house_id && (
                 <Link
                   href={`/houses/letterhead?house_id=${data.letterhead.house_id}`}
                   className="mt-2 inline-block text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline"
                 >
-                  {t("resignation_docs.configure_letterhead")}
+                  {t(
+                    data.letterhead.configured
+                      ? "resignation_docs.update_letterhead"
+                      : "resignation_docs.configure_letterhead"
+                  )}
                 </Link>
               )}
             </div>

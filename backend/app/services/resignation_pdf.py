@@ -1,9 +1,9 @@
 """Three-page resignation document: letter scan, NID, house application.
 
-The application page is the house letterhead image with the six dynamic values
-positioned on top of it (`house_letterhead.py` layout). Rendering goes through
-headless Chromium (Playwright) because it is the only renderer available here
-that shapes Bangla text correctly - ReportLab's built-in fonts cannot.
+The application page is the house letterhead image with the editable Bangla
+body text (`house_letterhead.py` layout) printed on top of it. Rendering goes
+through headless Chromium (Playwright) because it is the only renderer available
+here that shapes Bangla text correctly - ReportLab's built-in fonts cannot.
 
 Security: the letterhead layout is tenant-authored data rendered inside the
 browser, so the render context has JavaScript disabled and every network
@@ -182,7 +182,7 @@ def build_application_page(
     layout: Optional[dict] = None,
     image_uri: Optional[str] = None,
 ) -> str:
-    """Page 3: letterhead image + the positioned dynamic values."""
+    """Page 3: letterhead image + the editable application text."""
     layout = layout or house.letterhead_layout or house_letterhead.default_layout()
     if image_uri is None:
         path = house_letterhead.image_fs_path(house)
@@ -193,9 +193,6 @@ def build_application_page(
     body = layout.get("body") or {}
     if body.get("enabled") and body.get("text"):
         parts.append(_text_block(body, _substitute(body["text"], values)))
-    for key, block in (layout.get("fields") or {}).items():
-        label = _substitute(str(values.get(key, "")), values)
-        parts.append(_text_block(block, label))
     parts.append("</div>")
     return "".join(parts)
 

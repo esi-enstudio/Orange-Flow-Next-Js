@@ -57,8 +57,8 @@ class House(Base):
     telegram_chat_name = Column(String(200), nullable=True)
 
     # Resignation letterhead (per house). The image is the full-page design;
-    # `letterhead_layout` stores the field positions (percentages) overlaid on
-    # it. Files live under private_uploads/letterheads/{house_id}/.
+    # `letterhead_layout` stores the editable body block (percentages) printed
+    # on top of it. Files live under private_uploads/letterheads/{house_id}/.
     letterhead_image_path = Column(String(500), nullable=True)
     letterhead_layout = Column(JSONB, nullable=True)
     letterhead_updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)

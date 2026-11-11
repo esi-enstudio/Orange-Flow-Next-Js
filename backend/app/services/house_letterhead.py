@@ -1,8 +1,8 @@
-"""House-wise resignation letterhead: the full-page image plus the field layout.
+"""House-wise resignation letterhead: the full-page image plus the body text.
 
 Each house uploads one letterhead image (a scan/design of the pre-printed page)
-and positions the six dynamic values on top of it. Positions are stored as
-percentages of the A4 page so they are independent of the image resolution.
+and edits the Bangla application text printed on top of it. Positions are stored
+as percentages of the A4 page so they are independent of the image resolution.
 
 Files are private (`private_uploads/letterheads/{house_id}/`) and are only
 served through the permission-guarded stream endpoint.
@@ -25,16 +25,6 @@ LETTERHEAD_ROOT = "private_uploads/letterheads"
 LETTERHEAD_MAX_BYTES = 5 * 1024 * 1024
 LETTERHEAD_MIN_WIDTH = 800
 LETTERHEAD_MAX_DIMENSION = 2480  # A4 at ~300 dpi
-
-# The six values the operator fills automatically. Order is the editor order.
-FIELD_KEYS = (
-    "application_date",
-    "employee_name",
-    "fathers_name",
-    "nid",
-    "joining_date",
-    "resigned_date",
-)
 
 ALIGNMENTS = ("left", "center", "right", "justify")
 ALLOWED_FORMATS = ("JPEG", "PNG", "WEBP")
@@ -80,16 +70,8 @@ BODY_PLACEHOLDERS = (
 )
 
 
-def _field(x: float, y: float, w: float = 40, size: float = 12, align: str = "left", bold: bool = False) -> dict:
-    return {"x": x, "y": y, "w": w, "size": size, "align": align, "bold": bold}
-
-
 def default_layout() -> dict:
-    """Starting positions for a pre-printed application page.
-
-    The admin drags every box onto the blank it belongs to; these defaults just
-    give the editor something sensible to show.
-    """
+    """Starting layout: one editable body block over the letterhead image."""
     return {
         "body": {
             "enabled": True,
@@ -100,14 +82,6 @@ def default_layout() -> dict:
             "size": 12,
             "line_height": 1.7,
             "align": "justify",
-        },
-        "fields": {
-            "application_date": _field(66, 18, 28, 12, "right"),
-            "employee_name": _field(30, 32, 45),
-            "fathers_name": _field(30, 38, 45),
-            "nid": _field(38, 44, 40),
-            "joining_date": _field(40, 50, 35),
-            "resigned_date": _field(40, 56, 35),
         },
     }
 
@@ -144,16 +118,6 @@ def validate_layout(payload) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("layout must be an object")
     defaults = default_layout()
-    fields_raw = payload.get("fields")
-    if not isinstance(fields_raw, dict):
-        raise ValueError("layout.fields is required")
-    fields = {}
-    for key in FIELD_KEYS:
-        block = _clean_block(fields_raw.get(key), defaults["fields"][key])
-        # A box may not start so far right that it runs off the page.
-        block["x"] = min(block["x"], 100 - block["w"])
-        fields[key] = block
-
     body_raw = payload.get("body") if isinstance(payload.get("body"), dict) else {}
     body = _clean_block(body_raw, defaults["body"])
     body["x"] = min(body["x"], 100 - body["w"])
@@ -161,7 +125,7 @@ def validate_layout(payload) -> dict:
     body["text"] = _clean_text(body_raw.get("text", defaults["body"]["text"]))
     body["line_height"] = _num(body_raw.get("line_height"), defaults["body"]["line_height"], 1.0, 3.0)
 
-    return {"body": body, "fields": fields}
+    return {"body": body}
 
 
 def _house_dir(house_id: int) -> str:
@@ -230,16 +194,8 @@ async def store_image(house: House, file: UploadFile) -> str:
 
 
 def configured(house: House) -> bool:
-    """The bulk generation gate: an image plus every one of the six fields."""
-    if image_fs_path(house) is None:
-        return False
-    layout = getattr(house, "letterhead_layout", None)
-    if not isinstance(layout, dict):
-        return False
-    fields = layout.get("fields")
-    if not isinstance(fields, dict):
-        return False
-    return all(key in fields for key in FIELD_KEYS)
+    """The bulk generation gate: a letterhead image must be uploaded."""
+    return image_fs_path(house) is not None
 
 
 def serialize(house: House) -> dict:

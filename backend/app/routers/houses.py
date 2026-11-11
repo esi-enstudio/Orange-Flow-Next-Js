@@ -283,8 +283,8 @@ async def delete_house(
 # --------------------------------------------------------------------------- #
 # Letterhead (resignation application page)
 #
-# Each house uploads one full-page letterhead image and positions the six
-# dynamic values on it. The layout is stored as percentages on `houses` so the
+# Each house uploads one full-page letterhead image and edits the application
+# text printed on it. The layout is stored as percentages on `houses` so the
 # renderer is independent of the image resolution.
 # --------------------------------------------------------------------------- #
 

@@ -1066,20 +1066,21 @@ async def upload_resignation_document(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if kind == "resignation_letter":
-        # Keep a single active letter: the newest upload replaces the old scan.
-        previous = await db.execute(
-            select(EmployeeDocument).where(
-                EmployeeDocument.employee_id == emp.id,
-                EmployeeDocument.doc_type == "resignation_letter",
-                EmployeeDocument.is_deleted.is_(False),
-                EmployeeDocument.id != doc.id,
-            )
+    # Keep a single active scan per kind: a re-upload replaces the old one.
+    previous = await db.execute(
+        select(EmployeeDocument).where(
+            EmployeeDocument.employee_id == emp.id,
+            EmployeeDocument.doc_type.in_(
+                RESIGNATION_LETTER_TYPES if kind == "resignation_letter" else NID_TYPES
+            ),
+            EmployeeDocument.is_deleted.is_(False),
+            EmployeeDocument.id != doc.id,
         )
-        for row in previous.unique().scalars().all():
-            row.is_deleted = True
-            row.deleted_at = now_naive()
-            row.deleted_by = current_user.id
+    )
+    for row in previous.unique().scalars().all():
+        row.is_deleted = True
+        row.deleted_at = now_naive()
+        row.deleted_by = current_user.id
 
     await db.commit()
     await db.refresh(doc)

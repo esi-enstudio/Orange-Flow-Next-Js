@@ -40,7 +40,6 @@ interface BodyBlock extends Block {
 
 interface LetterheadLayout {
   body: BodyBlock;
-  fields: Record<string, Block>;
 }
 
 interface LetterheadData {
@@ -57,7 +56,6 @@ interface LetterheadData {
 }
 
 interface DragState {
-  target: string;
   mode: "move" | "resize";
   left: number;
   top: number;
@@ -66,15 +64,6 @@ interface DragState {
   grabX: number;
   grabY: number;
 }
-
-const FIELD_KEYS = [
-  "application_date",
-  "employee_name",
-  "fathers_name",
-  "nid",
-  "joining_date",
-  "resigned_date",
-];
 
 const ALIGNMENTS: Align[] = ["left", "center", "right", "justify"];
 
@@ -154,8 +143,6 @@ export default function HouseLetterheadPage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const bodyTextRef = useRef<HTMLTextAreaElement>(null);
 
-  const fieldLabel = (key: string) => t(`houses.letterhead.field_labels.${key}`);
-
   const fetchData = async () => {
     if (!houseId) {
       setLoading(false);
@@ -204,35 +191,21 @@ export default function HouseLetterheadPage() {
     };
   }, [houseId, data?.has_image, imageVersion]);
 
-  const updateBlock = (target: string, patch: Partial<BodyBlock>) => {
-    setLayout((prev) => {
-      if (!prev) return prev;
-      if (target === "body") {
-        return { ...prev, body: clampBlock({ ...prev.body, ...patch } as BodyBlock) };
-      }
-      const block = prev.fields[target];
-      if (!block) return prev;
-      return {
-        ...prev,
-        fields: { ...prev.fields, [target]: clampBlock({ ...block, ...patch } as Block) },
-      };
-    });
+  const updateBody = (patch: Partial<BodyBlock>) => {
+    setLayout((prev) =>
+      prev ? { ...prev, body: clampBlock({ ...prev.body, ...patch }) } : prev
+    );
   };
 
-  const startDrag = (
-    e: ReactMouseEvent,
-    target: string,
-    mode: "move" | "resize"
-  ) => {
+  const startDrag = (e: ReactMouseEvent, mode: "move" | "resize") => {
     if (!canEdit || !layout) return;
     const rect = canvasRef.current?.getBoundingClientRect();
-    const block = target === "body" ? layout.body : layout.fields[target];
-    if (!rect || !block) return;
+    const block = layout.body;
+    if (!rect) return;
     e.preventDefault();
     e.stopPropagation();
-    setSelected(target);
+    setSelected("body");
     setDrag({
-      target,
       mode,
       left: rect.left,
       top: rect.top,
@@ -250,17 +223,12 @@ export default function HouseLetterheadPage() {
       const pxY = ((e.clientY - drag.top) / drag.height) * 100;
       setLayout((prev) => {
         if (!prev) return prev;
-        const isBody = drag.target === "body";
-        const block = isBody ? prev.body : prev.fields[drag.target];
-        if (!block) return prev;
+        const block = prev.body;
         const next =
           drag.mode === "move"
             ? { ...block, x: pxX - drag.grabX, y: pxY - drag.grabY }
             : { ...block, w: pxX - block.x };
-        const clamped = clampBlock(next as Block);
-        return isBody
-          ? { ...prev, body: clamped as BodyBlock }
-          : { ...prev, fields: { ...prev.fields, [drag.target]: clamped } };
+        return { ...prev, body: clampBlock(next) };
       });
     };
     const handleUp = () => setDrag(null);
@@ -276,22 +244,20 @@ export default function HouseLetterheadPage() {
     const handleKey = (e: KeyboardEvent) => {
       if (!selected || !canEdit) return;
       if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+      // Arrow keys inside a form field move the caret / step the number, not the block.
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
       e.preventDefault();
       const step = e.shiftKey ? 5 : 1;
       setLayout((prev) => {
         if (!prev) return prev;
-        const isBody = selected === "body";
-        const block = isBody ? prev.body : prev.fields[selected];
-        if (!block) return prev;
+        const block = prev.body;
         const next = {
           ...block,
           x: e.key === "ArrowLeft" ? block.x - step : e.key === "ArrowRight" ? block.x + step : block.x,
           y: e.key === "ArrowUp" ? block.y - step : e.key === "ArrowDown" ? block.y + step : block.y,
         };
-        const clamped = clampBlock(next as Block);
-        return isBody
-          ? { ...prev, body: clamped as BodyBlock }
-          : { ...prev, fields: { ...prev.fields, [selected]: clamped } };
+        return { ...prev, body: clampBlock(next) };
       });
     };
     window.addEventListener("keydown", handleKey);
@@ -404,7 +370,7 @@ export default function HouseLetterheadPage() {
     const text = layout.body.text ?? "";
     const start = element?.selectionStart ?? text.length;
     const end = element?.selectionEnd ?? text.length;
-    updateBlock("body", { text: text.slice(0, start) + token + text.slice(end) });
+    updateBody({ text: text.slice(0, start) + token + text.slice(end) });
     requestAnimationFrame(() => {
       if (!element) return;
       element.focus();
@@ -420,9 +386,6 @@ export default function HouseLetterheadPage() {
     fontSize: `${block.size}pt`,
     fontWeight: block.bold ? 700 : 400,
   });
-
-  const selectedBlock =
-    selected === "body" ? layout?.body : selected ? layout?.fields[selected] : undefined;
 
   if (!canView) return <AccessDenied />;
 
@@ -450,7 +413,7 @@ export default function HouseLetterheadPage() {
       <div className="text-center py-12">
         <p className="text-gray-500 dark:text-gray-400">{t("common.not_found")}</p>
         <button
-          onClick={() => router.push("/houses")}
+          onClick={() => router.push("/employees/resignation-documents")}
           className="mt-4 px-4 py-2 rounded-xl bg-primary-500 text-white cursor-pointer inline-flex items-center gap-2"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -471,7 +434,7 @@ export default function HouseLetterheadPage() {
           <PageGuideModal pageKey="houses_letterhead" />
         </div>
         <button
-          onClick={() => router.push("/houses")}
+          onClick={() => router.push("/employees/resignation-documents")}
           className="px-4 py-2 rounded-xl border bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-medium cursor-pointer transition-colors flex items-center gap-2"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -566,56 +529,20 @@ export default function HouseLetterheadPage() {
                   lineHeight: layout.body.line_height,
                   textAlign: layout.body.align,
                 }}
-                onMouseDown={(e) => startDrag(e, "body", "move")}
+                onMouseDown={(e) => startDrag(e, "move")}
               >
                 <span className="pointer-events-none block whitespace-pre-wrap break-words font-bengali text-gray-900">
                   {substitute(layout.body.text)}
                 </span>
                 {canEdit && (
                   <span
-                    onMouseDown={(e) => startDrag(e, "body", "resize")}
+                    onMouseDown={(e) => startDrag(e, "resize")}
                     className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-primary-500/0 hover:bg-primary-500/40"
                     aria-hidden="true"
                   />
                 )}
               </div>
             )}
-
-            {FIELD_KEYS.map((key) => {
-              const field = layout.fields[key];
-              if (!field) return null;
-              return (
-                <div
-                  key={key}
-                  className={cn(
-                    "absolute bg-primary-50/90 dark:bg-primary-900/40 border-2 rounded px-1.5 py-1 cursor-move overflow-hidden transition-colors",
-                    selected === key
-                      ? "border-primary-600 ring-2 ring-primary-500/40"
-                      : "border-primary-500/70"
-                  )}
-                  style={blockStyle(field)}
-                  onMouseDown={(e) => startDrag(e, key, "move")}
-                  title={fieldLabel(key)}
-                >
-                  <span
-                    className="pointer-events-none block truncate font-bengali font-medium text-primary-700 dark:text-primary-200"
-                    style={{ textAlign: field.align }}
-                  >
-                    {SAMPLE_VALUES[key]}
-                  </span>
-                  <span className="pointer-events-none block font-mono text-[9px] text-primary-500 dark:text-primary-300">
-                    {fieldLabel(key)}
-                  </span>
-                  {canEdit && (
-                    <span
-                      onMouseDown={(e) => startDrag(e, key, "resize")}
-                      className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-primary-500/0 hover:bg-primary-500/40"
-                      aria-hidden="true"
-                    />
-                  )}
-                </div>
-              );
-            })}
           </div>
         </div>
 
@@ -676,14 +603,14 @@ export default function HouseLetterheadPage() {
             <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
               {t("houses.letterhead.field_settings")}
             </h3>
-            {!selectedBlock ? (
+            {!selected ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {t("houses.letterhead.select_hint")}
               </p>
             ) : (
               <div className="space-y-4">
                 <p className="text-sm font-semibold text-primary-600 dark:text-primary-400">
-                  {selected === "body" ? t("houses.letterhead.body_block") : fieldLabel(selected!)}
+                  {t("houses.letterhead.body_block")}
                 </p>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -696,9 +623,9 @@ export default function HouseLetterheadPage() {
                       min={6}
                       max={30}
                       step={0.5}
-                      value={selectedBlock.size}
+                      value={layout.body.size}
                       disabled={!canEdit}
-                      onChange={(e) => updateBlock(selected!, { size: Number(e.target.value) })}
+                      onChange={(e) => updateBody({ size: Number(e.target.value) })}
                       className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed"
                     />
                   </div>
@@ -711,9 +638,9 @@ export default function HouseLetterheadPage() {
                       min={5}
                       max={100}
                       step={1}
-                      value={Math.round(selectedBlock.w)}
+                      value={Math.round(layout.body.w)}
                       disabled={!canEdit}
-                      onChange={(e) => updateBlock(selected!, { w: Number(e.target.value) })}
+                      onChange={(e) => updateBody({ w: Number(e.target.value) })}
                       className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed"
                     />
                   </div>
@@ -727,11 +654,11 @@ export default function HouseLetterheadPage() {
                     {ALIGNMENTS.map((align) => (
                       <button
                         key={align}
-                        onClick={() => updateBlock(selected!, { align })}
+                        onClick={() => updateBody({ align })}
                         disabled={!canEdit}
                         className={cn(
                           "px-2 py-2 rounded-xl text-xs font-medium border transition-colors",
-                          selectedBlock.align === align
+                          layout.body.align === align
                             ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 text-primary-700 dark:text-primary-300"
                             : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700",
                           canEdit ? "cursor-pointer" : "cursor-not-allowed"
@@ -744,11 +671,11 @@ export default function HouseLetterheadPage() {
                 </div>
 
                 <button
-                  onClick={() => updateBlock(selected!, { bold: !selectedBlock.bold })}
+                  onClick={() => updateBody({ bold: !layout.body.bold })}
                   disabled={!canEdit}
                   className={cn(
                     "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-colors",
-                    selectedBlock.bold
+                    layout.body.bold
                       ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 text-primary-700 dark:text-primary-300"
                       : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300",
                     canEdit ? "cursor-pointer" : "cursor-not-allowed"
@@ -758,90 +685,58 @@ export default function HouseLetterheadPage() {
                   {t("houses.letterhead.bold")}
                 </button>
 
-                {selected === "body" && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
-                        {t("houses.letterhead.body_text")}
-                      </label>
-                      <textarea
-                        ref={bodyTextRef}
-                        rows={8}
-                        value={layout.body.text}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                    {t("houses.letterhead.body_text")}
+                  </label>
+                  <textarea
+                    ref={bodyTextRef}
+                    rows={8}
+                    value={layout.body.text}
+                    disabled={!canEdit}
+                    onChange={(e) => updateBody({ text: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bengali outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                    {t("houses.letterhead.dynamic_values")}
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(data?.body_placeholders ?? PLACEHOLDER_KEYS).map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => insertPlaceholder(key)}
                         disabled={!canEdit}
-                        onChange={(e) => updateBlock("body", { text: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bengali outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
-                        {t("houses.letterhead.dynamic_values")}
-                      </label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {(data?.body_placeholders ?? PLACEHOLDER_KEYS).map((key) => (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => insertPlaceholder(key)}
-                            disabled={!canEdit}
-                            title={t(`houses.letterhead.placeholder_labels.${key}`)}
-                            className="px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-[11px] font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 cursor-pointer disabled:cursor-not-allowed"
-                          >
-                            {`{{${key}}}`}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
-                        {t("houses.letterhead.dynamic_hint")}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
-                        {t("houses.letterhead.line_height")}
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={3}
-                        step={0.1}
-                        value={layout.body.line_height}
-                        disabled={!canEdit}
-                        onChange={(e) =>
-                          updateBlock("body", { line_height: Number(e.target.value) })
-                        }
-                        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                  </>
-                )}
+                        title={t(`houses.letterhead.placeholder_labels.${key}`)}
+                        className="px-2 py-1 rounded-lg bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-[11px] font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        {`{{${key}}}`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    {t("houses.letterhead.dynamic_hint")}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                    {t("houses.letterhead.line_height")}
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={3}
+                    step={0.1}
+                    value={layout.body.line_height}
+                    disabled={!canEdit}
+                    onChange={(e) => updateBody({ line_height: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed"
+                  />
+                </div>
               </div>
             )}
-          </div>
-
-          {/* Field list */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-4">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-              {t("houses.letterhead.fields_title")}
-            </h3>
-            <div className="space-y-2 max-h-64 overflow-auto">
-              {FIELD_KEYS.map((key) => (
-                <button
-                  key={key}
-                  onClick={() => setSelected(key)}
-                  className={cn(
-                    "w-full px-3 py-2 rounded-xl text-left text-sm border transition-colors cursor-pointer",
-                    selected === key
-                      ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 text-primary-700 dark:text-primary-300"
-                      : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
-                  )}
-                >
-                  {fieldLabel(key)}
-                </button>
-              ))}
-            </div>
-            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-              {t("houses.letterhead.drag_hint")}
-            </p>
           </div>
 
           {/* Actions */}

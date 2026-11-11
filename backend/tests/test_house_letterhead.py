@@ -68,18 +68,15 @@ async def api(db):
 # Layout
 # --------------------------------------------------------------------------- #
 
-def test_validate_layout_fills_every_field_and_clamps_to_page():
-    layout = hl.validate_layout({"fields": {"nid": {"x": 95, "w": 40, "size": 999}}})
+def test_validate_layout_clamps_the_body_to_the_page():
+    layout = hl.validate_layout({"body": {"x": 95, "w": 40, "size": 999}})
 
-    assert set(layout["fields"]) == set(hl.FIELD_KEYS)
-    assert layout["fields"]["nid"]["x"] == 60  # 100 - width
-    assert layout["fields"]["nid"]["size"] == 30  # clamped to the max
+    assert layout["body"]["x"] == 60  # 100 - width
+    assert layout["body"]["size"] == 30  # clamped to the max
     assert layout["body"]["enabled"] is True  # the letter body is on by default
 
 
-def test_validate_layout_rejects_missing_fields():
-    with pytest.raises(ValueError):
-        hl.validate_layout({"body": {}})
+def test_validate_layout_rejects_non_objects():
     with pytest.raises(ValueError):
         hl.validate_layout([])
 
@@ -141,14 +138,12 @@ async def test_store_image_downscales_large_scan(db):
         assert max(stored.size) <= hl.LETTERHEAD_MAX_DIMENSION
 
 
-async def test_configured_requires_image_and_layout(db):
+async def test_configured_requires_uploaded_image(db):
     from starlette.datastructures import UploadFile
 
     house = await _make_house(db)
     assert hl.configured(house) is False
     await hl.store_image(house, UploadFile(filename="page.jpg", file=io.BytesIO(_image_bytes())))
-    assert hl.configured(house) is False  # image alone is not enough
-    house.letterhead_layout = hl.default_layout()
     assert hl.configured(house) is True
 
 
@@ -191,12 +186,12 @@ async def test_upload_layout_and_stream(api, db):
 
     layout = await client.put(
         f"/api/houses/{house.id}/letterhead",
-        json={"layout": {"fields": {"nid": {"x": 10, "y": 20}}}},
+        json={"layout": {"body": {"x": 10, "y": 20}}},
     )
     assert layout.status_code == 200
     body = layout.json()
     assert body["configured"] is True
-    assert body["layout"]["fields"]["nid"]["y"] == 20
+    assert body["layout"]["body"]["y"] == 20
 
     image = await client.get(f"/api/houses/{house.id}/letterhead/image")
     assert image.status_code == 200
