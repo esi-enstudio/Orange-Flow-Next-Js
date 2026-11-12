@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { toast } from "react-hot-toast";
 
 interface HouseDocument {
@@ -47,6 +48,11 @@ interface Props {
   houseId: number;
   houseName: string;
 }
+
+type DeleteTarget =
+  | { type: "letterhead" }
+  | { type: "signature" }
+  | { type: "document"; document: HouseDocument };
 
 const LETTERHEAD_MAX_BYTES = 5 * 1024 * 1024;
 const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
@@ -92,6 +98,7 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
   const [data, setData] = useState<DocumentsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [letterheadImageUrl, setLetterheadImageUrl] = useState<string | null>(null);
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
 
@@ -200,20 +207,6 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
     }
   };
 
-  const deleteLetterhead = async () => {
-    if (!confirm(t("houses.letterhead.delete_confirm"))) return;
-    setBusy("letterhead");
-    try {
-      await apiClient.delete(`houses/${houseId}/letterhead/image`);
-      toast.success(t("houses.documents.toast_letterhead_deleted"));
-      await fetchDocuments();
-    } catch (err: any) {
-      toast.error(detailMessage(err, t("houses.documents.toast_delete_failed")));
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const uploadSignature = async () => {
     if (!signatureFile) return;
     setBusy("signature");
@@ -227,20 +220,6 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
       await fetchDocuments();
     } catch (err: any) {
       toast.error(detailMessage(err, t("houses.documents.toast_upload_failed")));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const deleteSignature = async () => {
-    if (!confirm(t("houses.documents.signature_delete_confirm"))) return;
-    setBusy("signature");
-    try {
-      await apiClient.delete(`houses/${houseId}/signature`);
-      toast.success(t("houses.documents.toast_signature_deleted"));
-      await fetchDocuments();
-    } catch (err: any) {
-      toast.error(detailMessage(err, t("houses.documents.toast_delete_failed")));
     } finally {
       setBusy(null);
     }
@@ -289,12 +268,23 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
     }
   };
 
-  const deleteDocument = async (doc: HouseDocument) => {
-    if (!confirm(t("houses.documents.delete_confirm", { file: doc.title || doc.file_name }))) return;
-    setBusy(`document-${doc.id}`);
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    const busyKey = target.type === "document" ? `document-${target.document.id}` : target.type;
+    setBusy(busyKey);
     try {
-      await apiClient.delete(`houses/${houseId}/documents/${doc.id}`);
-      toast.success(t("houses.documents.toast_document_deleted"));
+      if (target.type === "letterhead") {
+        await apiClient.delete(`houses/${houseId}/letterhead/image`);
+        toast.success(t("houses.documents.toast_letterhead_deleted"));
+      } else if (target.type === "signature") {
+        await apiClient.delete(`houses/${houseId}/signature`);
+        toast.success(t("houses.documents.toast_signature_deleted"));
+      } else {
+        await apiClient.delete(`houses/${houseId}/documents/${target.document.id}`);
+        toast.success(t("houses.documents.toast_document_deleted"));
+      }
+      setDeleteTarget(null);
       await fetchDocuments();
     } catch (err: any) {
       toast.error(detailMessage(err, t("houses.documents.toast_delete_failed")));
@@ -305,24 +295,39 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
 
   if (typeof document === "undefined") return null;
 
+  const deleteBusyKey = deleteTarget
+    ? deleteTarget.type === "document"
+      ? `document-${deleteTarget.document.id}`
+      : deleteTarget.type
+    : null;
+  const deleteItem =
+    deleteTarget?.type === "letterhead"
+      ? t("houses.documents.letterhead_title")
+      : deleteTarget?.type === "signature"
+        ? t("houses.documents.signature_title")
+        : deleteTarget?.type === "document"
+          ? deleteTarget.document.title || deleteTarget.document.file_name
+          : "";
+
   return createPortal(
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-950/60 backdrop-blur-sm p-0 sm:p-4"
-          onClick={onClose}
-        >
+    <>
+      <AnimatePresence>
+        {isOpen && (
           <motion.div
-            initial={{ y: 24, opacity: 0, scale: 0.98 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 24, opacity: 0, scale: 0.98 }}
-            transition={{ type: "spring", damping: 26, stiffness: 260 }}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full sm:max-w-3xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 shadow-2xl"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-950/60 backdrop-blur-sm p-0 sm:p-4"
+            onClick={onClose}
           >
+            <motion.div
+              initial={{ y: 24, opacity: 0, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 24, opacity: 0, scale: 0.98 }}
+              transition={{ type: "spring", damping: 26, stiffness: 260 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full sm:max-w-3xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 shadow-2xl"
+            >
             <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-gray-100 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-5 py-4">
               <div className="min-w-0">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">
@@ -418,7 +423,7 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
                             {data?.letterhead.has_image && canDelete && (
                               <button
                                 type="button"
-                                onClick={deleteLetterhead}
+                                onClick={() => setDeleteTarget({ type: "letterhead" })}
                                 disabled={busy === "letterhead"}
                                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 disabled:cursor-not-allowed cursor-pointer"
                               >
@@ -501,7 +506,7 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
                             {data?.signature.has_signature && canDelete && (
                               <button
                                 type="button"
-                                onClick={deleteSignature}
+                                onClick={() => setDeleteTarget({ type: "signature" })}
                                 disabled={busy === "signature"}
                                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 disabled:cursor-not-allowed cursor-pointer"
                               >
@@ -632,7 +637,7 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
                             {canDelete && (
                               <button
                                 type="button"
-                                onClick={() => deleteDocument(doc)}
+                                onClick={() => setDeleteTarget({ type: "document", document: doc })}
                                 disabled={busy === `document-${doc.id}`}
                                 className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors cursor-pointer disabled:cursor-not-allowed"
                                 title={t("houses.documents.delete")}
@@ -653,10 +658,22 @@ export default function HouseDocumentsModal({ isOpen, onClose, houseId, houseNam
                 </section>
               </div>
             )}
+            </motion.div>
           </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
+        )}
+      </AnimatePresence>
+      <ConfirmationModal
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title={t("houses.documents.delete_title")}
+        message={t("houses.documents.delete_message", { item: deleteItem })}
+        confirmText={t("houses.documents.delete_action")}
+        type="danger"
+        loading={busy === deleteBusyKey}
+        zIndex="z-[110]"
+      />
+    </>,
     document.body
   );
 }
