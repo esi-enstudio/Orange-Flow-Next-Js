@@ -793,12 +793,24 @@ async def stream_employee_document(
     request: Request,
     download: bool = Query(False, description="Force a download instead of inline preview"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("employees.document_view")),
+    current_user: User = Depends(get_current_user),
 ):
     emp = await _load_employee_for_attachments(db, emp_id, current_user)
     doc = await get_document(db, emp.id, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    # The resignation page previews the letter/NID without employees.document_view.
+    if not user_has_permission(current_user, "employees.document_view"):
+        nid_doc = (await _resignation_nid_scans(db, [emp.id])).get(emp.id)
+        is_resignation_scan = doc.doc_type in RESIGNATION_LETTER_TYPES or (
+            nid_doc is not None and doc.id == nid_doc.id
+        )
+        if not is_resignation_scan or not user_has_permission(
+            current_user, "employees.resignation_view"
+        ):
+            raise HTTPException(
+                status_code=403, detail="You do not have permission to perform this action."
+            )
     file_path = document_file_path(doc)
     if not file_path:
         raise HTTPException(status_code=404, detail="The document file is missing from storage")
@@ -855,6 +867,53 @@ async def delete_employee_document(
 RESIGNATION_LETTER_TYPES = ("resignation_letter",)
 # `nid_front` / `voter_id` only match rows uploaded before the single NID type.
 NID_TYPES = ("nid", "voter_id", "nid_front")
+NID_NAME_HINTS = ("nid", "voter", "national id", "জাতীয়")
+
+
+async def _resignation_nid_scans(
+    db: AsyncSession, emp_ids: list[int]
+) -> dict[int, EmployeeDocument]:
+    """Newest NID scan per employee, auto-selected from the employee profile.
+
+    The employee form saves a new attachment as `other` unless the operator
+    changes its type, so a typed `nid` row wins, then an untyped image whose
+    title/file name says NID, then the employee's only untyped image.
+    """
+    if not emp_ids:
+        return {}
+    result = await db.execute(
+        select(EmployeeDocument)
+        .where(
+            EmployeeDocument.employee_id.in_(emp_ids),
+            EmployeeDocument.is_deleted.is_(False),
+            EmployeeDocument.mime_type.like("image/%"),
+        )
+        .order_by(EmployeeDocument.created_at.desc(), EmployeeDocument.id.desc())
+    )
+    typed: dict[int, EmployeeDocument] = {}
+    untyped: dict[int, list[EmployeeDocument]] = {}
+    for doc in result.unique().scalars().all():
+        if doc.doc_type in NID_TYPES:
+            typed.setdefault(doc.employee_id, doc)
+        elif doc.doc_type == "other":
+            untyped.setdefault(doc.employee_id, []).append(doc)
+    for emp_id, docs in untyped.items():
+        if emp_id in typed:
+            continue
+        # shortcut: an untyped image is only guessed when it names NID or is the
+        # employee's only untyped image, upgrade to an explicit picker if more
+        # document types land.
+        hinted = next(
+            (
+                doc
+                for doc in docs
+                if any(h in f"{doc.title or ''} {doc.file_name}".lower() for h in NID_NAME_HINTS)
+            ),
+            None,
+        )
+        if hinted or len(docs) == 1:
+            typed[emp_id] = hinted or docs[0]
+    return typed
 
 
 def _assert_resignation_employee(emp: Employee) -> None:
@@ -925,20 +984,16 @@ async def list_resignation_overview(
 
     emp_ids = [e.id for e in employees]
     letter_emp_ids: set[int] = set()
-    nid_emp_ids: set[int] = set()
     if emp_ids:
         docs_result = await db.execute(
-            select(EmployeeDocument.employee_id, EmployeeDocument.doc_type).where(
+            select(EmployeeDocument.employee_id).where(
                 EmployeeDocument.employee_id.in_(emp_ids),
                 EmployeeDocument.is_deleted.is_(False),
-                EmployeeDocument.doc_type.in_(RESIGNATION_LETTER_TYPES + NID_TYPES),
+                EmployeeDocument.doc_type.in_(RESIGNATION_LETTER_TYPES),
             )
         )
-        for doc_emp_id, doc_type in docs_result.all():
-            if doc_type in RESIGNATION_LETTER_TYPES:
-                letter_emp_ids.add(doc_emp_id)
-            else:
-                nid_emp_ids.add(doc_emp_id)
+        letter_emp_ids = {doc_emp_id for (doc_emp_id,) in docs_result.all()}
+    nid_emp_ids = set(await _resignation_nid_scans(db, emp_ids))
 
     employee_house_ids = {e.house_id for e in employees if e.house_id}
     houses: dict[int, House] = {}
@@ -1007,7 +1062,7 @@ async def get_resignation_documents(
 
     house = await db.get(House, emp.house_id)
     letter = await latest_document(db, emp.id, RESIGNATION_LETTER_TYPES)
-    nid_doc = await latest_document(db, emp.id, NID_TYPES)
+    nid_doc = (await _resignation_nid_scans(db, [emp.id])).get(emp.id)
 
     letterhead_ready = bool(house and house_letterhead.configured(house))
     missing = []
@@ -1109,7 +1164,10 @@ async def delete_resignation_document(
     _assert_house_access(emp, current_user)
     _assert_resignation_employee(emp)
     doc = await get_document(db, emp.id, doc_id)
-    if not doc or doc.doc_type not in (*RESIGNATION_LETTER_TYPES, *NID_TYPES):
+    nid_doc = (await _resignation_nid_scans(db, [emp.id])).get(emp.id)
+    if not doc or (
+        doc.doc_type not in RESIGNATION_LETTER_TYPES and (not nid_doc or doc.id != nid_doc.id)
+    ):
         raise HTTPException(status_code=404, detail="Document not found")
 
     deleted = await soft_delete_documents(db, emp, [doc.id], current_user)
@@ -1144,7 +1202,7 @@ async def generate_resignation_package(
 
     house = await db.get(House, emp.house_id)
     letter = await latest_document(db, emp.id, RESIGNATION_LETTER_TYPES)
-    nid_doc = await latest_document(db, emp.id, NID_TYPES)
+    nid_doc = (await _resignation_nid_scans(db, [emp.id])).get(emp.id)
 
     if not letter:
         raise HTTPException(status_code=422, detail={"code": "RESIGNATION_LETTER_MISSING", "message": "Upload the handwritten resignation letter first"})

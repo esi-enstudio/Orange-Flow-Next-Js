@@ -285,6 +285,24 @@ async def test_removing_an_uploaded_scan_clears_the_card(api, db, tmp_path, monk
     assert "nid" in status.json()["missing"]
 
 
+@pytest.mark.parametrize("file_stem", ["my-nid-card", "scan"])
+async def test_existing_employee_image_is_auto_selected_as_nid(api, db, file_stem):
+    app, client = api
+    house, employee = await _resigned_employee(db)
+    # Uploaded from the employee form, where every file defaults to `other`.
+    await _add_document(db, employee, "other", file_stem)
+    app.dependency_overrides[get_current_user] = lambda: _user(house, role="Admin")
+
+    response = await client.get(f"/api/employees/{employee.id}/resignation-documents")
+    overview = await client.get("/api/employees/resignation-overview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["nid"]["file_name"] == f"{file_stem}.jpg"
+    assert "nid" not in body["missing"]
+    assert overview.json()["data"][0]["has_nid"] is True
+
+
 def test_application_page_keeps_rich_text_markup_and_fills_placeholders():
     house = House(code="RICH", name="Rich House", address="Dhaka")
     house.letterhead_layout = hl.default_layout()
