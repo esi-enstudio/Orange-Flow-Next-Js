@@ -365,9 +365,9 @@ export default function SyncPage() {
                   aria-live="polite"
                   aria-relevant="additions text"
                   title={currentTask}
-                  className="mt-1 flex min-h-11 min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950/60"
+                  className="mt-1 flex min-h-11 min-w-0 items-start gap-2 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950/60"
                 >
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
                     {taskFailed ? (
                       <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                     ) : taskComplete ? (
@@ -376,7 +376,7 @@ export default function SyncPage() {
                       <Loader2 className="h-4 w-4 animate-spin text-primary-600" />
                     )}
                   </span>
-                  <div className="h-5 min-w-0 flex-1 overflow-hidden">
+                  <div className="min-h-5 min-w-0 flex-1 overflow-hidden">
                     <AnimatePresence mode="wait">
                       <motion.p
                         key={currentTask}
@@ -385,7 +385,7 @@ export default function SyncPage() {
                         exit={{ y: -20, opacity: 0 }}
                         transition={{ duration: 0.3 }}
                         className={cn(
-                          "truncate text-xs",
+                          "whitespace-normal break-words text-xs leading-relaxed",
                           taskFailed
                             ? "font-medium text-rose-700 dark:text-rose-300"
                             : taskComplete
@@ -510,7 +510,7 @@ export default function SyncPage() {
       {/* House selection modal */}
       {houseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/40" onClick={() => setHouseModal(null)} />
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setHouseModal(null)} />
           <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border dark:border-slate-700 p-4 sm:p-6 w-full max-w-sm mx-4">
             <button
               onClick={() => setHouseModal(null)}
@@ -539,8 +539,10 @@ export default function SyncPage() {
                   className="flex cursor-pointer items-center gap-3 w-full text-left px-4 py-3 rounded-xl text-sm text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-gray-300 dark:hover:border-slate-600"
                 >
                   <Building2 className="w-4 h-4 text-gray-400 shrink-0" />
-                  <span>{h.name}</span>
-                  <span className="text-gray-400 text-xs ml-auto">({h.code})</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{h.name}</span>
+                    <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">{h.code}</span>
+                  </span>
                 </button>
               ))}
             </div>

@@ -186,12 +186,16 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
         if df is None or df.empty:
             return 0, "No data found in file."
         
-        df.columns = [str(c).strip().upper() for c in df.columns]
+        # DMS exports vary between "DistributorCode", "Distributor Code",
+        # "DISTRIBUTOR_CODE", ... Collapse headers to A-Z/0-9 so every variant
+        # maps to the same key instead of silently resolving to None.
+        df.columns = [re.sub(r"[^A-Z0-9]", "", str(c).upper()) for c in df.columns]
+        logger.info(f"SIM Issue report columns: {list(df.columns)}")
 
         async with async_session() as session:
             print(f"{Fore.YELLOW}⏳ Loading house and retailer data...")
             house_res = await session.execute(select(House.code, House.id))
-            house_map = {h.code: h.id for h in house_res.all() if h.code}
+            house_map = {h.code.strip().upper(): h.id for h in house_res.all() if h.code}
             
             retailer_res = await session.execute(select(Retailer.retailer_code, Retailer.id))
             retailer_map = {r.retailer_code: r.id for r in retailer_res.all() if r.retailer_code}
@@ -199,6 +203,9 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
             total_rows = len(df)
             processed_rows = 0
             inserted_records = 0
+            skipped_rows = 0
+            skipped_missing_sim = 0
+            unmatched_dist_codes: set[str] = set()
             batch_buffer = []
             batch_size = 500
 
@@ -208,8 +215,11 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
                 dist_code = clean_val(row.get('DISTRIBUTORCODE'), '')
                 ret_code = clean_val(row.get('RETAILERCODE'), '')
                 
-                house_id = house_map.get(dist_code)
+                house_id = house_map.get(dist_code.upper()) if dist_code else None
                 if not house_id or (target_house_id and house_id != target_house_id):
+                    skipped_rows += 1
+                    if dist_code:
+                        unmatched_dist_codes.add(dist_code)
                     processed_rows += 1
                     pbar.update(1)
                     continue
@@ -222,20 +232,28 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
                 except:
                     issue_date = None
 
+                sim_no = clean_val(row.get('SIMNO'), '')
+                if not sim_no:
+                    # An empty serial would collapse into one row on the unique index.
+                    skipped_missing_sim += 1
+                    processed_rows += 1
+                    pbar.update(1)
+                    continue
+
                 batch_buffer.append({
                     "issue_date": issue_date,
                     "distributor_code": dist_code,
                     "distributor_name": clean_val(row.get('DISTRIBUTORNAME')),
                     "house_id": house_id,
-                    "cluster_market": clean_val(row.get('CLUSTER_MARKET')),
+                    "cluster_market": clean_val(row.get('CLUSTERMARKET')),
                     "retailer_code": ret_code,
                     "retailer_name": clean_val(row.get('RETAILERNAME')),
                     "retailer_id": retailer_id,
                     "promotion": clean_val(row.get('PROMOTION')),
                     "product_code": clean_val(row.get('PRODUCTCODE')),
                     "product_name": clean_val(row.get('PRODUCTNAME')),
-                    "selling_price": float(str(row.get('SELLINGPRICE', 0))) if row.get('SELLINGPRICE') else 0.0,
-                    "sim_no": clean_val(row.get('SIMNO'), '')
+                    "selling_price": float(str(row.get('SELLINGPRICE', 0)).replace(',', '')) if row.get('SELLINGPRICE') else 0.0,
+                    "sim_no": sim_no
                 })
 
                 if len(batch_buffer) >= batch_size:
@@ -259,6 +277,19 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
                 stmt = insert(SimIssue).values(batch_buffer).on_conflict_do_nothing(index_elements=['sim_no'])
                 await session.execute(stmt)
                 inserted_records += len(batch_buffer)
+
+            if skipped_rows or skipped_missing_sim:
+                logger.warning(
+                    f"SIM Issue: saved {inserted_records}, skipped {skipped_rows} row(s) with an "
+                    f"unmatched/unselected distributor and {skipped_missing_sim} row(s) without a "
+                    f"SIM number. Unmatched distributor codes: {sorted(unmatched_dist_codes)[:10]}"
+                )
+                if progress_callback:
+                    await progress_callback(
+                        f"⚠️ SIM Issue rows: saved {bn_num(inserted_records)}, "
+                        f"skipped {bn_num(skipped_rows)} (distributor not matched) / "
+                        f"{bn_num(skipped_missing_sim)} (no SIM number)"
+                    )
 
             await session.commit()
             pbar.close()
