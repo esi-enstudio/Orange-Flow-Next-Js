@@ -2,7 +2,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
-import { CloudDownload, Loader2, CheckCircle2, ChevronRight, Activity, Database, Zap, Building2, X } from "lucide-react";
+import { CloudDownload, Loader2, CheckCircle2, Activity, Database, Zap, Building2, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
 import Cookies from "js-cookie";
 import axios from "@/lib/api";
@@ -124,17 +125,10 @@ export default function SyncPage() {
   const [houses, setHouses] = useState<HouseOption[]>([]);
   const [houseModal, setHouseModal] = useState<{ endpoint: string; label: string; bg: boolean } | null>(null);
   const pollingRef = useRef(false);
-  const progressSequenceRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     axios.get("/houses/accessible").then(r => setHouses(r.data || [])).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (progressSequenceRef.current) {
-      progressSequenceRef.current.scrollLeft = progressSequenceRef.current.scrollWidth;
-    }
-  }, [progressEvents]);
 
   const pollStatus = useCallback(async (jobId: string) => {
     pollingRef.current = true;
@@ -296,6 +290,9 @@ export default function SyncPage() {
   if (!canView) return <AccessDenied />;
 
   const lastProgressEvent = progressEvents[progressEvents.length - 1] || "";
+  const currentTask = lastProgressEvent || progressMsg || "";
+  const taskFailed = currentTask.startsWith("✗") || currentTask.endsWith(": error");
+  const taskComplete = currentTask.startsWith("✓") || currentTask.startsWith("No missing dates");
   const currentItopupType =
     lastProgressEvent.startsWith("Checking ITopUp Detail for ") ||
     lastProgressEvent.startsWith("Range progress: checking for ")
@@ -332,12 +329,12 @@ export default function SyncPage() {
 
       {progressMsg && (
         <div className="overflow-hidden rounded-2xl border border-primary-100 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-start gap-3 border-b border-gray-100 bg-gradient-to-r from-primary-50/80 to-white px-4 py-4 dark:border-slate-700 dark:bg-slate-900 dark:from-slate-800 dark:via-slate-900 dark:to-slate-900 sm:px-5">
-            <div className="rounded-xl bg-primary-100 p-2.5 text-primary-700 dark:bg-primary-500/20 dark:text-primary-300">
+          <div className="flex flex-col items-center gap-2 border-b border-gray-100 bg-gradient-to-r from-primary-50/80 to-white px-4 py-4 text-center dark:border-slate-700 dark:bg-slate-900 dark:from-slate-800 dark:via-slate-900 dark:to-slate-900 sm:flex-row sm:items-start sm:gap-3 sm:px-5 sm:text-left">
+            <div className="shrink-0 rounded-xl bg-primary-100 p-2.5 text-primary-700 dark:bg-primary-500/20 dark:text-primary-300">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
                 <h2 className="font-semibold text-gray-900 dark:text-gray-100">{t('sync.progress_title')}</h2>
                 <span className="rounded-full bg-primary-100 px-2.5 py-1 text-xs font-semibold text-primary-700 dark:border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100">
                   {modules.find((module) => module.endpoint === activeEndpoint)?.title}
@@ -354,49 +351,42 @@ export default function SyncPage() {
                   {t('sync.current_task')}
                 </p>
                 <div
-                  ref={progressSequenceRef}
                   role="log"
                   aria-label={t('sync.current_task')}
                   aria-live="polite"
                   aria-relevant="additions text"
-                  className="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto rounded-xl border border-gray-200 bg-gray-50 p-2 dark:border-slate-700 dark:bg-slate-950/60"
+                  title={currentTask}
+                  className="mt-1 flex min-h-11 min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950/60"
                 >
-                  <div className="flex w-max items-center gap-1.5 whitespace-nowrap">
-                    {(progressEvents.length ? progressEvents : [progressMsg]).map((message, index) => {
-                      const isLatest = index === Math.max(progressEvents.length - 1, 0);
-                      const hasFailed = message.startsWith("✗") || message.endsWith(": error");
-                      const isComplete = message.startsWith("✓") || message.startsWith("No missing dates");
-                      return (
-                        <div key={`${index}-${message}`} className="flex items-center gap-1.5">
-                          {index > 0 && (
-                            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-slate-500" />
-                          )}
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs",
-                              isLatest
-                                ? "bg-white font-medium text-gray-900 shadow-sm dark:bg-slate-800 dark:text-gray-100"
-                                : hasFailed
-                                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
-                                  : isComplete
-                                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                    : "text-gray-600 dark:text-gray-300",
-                            )}
-                          >
-                            {isLatest && !isComplete && !hasFailed ? (
-                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary-600" />
-                            ) : isComplete ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                            ) : hasFailed ? (
-                              <X className="h-3.5 w-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
-                            ) : (
-                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gray-400 dark:bg-slate-500" />
-                            )}
-                            {message}
-                          </span>
-                        </div>
-                      );
-                    })}
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    {taskFailed ? (
+                      <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                    ) : taskComplete ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <Loader2 className="h-4 w-4 animate-spin text-primary-600" />
+                    )}
+                  </span>
+                  <div className="h-5 min-w-0 flex-1 overflow-hidden">
+                    <AnimatePresence mode="wait">
+                      <motion.p
+                        key={currentTask}
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: -20, opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className={cn(
+                          "truncate text-xs",
+                          taskFailed
+                            ? "font-medium text-rose-700 dark:text-rose-300"
+                            : taskComplete
+                              ? "font-medium text-emerald-700 dark:text-emerald-300"
+                              : "font-medium text-gray-700 dark:text-gray-200",
+                        )}
+                      >
+                        {currentTask}
+                      </motion.p>
+                    </AnimatePresence>
                   </div>
                 </div>
               </div>
