@@ -115,3 +115,32 @@ async def test_update_with_case_only_dms_code_change_does_not_conflict_with_self
 
     assert response.status_code == 200, response.text
     assert response.json()["dms_code"] == "rs050979"
+
+
+async def test_update_with_removed_document_does_not_fail(api, db, data):
+    from sqlalchemy import select
+
+    from app.models.employee_document import EmployeeDocument
+
+    app, client = api
+    app.dependency_overrides[get_current_user] = lambda: _user(data["other"])
+    employee = data["employee"]
+    doc = EmployeeDocument(
+        employee_id=employee.id,
+        house_id=employee.house_id,
+        doc_type="nid",
+        file_name="nid.pdf",
+        storage_path="1/1/nid.pdf",
+    )
+    db.add(doc)
+    await db.commit()
+
+    response = await client.put(
+        f"/api/employees/{employee.id}",
+        json={**_payload(data["other"].id, dms_code="rs050979"), "remove_document_ids": [doc.id]},
+    )
+
+    assert response.status_code == 200, response.text
+    await db.refresh(doc)
+    assert doc.is_deleted is True
+    assert (await db.execute(select(EmployeeDocument).where(EmployeeDocument.id == doc.id))).scalar_one().is_deleted

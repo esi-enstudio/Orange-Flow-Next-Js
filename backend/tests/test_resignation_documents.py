@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from PIL import Image
+from PIL import Image, ImageFilter
 from sqlalchemy import select
 
 from app.models.employee import Employee
@@ -325,8 +325,11 @@ async def test_uploaded_scan_is_compressed_without_losing_resolution(api, db, tm
     house, employee = await _resigned_employee(db)
     app.dependency_overrides[get_current_user] = lambda: _user(house, role="Admin")
 
-    # Noise compresses badly, so the quality drop is visible in the byte count.
-    image = Image.frombytes("RGB", (1600, 1200), os.urandom(1600 * 1200 * 3))
+    # Blurred noise behaves like a real scan: plenty of detail, still
+    # compressible, so the quality drop is visible in the byte count.
+    image = Image.frombytes("RGB", (1600, 1200), os.urandom(1600 * 1200 * 3)).filter(
+        ImageFilter.GaussianBlur(2)
+    )
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=95)
     original_size = len(buffer.getvalue())

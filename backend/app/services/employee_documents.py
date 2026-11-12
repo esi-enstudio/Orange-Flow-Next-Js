@@ -5,7 +5,7 @@ Storage layout
 Profile photo (public, served through the /uploads mount so it renders in the
 employee table without an authenticated round-trip)::
 
-    uploads/employee_photos/{employee_id}/{uuid}.jpg
+    uploads/employee_photos/{employee_id}/{uuid}.webp
 
 Documents (private, never mounted - streamed through the authenticated
 `/api/employees/{id}/documents/{doc_id}/file` endpoint)::
@@ -29,11 +29,12 @@ import os
 import re
 import shutil
 import uuid
+import warnings
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
 from fastapi import UploadFile
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,10 +50,9 @@ PRIVATE_STORAGE_ROOT = "private_uploads/employee_documents"
 PUBLIC_PHOTO_ROOT = "uploads/employee_photos"
 STAGING_DIR = os.path.join(PRIVATE_STORAGE_ROOT, "_staging")
 
-PHOTO_MAX_BYTES = 5 * 1024 * 1024        # 5 MB
-DOCUMENT_MAX_BYTES = 10 * 1024 * 1024    # 10 MB
+PHOTO_MAX_BYTES = 2 * 1024 * 1024        # 2 MB
+DOCUMENT_MAX_BYTES = 2 * 1024 * 1024     # 2 MB
 STAGING_MAX_AGE_HOURS = 24
-PHOTO_MAX_DIMENSION = 1000
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 DOCUMENT_EXTENSIONS = IMAGE_EXTENSIONS | {".pdf", ".doc", ".docx", ".xls", ".xlsx"}
@@ -161,10 +161,42 @@ def _staged_path(staged_id: Optional[str]) -> Optional[str]:
     return None
 
 
+def _compressed_image(contents: bytes, max_bytes: int) -> bytes:
+    """Re-encode an image as optimized WebP without changing its dimensions.
+
+    Quality is stepped down until the result fits, so scans keep their full
+    resolution and only lose redundant detail.
+    """
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(contents)) as image:
+                if image.format not in {"JPEG", "PNG", "WEBP"} or getattr(image, "n_frames", 1) != 1:
+                    raise ValueError("Only JPG, PNG or WEBP images are allowed.")
+                image.load()
+                frame = ImageOps.exif_transpose(image)
+                if frame.mode not in ("RGB", "L"):
+                    frame = frame.convert("RGB")
+                for quality in (75, 65, 55, 45, 35):
+                    buffer = io.BytesIO()
+                    frame.save(buffer, format="WEBP", quality=quality, method=6)
+                    data = buffer.getvalue()
+                    if len(data) <= max_bytes:
+                        return data
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        UnidentifiedImageError,
+        OSError,
+    ) as exc:
+        raise ValueError("The image could not be read. Please choose another file.") from exc
+    raise ValueError(f"The image could not be compressed below {max_bytes // (1024 * 1024)} MB.")
+
+
 def _unique_photo_path(employee_id: int) -> str:
     folder = os.path.join(PUBLIC_PHOTO_ROOT, str(employee_id))
     os.makedirs(folder, exist_ok=True)
-    return os.path.join(folder, f"{uuid.uuid4().hex}.jpg")
+    return os.path.join(folder, f"{uuid.uuid4().hex}.webp")
 
 
 def _unique_document_path(house_id: int, employee_id: int, ext: str) -> str:
@@ -227,36 +259,26 @@ async def stage_upload(file: UploadFile, kind: str) -> dict:
 
     staged_id = uuid.uuid4().hex
     staged_ext = ext
-    stored_bytes = len(contents)
+    data = contents
 
-    if kind == "photo":
-        # Normalise the avatar once, here: broken images are caught before the
-        # employee is saved and the public file stays small.
+    # Images are re-encoded to WebP (dimensions untouched) so the stored file is
+    # a fraction of the upload; PDFs/Office files are stored as uploaded.
+    if kind == "photo" or ext in IMAGE_EXTENSIONS:
         try:
-            image = Image.open(io.BytesIO(contents))
-            image.load()
-        except Exception as exc:  # noqa: BLE001 - surfaced to the user
-            logger.warning("Rejected employee photo %s: %s", original_name, exc)
-            raise ValueError("The image could not be read. Please choose another photo.") from exc
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        image.thumbnail((PHOTO_MAX_DIMENSION, PHOTO_MAX_DIMENSION), Image.Resampling.LANCZOS)
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=88, optimize=True)
-        data = buffer.getvalue()
-        staged_ext = ".jpg"
-        stored_bytes = len(data)
-    else:
-        data = contents
+            data = _compressed_image(contents, max_bytes)
+        except ValueError as exc:
+            logger.warning("Rejected employee %s %s: %s", kind, original_name, exc)
+            raise
+        staged_ext = ".webp"
+        if ext != ".webp":
+            original_name = f"{os.path.splitext(original_name)[0]}.webp"
+    stored_bytes = len(data)
 
     staged_path = os.path.join(STAGING_DIR, f"{staged_id}{staged_ext}")
     with open(staged_path, "wb") as fh:
         fh.write(data)
 
-    mime_type = (
-        "image/jpeg" if kind == "photo"
-        else ((file.content_type or "").split(";")[0].strip() or MIME_BY_EXTENSION.get(ext, "application/octet-stream"))
-    )
+    mime_type = MIME_BY_EXTENSION.get(staged_ext, "application/octet-stream")
     logger.info("Staged employee %s '%s' (%s bytes)", kind, original_name, stored_bytes)
     return {
         "staged_id": staged_id,
@@ -332,12 +354,11 @@ async def store_image_document(
     doc_type: str,
     current_user: User,
     max_bytes: int = DOCUMENT_MAX_BYTES,
-    max_dimension: int = 2000,
 ) -> EmployeeDocument:
     """Store one image attachment immediately (no staging step).
 
     Used by the resignation flow, where the employee already exists. The image
-    is normalised to JPEG so the stored scan stays small and orientation-safe.
+    is re-encoded to WebP at its original resolution.
     Raises ValueError with a user-presentable message on rejection.
     """
     if not is_valid_document_type(doc_type):
@@ -353,25 +374,13 @@ async def store_image_document(
         raise ValueError(f"File is too large. Maximum size is {max_bytes // (1024 * 1024)} MB.")
     if not _looks_like(contents, ext):
         raise ValueError("The file content does not match its extension.")
-    try:
-        image = Image.open(io.BytesIO(contents))
-        image.load()
-    except Exception as exc:  # noqa: BLE001 - surfaced to the user
-        logger.warning("Rejected employee image %s: %s", original_name, exc)
-        raise ValueError("The image could not be read. Please choose another image.") from exc
+    data = _compressed_image(contents, max_bytes)
+    if ext != ".webp":
+        original_name = f"{os.path.splitext(original_name)[0]}.webp"
 
-    image = ImageOps.exif_transpose(image)
-    if image.mode not in ("RGB", "L"):
-        image = image.convert("RGB")
-    image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
-    buffer = io.BytesIO()
-    # Scans stay at full readable resolution; the quality drop is what removes
-    # most of the bytes (85 -> 70 is roughly half the file for a phone photo).
-    image.save(buffer, format="JPEG", quality=70, optimize=True, progressive=True)
-
-    dest = _unique_document_path(employee.house_id, employee.id, ".jpg")
+    dest = _unique_document_path(employee.house_id, employee.id, ".webp")
     with open(dest, "wb") as fh:
-        fh.write(buffer.getvalue())
+        fh.write(data)
 
     doc = EmployeeDocument(
         employee_id=employee.id,
@@ -381,7 +390,7 @@ async def store_image_document(
         file_name=original_name,
         storage_path=os.path.relpath(dest, PRIVATE_STORAGE_ROOT).replace("\\", "/"),
         file_size=os.path.getsize(dest),
-        mime_type=MIME_BY_EXTENSION[".jpg"],
+        mime_type=MIME_BY_EXTENSION[".webp"],
         uploaded_by=current_user.id,
     )
     db.add(doc)

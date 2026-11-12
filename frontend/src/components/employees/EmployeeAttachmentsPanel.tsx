@@ -78,8 +78,8 @@ export const EMPLOYEE_DOCUMENT_TYPES = [
 const PHOTO_MIME = ["image/jpeg", "image/png", "image/webp"];
 const PHOTO_EXT = [".jpg", ".jpeg", ".png", ".webp"];
 const DOC_EXT = [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".doc", ".docx", ".xls", ".xlsx"];
-const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
-const DOC_MAX_BYTES = 10 * 1024 * 1024;
+const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const DOC_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_DOCUMENTS = 20;
 
 const PHOTO_ACCEPT = "image/jpeg,image/png,image/webp";

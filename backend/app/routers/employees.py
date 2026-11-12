@@ -719,7 +719,7 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
                 } or None,
                 new_values={
                     **({"attachments": claimed["claimed"]} if claimed["claimed"] else {}),
-                    **({"photo_url": emp.photo_url} if claimed["photo_replaced"] else {}),
+                    **({"photo_url": emp.photo_url} if claimed.get("photo_replaced") else {}),
                 } or None,
                 request=request, status_code=200,
             )
