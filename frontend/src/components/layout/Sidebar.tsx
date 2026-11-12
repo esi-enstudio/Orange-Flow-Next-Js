@@ -28,6 +28,15 @@ function isPathMatch(href: string, pathname: string): boolean {
   return href === pathname || pathname.startsWith(href.endsWith("/") ? href : `${href}/`);
 }
 
+function isNavPathMatch(
+  href: string,
+  pathname: string,
+  isResignationLetterheadActive: boolean
+): boolean {
+  return isPathMatch(href, pathname) ||
+    (isResignationLetterheadActive && href === "/employees/resignation-documents");
+}
+
 export function Sidebar({ isOpen, onClose, focusMode, revealed }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
@@ -35,6 +44,7 @@ export function Sidebar({ isOpen, onClose, focusMode, revealed }: SidebarProps) 
   const { t } = useLanguage();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [openNested, setOpenNested] = useState<string | null>(null);
+  const [isResignationLetterheadActive, setIsResignationLetterheadActive] = useState(false);
   const { brand } = useBrand();
   const { setSidebarHovering } = useFullscreen();
   const { count: unreadNotifications } = useNotifications();
@@ -85,10 +95,20 @@ function filterChildren(children: any[]): any[] {
       });
   }, [hasPermission, hasModule, hasPage]);
 
+  useEffect(() => {
+    const employeeId = Number(new URLSearchParams(window.location.search).get("emp_id"));
+    setIsResignationLetterheadActive(
+      pathname === "/houses/letterhead" && Number.isSafeInteger(employeeId) && employeeId > 0
+    );
+  }, [pathname]);
+
   // Auto-open parent menu if a child is active
   React.useEffect(() => {
     const activeParent = filteredNavItems.find(item => 
-      item.children?.some(child => isPathMatch(child.href, pathname) || child.children?.some(sub => isPathMatch(sub.href, pathname)))
+      item.children?.some(child =>
+        isNavPathMatch(child.href, pathname, isResignationLetterheadActive) ||
+        child.children?.some(sub => isNavPathMatch(sub.href, pathname, isResignationLetterheadActive))
+      )
     );
     if (activeParent) {
       setOpenMenu(activeParent.title);
@@ -96,13 +116,13 @@ function filterChildren(children: any[]): any[] {
     // Auto-open nested menu if a sub-child is active
     for (const item of filteredNavItems) {
       for (const child of (item.children || [])) {
-        if (child.children?.some(sub => isPathMatch(sub.href, pathname))) {
+        if (child.children?.some(sub => isNavPathMatch(sub.href, pathname, isResignationLetterheadActive))) {
           setOpenNested(child.title);
           return;
         }
       }
     }
-  }, [pathname, filteredNavItems]);
+  }, [pathname, filteredNavItems, isResignationLetterheadActive]);
 
   const toggleMenu = (title: string) => {
     setOpenMenu(prev => prev === title ? null : title);
@@ -139,7 +159,10 @@ function filterChildren(children: any[]): any[] {
           {filteredNavItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
             const isOpenMenu = openMenu === item.title;
-            const isParentActive = item.children?.some(c => isPathMatch(c.href, pathname) || c.children?.some(sub => isPathMatch(sub.href, pathname)));
+            const isParentActive = item.children?.some(c =>
+              isNavPathMatch(c.href, pathname, isResignationLetterheadActive) ||
+              c.children?.some(sub => isNavPathMatch(sub.href, pathname, isResignationLetterheadActive))
+            );
             const isDirectActive = item.href === pathname;
 
             return (
@@ -201,7 +224,8 @@ function filterChildren(children: any[]): any[] {
                       <div className="space-y-1 pt-1 pb-1">
                         {item.children?.map((child) => {
                           const childHasNavChildren = child.children && child.children.length > 0;
-                          const isChildActive = pathname === child.href;
+                          const isChildActive = pathname === child.href ||
+                            (isResignationLetterheadActive && child.href === "/employees/resignation-documents");
                           const isNestedOpen = openNested === child.title;
                           const isNestedActive = child.children?.some(c => c.href === pathname);
 

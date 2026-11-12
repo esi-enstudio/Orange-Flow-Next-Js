@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 PRIVATE_ROOT = "private_uploads"
 
-# Designation printed for an employee type ("rso" -> "RSO (Retail Sales Officer)").
+# Designation printed for an employee type.
 def employee_designation(employee) -> str:
     employee_type = str(getattr(employee, "employee_type", "") or "").strip().lower()
     return DESIGNATIONS.get(employee_type, employee_type.upper())

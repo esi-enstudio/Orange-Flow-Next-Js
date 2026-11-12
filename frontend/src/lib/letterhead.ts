@@ -56,7 +56,7 @@ export interface PreviewBlock {
 /** Mirrors the backend designation labels used by the resignation PDF. */
 const DESIGNATIONS: Record<string, string> = {
   rso: "RSO (Retail Sales Officer)",
-  bp: "BP (Business Partner)",
+  bp: "BP (Brand Promotor)",
   bsp: "BSP (Business Service Partner)",
   rbsp: "RBSP (Retail Business Service Partner)",
   supervisor: "Supervisor",

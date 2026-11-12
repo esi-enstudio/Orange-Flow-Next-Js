@@ -45,7 +45,7 @@ _PLACEHOLDER_RE = re.compile(r"{{\s*([a-z_]+)\s*}}")
 # Full designation printed in the letter body (falls back to the raw type).
 DESIGNATIONS = {
     "rso": "RSO (Retail Sales Officer)",
-    "bp": "BP (Business Partner)",
+    "bp": "BP (Brand Promotor)",
     "bsp": "BSP (Business Service Partner)",
     "rbsp": "RBSP (Retail Business Service Partner)",
     "supervisor": "Supervisor",

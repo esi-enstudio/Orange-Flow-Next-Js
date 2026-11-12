@@ -71,6 +71,19 @@ def test_english_values_are_used_when_bangla_is_missing():
     assert values["proprietor_contact"] == "017"
 
 
+def test_employee_designations_use_full_titles():
+    for employee_type, expected in (
+        ("rso", "RSO (Retail Sales Officer)"),
+        ("bp", "BP (Brand Promotor)"),
+    ):
+        values = _base_values(
+            _house(),
+            {"employee_type": employee_type},
+            date(2026, 11, 12),
+        )
+        assert values["designation"] == expected
+
+
 def test_bangla_house_values_win():
     house = House(
         id=1,
