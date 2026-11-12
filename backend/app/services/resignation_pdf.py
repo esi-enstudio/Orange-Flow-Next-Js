@@ -25,7 +25,7 @@ from PIL import Image, ImageOps
 
 from app.models.employee import Employee
 from app.models.house import House
-from app.services import house_letterhead
+from app.services import house_documents, house_letterhead
 from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
@@ -147,7 +147,14 @@ def _image_data_uri(raw: bytes) -> str:
     image = Image.open(io.BytesIO(raw))
     image.load()
     image = ImageOps.exif_transpose(image)
-    if image.mode not in ("RGB", "L"):
+    # Flatten a transparent scan (PNG signature) onto white instead of letting
+    # `convert("RGB")` turn the transparent pixels black.
+    if image.mode in ("RGBA", "LA", "P"):
+        image = image.convert("RGBA")
+        background = Image.new("RGB", image.size, "white")
+        background.paste(image, mask=image.split()[-1])
+        image = background
+    elif image.mode not in ("RGB", "L"):
         image = image.convert("RGB")
     image.thumbnail((IMAGE_MAX_DIMENSION, IMAGE_MAX_DIMENSION), Image.Resampling.LANCZOS)
     buffer = io.BytesIO()
@@ -166,6 +173,7 @@ def _page_style() -> str:
         + ".bg{position:absolute;left:0;top:0;width:100%;"
           "background-repeat:no-repeat;background-position:top left;background-size:100% auto}"
         + ".fit{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain}"
+        + ".sig{position:absolute;height:auto}"
         + ".t{position:absolute;font-family:NotoBengali;font-weight:400;line-height:1.45;"
           "white-space:pre-wrap;overflow-wrap:break-word;color:#000}"
         + ".t.b{font-weight:700}"
@@ -205,6 +213,17 @@ def build_application_page(
     body_html = house_letterhead.sanitize_body_html(body.get("text")) if body.get("enabled") else ""
     if body_html:
         parts.append(_text_block(body, _substitute(body_html, values)))
+
+    # The proprietor signature is uploaded per house; print it where the layout
+    # says (below the proprietor name by default) without any manual step.
+    signature_block = layout.get("signature") or {}
+    signature_uri = signature_block.get("enabled", True) and house_documents.signature_data_uri(house)
+    if signature_uri:
+        parts.append(
+            f'<img class="sig" style="left:{signature_block.get("x", 58)}%;'
+            f'top:{signature_block.get("y", 78)}%;width:{signature_block.get("w", 24)}%" '
+            f'src="{signature_uri}">'
+        )
     parts.append("</div>")
     return "".join(parts)
 

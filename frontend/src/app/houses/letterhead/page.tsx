@@ -15,6 +15,7 @@ import {
   Save,
   Eye,
   RotateCcw,
+  PenTool,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -44,8 +45,16 @@ interface BodyBlock extends Block {
   line_height: number;
 }
 
+interface SignatureBlock {
+  enabled: boolean;
+  x: number;
+  y: number;
+  w: number;
+}
+
 interface LetterheadLayout {
   body: BodyBlock;
+  signature: SignatureBlock;
 }
 
 interface LetterheadData {
@@ -55,6 +64,9 @@ interface LetterheadData {
   house_address: string;
   has_image: boolean;
   image_url: string | null;
+  /** Proprietor signature uploaded for this house (auto-placed on the page). */
+  has_signature?: boolean;
+  signature_url?: string | null;
   layout: LetterheadLayout;
   default_layout: LetterheadLayout;
   /** Bangla-first values for every house placeholder (English fallback). */
@@ -92,6 +104,7 @@ const PLACEHOLDER_KEYS = [
 ];
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Keep a block on the page and inside the allowed value ranges. */
 function clampBlock<T extends Block>(block: T): T {
@@ -124,6 +137,8 @@ export default function HouseLetterheadPage() {
   const empId = Number(searchParams.get("emp_id")) || 0;
   const canView = hasPermission("houses.letterhead_view");
   const canEdit = hasPermission("houses.letterhead_edit");
+  const canUploadSignature = hasPermission("houses.document_upload");
+  const canDeleteSignature = hasPermission("houses.document_delete");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -137,6 +152,10 @@ export default function HouseLetterheadPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+  const [signatureBusy, setSignatureBusy] = useState(false);
+  const [signatureVersion, setSignatureVersion] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const bodyTextRef = useRef<RichTextEditorHandle>(null);
   const [canvasWidth, setCanvasWidth] = useState(0);
@@ -207,6 +226,31 @@ export default function HouseLetterheadPage() {
       if (objectUrl) window.URL.revokeObjectURL(objectUrl);
     };
   }, [houseId, data?.has_image, imageVersion]);
+
+  // The proprietor signature is uploaded once per house; it is placed on the
+  // page automatically, so it only has to be fetched for the preview.
+  useEffect(() => {
+    if (!houseId || !data?.has_signature) {
+      setSignatureUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    apiClient
+      .get(`houses/${houseId}/signature`, { responseType: "blob" })
+      .then((res) => {
+        if (cancelled) return;
+        objectUrl = window.URL.createObjectURL(new Blob([res.data], { type: "image/png" }));
+        setSignatureUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setSignatureUrl(null);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) window.URL.revokeObjectURL(objectUrl);
+    };
+  }, [houseId, data?.has_signature, signatureVersion]);
 
   // The A4 preview shrinks on small screens; the body font has to shrink with
   // it, otherwise the text overflows the page on mobile.
@@ -311,6 +355,52 @@ export default function HouseLetterheadPage() {
     } finally {
       setImageBusy(false);
     }
+  };
+
+  const uploadSignature = async () => {
+    if (!signatureFile) return;
+    setSignatureBusy(true);
+    const form = new FormData();
+    form.append("file", signatureFile);
+    try {
+      await apiClient.post(`houses/${houseId}/signature`, form);
+      setSignatureFile(null);
+      setSignatureVersion((v) => v + 1);
+      await fetchData();
+      toast.success(t("houses.letterhead.signature_uploaded"));
+    } catch (err: any) {
+      toast.error(detailMessage(err, t("houses.letterhead.toast_upload_failed")));
+    } finally {
+      setSignatureBusy(false);
+    }
+  };
+
+  const deleteSignature = async () => {
+    if (!confirm(t("houses.letterhead.signature_delete_confirm"))) return;
+    setSignatureBusy(true);
+    try {
+      await apiClient.delete(`houses/${houseId}/signature`);
+      setSignatureVersion((v) => v + 1);
+      await fetchData();
+      toast.success(t("houses.letterhead.signature_deleted"));
+    } catch (err: any) {
+      toast.error(detailMessage(err, t("houses.letterhead.toast_delete_failed")));
+    } finally {
+      setSignatureBusy(false);
+    }
+  };
+
+  const handleSignatureFile = (file: File | null) => {
+    if (!file) {
+      setSignatureFile(null);
+      return;
+    }
+    if (file.size > SIGNATURE_MAX_BYTES) {
+      toast.error(t("houses.letterhead.signature_too_large"));
+      setSignatureFile(null);
+      return;
+    }
+    setSignatureFile(file);
   };
 
   const deleteImage = async () => {
@@ -567,6 +657,17 @@ export default function HouseLetterheadPage() {
                 )}
               </div>
             )}
+
+            {/* Proprietor signature: placed automatically when uploaded. */}
+            {layout.signature?.enabled && signatureUrl && (
+              <img
+                src={signatureUrl}
+                alt=""
+                draggable={false}
+                className="absolute pointer-events-none h-auto select-none"
+                style={{ left: `${layout.signature.x}%`, top: `${layout.signature.y}%`, width: `${layout.signature.w}%` }}
+              />
+            )}
           </div>
         </div>
 
@@ -620,6 +721,132 @@ export default function HouseLetterheadPage() {
             <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
               {t("houses.letterhead.image_hint")}
             </p>
+          </div>
+
+          {/* Proprietor signature (uploaded once per house, auto-placed) */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-4">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <PenTool className="w-5 h-5" />
+                {t("houses.letterhead.signature_title")}
+              </h3>
+              <span
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[11px] font-bold",
+                  data.has_signature
+                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                    : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+                )}
+              >
+                {data.has_signature
+                  ? t("houses.documents.signature_uploaded")
+                  : t("houses.documents.signature_missing")}
+              </span>
+            </div>
+
+            <div className="mb-3 flex items-center justify-center h-20 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 overflow-hidden">
+              {signatureUrl ? (
+                <img src={signatureUrl} alt="" className="max-w-full max-h-full object-contain" />
+              ) : (
+                <PenTool className="w-7 h-7 text-gray-300 dark:text-gray-600" />
+              )}
+            </div>
+
+            {canUploadSignature && (
+              <div className="space-y-3">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(e) => handleSignatureFile(e.target.files?.[0] || null)}
+                  className="w-full text-sm text-gray-600 dark:text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 cursor-pointer"
+                />
+                <button
+                  onClick={uploadSignature}
+                  disabled={!signatureFile || signatureBusy}
+                  className={cn(
+                    "w-full px-4 py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2",
+                    signatureFile && !signatureBusy
+                      ? "bg-primary-500 text-white hover:bg-primary-600 cursor-pointer"
+                      : "bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                  )}
+                >
+                  {signatureBusy ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  {data.has_signature
+                    ? t("houses.letterhead.replace_signature")
+                    : t("houses.letterhead.upload_signature")}
+                </button>
+                {data.has_signature && canDeleteSignature && (
+                  <button
+                    onClick={deleteSignature}
+                    disabled={signatureBusy}
+                    className="w-full px-4 py-2.5 rounded-xl border font-medium transition-colors flex items-center justify-center gap-2 bg-red-50 text-red-600 border-red-200 hover:bg-red-100 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {t("houses.letterhead.delete_signature")}
+                  </button>
+                )}
+              </div>
+            )}
+            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+              {t("houses.letterhead.signature_hint")}
+            </p>
+            {data.has_signature && canEdit && (
+              <div className="mt-3 space-y-3">
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={layout.signature?.enabled ?? true}
+                    onChange={(e) =>
+                      setLayout((prev) =>
+                        prev
+                          ? { ...prev, signature: { ...prev.signature, enabled: e.target.checked } }
+                          : prev
+                      )
+                    }
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                  />
+                  {t("houses.letterhead.show_signature")}
+                </label>
+
+                <div>
+                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                    {t("houses.letterhead.signature_position")}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["x", "y", "w"] as const).map((field) => (
+                      <div key={field}>
+                        <label className="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+                          {t(`houses.letterhead.signature_${field}`)}
+                        </label>
+                        <input
+                          type="number"
+                          min={field === "w" ? 5 : 0}
+                          max={100}
+                          step={1}
+                          value={Math.round(layout.signature?.[field] ?? 0)}
+                          onChange={(e) => {
+                            const value = Number(e.target.value);
+                            setLayout((prev) => {
+                              if (!prev) return prev;
+                              const next = { ...prev.signature, [field]: Number.isFinite(value) ? value : 0 };
+                              next.w = Math.min(100, Math.max(5, next.w));
+                              next.x = Math.min(Math.max(0, next.x), 100 - next.w);
+                              next.y = Math.min(100, Math.max(0, next.y));
+                              return { ...prev, signature: next };
+                            });
+                          }}
+                          className="w-full px-2 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Selected block settings */}

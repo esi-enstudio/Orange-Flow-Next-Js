@@ -14,6 +14,7 @@ import app.models.rule_config
 import app.models.employee
 from app.models.employee import DEMO_EMPLOYEE_ID_PREFIX
 import app.models.employee_document
+import app.models.house_document
 import app.models.supervisor_assignment
 import app.models.bts
 import app.models.ga_filter
@@ -709,6 +710,7 @@ async def _migrate_house_letterhead():
     """Add the resignation-letterhead columns to houses (image + field layout)."""
     columns = {
         "letterhead_image_path": "VARCHAR(500)",
+        "proprietor_signature_path": "VARCHAR(500)",
         "letterhead_layout": "JSONB",
         "letterhead_updated_by": "INTEGER",
         "letterhead_updated_at": "TIMESTAMP",
@@ -2437,8 +2439,10 @@ async def init_db():
         # Files staged from an employee modal that was never saved are useless
         # after a restart - purge them before serving traffic.
         from app.services.employee_documents import cleanup_stale_staging_files, ensure_storage_dirs
+        from app.services.house_documents import ensure_storage_dir as ensure_house_documents_dir
 
         ensure_storage_dirs()
+        ensure_house_documents_dir()
         cleanup_stale_staging_files()
 
         await _drop_legacy_ga_section_config_table()

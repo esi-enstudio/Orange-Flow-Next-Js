@@ -12,8 +12,9 @@ from app.routers.deps import get_db, has_permission, has_any_permission, get_cur
 from app.schemas.house import HouseSchema, HouseCreate
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.house import House
+from app.models.house_document import HOUSE_DOCUMENT_TYPES, HouseDocument
 from app.models.user import User
-from app.services import entitlement, house_letterhead
+from app.services import entitlement, house_documents, house_letterhead
 from app.services.house_purge import HousePurgeError, purge_house
 from app.services.resignation_pdf import build_preview_html, render_pdf
 from app.utils.access_control import is_admin_user, is_super_admin_user
@@ -422,6 +423,169 @@ async def update_house_letterhead(
         new_values={"letterhead_layout": layout},
     )
     return house_letterhead.serialize(house)
+
+
+# --------------------------------------------------------------------------- #
+# House documents (letterhead page, proprietor signature, scanned papers)
+#
+# Every house keeps its own set: one letterhead page image, one proprietor
+# signature and any number of scanned documents. The letterhead page image and
+# the signature are attached automatically on the House Letterhead page.
+# --------------------------------------------------------------------------- #
+
+@router.get("/{house_id}/documents")
+async def get_house_documents(
+    house_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.document_view")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    letterhead = house_letterhead.serialize(house)
+    documents = await house_documents.list_documents(db, house.id)
+    return {
+        "house_id": house.id,
+        "house_name": house.name_bn or house.name,
+        "house_code": house.code,
+        "letterhead": {
+            "has_image": letterhead["has_image"],
+            "image_url": letterhead["image_url"],
+            "configured": letterhead["configured"],
+        },
+        "signature": house_documents.serialize_signature(house),
+        "documents": [house_documents.serialize_document(doc) for doc in documents],
+        "document_types": list(HOUSE_DOCUMENT_TYPES),
+    }
+
+
+@router.post("/{house_id}/signature")
+async def upload_house_signature(
+    house_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.document_upload")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    previous = house.proprietor_signature_path
+    try:
+        await house_documents.store_signature(house, file)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _touch_letterhead(house, current_user)
+    await db.commit()
+    await db.refresh(house)
+    await _log_letterhead(
+        db, house, request, current_user, "edit",
+        old_values={"proprietor_signature": previous},
+        new_values={"proprietor_signature": house.proprietor_signature_path},
+    )
+    return {"signature": house_documents.serialize_signature(house)}
+
+
+@router.get("/{house_id}/signature")
+async def stream_house_signature(
+    house_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.document_view")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    path = house_documents.signature_fs_path(house)
+    if not path:
+        raise HTTPException(status_code=404, detail="This house has no proprietor signature")
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.delete("/{house_id}/signature")
+async def delete_house_signature(
+    house_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.document_delete")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    previous = house.proprietor_signature_path
+    if not previous:
+        raise HTTPException(status_code=404, detail="This house has no proprietor signature")
+    house_documents.delete_signature(house)
+    _touch_letterhead(house, current_user)
+    await db.commit()
+    await db.refresh(house)
+    await _log_letterhead(
+        db, house, request, current_user, "delete",
+        old_values={"proprietor_signature": previous},
+    )
+    return {"signature": house_documents.serialize_signature(house)}
+
+
+@router.post("/{house_id}/documents")
+async def upload_house_document(
+    house_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    doc_type: str = Query("other"),
+    title: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.document_upload")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    try:
+        doc = await house_documents.store_document(
+            db, house, file, doc_type=doc_type, title=title, uploaded_by=current_user.id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await db.commit()
+    await db.refresh(doc)
+    await _log_letterhead(
+        db, house, request, current_user, "create",
+        new_values={"document": house_documents.serialize_document(doc)},
+    )
+    return {"document": house_documents.serialize_document(doc)}
+
+
+@router.get("/{house_id}/documents/{doc_id}/file")
+async def stream_house_document(
+    house_id: int,
+    doc_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.document_view")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    doc = await db.get(HouseDocument, doc_id)
+    if not doc or doc.is_deleted or doc.house_id != house.id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path = house_documents.document_fs_path(doc)
+    if not path:
+        raise HTTPException(status_code=404, detail="The stored file is missing")
+    return FileResponse(
+        path,
+        media_type=doc.mime_type or "application/octet-stream",
+        filename=doc.file_name,
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.delete("/{house_id}/documents/{doc_id}")
+async def delete_house_document(
+    house_id: int,
+    doc_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("houses.document_delete")),
+):
+    house = await _load_letterhead_house(db, house_id, current_user)
+    doc = await db.get(HouseDocument, doc_id)
+    if not doc or doc.is_deleted or doc.house_id != house.id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    old_values = {"document": house_documents.serialize_document(doc)}
+    house_documents.delete_document(doc, current_user.id)
+    await db.commit()
+    await _log_letterhead(db, house, request, current_user, "delete", old_values=old_values)
+    return {"message": "Document deleted"}
 
 
 @router.post("/{house_id}/letterhead/preview")

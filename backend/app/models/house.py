@@ -68,6 +68,8 @@ class House(Base):
     # `letterhead_layout` stores the editable body block (percentages) printed
     # on top of it. Files live under private_uploads/letterheads/{house_id}/.
     letterhead_image_path = Column(String(500), nullable=True)
+    # Proprietor signature printed on the letterhead (auto-placed when uploaded).
+    proprietor_signature_path = Column(String(500), nullable=True)
     letterhead_layout = Column(JSONB, nullable=True)
     letterhead_updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     letterhead_updated_at = Column(DateTime, nullable=True)
@@ -83,6 +85,7 @@ class House(Base):
     )
     
     retailers = relationship("Retailer", back_populates="house")
+    documents = relationship("HouseDocument", back_populates="house")
     subscriptions = relationship("HouseSubscription", back_populates="house", order_by="desc(HouseSubscription.end_date)")
 
     @property

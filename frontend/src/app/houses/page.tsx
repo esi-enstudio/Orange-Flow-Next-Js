@@ -16,6 +16,7 @@ import HouseCard from "./_components/HouseCard";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import PageGuideModal from "@/components/PageGuideModal";
 import HouseFormModal from "./_components/HouseFormModal";
+import HouseDocumentsModal from "./_components/HouseDocumentsModal";
 
 
 interface House {
@@ -72,6 +73,7 @@ export default function HousesPage() {
   const [editingHouse, setEditingHouse] = useState<House | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [documentsHouse, setDocumentsHouse] = useState<House | null>(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -316,9 +318,11 @@ export default function HousesPage() {
                 onDelete={() => handleDeleteClick(house.id)}
                 onToggleStatus={() => toggleStatus(house)}
                 onLetterhead={() => router.push(`/houses/letterhead?house_id=${house.id}`)}
+                onDocuments={() => setDocumentsHouse(house)}
                 canEdit={hasPermission("houses.edit")}
                 canDelete={hasPermission("houses.delete")}
                 canLetterhead={hasPermission("houses.letterhead_view")}
+                canDocuments={hasPermission("houses.document_view")}
               />
             ))}
           </div>
@@ -340,6 +344,12 @@ export default function HousesPage() {
         setFormData={setFormData}
         isEdit={!!editingHouse}
         loading={saving}
+      />
+      <HouseDocumentsModal
+        isOpen={documentsHouse !== null}
+        onClose={() => setDocumentsHouse(null)}
+        houseId={documentsHouse?.id ?? 0}
+        houseName={documentsHouse?.name_bn || documentsHouse?.name || ""}
       />
     </div>
   );

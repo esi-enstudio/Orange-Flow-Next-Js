@@ -15,6 +15,7 @@ import {
   Crown,
   CalendarClock,
   FileText,
+  FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -57,12 +58,25 @@ interface Props {
   onDelete: (id: number) => void;
   onToggleStatus: (house: House) => void;
   onLetterhead: (house: House) => void;
+  onDocuments: (house: House) => void;
   canEdit: boolean;
   canDelete: boolean;
   canLetterhead: boolean;
+  canDocuments: boolean;
 }
 
-export default function HouseCard({ house, onEdit, onDelete, onToggleStatus, onLetterhead, canEdit, canDelete, canLetterhead }: Props) {
+export default function HouseCard({
+  house,
+  onEdit,
+  onDelete,
+  onToggleStatus,
+  onLetterhead,
+  onDocuments,
+  canEdit,
+  canDelete,
+  canLetterhead,
+  canDocuments,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   const { t } = useLanguage();
 
@@ -143,6 +157,16 @@ export default function HouseCard({ house, onEdit, onDelete, onToggleStatus, onL
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {canDocuments && (
+              <button
+                onClick={() => onDocuments(house)}
+                className="p-2 rounded-lg text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-colors cursor-pointer"
+                title={t("houses.documents.title")}
+                aria-label={t("houses.documents.title")}
+              >
+                <FolderOpen className="w-4 h-4" />
+              </button>
+            )}
             {canEdit && (
               <button
                 onClick={() => onEdit(house)}
@@ -339,7 +363,7 @@ export default function HouseCard({ house, onEdit, onDelete, onToggleStatus, onL
           </div>
 
           {/* Actions */}
-          {(canEdit || canLetterhead) && (
+          {(canEdit || canLetterhead || canDocuments) && (
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 flex flex-wrap justify-end gap-2">
               {canLetterhead && (
                 <button
@@ -348,6 +372,15 @@ export default function HouseCard({ house, onEdit, onDelete, onToggleStatus, onL
                 >
                   <FileText className="w-4 h-4" />
                   {t("houses.letterhead.open")}
+                </button>
+              )}
+              {canDocuments && (
+                <button
+                  onClick={() => onDocuments(house)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  {t("houses.documents.open")}
                 </button>
               )}
               {canEdit && (

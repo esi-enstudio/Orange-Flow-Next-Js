@@ -20,6 +20,7 @@ from lxml import html as lxml_html
 from PIL import Image, ImageOps
 
 from app.models.house import House
+from app.services import house_documents
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,11 @@ def placeholder_values(house: House) -> dict:
 
 
 def default_layout() -> dict:
-    """Starting layout: one editable body block over the letterhead image."""
+    """Starting layout: one editable body block over the letterhead image.
+
+    The signature block auto-prints the proprietor signature uploaded for the
+    house (see `house_documents`); it stays inert while no file is stored.
+    """
     return {
         "body": {
             "enabled": True,
@@ -133,6 +138,7 @@ def default_layout() -> dict:
             "line_height": 1.7,
             "align": "justify",
         },
+        "signature": {"enabled": True, "x": 58, "y": 78, "w": 24},
     }
 
 
@@ -252,7 +258,17 @@ def validate_layout(payload) -> dict:
     body["text"] = sanitize_body_html(body_raw.get("text", defaults["body"]["text"]))
     body["line_height"] = _num(body_raw.get("line_height"), defaults["body"]["line_height"], 1.0, 3.0)
 
-    return {"body": body}
+    signature_raw = payload.get("signature") if isinstance(payload.get("signature"), dict) else {}
+    signature_defaults = defaults["signature"]
+    signature = {
+        "x": _num(signature_raw.get("x"), signature_defaults["x"], 0, 100),
+        "y": _num(signature_raw.get("y"), signature_defaults["y"], 0, 100),
+        "w": _num(signature_raw.get("w"), signature_defaults["w"], 5, 100),
+        "enabled": bool(signature_raw.get("enabled", signature_defaults["enabled"])),
+    }
+    signature["x"] = min(signature["x"], 100 - signature["w"])
+
+    return {"body": body, "signature": signature}
 
 
 def _house_dir(house_id: int) -> str:
@@ -311,7 +327,9 @@ async def store_image(house: House, file: UploadFile) -> str:
 
     file_name = f"{uuid.uuid4().hex}.jpg"
     path = os.path.join(_house_dir(house.id), file_name)
-    image.save(path, format="JPEG", quality=88, optimize=True)
+    # Keep the print resolution (up to ~300 dpi A4) while shrinking the file:
+    # progressive JPEG at quality 82 is roughly half the size of quality 88.
+    image.save(path, format="JPEG", quality=82, optimize=True, progressive=True)
 
     delete_image(house)
     # Relative to LETTERHEAD_ROOT so the file stays inside the house folder.
@@ -326,10 +344,15 @@ def configured(house: House) -> bool:
 
 
 def serialize(house: House) -> dict:
-    layout = house.letterhead_layout or default_layout()
-    body = layout.get("body") or {}
+    stored = house.letterhead_layout or {}
+    defaults = default_layout()
+    body = {**defaults["body"], **(stored.get("body") or {})}
+    signature = {**defaults["signature"], **(stored.get("signature") or {})}
     # Always hand sanitized HTML to the browser: older rows may predate the editor.
-    layout = {**layout, "body": {**body, "text": sanitize_body_html(body.get("text", ""))}}
+    layout = {
+        "body": {**body, "text": sanitize_body_html(body.get("text", ""))},
+        "signature": signature,
+    }
     return {
         "house_id": house.id,
         "house_name": house.name,
@@ -340,6 +363,14 @@ def serialize(house: House) -> dict:
         "values": placeholder_values(house),
         "has_image": image_fs_path(house) is not None,
         "image_url": f"/api/houses/{house.id}/letterhead/image" if house.letterhead_image_path else None,
+        # The proprietor signature is uploaded once per house and is placed
+        # automatically on the letterhead page.
+        "has_signature": house_documents.signature_fs_path(house) is not None,
+        "signature_url": (
+            f"/api/houses/{house.id}/signature"
+            if house_documents.signature_fs_path(house)
+            else None
+        ),
         "layout": layout,
         "default_layout": default_layout(),
         "body_placeholders": list(BODY_PLACEHOLDERS),

@@ -10,7 +10,10 @@
         "houses.import",
         "houses.export",
         "houses.letterhead_view",
-        "houses.letterhead_edit"
+        "houses.letterhead_edit",
+        "houses.document_view",
+        "houses.document_upload",
+        "houses.document_delete"
       ]
     },
     "documents": {
@@ -606,6 +609,9 @@
         "houses.view",
         "houses.letterhead_view",
         "houses.letterhead_edit",
+        "houses.document_view",
+        "houses.document_upload",
+        "houses.document_delete",
         "documents.view",
         "documents.create",
         "documents.edit",
