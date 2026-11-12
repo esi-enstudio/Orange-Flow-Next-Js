@@ -16,6 +16,7 @@ import ImageLightbox from "@/components/ui/ImageLightbox";
 import ResignationDocumentsModal from "@/components/employees/ResignationDocumentsModal";
 import LetterheadPreview from "@/components/houses/LetterheadPreview";
 import { formatYMD } from "@/components/date-picker/format";
+import { resignationLetterheadValues } from "@/lib/letterhead";
 
 /** Compact size for a document card, e.g. 348 KB / 1.2 MB. */
 function fileSize(bytes: number): string {
@@ -481,6 +482,8 @@ export default function ResignationDocumentsPage() {
     );
   }
 
+  const letterheadValues = resignationLetterheadValues(data.employee ?? {});
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -713,6 +716,7 @@ export default function ResignationDocumentsPage() {
               houseId={data.letterhead?.configured ? data.letterhead?.house_id : null}
               title={data.letterhead?.house_name || t("resignation_docs.letterhead")}
               label={t("resignation_docs.preview_document")}
+              values={letterheadValues}
               fallback={
                 <div className={cn(
                   "p-3 rounded-xl",
@@ -740,7 +744,7 @@ export default function ResignationDocumentsPage() {
               )}
               {data.letterhead?.house_id && (
                 <Link
-                  href={`/houses/letterhead?house_id=${data.letterhead.house_id}`}
+                  href={`/houses/letterhead?house_id=${data.letterhead.house_id}&emp_id=${empId}`}
                   className="mt-2 inline-block text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline"
                 >
                   {t(

@@ -393,7 +393,7 @@ export default function ResignationDocumentsModal({
                         </p>
                         {data.letterhead?.house_id && (
                           <Link
-                            href={`/houses/letterhead?house_id=${data.letterhead.house_id}`}
+                            href={`/houses/letterhead?house_id=${data.letterhead.house_id}&emp_id=${employeeId}`}
                             className="inline-block text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline"
                           >
                             {t("resignation_docs.configure_letterhead")}

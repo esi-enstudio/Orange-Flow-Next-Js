@@ -26,7 +26,7 @@ const BN_MONTHS_SHORT = [
   "জুল", "আগ", "সেপ্ট", "অক্টো", "নভে", "ডিসে",
 ];
 
-const toBnDigits = (value: string) =>
+export const toBnDigits = (value: string) =>
   value.replace(/\d/g, (d) => "০১২৩৪৫৬৭৮৯"[Number(d)]);
 
 /**

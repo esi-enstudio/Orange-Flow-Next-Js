@@ -94,15 +94,19 @@ export default function LetterheadPreview({
   title,
   label,
   fallback,
+  values: employeeValues,
 }: {
   houseId: number | null | undefined;
   title: string;
   label: string;
   fallback: React.ReactNode;
+  /** Employee-specific placeholder values; merged over the house values and samples. */
+  values?: Record<string, string>;
 }) {
   const { t } = useLanguage();
   const [mounted, setMounted] = useState(false);
   const [layout, setLayout] = useState<{ body?: BodyBlock } | null>(null);
+  const [houseValues, setHouseValues] = useState<Record<string, string>>({});
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -112,6 +116,7 @@ export default function LetterheadPreview({
 
   useEffect(() => {
     setLayout(null);
+    setHouseValues({});
     setImageUrl(null);
     setFailed(false);
     if (!houseId) {
@@ -127,6 +132,11 @@ export default function LetterheadPreview({
         const res = await apiClient.get(`houses/${houseId}/letterhead`);
         if (cancelled) return;
         setLayout(res.data?.layout ?? null);
+        setHouseValues({
+          house_name: res.data?.house_name ?? "",
+          house_code: res.data?.house_code ?? "",
+          house_address: res.data?.house_address ?? "",
+        });
         if (res.data?.has_image) {
           const image = await apiClient.get(`houses/${houseId}/letterhead/image`, {
             responseType: "blob",
@@ -174,6 +184,8 @@ export default function LetterheadPreview({
     );
   }
 
+  const values = { ...LETTERHEAD_SAMPLE_VALUES, ...houseValues, ...employeeValues };
+
   return (
     <>
       <button
@@ -186,7 +198,7 @@ export default function LetterheadPreview({
         <LetterheadPage
           imageUrl={imageUrl}
           body={layout?.body}
-          values={LETTERHEAD_SAMPLE_VALUES}
+          values={values}
         />
       </button>
 
@@ -223,7 +235,7 @@ export default function LetterheadPreview({
                 <LetterheadPage
                   imageUrl={imageUrl}
                   body={layout?.body}
-                  values={LETTERHEAD_SAMPLE_VALUES}
+                  values={values}
                 />
               </div>
             </div>

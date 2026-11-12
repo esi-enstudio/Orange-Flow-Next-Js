@@ -23,6 +23,7 @@ import PageGuideModal from "@/components/PageGuideModal";
 import {
   LETTERHEAD_SAMPLE_VALUES,
   previewBlockStyle,
+  resignationLetterheadValues,
   substituteLetterheadPlaceholders,
 } from "@/lib/letterhead";
 
@@ -116,6 +117,7 @@ export default function HouseLetterheadPage() {
   const { hasPermission } = useAuth();
 
   const houseId = Number(searchParams.get("house_id")) || 0;
+  const empId = Number(searchParams.get("emp_id")) || 0;
   const canView = hasPermission("houses.letterhead_view");
   const canEdit = hasPermission("houses.letterhead_edit");
 
@@ -125,6 +127,7 @@ export default function HouseLetterheadPage() {
   const [imageBusy, setImageBusy] = useState(false);
   const [data, setData] = useState<LetterheadData | null>(null);
   const [layout, setLayout] = useState<LetterheadLayout | null>(null);
+  const [employeeValues, setEmployeeValues] = useState<Record<string, string> | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -155,6 +158,25 @@ export default function HouseLetterheadPage() {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [houseId]);
+
+  // Opened from an employee's resignation page: preview the template with that
+  // employee's real values. Without an employee the sample values are used.
+  useEffect(() => {
+    setEmployeeValues(null);
+    if (!empId) return;
+    let cancelled = false;
+    apiClient
+      .get(`employees/${empId}/resignation-documents`)
+      .then((res) => {
+        if (!cancelled && res.data?.employee) {
+          setEmployeeValues(resignationLetterheadValues(res.data.employee));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [empId]);
 
   // The stream endpoint is permission-guarded, so the image has to be fetched
   // with the auth token and turned into an object URL (a plain <img src> would
@@ -368,12 +390,14 @@ export default function HouseLetterheadPage() {
     toast.success(t("houses.letterhead.toast_reset_done"));
   };
 
-  // Canvas preview uses the real house values and sample employee data.
+  // Canvas preview uses the real house values and the opened employee's values
+  // (sample employee data when the page is opened from the Houses module).
   const previewValues: Record<string, string> = {
     ...LETTERHEAD_SAMPLE_VALUES,
     house_name: data?.house_name ?? "",
     house_address: data?.house_address ?? "",
     house_code: data?.house_code ?? "",
+    ...(employeeValues ?? {}),
   };
 
   /** Insert a dynamic value at the caret so the body text stays hand-editable. */

@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react";
+import { formatYMD, toBnDigits } from "@/components/date-picker/format";
+import { todayYMD } from "@/components/date-picker/utils";
 
 /**
  * Shared helpers for the house letterhead preview (editor canvas + the compact
@@ -45,6 +47,42 @@ export interface PreviewBlock {
   w: number;
   size: number;
   bold?: boolean;
+}
+
+/** Mirrors the backend designation labels used by the resignation PDF. */
+const DESIGNATIONS: Record<string, string> = {
+  rso: "RSO (Retail Sales Officer)",
+  bp: "BP (Business Partner)",
+  bsp: "BSP (Business Service Partner)",
+  rbsp: "RBSP (Retail Business Service Partner)",
+  supervisor: "Supervisor",
+  manager: "Manager",
+};
+
+/**
+ * Placeholder values for a real resignation employee. The previews and the
+ * PDF must agree, so the formatting here mirrors `resignation_pdf._base_values`.
+ */
+export function resignationLetterheadValues(employee: {
+  employee_name?: string | null;
+  fathers_name?: string | null;
+  nid?: string | null;
+  dms_code?: string | null;
+  employee_type?: string | null;
+  joining_date?: string | null;
+  resigned_date?: string | null;
+}): Record<string, string> {
+  const employeeType = String(employee.employee_type || "").trim().toLowerCase();
+  return {
+    employee_name: employee.employee_name || employee.dms_code || "",
+    fathers_name: employee.fathers_name || "",
+    nid: toBnDigits(employee.nid || ""),
+    joining_date: formatYMD(employee.joining_date, "bn", ""),
+    resigned_date: formatYMD(employee.resigned_date, "bn", ""),
+    designation: DESIGNATIONS[employeeType] ?? employeeType.toUpperCase(),
+    dms_code: employee.dms_code || "",
+    application_date: formatYMD(todayYMD(), "bn", ""),
+  };
 }
 
 /**
