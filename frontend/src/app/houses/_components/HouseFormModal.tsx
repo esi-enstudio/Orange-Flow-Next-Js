@@ -445,6 +445,14 @@ export default function HouseFormModal({
                     autoFocus
                   />
                   <TextField
+                    name="name_bn"
+                    label={t("houses.field_name_bn")}
+                    placeholder={t("houses.field_bangla_placeholder")}
+                    icon={Building2}
+                    value={formData.name_bn}
+                    onChange={(v) => set("name_bn", v)}
+                  />
+                  <TextField
                     name="code"
                     label={t("houses.field_house_code")}
                     placeholder={t("houses.field_house_code_placeholder")}
@@ -609,6 +617,15 @@ export default function HouseFormModal({
                     onChange={(v) => set("address", v)}
                     className="sm:col-span-2"
                   />
+                  <TextField
+                    name="address_bn"
+                    label={t("houses.field_address_bn")}
+                    placeholder={t("houses.field_bangla_placeholder")}
+                    icon={MapPin}
+                    value={formData.address_bn}
+                    onChange={(v) => set("address_bn", v)}
+                    className="sm:col-span-2"
+                  />
                 </Section>
 
                 <Section icon={Users} title={t("houses.section_contact")}>
@@ -621,6 +638,14 @@ export default function HouseFormModal({
                     onChange={(v) => set("proprietor_name", v)}
                   />
                   <TextField
+                    name="proprietor_name_bn"
+                    label={t("houses.field_proprietor_name_bn")}
+                    placeholder={t("houses.field_bangla_placeholder")}
+                    icon={User}
+                    value={formData.proprietor_name_bn}
+                    onChange={(v) => set("proprietor_name_bn", v)}
+                  />
+                  <TextField
                     name="proprietor_contact"
                     label={t("houses.field_proprietor_contact")}
                     type="tel"
@@ -628,6 +653,15 @@ export default function HouseFormModal({
                     icon={Phone}
                     value={formData.proprietor_contact}
                     onChange={(v) => set("proprietor_contact", v)}
+                  />
+                  <TextField
+                    name="proprietor_contact_bn"
+                    label={t("houses.field_proprietor_contact_bn")}
+                    type="tel"
+                    placeholder={t("houses.field_bangla_placeholder")}
+                    icon={Phone}
+                    value={formData.proprietor_contact_bn}
+                    onChange={(v) => set("proprietor_contact_bn", v)}
                   />
                   <TextField
                     name="poc_name"
@@ -638,6 +672,14 @@ export default function HouseFormModal({
                     onChange={(v) => set("poc_name", v)}
                   />
                   <TextField
+                    name="poc_name_bn"
+                    label={t("houses.field_poc_name_bn")}
+                    placeholder={t("houses.field_bangla_placeholder")}
+                    icon={User}
+                    value={formData.poc_name_bn}
+                    onChange={(v) => set("poc_name_bn", v)}
+                  />
+                  <TextField
                     name="poc_mobile"
                     label={t("houses.field_poc_mobile")}
                     type="tel"
@@ -645,6 +687,15 @@ export default function HouseFormModal({
                     icon={Phone}
                     value={formData.poc_mobile}
                     onChange={(v) => set("poc_mobile", v)}
+                  />
+                  <TextField
+                    name="poc_mobile_bn"
+                    label={t("houses.field_poc_mobile_bn")}
+                    type="tel"
+                    placeholder={t("houses.field_bangla_placeholder")}
+                    icon={Phone}
+                    value={formData.poc_mobile_bn}
+                    onChange={(v) => set("poc_mobile_bn", v)}
                   />
                 </Section>
 

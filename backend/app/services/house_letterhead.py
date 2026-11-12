@@ -94,7 +94,30 @@ BODY_PLACEHOLDERS = (
     "house_code",
     "proprietor_name",
     "proprietor_contact",
+    "poc_name",
+    "poc_mobile",
 )
+
+
+def placeholder_values(house: House) -> dict:
+    """House placeholders, Bangla value first and English as the fallback.
+
+    The letterhead is Bangla, so an operator-typed Bangla value wins over the
+    English house field (mirrors the employee placeholders).
+    """
+
+    def bn_first(bangla_value, english_value) -> str:
+        return bangla_value or english_value or ""
+
+    return {
+        "house_name": bn_first(house.name_bn, house.name),
+        "house_address": bn_first(house.address_bn, house.address),
+        "house_code": house.code or "",
+        "proprietor_name": bn_first(house.proprietor_name_bn, house.proprietor_name),
+        "proprietor_contact": bn_first(house.proprietor_contact_bn, house.proprietor_contact),
+        "poc_name": bn_first(house.poc_name_bn, house.poc_name),
+        "poc_mobile": bn_first(house.poc_mobile_bn, house.poc_mobile),
+    }
 
 
 def default_layout() -> dict:
@@ -312,6 +335,9 @@ def serialize(house: House) -> dict:
         "house_name": house.name,
         "house_code": house.code,
         "house_address": house.address or "",
+        # Bangla-first values for every house placeholder, so the on-screen
+        # preview matches the generated PDF.
+        "values": placeholder_values(house),
         "has_image": image_fs_path(house) is not None,
         "image_url": f"/api/houses/{house.id}/letterhead/image" if house.letterhead_image_path else None,
         "layout": layout,

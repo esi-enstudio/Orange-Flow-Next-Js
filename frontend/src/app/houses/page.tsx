@@ -32,6 +32,12 @@ interface House {
   proprietor_contact: string;
   poc_name: string;
   poc_mobile: string;
+  name_bn?: string | null;
+  address_bn?: string | null;
+  proprietor_name_bn?: string | null;
+  proprietor_contact_bn?: string | null;
+  poc_name_bn?: string | null;
+  poc_mobile_bn?: string | null;
   lifting_date: string;
   latitude: string;
   longitude: string;
@@ -80,6 +86,12 @@ export default function HousesPage() {
     proprietor_contact: "",
     poc_name: "",
     poc_mobile: "",
+    name_bn: "",
+    address_bn: "",
+    proprietor_name_bn: "",
+    proprietor_contact_bn: "",
+    poc_name_bn: "",
+    poc_mobile_bn: "",
     lifting_date: "",
     latitude: "",
     longitude: "",
@@ -97,7 +109,9 @@ export default function HousesPage() {
       name: "", code: "", cluster: "", region: "", wh_region: "", district: "",
       email: "", address: "", proprietor_name: "", proprietor_contact: "",
       poc_name: "", poc_mobile: "", lifting_date: "", latitude: "", longitude: "",
-      bts_id: "", dms_user: "", dms_pass: "", dms_house_id: "", show_pull_button: false, is_active: true
+      bts_id: "", dms_user: "", dms_pass: "", dms_house_id: "", show_pull_button: false, is_active: true,
+      name_bn: "", address_bn: "", proprietor_name_bn: "", proprietor_contact_bn: "",
+      poc_name_bn: "", poc_mobile_bn: ""
     });
     setIsFormModalOpen(true);
   };
@@ -117,6 +131,12 @@ export default function HousesPage() {
       proprietor_contact: house.proprietor_contact || "",
       poc_name: house.poc_name || "",
       poc_mobile: house.poc_mobile || "",
+      name_bn: house.name_bn || "",
+      address_bn: house.address_bn || "",
+      proprietor_name_bn: house.proprietor_name_bn || "",
+      proprietor_contact_bn: house.proprietor_contact_bn || "",
+      poc_name_bn: house.poc_name_bn || "",
+      poc_mobile_bn: house.poc_mobile_bn || "",
       lifting_date: house.lifting_date ? house.lifting_date.split(" ")[0] : "",
       latitude: house.latitude || "",
       longitude: house.longitude || "",

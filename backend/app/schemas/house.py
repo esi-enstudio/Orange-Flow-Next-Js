@@ -16,6 +16,12 @@ class HouseSchema(BaseModel):
     proprietor_contact: Optional[str]
     poc_name: Optional[str]
     poc_mobile: Optional[str]
+    name_bn: Optional[str] = None
+    address_bn: Optional[str] = None
+    proprietor_name_bn: Optional[str] = None
+    proprietor_contact_bn: Optional[str] = None
+    poc_name_bn: Optional[str] = None
+    poc_mobile_bn: Optional[str] = None
     lifting_date: Optional[str]
     latitude: Optional[str]
     longitude: Optional[str]
@@ -42,6 +48,12 @@ class HouseCreate(BaseModel):
     proprietor_contact: Optional[str] = None
     poc_name: Optional[str] = None
     poc_mobile: Optional[str] = None
+    name_bn: Optional[str] = None
+    address_bn: Optional[str] = None
+    proprietor_name_bn: Optional[str] = None
+    proprietor_contact_bn: Optional[str] = None
+    poc_name_bn: Optional[str] = None
+    poc_mobile_bn: Optional[str] = None
     lifting_date: Optional[str] = None
     latitude: Optional[str] = None
     longitude: Optional[str] = None

@@ -112,11 +112,8 @@ def _base_values(house: House, employee: dict, application_date: date) -> dict:
         "employee_type": employee_type.upper(),
         "designation": DESIGNATIONS.get(employee_type, employee_type.upper()),
         "dms_code": employee.get("dms_code") or "",
-        "house_name": house.name or "",
-        "house_code": house.code or "",
-        "house_address": house.address or "",
-        "proprietor_name": house.proprietor_name or "",
-        "proprietor_contact": house.proprietor_contact or "",
+        # Bangla house values (English fallback) + POC placeholders.
+        **house_letterhead.placeholder_values(house),
     }
 
 

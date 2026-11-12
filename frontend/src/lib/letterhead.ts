@@ -37,8 +37,12 @@ export const LETTERHEAD_SAMPLE_VALUES: Record<string, string> = {
   joining_date: "১৫ জানুয়ারি ২০২১",
   resigned_date: "৩০ জুন ২০২৬",
   dms_code: "R123456",
+  house_name: "পাটোয়ারী টেলিকম",
+  house_address: "১২৩ স্টেশন রোড, ময়মনসিংহ",
   proprietor_name: "সামছুজ্জামান পাটোয়ারী",
   proprietor_contact: "০১৯১৭৭৪৭৫৫৫",
+  poc_name: "মোঃ রফিকুল ইসলাম",
+  poc_mobile: "০১৭১২৩৪৫৬৭৮",
 };
 
 export interface PreviewBlock {

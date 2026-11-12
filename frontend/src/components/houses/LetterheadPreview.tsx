@@ -132,11 +132,15 @@ export default function LetterheadPreview({
         const res = await apiClient.get(`houses/${houseId}/letterhead`);
         if (cancelled) return;
         setLayout(res.data?.layout ?? null);
-        setHouseValues({
-          house_name: res.data?.house_name ?? "",
-          house_code: res.data?.house_code ?? "",
-          house_address: res.data?.house_address ?? "",
-        });
+        // `values` is Bangla-first (English fallback) and already includes the
+        // house code; fall back to the raw fields for older responses.
+        setHouseValues(
+          res.data?.values ?? {
+            house_name: res.data?.house_name ?? "",
+            house_code: res.data?.house_code ?? "",
+            house_address: res.data?.house_address ?? "",
+          }
+        );
         if (res.data?.has_image) {
           const image = await apiClient.get(`houses/${houseId}/letterhead/image`, {
             responseType: "blob",

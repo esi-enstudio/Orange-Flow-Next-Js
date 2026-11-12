@@ -21,6 +21,14 @@ class House(Base):
     proprietor_contact = Column(String) # Proprietor Contact Number
     poc_name = Column(String) # POC Name
     poc_mobile = Column(String) # POC Mobile Number
+
+    # Bangla values, typed as-is by the operator for the Bangla letterhead.
+    name_bn = Column(String)
+    address_bn = Column(String)
+    proprietor_name_bn = Column(String)
+    proprietor_contact_bn = Column(String)
+    poc_name_bn = Column(String)
+    poc_mobile_bn = Column(String)
     lifting_date = Column(String) # Lifting date
     latitude = Column(String) # Latitude
     longitude = Column(String) # Longitude

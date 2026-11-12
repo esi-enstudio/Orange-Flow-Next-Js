@@ -57,6 +57,8 @@ interface LetterheadData {
   image_url: string | null;
   layout: LetterheadLayout;
   default_layout: LetterheadLayout;
+  /** Bangla-first values for every house placeholder (English fallback). */
+  values?: Record<string, string>;
   body_placeholders?: string[];
   configured: boolean;
 }
@@ -85,6 +87,8 @@ const PLACEHOLDER_KEYS = [
   "house_code",
   "proprietor_name",
   "proprietor_contact",
+  "poc_name",
+  "poc_mobile",
 ];
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -394,9 +398,7 @@ export default function HouseLetterheadPage() {
   // (sample employee data when the page is opened from the Houses module).
   const previewValues: Record<string, string> = {
     ...LETTERHEAD_SAMPLE_VALUES,
-    house_name: data?.house_name ?? "",
-    house_address: data?.house_address ?? "",
-    house_code: data?.house_code ?? "",
+    ...(data?.values ?? {}),
     ...(employeeValues ?? {}),
   };
 

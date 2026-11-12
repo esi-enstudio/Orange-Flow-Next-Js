@@ -195,6 +195,34 @@ async def test_house_isolation(api, db):
     assert response.status_code == 403
 
 
+async def test_house_update_stores_bangla_fields(api, db):
+    app, client = api
+    house = await _make_house(db)
+    app.dependency_overrides[get_current_user] = lambda: _user(house, role="Admin")
+
+    response = await client.put(
+        f"/api/houses/{house.id}",
+        json={
+            "name": "Letterhead House",
+            "code": "LH-1",
+            "name_bn": "লেটারহেড হাউস",
+            "address_bn": "স্টেশন রোড",
+            "proprietor_name_bn": "স্বত্বাধিকারী",
+            "proprietor_contact_bn": "০১৭",
+            "poc_name_bn": "পিওসি",
+            "poc_mobile_bn": "০১৮",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name_bn"] == "লেটারহেড হাউস"
+    assert body["poc_mobile_bn"] == "০১৮"
+
+    await db.refresh(house)
+    assert house.address_bn == "স্টেশন রোড"
+
+
 async def test_upload_layout_and_stream(api, db):
     app, client = api
     house = await _make_house(db)
