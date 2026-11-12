@@ -1022,6 +1022,63 @@ async def export_sim_issues(
         headers={"Content-Disposition": "attachment; filename=sim_issues.xlsx"}
     )
 
+
+@router.delete("/sim-issues/truncate")
+async def truncate_sim_issues(
+    request: Request,
+    house_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("sim_issues.delete")),
+    header_house_id: Optional[int] = Depends(get_house_context),
+):
+    """Hard-delete imported SIM issue rows (delete-all).
+
+    Scope is the explicit `house_id`, else the active `X-House-ID` house, else
+    every house the caller may access (admins: every house). A tenant can never
+    delete another house's rows. The deletion is audited because it cannot be
+    undone.
+    """
+    is_admin = is_admin_user(current_user)
+    user_house_ids = [h.id for h in current_user.houses]
+    target_house_id = house_id or header_house_id
+    if target_house_id:
+        _assert_house_access(current_user, target_house_id)
+
+    conditions = []
+    if target_house_id:
+        conditions.append(SimIssue.house_id == target_house_id)
+    elif not is_admin:
+        if not user_house_ids:
+            raise HTTPException(status_code=403, detail="You do not have access to any house")
+        conditions.append(SimIssue.house_id.in_(user_house_ids))
+
+    count_query = select(func.count()).select_from(SimIssue)
+    delete_query = SimIssue.__table__.delete()
+    if conditions:
+        count_query = count_query.where(and_(*conditions))
+        delete_query = delete_query.where(and_(*conditions))
+
+    deleted_count = (await db.execute(count_query)).scalar() or 0
+    await db.execute(delete_query)
+    await db.commit()
+
+    target_label = f"house {target_house_id}" if target_house_id else "all houses"
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="sim_issues",
+        action="permanent_delete",
+        record_identifier=target_label,
+        old_values={"deleted_count": deleted_count, "house_id": target_house_id},
+        request=request,
+    )
+    return {
+        "success": True,
+        "deleted": deleted_count,
+        "message": f"Deleted {deleted_count} SIM issue record(s) for {target_label}",
+    }
+
 @router.get("/activations/report")
 async def get_activation_report(
     start_date: Optional[str] = None,

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import Cookies from "js-cookie";
-import { Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2 } from "lucide-react";
+import { Upload, Download, Trash2, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -27,6 +27,39 @@ export default function ImportSimIssuesPage() {
   const limit = 5;
   const totalPages = Math.ceil(totalRecords / limit);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Delete-all (truncate) state — the scope is what the modal dropdown picks:
+  // empty means "every house I can access". The backend audits the deletion.
+  const [houses, setHouses] = useState<{ id: number; name: string; display_name?: string }[]>([]);
+  const [showDeleteAll, setShowDeleteAll] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteHouseId, setDeleteHouseId] = useState("");
+
+  useEffect(() => {
+    axios.get("/houses/accessible")
+      .then((res) => setHouses(res.data || []))
+      .catch(() => {});
+  }, []);
+
+  const handleDeleteAll = async () => {
+    setDeleting(true);
+    try {
+      const params: { house_id?: string } = {};
+      if (deleteHouseId) params.house_id = deleteHouseId;
+      const res = await axios.delete("/sim-issues/truncate", { params });
+      toast.success(res.data?.message || "Deleted");
+      setPage(0);
+      setShowDeleteAll(false);
+      setDeleteHouseId("");
+      const refreshed = await axios.get("/sim-issues", { params: { skip: 0, limit } });
+      setData(refreshed.data.data || []);
+      setTotalRecords(refreshed.data.total || 0);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -205,10 +238,10 @@ export default function ImportSimIssuesPage() {
             <p className="text-sm text-gray-500">Import and view SIM issue records</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx,.xls" />
           <button onClick={() => fileInputRef.current?.click()} disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-lg shadow-primary-200">
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors">
             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             {importing ? "Importing..." : "Import Excel"}
           </button>
@@ -216,8 +249,59 @@ export default function ImportSimIssuesPage() {
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
             <Download className="w-4 h-4" /> Export
           </button>
+          {hasPermission("sim_issues.delete") && (
+            <button onClick={() => setShowDeleteAll(true)} disabled={importing || deleting}
+              className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/60 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20">
+              <Trash2 className="w-4 h-4" />
+              {deleting ? "Deleting..." : "Delete All"}
+            </button>
+          )}
         </div>
       </div>
+      {showDeleteAll && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex flex-col items-center p-8 text-center">
+              <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-red-100 dark:bg-red-500/20">
+                <Trash2 className="h-10 w-10 text-red-600 dark:text-red-400" />
+              </div>
+              <h3 className="mb-2 text-2xl font-bold text-gray-900 dark:text-gray-100">Delete All SIM Issues</h3>
+              <p className="mb-5 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+                This permanently removes the imported SIM issue records and cannot be undone.
+                Reports and exports will lose this data.
+              </p>
+              <select
+                value={deleteHouseId}
+                onChange={(e) => setDeleteHouseId(e.target.value)}
+                disabled={deleting}
+                className="w-full cursor-pointer appearance-none rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-900 outline-none transition-all focus:border-red-500 focus:ring-1 focus:ring-red-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200"
+              >
+                <option value="">All accessible houses</option>
+                {houses.map((h) => (
+                  <option key={h.id} value={h.id}>{h.display_name || h.name}</option>
+                ))}
+              </select>
+              <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+                {deleteHouseId
+                  ? "Only the selected house's records will be deleted."
+                  : "Records from every house you have access to will be deleted."}
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 p-6 pt-0">
+              <button onClick={handleDeleteAll} disabled={deleting}
+                className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-red-600 py-4 font-bold text-white shadow-lg transition-all hover:bg-red-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">
+                {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
+                {deleting ? "Deleting..." : "Delete All"}
+              </button>
+              <button onClick={() => { setShowDeleteAll(false); setDeleteHouseId(""); }} disabled={deleting}
+                className="w-full cursor-pointer rounded-2xl py-4 font-bold text-gray-500 transition-all hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:bg-slate-800">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

@@ -105,6 +105,8 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/live-activations/import", "data_import"),
     ("/api/scratch-card/import", "data_import"),
     ("/api/sim-issues/import", "data_import"),
+    # destructive counterpart of the import page (delete-all is an import action)
+    ("/api/sim-issues/truncate", "data_import"),
 
     ("/api/ga-report-builder", "reports"),
     ("/api/ga-query", "reports"),
@@ -263,7 +265,7 @@ LEAF_TO_API_PREFIXES: dict = {
     "/import/itopup-details": ("/api/itopup-details/import",),
     "/import/live-activations": ("/api/live-activations/import",),
     "/import/scratch-card": ("/api/scratch-card/import",),
-    "/import/sim-issues": ("/api/sim-issues/import",),
+    "/import/sim-issues": ("/api/sim-issues/import", "/api/sim-issues/truncate"),
     "/import/sc-serials": ("/api/v1/scratch-card-serials",),
 
     # ---- bts ----

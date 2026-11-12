@@ -407,6 +407,53 @@ async def sync_itopup_module(
         except Exception as e:
             logger.error(f"❌ [Manual iTopUp Sync Error] {house_label}: {str(e)}")
 
+async def sync_sim_issue_module(
+    house_id=None,
+    progress_callback=None,
+    include_previous_month=True,
+):
+    """Manually trigger SIM Issue sync for all houses or a specific house.
+
+    Args:
+        house_id: Optional house ID to sync (None = all eligible houses)
+        progress_callback: Optional async callable for progress messages
+        include_previous_month: Also fill gaps of the previous month (default True
+            so the current and previous month data end up in the database)
+    """
+    if not os.path.exists(TEMP_DIR):
+        os.makedirs(TEMP_DIR, exist_ok=True)
+
+    async with async_session() as session:
+        query = select(House).where(
+            House.dms_user != None,
+            House.is_active == True,
+        )
+        if house_id:
+            query = query.where(House.id == house_id)
+        result = await session.execute(query)
+        houses = result.scalars().all()
+
+    if not houses:
+        if progress_callback:
+            await progress_callback("No eligible houses found for sync")
+        return
+
+    for house in houses:
+        house_label = f"{house.name} ({house.code})"
+        try:
+            if progress_callback:
+                await progress_callback(f"🏠 Starting sync for {house_label}...")
+            await sync_house_modules(
+                house,
+                module_filter=["sim_issue"],
+                progress_callback=progress_callback,
+                include_previous_month=include_previous_month,
+            )
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.error(f"❌ [Manual SIM Issue Sync Error] {house_label}: {str(e)}")
+
+
 async def handle_swal_popup(page, house_name):
     """Handle SweetAlert2 popup"""
     try:
@@ -446,13 +493,33 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
             await page.goto(url, wait_until="load", timeout=60000)
         
         await page.wait_for_selector("#StartDate", timeout=30000)
-        # Set date and trigger 'change' event (for certainty)
-        await page.evaluate(f"""
-            const sd = document.getElementById('StartDate');
-            const ed = document.getElementById('EndDate');
-            if(sd) {{ sd.value = '{s_date_str}'; sd.dispatchEvent(new Event('change')); }}
-            if(ed) {{ ed.value = '{e_date_str}'; ed.dispatchEvent(new Event('change')); }}
-        """)
+
+        # Set the report date range before exporting (native <input type="date">,
+        # value format YYYY-MM-DD). fill() dispatches input/change so the page
+        # sees the same state as a manual selection.
+        try:
+            await page.fill("#StartDate", s_date_str)
+            await page.fill("#EndDate", e_date_str)
+        except Exception as fill_error:
+            # Fallback for browsers where the native date picker refuses fill().
+            logger.warning(f"⚠️ [{house_label}] Date fill failed, using JS: {fill_error}")
+            await page.evaluate(f"""
+                const sd = document.getElementById('StartDate');
+                const ed = document.getElementById('EndDate');
+                if (sd) {{ sd.value = '{s_date_str}'; sd.dispatchEvent(new Event('input', {{ bubbles: true }})); sd.dispatchEvent(new Event('change', {{ bubbles: true }})); }}
+                if (ed) {{ ed.value = '{e_date_str}'; ed.dispatchEvent(new Event('input', {{ bubbles: true }})); ed.dispatchEvent(new Event('change', {{ bubbles: true }})); }}
+            """)
+
+        start_value = await page.input_value("#StartDate")
+        end_value = await page.input_value("#EndDate")
+        if start_value != s_date_str or end_value != e_date_str:
+            logger.error(
+                f"❌ [{house_label}] {url_key} date range not applied "
+                f"(got {start_value} - {end_value}, expected {s_date_str} - {e_date_str})"
+            )
+            return "error"
+
+        logger.info(f"📅 [{house_label}] {url_key} date range set: {s_date_str} to {e_date_str}")
         await asyncio.sleep(2)
 
         # 1. Check popup (if already present)
@@ -482,20 +549,42 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
                 return "error"
         else:
             # Direct export for other reports
-            selector = "input[value='Export to Excel']"
-            if "sim_issue" in url_key: selector = "button:has-text('Export Detail')"
-            elif "activation" in url_key: selector = "button:has-text('Export Details')"
-            
-            async with page.expect_download(timeout=180000) as download_info:
+            # SIM Issue page (RptIssueSimToRetailer) renders a form whose export
+            # button posts to .../ExportDetail; target that form action first and
+            # fall back to the visible button text.
+            selectors = ["input[value='Export to Excel']"]
+            if "sim_issue" in url_key:
+                selectors = [
+                    "button[formaction*='ExportDetail']",
+                    "button:has-text('Export Detail')",
+                ]
+            elif "activation" in url_key:
+                selectors = ["button:has-text('Export Details')"]
+
+            download = None
+            for attempt, selector in enumerate(selectors):
+                # The download event fires when the browser starts receiving the
+                # file, so a short first attempt surfaces validation popups quickly
+                # while the fallback selector still allows a slow report to finish.
+                timeout_ms = 60000 if attempt == 0 else 180000
                 try:
-                    await page.click(selector, timeout=15000, no_wait_after=True)
+                    async with page.expect_download(timeout=timeout_ms) as download_info:
+                        await page.click(selector, timeout=15000, no_wait_after=True)
+                    download = await download_info.value
+                    break
                 except Exception as e:
-                    # Handle popup and retry
+                    # A popup means the click was handled but no file came back
+                    # (validation warning or "no data" for the range).
                     if await handle_swal_popup(page, house.name) == "no_data":
                         return "no_data"
-                    await page.click(selector, no_wait_after=True)
-            
-            download = await download_info.value
+                    logger.warning(
+                        f"⚠️ [{house_label}] {url_key} export attempt "
+                        f"{attempt + 1} via '{selector}' failed: {str(e)}"
+                    )
+
+            if download is None:
+                logger.error(f"❌ [{house_label}] {url_key} export produced no file.")
+                return "error"
         
         await download.save_as(file_path)
 

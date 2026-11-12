@@ -10,7 +10,11 @@ from fastapi.responses import StreamingResponse
 
 from app.routers.deps import has_permission, get_house_context, get_current_user
 from app.models.user import User
-from app.services.Automation.dms_sync_service import sync_activation_module, sync_itopup_module
+from app.services.Automation.dms_sync_service import (
+    sync_activation_module,
+    sync_itopup_module,
+    sync_sim_issue_module,
+)
 from app.services.Automation.Reports.ga_live import sync_live_activation_module
 from app.core.automation_lock import automation_locks
 
@@ -116,6 +120,32 @@ async def manual_sync_itopup(
         "status": "started",
         "job_id": job_id,
         "message": "iTopUp sync started in background" if background else "iTopUp sync started"
+    }
+
+
+@router.post("/sim-issue")
+async def manual_sync_sim_issue(
+    background: bool = Query(False, description="Run in background"),
+    current_user: User = Depends(has_permission("automation.dms_sync")),
+    house_id: Optional[int] = Depends(get_house_context),
+):
+    """Manually trigger missing dates sync for SIM Issue module (current + previous month)"""
+    job_id = str(uuid.uuid4())
+    _sync_jobs[job_id] = {"events": [], "done": False, "error": None, "has_work": False, "started_at": time.time()}
+    asyncio.create_task(
+        _run_sync_job(
+            job_id,
+            sync_sim_issue_module,
+            "SIM Issue",
+            house_id,
+            {"include_previous_month": True},
+        )
+    )
+
+    return {
+        "status": "started",
+        "job_id": job_id,
+        "message": "SIM Issue sync started in background" if background else "SIM Issue sync started"
     }
 
 

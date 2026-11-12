@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
-import { CloudDownload, Loader2, CheckCircle2, Activity, Database, Zap, Building2, X } from "lucide-react";
+import { CloudDownload, Loader2, CheckCircle2, Activity, Database, Zap, Building2, X, SmartphoneNfc } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
 import Cookies from "js-cookie";
@@ -273,6 +273,15 @@ export default function SyncPage() {
       color: "text-emerald-600",
       bgColor: "bg-emerald-100 dark:bg-emerald-500/20",
       endpoint: "/sync/itopup",
+      permission: "automation.dms_sync",
+    },
+    {
+      title: t('sync.sim_issue'),
+      description: t('sync.sim_issue_desc'),
+      icon: SmartphoneNfc,
+      color: "text-sky-600",
+      bgColor: "bg-sky-100 dark:bg-sky-500/20",
+      endpoint: "/sync/sim-issue",
       permission: "automation.dms_sync",
     },
     {

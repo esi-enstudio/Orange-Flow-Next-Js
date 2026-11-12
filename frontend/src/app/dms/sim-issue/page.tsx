@@ -60,6 +60,14 @@ interface IssueResultItem {
   message: string | null;
 }
 
+const logColorClass = (log: string) => {
+  if (log.startsWith("✅") || log.startsWith("📤") || log.startsWith("📊") || log.startsWith("📄")) return "text-emerald-400";
+  if (log.startsWith("❌")) return "text-red-400";
+  if (log.startsWith("🔍") || log.startsWith("🚀")) return "text-blue-400";
+  if (log.startsWith("⚠️")) return "text-amber-400";
+  return "text-gray-300 dark:text-gray-400";
+};
+
 const matchesRetailerSearch = (r: Retailer, query: string) => {
   const s = query.toLowerCase();
   return (
@@ -125,19 +133,12 @@ export default function SIMIssuePage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const pageSize = 10;
-  const logContainerRef = useRef<HTMLDivElement>(null);
   const rangeInputRef = useRef<SerialRangeInputHandle>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const retailersCacheRef = useRef<{ key: string; data: Retailer[] } | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [rangeValid, setRangeValid] = useState(true);
   const serialLength = useSerialLength();
-
-  useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-    }
-  }, [logs]);
 
   useEffect(() => {
     const fetchHouses = async () => {
@@ -405,6 +406,8 @@ export default function SIMIssuePage() {
     setInputMethod("list");
     setScannerOpen(true);
   }, []);
+
+  const currentLog = logs[logs.length - 1] || "$ Initializing automation...";
 
   if (!authLoading && !hasPermission("dms.sim_issue")) {
     return <AccessDenied />;
@@ -822,7 +825,7 @@ export default function SIMIssuePage() {
                 </h4>
 
                 <div className="mt-4 w-full max-w-lg">
-                  <div ref={logContainerRef} className="bg-gray-900/90 dark:bg-slate-950/90 border border-gray-700/50 dark:border-slate-800/60 rounded-2xl p-4 max-h-48 overflow-y-auto text-left shadow-2xl backdrop-blur-sm">
+                  <div className="bg-gray-900/90 dark:bg-slate-950/90 border border-gray-700/50 dark:border-slate-800/60 rounded-2xl p-4 text-left shadow-2xl backdrop-blur-sm">
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-700/30 dark:border-slate-800/60">
                       <span className="relative flex h-2 w-2">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -830,36 +833,28 @@ export default function SIMIssuePage() {
                       </span>
                       <span className="text-[10px] font-bold text-gray-500 dark:text-gray-500 uppercase tracking-widest">Live Log</span>
                     </div>
-                    <div className="space-y-1.5">
-                      {logs.map((log, i) => (
-                        <motion.p
-                          key={i}
-                          initial={{ opacity: 0, x: -12 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                          className="text-[11px] font-mono leading-relaxed"
-                        >
-                          {log.startsWith("✅") || log.startsWith("📤") || log.startsWith("📊") || log.startsWith("📄") ? (
-                            <span className="text-emerald-400">{log}</span>
-                          ) : log.startsWith("❌") ? (
-                            <span className="text-red-400">{log}</span>
-                          ) : log.startsWith("🔍") || log.startsWith("🚀") ? (
-                            <span className="text-blue-400">{log}</span>
-                          ) : log.startsWith("⚠️") ? (
-                            <span className="text-amber-400">{log}</span>
-                          ) : (
-                            <span className="text-gray-300 dark:text-gray-400">{log}</span>
-                          )}
-                        </motion.p>
-                      ))}
-                      {logs.length === 0 && (
-                        <p className="text-[11px] font-mono text-gray-500 animate-pulse">
-                          <span className="text-emerald-400">$</span> Initializing automation...
-                        </p>
-                      )}
-                      <p className="text-[11px] font-mono text-gray-600 animate-pulse">
-                        <span className="text-gray-600">_</span>
-                      </p>
+                    <div
+                      role="log"
+                      aria-live="polite"
+                      aria-relevant="additions text"
+                      title={currentLog}
+                      className="flex min-h-6 min-w-0 items-center gap-2 overflow-hidden"
+                    >
+                      <div className="h-5 min-w-0 flex-1 overflow-hidden">
+                        <AnimatePresence mode="wait">
+                          <motion.p
+                            key={currentLog}
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            exit={{ y: -20, opacity: 0 }}
+                            transition={{ duration: 0.3 }}
+                            className="truncate font-mono text-[11px] leading-relaxed"
+                          >
+                            <span className={logColorClass(currentLog)}>{currentLog}</span>
+                          </motion.p>
+                        </AnimatePresence>
+                      </div>
+                      <span className="animate-pulse font-mono text-[11px] text-gray-500">_</span>
                     </div>
                   </div>
                 </div>
