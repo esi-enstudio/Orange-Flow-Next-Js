@@ -13,7 +13,6 @@ import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import PageGuideModal from "@/components/PageGuideModal";
 import ImageLightbox from "@/components/ui/ImageLightbox";
-import ResignationDocumentsModal from "@/components/employees/ResignationDocumentsModal";
 import LetterheadPreview from "@/components/houses/LetterheadPreview";
 import { formatYMD } from "@/components/date-picker/format";
 import { resignationLetterheadValues } from "@/lib/letterhead";
@@ -63,7 +62,13 @@ function DocumentThumb({
 }) {
   const url = useAuthImage(path);
   const [open, setOpen] = useState(false);
-  if (!url) return <>{fallback}</>;
+  if (!url) {
+    return (
+      <div className="flex h-32 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        {fallback}
+      </div>
+    );
+  }
   return (
     <>
       <button
@@ -71,11 +76,11 @@ function DocumentThumb({
         onClick={() => setOpen(true)}
         title={label}
         aria-label={label}
-        className="h-32 shrink-0 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer hover:ring-2 hover:ring-primary-500 transition-all"
+        className="h-32 w-24 shrink-0 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer hover:ring-2 hover:ring-primary-500 transition-all"
       >
-        {/* Height is fixed so the image cannot inflate the card; width follows the aspect ratio. */}
+        {/* Keep the preview within a fixed thumbnail so wide scans cannot stretch the card. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={title} className="h-full w-auto max-w-none" />
+        <img src={url} alt={title} className="h-full w-full object-contain" />
       </button>
       <ImageLightbox open={open} src={url} alt={title} title={title} onClose={() => setOpen(false)} />
     </>
@@ -86,14 +91,13 @@ export default function ResignationDocumentsPage() {
   const { t } = useLanguage();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { hasPermission, user } = useAuth();
+  const { hasPermission } = useAuth();
 
   const empId = Number(searchParams.get("emp_id"));
   const hasEmpId = Number.isFinite(empId) && empId > 0;
   const [loading, setLoading] = useState(hasEmpId);
   const [data, setData] = useState<any>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalEmp, setModalEmp] = useState<any>(null);
+  const [generating, setGenerating] = useState(false);
 
   // Employee picker (shown when no emp_id is in the URL, e.g. from the sidebar)
   const [overview, setOverview] = useState<{ data: any[]; pagination: any } | null>(null);
@@ -101,6 +105,7 @@ export default function ResignationDocumentsPage() {
   const [overviewError, setOverviewError] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [documentTab, setDocumentTab] = useState<"ready" | "not_ready">("not_ready");
 
   // Document cards upload straight from the card (no modal in between).
   const letterInputRef = useRef<HTMLInputElement>(null);
@@ -110,8 +115,7 @@ export default function ResignationDocumentsPage() {
   const [pendingRemove, setPendingRemove] = useState<"letter" | "nid" | "letterhead" | null>(null);
   const [removing, setRemoving] = useState(false);
 
-  // `silent` keeps the cards on screen (no skeleton) when only the document
-  // status changed, e.g. right after an upload inside the modal.
+  // `silent` keeps the cards on screen when only the document status changed.
   const fetchData = async (silent = false) => {
     if (!hasEmpId) {
       setLoading(false);
@@ -152,7 +156,6 @@ export default function ResignationDocumentsPage() {
     if (hasEmpId) return;
     const timer = setTimeout(() => fetchOverview(page, search), 350);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasEmpId, page, search]);
 
   const uploadDocument = async (kind: "resignation_letter" | "nid", file: File) => {
@@ -205,14 +208,62 @@ export default function ResignationDocumentsPage() {
     }
   };
 
+  const generatePdf = async () => {
+    setGenerating(true);
+    try {
+      const res = await apiClient.post(
+        `employees/${empId}/resignation-package`,
+        {},
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(
+        new Blob([res.data], { type: "application/pdf" })
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      const filenamePart = (value: string | number) =>
+        String(value).trim().replace(/[\/\\:*?"<>|]+/g, "_");
+      const dmsCode = filenamePart(data.employee?.dms_code || empId);
+      const employeeName = filenamePart(data.employee?.employee_name || "Employee");
+      link.download = `${dmsCode}_${employeeName}_Resign_Letter.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      toast.success(t("resignation_docs.generate_success"));
+    } catch (err: any) {
+      let detail = err.response?.data?.detail;
+      if (err.response?.data instanceof Blob) {
+        try {
+          const payload = JSON.parse(await err.response.data.text());
+          detail = payload.detail;
+        } catch {
+          detail = undefined;
+        }
+      }
+
+      const errorKeys: Record<string, string> = {
+        EMPLOYEE_NOT_RESIGNED: "error_not_resigned",
+        RESIGNATION_LETTER_MISSING: "error_letter_missing",
+        NID_MISSING: "error_nid_missing",
+        LETTERHEAD_NOT_CONFIGURED: "error_letterhead_missing",
+        RESIGNATION_FILE_MISSING: "error_file_missing",
+        PDF_GENERATION_FAILED: "error_pdf_generation",
+      };
+      const message = detail?.code
+        ? t(`resignation_docs.${errorKeys[detail.code] || "generate_failed"}`)
+        : typeof detail === "string"
+          ? detail
+          : t("resignation_docs.generate_failed");
+      toast.error(message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   if (!hasPermission("employees.resignation_view")) {
     return <AccessDenied />;
   }
-
-  const openModal = (emp: any) => {
-    setModalEmp(emp);
-    setModalOpen(true);
-  };
 
   if (loading) {
     // Content-aware skeleton: mirrors the header, the employee card and the
@@ -252,6 +303,9 @@ export default function ResignationDocumentsPage() {
   if (!hasEmpId) {
     const rows = overview?.data ?? [];
     const meta = overview?.pagination;
+    const visibleRows = rows.filter((emp: any) =>
+      documentTab === "ready" ? emp.ready : !emp.ready
+    );
     const missingLabel: Record<string, string> = {
       resignation_letter: t("resignation_docs.letter_chip"),
       nid: t("resignation_docs.nid_chip"),
@@ -341,7 +395,48 @@ export default function ResignationDocumentsPage() {
           </div>
         ) : (
           <>
-            {/* Desktop table */}
+            <div
+              role="tablist"
+              aria-label={t("resignation_docs.document_status_tabs")}
+              className="flex gap-2 border-b border-gray-200 dark:border-slate-700"
+            >
+              {(["not_ready", "ready"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  id={`resignation-documents-tab-${tab}`}
+                  aria-selected={documentTab === tab}
+                  aria-controls="resignation-documents-tabpanel"
+                  onClick={() => setDocumentTab(tab)}
+                  className={cn(
+                    "min-h-11 px-4 border-b-2 text-sm font-semibold cursor-pointer transition-colors",
+                    documentTab === tab
+                      ? "border-primary-500 text-primary-600 dark:text-primary-400"
+                      : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  )}
+                >
+                  {t(`resignation_docs.${tab === "ready" ? "ready_tab" : "not_ready_tab"}`)}
+                </button>
+              ))}
+            </div>
+
+            {visibleRows.length === 0 ? (
+              <div
+                id="resignation-documents-tabpanel"
+                role="tabpanel"
+                aria-labelledby={`resignation-documents-tab-${documentTab}`}
+                className="text-center py-10 bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 text-sm text-gray-500 dark:text-gray-400"
+              >
+                {t("resignation_docs.no_records_in_tab")}
+              </div>
+            ) : (
+              <div
+                id="resignation-documents-tabpanel"
+                role="tabpanel"
+                aria-labelledby={`resignation-documents-tab-${documentTab}`}
+              >
+                {/* Desktop table */}
             <div className="hidden lg:block bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
@@ -355,7 +450,7 @@ export default function ResignationDocumentsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
-                  {rows.map((emp: any) => (
+                  {visibleRows.map((emp: any) => (
                     <tr key={emp.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-2 py-1">
                         <p className="text-xs text-gray-900 dark:text-gray-100">{emp.house_name || "-"}</p>
@@ -400,7 +495,7 @@ export default function ResignationDocumentsPage() {
 
             {/* Mobile cards */}
             <div className="lg:hidden space-y-3">
-              {rows.map((emp: any) => (
+              {visibleRows.map((emp: any) => (
                 <button
                   key={emp.id}
                   onClick={() => openEmployee(emp.id)}
@@ -435,6 +530,8 @@ export default function ResignationDocumentsPage() {
                 </button>
               ))}
             </div>
+              </div>
+            )}
 
             {/* Pagination */}
             {meta && meta.total_pages > 1 && (
@@ -523,54 +620,55 @@ export default function ResignationDocumentsPage() {
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <ResignationDocumentsModal
-              isOpen={modalOpen}
-              onClose={() => setModalOpen(false)}
-              employeeId={empId}
-              employeeName={data.employee?.employee_name || ""}
-              employeeType={data.employee?.employee_type || ""}
-              employeeDms={data.employee?.dms_code || ""}
-              employeeStatus={data.employee?.status || ""}
-              employeeHouseId={data.employee?.house_id}
-              employeeHouseName={data.employee?.house_name || ""}
-              onUploaded={() => fetchData(true)}
-            />
-          </div>
         </div>
       </div>
 
       {/* Status Grid */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {/* Resignation Letter */}
         <div className={cn(
-          "p-6 rounded-2xl border transition-all",
+          "min-w-0 overflow-hidden rounded-2xl border p-4 transition-all sm:p-5 lg:p-6",
           data.resignation_letter
             ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
             : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
         )}>
-          <div className="flex items-start gap-4">
-            <DocumentThumb
-              path={
-                data.resignation_letter
-                  ? `employees/${empId}/documents/${data.resignation_letter.id}/file`
-                  : null
-              }
-              title={data.resignation_letter?.file_name || t("resignation_docs.resignation_letter")}
-              label={t("resignation_docs.preview_document")}
-              fallback={
-                <div className={cn(
-                  "p-3 rounded-xl",
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+            <div className="group relative inline-block shrink-0">
+              <DocumentThumb
+                path={
                   data.resignation_letter
-                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                    : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-                )}>
-                  <FileText className="w-6 h-6" />
-                </div>
-              }
-            />
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                    ? `employees/${empId}/documents/${data.resignation_letter.id}/file`
+                    : null
+                }
+                title={data.resignation_letter?.file_name || t("resignation_docs.resignation_letter")}
+                label={t("resignation_docs.preview_document")}
+                fallback={
+                  <div className={cn(
+                    "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
+                    data.resignation_letter
+                      ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                      : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                  )}>
+                    <FileText className="w-6 h-6" />
+                  </div>
+                }
+              />
+              {data.resignation_letter && hasPermission("employees.resignation_delete") && (
+                <button
+                  type="button"
+                  onClick={() => setPendingRemove("letter")}
+                  aria-label={t("resignation_docs.remove_letter")}
+                  title={t("resignation_docs.remove_letter")}
+                  className="absolute right-1 top-1 z-10 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 cursor-pointer xl:pointer-events-none xl:opacity-0 xl:group-hover:pointer-events-auto xl:group-hover:opacity-100 xl:group-focus-within:pointer-events-auto xl:group-focus-within:opacity-100"
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900/75 text-white shadow-sm transition-colors hover:bg-red-600 dark:bg-slate-900/90 dark:hover:bg-red-600">
+                    <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                  </span>
+                </button>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="break-words font-semibold text-gray-900 dark:text-gray-100">
                 {t("resignation_docs.resignation_letter")}
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -579,7 +677,7 @@ export default function ResignationDocumentsPage() {
                   : t("resignation_docs.letter_not_uploaded")}
               </p>
               {data.resignation_letter && (
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+                <p className="mt-2 break-all text-[11px] text-gray-400 dark:text-gray-500">
                   {data.resignation_letter.file_name}
                   {data.resignation_letter.file_size > 0 &&
                     ` · ${fileSize(data.resignation_letter.file_size)}`}
@@ -597,12 +695,12 @@ export default function ResignationDocumentsPage() {
                   <button
                     onClick={() => letterInputRef.current?.click()}
                     disabled={uploadingLetter}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex min-h-11 max-w-full flex-wrap items-center gap-1.5 text-left text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {uploadingLetter ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
                     ) : (
-                      <Upload className="w-4 h-4" />
+                      <Upload className="w-4 h-4 shrink-0" />
                     )}
                     {t(
                       data.resignation_letter
@@ -612,44 +710,50 @@ export default function ResignationDocumentsPage() {
                   </button>
                 </div>
               )}
-              {data.resignation_letter && hasPermission("employees.resignation_delete") && (
-                <button
-                  onClick={() => setPendingRemove("letter")}
-                  className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:underline cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  {t("resignation_docs.remove_letter")}
-                </button>
-              )}
             </div>
           </div>
         </div>
 
         {/* NID */}
         <div className={cn(
-          "p-6 rounded-2xl border transition-all",
+          "min-w-0 overflow-hidden rounded-2xl border p-4 transition-all sm:p-5 lg:p-6",
           data.nid
             ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
             : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
         )}>
-          <div className="flex items-start gap-4">
-            <DocumentThumb
-              path={data.nid ? `employees/${empId}/documents/${data.nid.id}/file` : null}
-              title={data.nid?.file_name || t("resignation_docs.nid")}
-              label={t("resignation_docs.preview_document")}
-              fallback={
-                <div className={cn(
-                  "p-3 rounded-xl",
-                  data.nid
-                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                    : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-                )}>
-                  <FileText className="w-6 h-6" />
-                </div>
-              }
-            />
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+            <div className="group relative inline-block shrink-0">
+              <DocumentThumb
+                path={data.nid ? `employees/${empId}/documents/${data.nid.id}/file` : null}
+                title={data.nid?.file_name || t("resignation_docs.nid")}
+                label={t("resignation_docs.preview_document")}
+                fallback={
+                  <div className={cn(
+                    "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
+                    data.nid
+                      ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                      : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                  )}>
+                    <FileText className="w-6 h-6" />
+                  </div>
+                }
+              />
+              {data.nid && hasPermission("employees.resignation_delete") && (
+                <button
+                  type="button"
+                  onClick={() => setPendingRemove("nid")}
+                  aria-label={t("resignation_docs.remove_nid")}
+                  title={t("resignation_docs.remove_nid")}
+                  className="absolute right-1 top-1 z-10 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 cursor-pointer xl:pointer-events-none xl:opacity-0 xl:group-hover:pointer-events-auto xl:group-hover:opacity-100 xl:group-focus-within:pointer-events-auto xl:group-focus-within:opacity-100"
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900/75 text-white shadow-sm transition-colors hover:bg-red-600 dark:bg-slate-900/90 dark:hover:bg-red-600">
+                    <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                  </span>
+                </button>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="break-words font-semibold text-gray-900 dark:text-gray-100">
                 {t("resignation_docs.nid")}
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -658,7 +762,7 @@ export default function ResignationDocumentsPage() {
                   : t("resignation_docs.nid_not_uploaded")}
               </p>
               {data.nid && (
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+                <p className="mt-2 break-all text-[11px] text-gray-400 dark:text-gray-500">
                   {data.nid.file_name}
                   {data.nid.file_size > 0 && ` · ${fileSize(data.nid.file_size)}`}
                   {data.nid.source && ` (${data.nid.source})`}
@@ -676,12 +780,12 @@ export default function ResignationDocumentsPage() {
                   <button
                     onClick={() => nidInputRef.current?.click()}
                     disabled={uploadingNid}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex min-h-11 max-w-full flex-wrap items-center gap-1.5 text-left text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {uploadingNid ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
                     ) : (
-                      <Upload className="w-4 h-4" />
+                      <Upload className="w-4 h-4 shrink-0" />
                     )}
                     {t(
                       data.nid
@@ -691,45 +795,51 @@ export default function ResignationDocumentsPage() {
                   </button>
                 </div>
               )}
-              {data.nid && hasPermission("employees.resignation_delete") && (
-                <button
-                  onClick={() => setPendingRemove("nid")}
-                  className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:underline cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  {t("resignation_docs.remove_nid")}
-                </button>
-              )}
             </div>
           </div>
         </div>
 
         {/* Letterhead */}
         <div className={cn(
-          "p-6 rounded-2xl border transition-all",
+          "min-w-0 overflow-hidden rounded-2xl border p-4 transition-all sm:p-5 lg:p-6",
           data.letterhead?.configured
             ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
             : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
         )}>
-          <div className="flex items-start gap-4">
-            <LetterheadPreview
-              houseId={data.letterhead?.configured ? data.letterhead?.house_id : null}
-              title={data.letterhead?.house_name || t("resignation_docs.letterhead")}
-              label={t("resignation_docs.preview_document")}
-              values={letterheadValues}
-              fallback={
-                <div className={cn(
-                  "p-3 rounded-xl",
-                  data.letterhead?.configured
-                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                    : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-                )}>
-                  <HelpCircle className="w-6 h-6" />
-                </div>
-              }
-            />
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+            <div className="group relative inline-block shrink-0">
+              <LetterheadPreview
+                houseId={data.letterhead?.configured ? data.letterhead?.house_id : null}
+                title={data.letterhead?.house_name || t("resignation_docs.letterhead")}
+                label={t("resignation_docs.preview_document")}
+                values={letterheadValues}
+                fallback={
+                  <div className={cn(
+                    "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
+                    data.letterhead?.configured
+                      ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                      : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                  )}>
+                    <HelpCircle className="w-6 h-6" />
+                  </div>
+                }
+              />
+              {data.letterhead?.configured && hasPermission("houses.letterhead_edit") && (
+                <button
+                  type="button"
+                  onClick={() => setPendingRemove("letterhead")}
+                  aria-label={t("resignation_docs.remove_letterhead")}
+                  title={t("resignation_docs.remove_letterhead")}
+                  className="absolute right-1 top-1 z-10 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 cursor-pointer xl:pointer-events-none xl:opacity-0 xl:group-hover:pointer-events-auto xl:group-hover:opacity-100 xl:group-focus-within:pointer-events-auto xl:group-focus-within:opacity-100"
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900/75 text-white shadow-sm transition-colors hover:bg-red-600 dark:bg-slate-900/90 dark:hover:bg-red-600">
+                    <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                  </span>
+                </button>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="break-words font-semibold text-gray-900 dark:text-gray-100">
                 {t("resignation_docs.letterhead")}
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -738,14 +848,14 @@ export default function ResignationDocumentsPage() {
                   : t("resignation_docs.letterhead_not_configured")}
               </p>
               {data.letterhead && (
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+                <p className="mt-2 break-words text-[11px] text-gray-400 dark:text-gray-500">
                   {data.letterhead.house_name}
                 </p>
               )}
               {data.letterhead?.house_id && (
                 <Link
                   href={`/houses/letterhead?house_id=${data.letterhead.house_id}&emp_id=${empId}`}
-                  className="mt-2 inline-block text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline"
+                  className="mt-2 inline-flex min-h-11 max-w-full items-center break-words text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline cursor-pointer"
                 >
                   {t(
                     data.letterhead.configured
@@ -753,15 +863,6 @@ export default function ResignationDocumentsPage() {
                       : "resignation_docs.configure_letterhead"
                   )}
                 </Link>
-              )}
-              {data.letterhead?.configured && hasPermission("houses.letterhead_edit") && (
-                <button
-                  onClick={() => setPendingRemove("letterhead")}
-                  className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:underline cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  {t("resignation_docs.remove_letterhead")}
-                </button>
               )}
             </div>
           </div>
@@ -789,16 +890,20 @@ export default function ResignationDocumentsPage() {
       {/* Actions */}
       <div className="flex flex-wrap items-center justify-end gap-3">
         <button
-          onClick={() => openModal(data.employee)}
-          disabled={!data.can_generate}
+          onClick={generatePdf}
+          disabled={!data.can_generate || generating || !hasPermission("employees.resignation_generate")}
           className={cn(
-            "px-6 py-3 rounded-xl font-medium cursor-pointer transition-colors flex items-center gap-2 text-lg",
-            data.can_generate
+            "px-6 py-3 rounded-xl font-medium cursor-pointer transition-colors flex items-center gap-2 text-lg disabled:cursor-not-allowed",
+            data.can_generate && hasPermission("employees.resignation_generate")
               ? "bg-primary-500 text-white hover:bg-primary-600"
               : "bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
           )}>
-          <FileText className="w-5 h-5" />
-          {t("resignation_docs.generate_pdf")}
+          {generating ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <FileText className="w-5 h-5" />
+          )}
+          {t(generating ? "resignation_docs.generating" : "resignation_docs.generate_pdf")}
         </button>
       </div>
 
