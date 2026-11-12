@@ -27,14 +27,24 @@ async def _write_event(job_id: str, msg: str):
     if job:
         job["events"].append({"msg": msg, "ts": time.time()})
 
-async def _run_sync_job(job_id: str, sync_fn, module_name: str, house_id: Optional[int]):
+async def _run_sync_job(
+    job_id: str,
+    sync_fn,
+    module_name: str,
+    house_id: Optional[int],
+    sync_kwargs: Optional[dict] = None,
+):
     """Run the sync function in background and record all events"""
     job = _sync_jobs.get(job_id)
     if not job:
         return
     try:
         await _write_event(job_id, f"🔍 Checking database for {module_name}...")
-        await sync_fn(house_id=house_id, progress_callback=lambda m: _write_event(job_id, m))
+        await sync_fn(
+            house_id=house_id,
+            progress_callback=lambda m: _write_event(job_id, m),
+            **(sync_kwargs or {}),
+        )
         job["done"] = True
         job["has_work"] = any(
             e["msg"].startswith(p)
@@ -64,18 +74,22 @@ async def manual_sync_activation(
     house_id: Optional[int] = Depends(get_house_context),
 ):
     """Manually trigger missing dates sync for Activation module"""
-    if background:
-        asyncio.create_task(sync_activation_module(house_id=house_id))
-        return {"status": "started", "message": "Activation sync started in background"}
-    
     job_id = str(uuid.uuid4())
     _sync_jobs[job_id] = {"events": [], "done": False, "error": None, "has_work": False, "started_at": time.time()}
-    asyncio.create_task(_run_sync_job(job_id, sync_activation_module, "Activation", house_id))
+    asyncio.create_task(
+        _run_sync_job(
+            job_id,
+            sync_activation_module,
+            "Activation",
+            house_id,
+            {"include_previous_month": True},
+        )
+    )
     
     return {
         "status": "started",
         "job_id": job_id,
-        "message": "Activation sync started"
+        "message": "Activation sync started in background" if background else "Activation sync started"
     }
 
 
@@ -86,18 +100,22 @@ async def manual_sync_itopup(
     house_id: Optional[int] = Depends(get_house_context),
 ):
     """Manually trigger missing dates sync for iTopUp Details module"""
-    if background:
-        asyncio.create_task(sync_itopup_module(house_id=house_id))
-        return {"status": "started", "message": "iTopUp sync started in background"}
-    
     job_id = str(uuid.uuid4())
     _sync_jobs[job_id] = {"events": [], "done": False, "error": None, "has_work": False, "started_at": time.time()}
-    asyncio.create_task(_run_sync_job(job_id, sync_itopup_module, "iTopUp", house_id))
+    asyncio.create_task(
+        _run_sync_job(
+            job_id,
+            sync_itopup_module,
+            "iTopUp",
+            house_id,
+            {"include_previous_month": True},
+        )
+    )
     
     return {
         "status": "started",
         "job_id": job_id,
-        "message": "iTopUp sync started"
+        "message": "iTopUp sync started in background" if background else "iTopUp sync started"
     }
 
 

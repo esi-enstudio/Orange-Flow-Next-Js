@@ -48,19 +48,33 @@ def get_date_ranges(missing_dates):
     ranges.append((start, missing_dates[-1]))
     return ranges
 
-async def get_missing_dates(session, house_id, model, date_column, dms_type=None, module_key=None, house_code=None):
-    """Find gap dates in current month (with SyncHistory)"""
+async def get_missing_dates(
+    session,
+    house_id,
+    model,
+    date_column,
+    dms_type=None,
+    module_key=None,
+    house_code=None,
+    include_previous_month=False,
+):
+    """Find gap dates in the current month, optionally including the previous month."""
     today = date.today()
     start_of_month = today.replace(day=1)
     yesterday = today - timedelta(days=1)
+    start_date = (
+        (start_of_month - timedelta(days=1)).replace(day=1)
+        if include_previous_month
+        else start_of_month
+    )
     
-    if yesterday < start_of_month:
+    if yesterday < start_date:
         return []
 
     # 1. Dates in database
     conditions = [
         getattr(model, "house_id") == house_id,
-        getattr(model, date_column) >= start_of_month,
+        getattr(model, date_column) >= start_date,
         getattr(model, date_column) <= yesterday
     ]
     if dms_type:
@@ -79,7 +93,7 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
             SyncHistory.house_id == house_id,
             SyncHistory.module_name == m_key,
             SyncHistory.status == "success",
-            SyncHistory.sync_date >= start_of_month,
+            SyncHistory.sync_date >= start_date,
             SyncHistory.sync_date <= yesterday
         )
     )
@@ -93,7 +107,7 @@ async def get_missing_dates(session, house_id, model, date_column, dms_type=None
     logger.info(f"🔍 [Gap Check] {m_key} (House: {h_display}): Existing Data: {len(existing_data_dates)} dates, SyncHistory: {len(synced_dates)} dates. Total Covered: {len(covered_dates)}")
 
     missing_dates = []
-    current_date = start_of_month
+    current_date = start_date
     while current_date <= yesterday:
         if current_date not in covered_dates:
             missing_dates.append(current_date)
@@ -160,7 +174,12 @@ async def mark_sync_complete(house_id, module_name, start_date, end_date, status
             current_date += timedelta(days=1)
         await session.commit()
 
-async def sync_house_modules(house, module_filter=None, progress_callback=None):
+async def sync_house_modules(
+    house,
+    module_filter=None,
+    progress_callback=None,
+    include_previous_month=False,
+):
     """Download missing ranges for house - improved speed (session reuse)
     
     Args:
@@ -200,18 +219,51 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
             for mod in modules:
                 mod_name = mod.get('key') or mod['name'].lower().replace(" ", "_")
                 if progress_callback:
+                    await progress_callback(
+                        f"Range progress: checking for {house_label}"
+                    )
                     await progress_callback(f"Checking {mod['name']} for {house_label}...")
 
                 # Find missing dates per module
                 all_ranges = []
                 if 'sub_types' in mod:
                     for sub_type in mod['sub_types']:
-                        missing = await get_missing_dates(session, house.id, mod['model'], mod['date_col'], dms_type=sub_type, house_code=house.code)
+                        if progress_callback:
+                            await progress_callback(
+                                f"Checking iTopUp {sub_type} for {house_label}..."
+                            )
+                        missing = await get_missing_dates(
+                            session,
+                            house.id,
+                            mod['model'],
+                            mod['date_col'],
+                            dms_type=sub_type,
+                            house_code=house.code,
+                            include_previous_month=include_previous_month,
+                        )
                         ranges = get_date_ranges(missing)
+                        if progress_callback:
+                            if ranges:
+                                await progress_callback(
+                                    f"Found {len(ranges)} missing range(s) for "
+                                    f"iTopUp {sub_type} in {house_label}"
+                                )
+                            else:
+                                await progress_callback(
+                                    f"No missing dates for iTopUp {sub_type} in {house_label}"
+                                )
                         for start_d, end_d in ranges:
                             all_ranges.append({"url_key": f"dms_report_{sub_type}", "start_d": start_d, "end_d": end_d, "fn": process_dms_report_excel, "sub_type": sub_type})
                 else:
-                    missing = await get_missing_dates(session, house.id, mod['model'], mod['date_col'], module_key=mod.get('key'), house_code=house.code)
+                    missing = await get_missing_dates(
+                        session,
+                        house.id,
+                        mod['model'],
+                        mod['date_col'],
+                        module_key=mod.get('key'),
+                        house_code=house.code,
+                        include_previous_month=include_previous_month,
+                    )
                     ranges = get_date_ranges(missing)
                     for start_d, end_d in ranges:
                         all_ranges.append({"url_key": mod_name, "start_d": start_d, "end_d": end_d, "fn": mod['process_fn']})
@@ -219,16 +271,23 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
                 if not all_ranges:
                     if progress_callback:
                         await progress_callback(f"No missing dates for {mod['name']} in {house_label}")
+                        await progress_callback(
+                            f"Range progress: 0/0 ranges for {house_label}"
+                        )
                     continue
 
                 if progress_callback:
                     await progress_callback(f"Downloading {len(all_ranges)} range(s) for {mod['name']} in {house_label}...")
+                    await progress_callback(
+                        f"Range progress: 0/{len(all_ranges)} ranges for {house_label} "
+                        f"[{all_ranges[0].get('sub_type') or mod_name}]"
+                    )
 
                 # Only open browser if there's something to download (once)
                 if page is None:
                     page, context = await session_manager.get_valid_page(credentials)
 
-                for task in all_ranges:
+                for range_index, task in enumerate(all_ranges, start=1):
                     if progress_callback:
                         await progress_callback(f"Downloading {task['url_key']} ({house_label}): {task['start_d']} to {task['end_d']}...")
                     res = await download_and_process(
@@ -246,6 +305,10 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
 
                     if progress_callback:
                         await progress_callback(f"✓ {task['url_key']} ({house_label}): {'success' if res == 'success' else res}")
+                        await progress_callback(
+                            f"Range progress: {range_index}/{len(all_ranges)} ranges "
+                            f"for {house_label} [{task.get('sub_type') or mod_name}]"
+                        )
 
     except Exception as e:
         logger.error(f"❌ [Sync Modules Error] {house_label}: {str(e)}")
@@ -256,7 +319,11 @@ async def sync_house_modules(house, module_filter=None, progress_callback=None):
         if page: await page.close()
         if context: await context.close()
 
-async def sync_activation_module(house_id=None, progress_callback=None):
+async def sync_activation_module(
+    house_id=None,
+    progress_callback=None,
+    include_previous_month=False,
+):
     """Manually trigger Activation sync for all houses or specific house.
     
     Args:
@@ -286,12 +353,21 @@ async def sync_activation_module(house_id=None, progress_callback=None):
         try:
             if progress_callback:
                 await progress_callback(f"🏠 Starting sync for {house_label}...")
-            await sync_house_modules(house, module_filter=["activation"], progress_callback=progress_callback)
+            await sync_house_modules(
+                house,
+                module_filter=["activation"],
+                progress_callback=progress_callback,
+                include_previous_month=include_previous_month,
+            )
             await asyncio.sleep(5)
         except Exception as e:
             logger.error(f"❌ [Manual Activation Sync Error] {house_label}: {str(e)}")
 
-async def sync_itopup_module(house_id=None, progress_callback=None):
+async def sync_itopup_module(
+    house_id=None,
+    progress_callback=None,
+    include_previous_month=False,
+):
     """Manually trigger iTopUp sync for all houses or specific house.
     
     Args:
@@ -321,7 +397,12 @@ async def sync_itopup_module(house_id=None, progress_callback=None):
         try:
             if progress_callback:
                 await progress_callback(f"🏠 Starting sync for {house_label}...")
-            await sync_house_modules(house, module_filter=["itopup"], progress_callback=progress_callback)
+            await sync_house_modules(
+                house,
+                module_filter=["itopup"],
+                progress_callback=progress_callback,
+                include_previous_month=include_previous_month,
+            )
             await asyncio.sleep(5)
         except Exception as e:
             logger.error(f"❌ [Manual iTopUp Sync Error] {house_label}: {str(e)}")
