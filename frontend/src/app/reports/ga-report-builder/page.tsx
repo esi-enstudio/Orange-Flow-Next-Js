@@ -1542,7 +1542,7 @@ function ReportTable({
     if (isNum(key)) return Number(val).toLocaleString();
     return String(val ?? "—");
   };
-  const isNum = (key: string) => key === "live_activation" || slabRegex.test(key) || columnMeta[key]?.type === "number";
+  const isNum = (key: string) => key === "live_activation" || key === "yesterday_ga" || slabRegex.test(key) || columnMeta[key]?.type === "number";
 
   if (rows.length === 0) {
     return (

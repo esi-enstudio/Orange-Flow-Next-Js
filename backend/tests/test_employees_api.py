@@ -144,3 +144,36 @@ async def test_update_with_removed_document_does_not_fail(api, db, data):
     await db.refresh(doc)
     assert doc.is_deleted is True
     assert (await db.execute(select(EmployeeDocument).where(EmployeeDocument.id == doc.id))).scalar_one().is_deleted
+
+
+async def test_create_and_update_persist_bangla_fields(api, db, data):
+    app, client = api
+    app.dependency_overrides[get_current_user] = lambda: _user(data["house"])
+    bangla = {
+        "employee_name_bn": "মোঃ করিম",
+        "fathers_name_bn": "মোঃ রহিম",
+        "mothers_name_bn": "মোছাঃ রহিমা",
+        "nid_bn": "১২৩৪৫৬৭৮৯০",
+        "present_address_bn": "বাজিতপুর, কিশোরগঞ্জ",
+        "permanent_address_bn": "কিশোরগঞ্জ সদর",
+    }
+
+    created = await client.post(
+        "/api/employees",
+        json={**_payload(data["house"].id, dms_code="RS050981"), **bangla},
+    )
+    assert created.status_code == 200, created.text
+    emp_id = created.json()["id"]
+    assert {key: created.json()[key] for key in bangla} == bangla
+
+    updated = await client.put(
+        f"/api/employees/{emp_id}",
+        json={
+            **_payload(data["house"].id, dms_code="RS050981"),
+            **bangla,
+            "employee_name_bn": "মোঃ করিম উদ্দিন",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["employee_name_bn"] == "মোঃ করিম উদ্দিন"
+    assert updated.json()["present_address_bn"] == "বাজিতপুর, কিশোরগঞ্জ"

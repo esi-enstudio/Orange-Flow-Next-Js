@@ -65,18 +65,23 @@ const DESIGNATIONS: Record<string, string> = {
  */
 export function resignationLetterheadValues(employee: {
   employee_name?: string | null;
+  employee_name_bn?: string | null;
   fathers_name?: string | null;
+  fathers_name_bn?: string | null;
   nid?: string | null;
+  nid_bn?: string | null;
   dms_code?: string | null;
   employee_type?: string | null;
   joining_date?: string | null;
   resigned_date?: string | null;
 }): Record<string, string> {
   const employeeType = String(employee.employee_type || "").trim().toLowerCase();
+  // Bangla value wins, English field is the fallback (mirrors `_base_values`).
+  const bnFirst = (bn?: string | null, en?: string | null) => bn || en || "";
   return {
-    employee_name: employee.employee_name || employee.dms_code || "",
-    fathers_name: employee.fathers_name || "",
-    nid: toBnDigits(employee.nid || ""),
+    employee_name: bnFirst(employee.employee_name_bn, employee.employee_name) || employee.dms_code || "",
+    fathers_name: bnFirst(employee.fathers_name_bn, employee.fathers_name),
+    nid: toBnDigits(bnFirst(employee.nid_bn, employee.nid)),
     joining_date: formatYMD(employee.joining_date, "bn", ""),
     resigned_date: formatYMD(employee.resigned_date, "bn", ""),
     designation: DESIGNATIONS[employeeType] ?? employeeType.toUpperCase(),

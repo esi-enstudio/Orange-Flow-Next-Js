@@ -70,6 +70,7 @@ interface Employee {
   itop_number: string;
   personal_number: string;
   employee_name?: string;
+  employee_name_bn?: string;
   status: string;
   joining_date: string;
   salary: string;
@@ -99,6 +100,11 @@ interface Employee {
   religion?: string;
   dob?: string;
   nid?: string;
+  present_address_bn?: string;
+  permanent_address_bn?: string;
+  fathers_name_bn?: string;
+  mothers_name_bn?: string;
+  nid_bn?: string;
   previous_company_name?: string;
   previous_company_salary?: string;
   motor_bike?: string;
@@ -245,6 +251,7 @@ export default function EmployeesPage() {
     user_id: null as number | null,
     house_id: undefined as number | undefined,
     employee_name: "",
+    employee_name_bn: "",
     dms_code: "",
     itop_number: "",
     personal_number: "",
@@ -276,6 +283,11 @@ export default function EmployeesPage() {
     religion: "",
     dob: "",
     nid: "",
+    present_address_bn: "",
+    permanent_address_bn: "",
+    fathers_name_bn: "",
+    mothers_name_bn: "",
+    nid_bn: "",
     previous_company_name: "",
     previous_company_salary: "",
     motor_bike: "No",
@@ -502,6 +514,7 @@ export default function EmployeesPage() {
       user_id: null,
       house_id: assignedHouses.length === 1 ? assignedHouses[0].id : undefined,
       employee_name: "",
+      employee_name_bn: "",
       dms_code: "",
       itop_number: "",
       personal_number: "",
@@ -533,6 +546,11 @@ export default function EmployeesPage() {
       religion: "",
       dob: "",
       nid: "",
+      present_address_bn: "",
+      permanent_address_bn: "",
+      fathers_name_bn: "",
+      mothers_name_bn: "",
+      nid_bn: "",
       previous_company_name: "",
       previous_company_salary: "",
       motor_bike: "No",
@@ -555,6 +573,7 @@ export default function EmployeesPage() {
       user_id: m.user?.id ?? null,
       house_id: m.house_id,
       employee_name: m.employee_name || "",
+      employee_name_bn: m.employee_name_bn || "",
       dms_code: m.dms_code || "",
       itop_number: m.itop_number,
       personal_number: m.personal_number,
@@ -586,6 +605,11 @@ export default function EmployeesPage() {
       religion: m.religion || "",
       dob: m.dob || "",
       nid: m.nid || "",
+      present_address_bn: m.present_address_bn || "",
+      permanent_address_bn: m.permanent_address_bn || "",
+      fathers_name_bn: m.fathers_name_bn || "",
+      mothers_name_bn: m.mothers_name_bn || "",
+      nid_bn: m.nid_bn || "",
       previous_company_name: m.previous_company_name || "",
       previous_company_salary: m.previous_company_salary || "",
       motor_bike: m.motor_bike || "No",
@@ -1887,12 +1911,18 @@ export default function EmployeesPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   <InputField label={t('employees.field_full_name')} icon={User} required value={formData.employee_name} onChange={(v: string) => setFormData({...formData, employee_name: v})} error={formErrors.employee_name} />
+                  <InputField label={t('employees.field_full_name_bn')} icon={User} value={formData.employee_name_bn} onChange={(v: string) => setFormData({...formData, employee_name_bn: v})} />
                   <InputField label={t('employees.field_father_name')} icon={User} value={formData.fathers_name} onChange={(v: string) => setFormData({...formData, fathers_name: v})} />
+                  <InputField label={t('employees.field_father_name_bn')} icon={User} value={formData.fathers_name_bn} onChange={(v: string) => setFormData({...formData, fathers_name_bn: v})} />
                   <InputField label={t('employees.field_mother_name')} icon={User} value={formData.mothers_name} onChange={(v: string) => setFormData({...formData, mothers_name: v})} />
+                  <InputField label={t('employees.field_mother_name_bn')} icon={User} value={formData.mothers_name_bn} onChange={(v: string) => setFormData({...formData, mothers_name_bn: v})} />
                   <InputField label={t('employees.field_dob')} icon={Calendar} type="date" value={formData.dob} onChange={(v: string) => setFormData({...formData, dob: v})} error={formErrors.dob} />
                   <InputField label={t('employees.field_nid')} type="number" icon={CreditCard} value={formData.nid} onChange={(v: string) => setFormData({...formData, nid: v})} />
+                  <InputField label={t('employees.field_nid_bn')} type="text" icon={CreditCard} value={formData.nid_bn} onChange={(v: string) => setFormData({...formData, nid_bn: v})} />
                   <InputField label={t('employees.field_present_address')} icon={MapPin} value={formData.present_address} onChange={(v: string) => setFormData({...formData, present_address: v})} />
+                  <InputField label={t('employees.field_present_address_bn')} icon={MapPin} value={formData.present_address_bn} onChange={(v: string) => setFormData({...formData, present_address_bn: v})} />
                   <InputField label={t('employees.field_permanent_address')} icon={MapPin} value={formData.permanent_address} onChange={(v: string) => setFormData({...formData, permanent_address: v})} />
+                  <InputField label={t('employees.field_permanent_address_bn')} icon={MapPin} value={formData.permanent_address_bn} onChange={(v: string) => setFormData({...formData, permanent_address_bn: v})} />
                   <div className="space-y-1">
                     <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_blood_group')}</label>
                     <div className="relative group">

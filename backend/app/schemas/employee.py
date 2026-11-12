@@ -47,6 +47,7 @@ class EmployeeSchema(BaseModel):
     sr_no: Optional[str] = None
     employee_id: Optional[str] = None
     employee_name: Optional[str] = None
+    employee_name_bn: Optional[str] = None
     assisted_retailer_code: Optional[str] = None
     agency_id: Optional[str] = None
     dms_code: Optional[str] = None
@@ -72,6 +73,11 @@ class EmployeeSchema(BaseModel):
     religion: Optional[str] = None
     dob: Optional[str] = None
     nid: Optional[str] = None
+    present_address_bn: Optional[str] = None
+    permanent_address_bn: Optional[str] = None
+    fathers_name_bn: Optional[str] = None
+    mothers_name_bn: Optional[str] = None
+    nid_bn: Optional[str] = None
     previous_company_name: Optional[str] = None
     previous_company_salary: Optional[str] = None
     motor_bike: Optional[str] = None
@@ -93,6 +99,7 @@ class EmployeeCreate(BaseModel):
     employee_type: Optional[str] = None
     sr_no: Optional[str] = None
     employee_name: Optional[str] = None
+    employee_name_bn: Optional[str] = None
     assisted_retailer_code: Optional[str] = None
     agency_id: Optional[str] = None
     dms_code: Optional[str] = None
@@ -118,6 +125,11 @@ class EmployeeCreate(BaseModel):
     religion: Optional[str] = None
     dob: Optional[str] = None
     nid: Optional[str] = None
+    present_address_bn: Optional[str] = None
+    permanent_address_bn: Optional[str] = None
+    fathers_name_bn: Optional[str] = None
+    mothers_name_bn: Optional[str] = None
+    nid_bn: Optional[str] = None
     previous_company_name: Optional[str] = None
     previous_company_salary: Optional[str] = None
     motor_bike: Optional[str] = None

@@ -16,6 +16,7 @@ class Employee(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  
     assisted_retailer_code = Column(String, nullable=True, index=True) # R026588  
     employee_name = Column(String, nullable=True)
+    employee_name_bn = Column(String, nullable=True)  # Bangla name, used by the letterhead
     agency_id = Column(String, nullable=True) # If agency data exists
     
     # Basic info
@@ -46,6 +47,13 @@ class Employee(Base):
     religion = Column(String)
     dob = Column(String) # Date of Birth
     nid = Column(String)
+
+    # Bangla values, typed as-is by the operator for the Bangla letterhead.
+    present_address_bn = Column(String)
+    permanent_address_bn = Column(String)
+    fathers_name_bn = Column(String)
+    mothers_name_bn = Column(String)
+    nid_bn = Column(String)
     
     # Professional details
     previous_company_name = Column(String)

@@ -1077,8 +1077,11 @@ async def get_resignation_documents(
         "employee": {
             "id": emp.id,
             "employee_name": emp.employee_name,
+            "employee_name_bn": emp.employee_name_bn,
             "fathers_name": emp.fathers_name,
+            "fathers_name_bn": emp.fathers_name_bn,
             "nid": emp.nid,
+            "nid_bn": emp.nid_bn,
             "dms_code": emp.dms_code,
             "employee_type": emp.employee_type,
             "status": emp.status,

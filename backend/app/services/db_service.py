@@ -464,6 +464,32 @@ async def _migrate_employee_photo_url():
         logger.warning(f"Migration warning (employees.photo_url): {e}")
 
 
+async def _migrate_employee_bn_fields():
+    """Add the Bangla employee columns used by the Bangla letterhead."""
+    columns = (
+        "employee_name_bn",
+        "fathers_name_bn",
+        "mothers_name_bn",
+        "nid_bn",
+        "present_address_bn",
+        "permanent_address_bn",
+    )
+    try:
+        async with engine.begin() as conn:
+            for column in columns:
+                result = await conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='employees' AND column_name='{column}'"
+                ))
+                if result.scalar():
+                    continue
+                logger.info(f"Migrating employees: adding {column} column...")
+                await conn.execute(text(f"ALTER TABLE employees ADD COLUMN {column} VARCHAR"))
+                logger.info(f"Migration complete: employees.{column}")
+    except Exception as e:
+        logger.warning(f"Migration warning (employees bangla columns): {e}")
+
+
 async def _migrate_supervisor_member_rename():
     """Rename supervisor_rso_assignments.rso_employee_id -> member_employee_id.
 
@@ -2401,6 +2427,7 @@ async def init_db():
         await _migrate_employee_sr_no()
         await _migrate_employee_name()
         await _migrate_employee_photo_url()
+        await _migrate_employee_bn_fields()
         await _migrate_supervisor_rso_pivot()
         await _migrate_retailer_employee_link()
         await _migrate_activation_employee_id()

@@ -96,11 +96,17 @@ def bn_date(value) -> str:
 
 def _base_values(house: House, employee: dict, application_date: date) -> dict:
     employee_type = str(employee.get("employee_type") or "").strip().lower()
+
+    def bn_first(bangla_key: str, english_key: str) -> str:
+        # The letterhead is Bangla, so the operator-typed Bangla value wins and
+        # falls back to the English field for employees that have none yet.
+        return (employee.get(bangla_key) or employee.get(english_key) or "")
+
     return {
         "application_date": bn_date(application_date),
-        "employee_name": employee.get("employee_name") or employee.get("dms_code") or "",
-        "fathers_name": employee.get("fathers_name") or "",
-        "nid": bn_digits(employee.get("nid") or ""),
+        "employee_name": bn_first("employee_name_bn", "employee_name") or employee.get("dms_code") or "",
+        "fathers_name": bn_first("fathers_name_bn", "fathers_name"),
+        "nid": bn_digits(bn_first("nid_bn", "nid")),
         "joining_date": bn_date(employee.get("joining_date")),
         "resigned_date": bn_date(employee.get("resigned_date")),
         "employee_type": employee_type.upper(),

@@ -36,7 +36,7 @@ from app.utils.timezone import now_naive
 
 logger = __import__("logging").getLogger("app.services.GaReportBuilder")
 
-ACTIVATION_METRICS = ("activation_count", "today_activation", "yesterday_activation")
+ACTIVATION_METRICS = ("activation_count", "today_activation", "yesterday_activation", "yesterday_ga")
 
 SLAB_METRIC_SUFFIXES = ("target", "achievement", "achievement_pct", "remaining")
 
@@ -536,7 +536,7 @@ class GaReportBuilderService:
         excluded_retailer_ids = await self._excluded_retailer_ids()
         retailers = await self._load_retailer_rows(excluded_retailer_ids)
         targets = await self._load_targets()
-        columns = [c for c in self.cfg.columns] + slab_column_keys(self.cfg.slabs) + ["live_activation"]
+        columns = [c for c in self.cfg.columns] + slab_column_keys(self.cfg.slabs) + ["yesterday_ga", "live_activation"]
         if not retailers:
             return {"columns": columns, "rows": [], "totals": {}, "window": window}
 
@@ -576,6 +576,7 @@ class GaReportBuilderService:
                 "activation_count": count,
                 "today_activation": today_counts.get(r.id, 0),
                 "yesterday_activation": yesterday_counts.get(r.id, 0),
+                "yesterday_ga": yesterday_counts.get(r.id, 0),
                 "live_activation": live_counts.get(r.id, 0),
             }
             self._apply_slab_columns(row, achievement_count, targets, r.retailer_code or "", self.cfg.slabs)
@@ -629,7 +630,7 @@ class GaReportBuilderService:
             if entity_type == "rso"
             else ["bp_name", "bp_pool_number", "bp_assisted_code"]
         )
-        columns = identity + slab_column_keys(self.cfg.slabs) + ["live_activation"]
+        columns = identity + slab_column_keys(self.cfg.slabs) + ["yesterday_ga", "live_activation"]
         if not employees:
             return {"columns": columns, "rows": [], "totals": {}, "window": window}
 
@@ -644,6 +645,8 @@ class GaReportBuilderService:
         achievement_map: dict[int, float] = {}
         achievement_map_code: dict[str, float] = {}
         live_map: dict[int, int] = {}
+        yesterday_map: dict[int, int] = {}
+        yesterday_code_counts: dict[str, int] = {}
         if entity_type == "rso":
             emp_ids = [e.id for e in employees]
             retailer_rows = (
@@ -664,7 +667,13 @@ class GaReportBuilderService:
                     history_counts.get(rid, 0) + today_nonlive_counts.get(rid, 0) for rid in rid_set
                 )
                 live_map[emp.id] = sum(live_counts.get(rid, 0) for rid in rid_set)
+                yesterday_map[emp.id] = sum(yesterday_counts.get(rid, 0) for rid in rid_set)
         else:
+            yesterday = today - timedelta(days=1)
+            if start <= yesterday <= end:
+                yesterday_code_counts = await self._count_activations_by_retailer_code(
+                    yesterday, yesterday, excluded_retailer_ids
+                )
             code_counts_nonlive = await self._count_activations_by_retailer_code(
                 start, min(today - timedelta(days=1), end), excluded_retailer_ids
             )
@@ -713,6 +722,11 @@ class GaReportBuilderService:
                 }
                 ach = achievement_map_code.get(emp.assisted_retailer_code or "", 0)
             self._apply_slab_columns(row, ach, targets, str(emp.id), self.cfg.slabs)
+            row["yesterday_ga"] = (
+                yesterday_map.get(emp.id, 0)
+                if entity_type == "rso"
+                else yesterday_code_counts.get(emp.assisted_retailer_code or "", 0)
+            )
             row["live_activation"] = live_map.get(emp.id, 0)
             rows.append(row)
 
@@ -772,6 +786,7 @@ class GaReportBuilderService:
             "activation_count": "Activations",
             "today_activation": "Today",
             "yesterday_activation": "Yesterday",
+            "yesterday_ga": "Yest GA",
             "live_activation": "Live Activation",
         }
         return label_map.get(key, COLUMN_LABELS.get(key, key))
