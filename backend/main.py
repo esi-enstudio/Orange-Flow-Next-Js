@@ -101,6 +101,7 @@ from app.routers.retailer_markings import router as retailer_markings_router
 from app.routers.bts import router as bts_router
 from app.routers.imports import router as imports_router
 from app.routers.reports import router as reports_router
+from app.routers.sim_issue_report import router as sim_issue_report_router
 from app.routers.targets import router as targets_router
 from app.routers.filters import router as filters_router
 from app.routers.stats import router as stats_router
@@ -175,6 +176,7 @@ app.include_router(retailer_markings_router)
 app.include_router(bts_router)
 app.include_router(imports_router)
 app.include_router(reports_router)
+app.include_router(sim_issue_report_router)
 app.include_router(targets_router)
 app.include_router(filters_router)
 app.include_router(stats_router)
@@ -227,6 +229,11 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
+    # The Next.js proxy gzip-compresses and buffers responses, so an SSE stream
+    # only reaches the browser when it ends. `no-transform` disables that
+    # compression, keeping progress events incremental.
+    if response.headers.get("content-type", "").startswith("text/event-stream"):
+        response.headers["Cache-Control"] = "no-transform"
     return response
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=security_headers)

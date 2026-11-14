@@ -156,9 +156,9 @@ async def process_scratch_card_excel(file_path, target_house_id=None, progress_c
                 if progress_callback and (processed_rows % 50 == 0 or processed_rows == total_rows):
                     percent = round((processed_rows / total_rows) * 100)
                     await progress_callback(
-                        f"🎫 <b>SC Processing:</b> {bn_num(percent)}%\n"
-                        f"📈 Row: <code>{bn_num(processed_rows)}</code> / <code>{bn_num(total_rows)}</code>\n"
-                        f"💾 Saved: <code>{bn_num(inserted_records + len(batch_buffer))}</code>"
+                        f"🎫 SC Processing: {bn_num(percent)}%\n"
+                        f"📈 Row: {bn_num(processed_rows)} / {bn_num(total_rows)}\n"
+                        f"💾 Saved: {bn_num(inserted_records + len(batch_buffer))}"
                     )
 
             if batch_buffer:
@@ -268,9 +268,9 @@ async def process_sim_issue_excel(file_path, target_house_id=None, progress_call
                 if progress_callback and (processed_rows % 50 == 0 or processed_rows == total_rows):
                     percent = round((processed_rows / total_rows) * 100)
                     await progress_callback(
-                        f"📲 <b>SIM Processing:</b> {bn_num(percent)}%\n"
-                        f"📈 Row: <code>{bn_num(processed_rows)}</code> / <code>{bn_num(total_rows)}</code>\n"
-                        f"💾 Saved: <code>{bn_num(inserted_records + len(batch_buffer))}</code>"
+                        f"📲 SIM Processing: {bn_num(percent)}%\n"
+                        f"📈 Row: {bn_num(processed_rows)} / {bn_num(total_rows)}\n"
+                        f"💾 Saved: {bn_num(inserted_records + len(batch_buffer))}"
                     )
 
             if batch_buffer:

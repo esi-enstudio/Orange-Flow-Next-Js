@@ -282,7 +282,7 @@ async def process_target_excel_unified(file_path, target_date, progress_callback
                     continue
 
                 if progress_callback:
-                    await progress_callback(f"⏳ Processing: <b>{sheet_name}</b> ({target_type})...")
+                    await progress_callback(f"⏳ Processing: {sheet_name} ({target_type})...")
 
                 count = 0
                 batch_data = []
@@ -400,8 +400,8 @@ async def update_progress_target(count, total_rows, target_type, progress_callba
     """Target progress update helper"""
     percent = round((count / total_rows) * 100)
     await progress_callback(
-        f"📊 <b>Target Upload ({target_type}):</b> {bn_num(percent)}%\n"
-        f"📈 Processed: <code>{bn_num(count)}</code> / <code>{bn_num(total_rows)}</code>"
+        f"📊 Target Upload ({target_type}): {bn_num(percent)}%\n"
+        f"📈 Processed: {bn_num(count)} / {bn_num(total_rows)}"
     )
 
 
