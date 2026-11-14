@@ -184,12 +184,18 @@ async def sync_status(job_id: str):
         "✗" in e["msg"] or "Error" in e["msg"] or "error" in e["msg"] or "fail" in e["msg"].lower()
         for e in (job.get("events") or [])
     ) if job["done"] else False
+
+    warnings = [
+        e["msg"] for e in (job.get("events") or [])
+        if e["msg"].startswith("⚠️")
+    ] if job["done"] else []
     
     has_error = bool(job.get("error")) or has_events_error
     
     resp = {
         "status": "running" if not job["done"] else ("error" if has_error else "complete"),
         "events": job["events"],
+        "warnings": warnings,
     }
     
     if job["done"]:
@@ -202,6 +208,15 @@ async def sync_status(job_id: str):
                 if "✗" in e["msg"] or "Error" in e["msg"] or "error" in e["msg"]
             ]
             resp["message"] = error_msgs[-1] if error_msgs else "Sync completed with errors"
+        elif warnings:
+            clean_warnings = [w.replace("⚠️", "", 1).strip() for w in warnings]
+            if len(clean_warnings) == 1:
+                resp["message"] = clean_warnings[0]
+            else:
+                resp["message"] = (
+                    f"Sync completed with {len(clean_warnings)} warnings: "
+                    + "; ".join(clean_warnings)
+                )
         elif job.get("has_work"):
             resp["message"] = "Sync completed successfully"
         else:

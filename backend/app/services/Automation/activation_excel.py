@@ -61,7 +61,7 @@ async def process_activation_excel(file_path, house_id=None, progress_callback=N
         print(f"\n{Fore.CYAN}{Style.BRIGHT}🚀 Activation Processing Started...")
         df = resilient_read_excel(file_path)
         if df is None or df.empty:
-            return 0, "File is empty."
+            return 0, "No data found in file."
 
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
         total_rows = len(df)

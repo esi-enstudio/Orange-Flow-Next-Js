@@ -33,6 +33,35 @@ URL_MAP = {
     "sim_issue": "https://blkdms.banglalink.net/RptIssueSimToRetailer"
 }
 
+NO_DATA_ERROR_MARKERS = (
+    "no data",
+    "data not found",
+    "found no data",
+    "file is empty",
+    "empty file",
+    "empty workbook",
+)
+
+
+def is_no_data_error(error) -> bool:
+    """True when a processor's error message actually means the export had no rows."""
+    text = str(error or "").strip().lower()
+    return bool(text) and any(marker in text for marker in NO_DATA_ERROR_MARKERS)
+
+
+def _classify_process_result(count, error) -> str:
+    """Map a processor result to a sync status (success / no_data / error).
+
+    A row-less export is recorded as ``no_data`` so the date can be retried on
+    the next sync without raising a false failure notification.
+    """
+    if error:
+        return "no_data" if is_no_data_error(error) else "error"
+    if count == 0:
+        return "no_data"
+    return "success"
+
+
 def get_date_ranges(missing_dates):
     """Group missing dates into ranges (Start, End)"""
     if not missing_dates:
@@ -304,7 +333,27 @@ async def sync_house_modules(
                     await mark_sync_complete(house.id, task['url_key'], task['start_d'], task['end_d'], status)
 
                     if progress_callback:
-                        await progress_callback(f"✓ {task['url_key']} ({house_label}): {'success' if res == 'success' else res}")
+                        if res == "error":
+                            await progress_callback(f"✗ {task['url_key']} ({house_label}): error")
+                        elif res == "no_data":
+                            report_label = (
+                                f"iTopUp {task['sub_type']}"
+                                if task.get("sub_type")
+                                else mod["name"]
+                            )
+                            if task["start_d"] == task["end_d"]:
+                                date_label = task["start_d"].strftime("%d %b %Y")
+                            else:
+                                date_label = (
+                                    f"{task['start_d'].strftime('%d %b %Y')} to "
+                                    f"{task['end_d'].strftime('%d %b %Y')}"
+                                )
+                            await progress_callback(
+                                f"⚠️ {report_label} ({house_label}): "
+                                f"No {report_label} data available for {date_label}"
+                            )
+                        else:
+                            await progress_callback(f"✓ {task['url_key']} ({house_label}): success")
                         await progress_callback(
                             f"Range progress: {range_index}/{len(all_ranges)} ranges "
                             f"for {house_label} [{task.get('sub_type') or mod_name}]"
@@ -588,23 +637,39 @@ async def download_and_process(page, house, url_key, start_date, end_date, proce
         
         await download.save_as(file_path)
 
+        if os.path.getsize(file_path) == 0:
+            logger.info(
+                f"ℹ️ [{house_label}] {url_key} exported an empty file for "
+                f"{s_date_str}-{e_date_str}; marking as no_data."
+            )
+            return "no_data"
+
         # 4. Processing started
         cb = progress_callback or _noop_progress
         if sub_type:
             count, err = await process_fn(file_path, sub_type, house.id, cb)
         else:
             count, err = await process_fn(file_path, house.id, cb)
-            
-        if err: 
-            if "No data found" in str(err): return "no_data"
+
+        status = _classify_process_result(count, err)
+        if status == "error":
             logger.error(f"❌ [{house_label}] Processing error: {err}")
             return "error"
-        elif count == 0:
-            logger.warning(f"⚠️ [{house_label}] {url_key} processed 0 records. Marking as no_data to allow retry.")
+        if status == "no_data":
+            if err:
+                logger.info(
+                    f"ℹ️ [{house_label}] {url_key} has no data for "
+                    f"{s_date_str}-{e_date_str}: {err}"
+                )
+            else:
+                logger.warning(
+                    f"⚠️ [{house_label}] {url_key} processed 0 records. "
+                    f"Marking as no_data to allow retry."
+                )
             return "no_data"
-        else: 
-            logger.info(f"✅ [{house_label}] {url_key} success. Total: {count}")
-            return "success"
+
+        logger.info(f"✅ [{house_label}] {url_key} success. Total: {count}")
+        return "success"
 
     except Exception as e:
         logger.error(f"💥 [{house_label}] {url_key} failed: {str(e)}")

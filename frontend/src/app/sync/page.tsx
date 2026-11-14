@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
-import { CloudDownload, Loader2, CheckCircle2, Activity, Database, Zap, Building2, X, SmartphoneNfc } from "lucide-react";
+import { CloudDownload, Loader2, CheckCircle2, AlertTriangle, Activity, Database, Zap, Building2, X, SmartphoneNfc } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
 import Cookies from "js-cookie";
@@ -173,7 +173,15 @@ export default function SyncPage() {
           setActiveEndpoint(null);
           setBackgroundActive(false);
           setProgressMsg(null);
-          toast.success(data.message || "Sync completed");
+          const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+          if (warnings.length > 0) {
+            toast(data.message || t('sync.warning_completed'), {
+              icon: "⚠️",
+              duration: 8000,
+            });
+          } else {
+            toast.success(data.message || "Sync completed");
+          }
           return;
         }
 
@@ -194,7 +202,7 @@ export default function SyncPage() {
         return;
       }
     }
-  }, []);
+  }, [t]);
 
   const doSync = async (endpoint: string, label: string, background: boolean, houseId: string) => {
     setActiveEndpoint(endpoint);
@@ -301,6 +309,7 @@ export default function SyncPage() {
   const lastProgressEvent = progressEvents[progressEvents.length - 1] || "";
   const currentTask = lastProgressEvent || progressMsg || "";
   const taskFailed = currentTask.startsWith("✗") || currentTask.endsWith(": error");
+  const taskWarning = currentTask.startsWith("⚠️");
   const taskComplete = currentTask.startsWith("✓") || currentTask.startsWith("No missing dates");
   const currentItopupType =
     lastProgressEvent.startsWith("Checking ITopUp Detail for ") ||
@@ -370,6 +379,8 @@ export default function SyncPage() {
                   <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
                     {taskFailed ? (
                       <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                    ) : taskWarning ? (
+                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                     ) : taskComplete ? (
                       <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                     ) : (
@@ -388,9 +399,11 @@ export default function SyncPage() {
                           "whitespace-normal break-words text-xs leading-relaxed",
                           taskFailed
                             ? "font-medium text-rose-700 dark:text-rose-300"
-                            : taskComplete
-                              ? "font-medium text-emerald-700 dark:text-emerald-300"
-                              : "font-medium text-gray-700 dark:text-gray-200",
+                            : taskWarning
+                              ? "font-medium text-amber-700 dark:text-amber-300"
+                              : taskComplete
+                                ? "font-medium text-emerald-700 dark:text-emerald-300"
+                                : "font-medium text-gray-700 dark:text-gray-200",
                         )}
                       >
                         {currentTask}
