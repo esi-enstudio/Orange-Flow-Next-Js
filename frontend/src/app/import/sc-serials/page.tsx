@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, Download, X, Loader2, Database, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Upload, AlertTriangle, CheckCircle2, Copy } from "lucide-react";
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
@@ -38,6 +38,8 @@ interface Product {
   id: number; product_code: string; product_name: string; mrp: number; category: string; status: string;
 }
 
+const SEARCH_DEBOUNCE_MS = 500;
+
 export default function SCSerialsPage() {
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const { t } = useLanguage();
@@ -49,14 +51,35 @@ export default function SCSerialsPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
+  const [now, setNow] = useState<number | null>(null);
   const perPage = 5;
 
   // filters
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [serialFrom, setSerialFrom] = useState("");
+  const [debouncedSerialFrom, setDebouncedSerialFrom] = useState("");
   const [serialTo, setSerialTo] = useState("");
+  const [debouncedSerialTo, setDebouncedSerialTo] = useState("");
   const [filterProductId, setFilterProductId] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
+  const fetchDataRequest = useRef(0);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(
+      () => setDebouncedSearch(search.trim()),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [search]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSerialFrom(serialFrom.trim());
+      setDebouncedSerialTo(serialTo.trim());
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [serialFrom, serialTo]);
 
   // stock summary
   const [stockSummary, setStockSummary] = useState<StockSummary[]>([]);
@@ -143,25 +166,33 @@ export default function SCSerialsPage() {
   };
 
   const fetchData = useCallback(async () => {
+    const requestId = ++fetchDataRequest.current;
     setLoading(true);
     try {
       const params: Record<string, string | number> = { page, per_page: perPage, sort_order: "desc" };
-      if (!serialFrom && !serialTo) {
+      const searchTerm = debouncedSearch;
+      if (!searchTerm && !debouncedSerialFrom && !debouncedSerialTo) {
         const { dateFrom, dateTo } = todayDateRange();
         params.date_from = dateFrom;
         params.date_to = dateTo;
       }
-      if (search) params.search = search;
-      if (serialFrom) params.serial_from = serialFrom;
-      if (serialTo) params.serial_to = serialTo;
+      if (searchTerm) params.search = searchTerm;
+      if (debouncedSerialFrom) params.serial_from = debouncedSerialFrom;
+      if (debouncedSerialTo) params.serial_to = debouncedSerialTo;
       if (filterProductId) params.product_id = Number(filterProductId);
       if (filterStatus) params.status = filterStatus;
-      const res = await apiClient.get("/v1/scratch-card-serials", { params, headers: houseHeaders });
+      const headers: Record<string, string> = {};
+      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
+      const res = await apiClient.get("/v1/scratch-card-serials", { params, headers });
+      if (requestId !== fetchDataRequest.current) return;
       setData(res.data.data || []);
       setTotalRecords(res.data.pagination?.total || 0);
-    } catch { toast.error(t('scratch_card_serials.toast_load_failed')); }
-    finally { setLoading(false); }
-  }, [page, search, serialFrom, serialTo, filterProductId, filterStatus, selectedHouse?.id]);
+    } catch {
+      if (requestId === fetchDataRequest.current) toast.error(t('scratch_card_serials.toast_load_failed'));
+    } finally {
+      if (requestId === fetchDataRequest.current) setLoading(false);
+    }
+  }, [page, debouncedSearch, debouncedSerialFrom, debouncedSerialTo, filterProductId, filterStatus, selectedHouse?.id, t]);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -191,17 +222,43 @@ export default function SCSerialsPage() {
     finally { setDetailLoading(false); }
   };
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { fetchSummary(); }, [fetchSummary]);
+  useEffect(() => {
+    const searchSettled = search.trim() === debouncedSearch;
+    const rangeSettled =
+      serialFrom.trim() === debouncedSerialFrom &&
+      serialTo.trim() === debouncedSerialTo;
+    if (!authLoading && searchSettled && rangeSettled) fetchData();
+  }, [
+    authLoading,
+    debouncedSearch,
+    debouncedSerialFrom,
+    debouncedSerialTo,
+    fetchData,
+    search,
+    serialFrom,
+    serialTo,
+  ]);
 
   useEffect(() => {
+    if (!authLoading) fetchSummary();
+  }, [authLoading, fetchSummary]);
+
+  useEffect(() => {
+    const updateNow = () => setNow(Date.now());
+    updateNow();
+    const intervalId = window.setInterval(updateNow, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
     apiClient.get("houses/accessible").then(res => {
       setHouses(res.data || []);
     }).catch(() => {});
     apiClient.get("products", { params: { per_page: 200, category: "Scratch Card" } }).then(res => {
       setProducts((res.data.data || res.data || []).filter((p: Product) => p.status === "Active"));
     }).catch(() => {});
-  }, []);
+  }, [authLoading]);
 
   // reset to page 1 when filters change
   useEffect(() => { setPage(1); }, [search, serialFrom, serialTo, filterProductId, filterStatus]);
@@ -344,12 +401,13 @@ export default function SCSerialsPage() {
     setSelectingAll(true);
     try {
       const params: Record<string, string | number> = {};
-      if (search) params.search = search;
+      const searchTerm = search.trim();
+      if (searchTerm) params.search = searchTerm;
       if (serialFrom) params.serial_from = serialFrom;
       if (serialTo) params.serial_to = serialTo;
       if (filterProductId) params.product_id = Number(filterProductId);
       if (filterStatus) params.status = filterStatus;
-      if (!serialFrom && !serialTo) {
+      if (!searchTerm && !serialFrom && !serialTo) {
         const { dateFrom, dateTo } = todayDateRange();
         params.date_from = dateFrom;
         params.date_to = dateTo;
@@ -514,7 +572,8 @@ export default function SCSerialsPage() {
   };
 
   const timeAgo = (d: Date) => {
-    const diff = Date.now() - d.getTime();
+    if (now === null) return "";
+    const diff = now - d.getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return t('scratch_card_serials.time_just_now');
     if (mins < 60) return t('scratch_card_serials.time_min_ago', { m: mins });
@@ -524,6 +583,11 @@ export default function SCSerialsPage() {
     if (days < 30) return t('scratch_card_serials.time_day_ago', { d: days });
     return formatDate(d);
   };
+
+  // Import picks an amount, not an offer: products sharing one MRP collapse
+  // into a single option (the first product of that amount is the carrier).
+  const mrpOptions = [...new Map(products.map(p => [p.mrp, p])).values()]
+    .sort((a, b) => a.mrp - b.mrp);
 
   if (!authLoading && !hasPermission("scratch_card_serials.view")) return <AccessDenied />;
 
@@ -632,7 +696,11 @@ export default function SCSerialsPage() {
           <input
             placeholder={t('scratch_card_serials.search_placeholder_search')}
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => {
+              setSearch(e.target.value);
+              setSerialFrom("");
+              setSerialTo("");
+            }}
             className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
           />
         </div>
@@ -643,7 +711,11 @@ export default function SCSerialsPage() {
           aria-label={t('scratch_card_serials.serial_range_from')}
           placeholder={t('scratch_card_serials.serial_range_from')}
           value={serialFrom}
-          onChange={e => setSerialFrom(e.target.value)}
+          onChange={e => {
+            setSerialFrom(e.target.value);
+            setSearch("");
+            setDebouncedSearch("");
+          }}
           className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
         />
         <input
@@ -653,7 +725,11 @@ export default function SCSerialsPage() {
           aria-label={t('scratch_card_serials.serial_range_to')}
           placeholder={t('scratch_card_serials.serial_range_to')}
           value={serialTo}
-          onChange={e => setSerialTo(e.target.value)}
+          onChange={e => {
+            setSerialTo(e.target.value);
+            setSearch("");
+            setDebouncedSearch("");
+          }}
           className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
         />
         <select value={filterProductId} onChange={e => setFilterProductId(e.target.value)}
@@ -801,7 +877,7 @@ export default function SCSerialsPage() {
                       {r.used_at ? (
                         <div>
                           <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.used_at))}</p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.used_at))}</p>
+                          {now !== null && <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.used_at))}</p>}
                         </div>
                       ) : (
                         <span className="text-gray-400">-</span>
@@ -821,7 +897,7 @@ export default function SCSerialsPage() {
                       {r.created_at ? (
                         <div>
                           <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.created_at))}</p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.created_at))}</p>
+                          {now !== null && <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.created_at))}</p>}
                         </div>
                       ) : (
                         <span className="text-gray-400">-</span>
@@ -831,7 +907,7 @@ export default function SCSerialsPage() {
                       {r.updated_at ? (
                         <div>
                           <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{formatDate(new Date(r.updated_at))}</p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.updated_at))}</p>
+                          {now !== null && <p className="text-[11px] text-gray-500 dark:text-gray-400">{timeAgo(new Date(r.updated_at))}</p>}
                         </div>
                       ) : (
                         <span className="text-gray-400">-</span>
@@ -886,7 +962,6 @@ export default function SCSerialsPage() {
               toggleSelect={toggleSelect}
               hasDelete={hasPermission("scratch_card_serials.delete")}
               formatDate={formatDate}
-              timeAgo={timeAgo}
               setPermanentDeleteId={setPermanentDeleteId}
               setDeletingId={setDeletingId}
             />
@@ -1080,8 +1155,8 @@ export default function SCSerialsPage() {
                               }}
                                 className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
                                 <option value="">{t('scratch_card_serials.modal_select')}</option>
-                                {products.map(p => (
-                                  <option key={p.id} value={p.id}>{p.product_code} - {p.product_name} ({p.mrp}tk)</option>
+                                {mrpOptions.map(p => (
+                                  <option key={p.id} value={p.id}>{p.mrp} {t('scratch_card_serials.taka')}</option>
                                 ))}
                               </select>
                             </td>
@@ -1487,9 +1562,9 @@ export default function SCSerialsPage() {
   );
 }
 
-function MobileRow({ data, selectedIds, toggleSelect, hasDelete, formatDate, timeAgo, setPermanentDeleteId, setDeletingId }: {
+function MobileRow({ data, selectedIds, toggleSelect, hasDelete, formatDate, setPermanentDeleteId, setDeletingId }: {
   data: SerialRecord[]; selectedIds: number[]; toggleSelect: (id: number) => void;
-  hasDelete: boolean; formatDate: (d: Date) => string; timeAgo: (d: Date) => string;
+  hasDelete: boolean; formatDate: (d: Date) => string;
   setPermanentDeleteId: (id: number) => void; setDeletingId: (id: number) => void;
 }) {
   const { t } = useLanguage();

@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import math
 import re
@@ -33,10 +35,13 @@ from app.schemas.scratch_card_serial import (
 from app.schemas.pagination import PaginatedResponse, PaginationMeta, PaginationParams
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_admin_user
+from app.services.cache_service import cache_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/scratch-card-serials", tags=["Scratch Card Serials"])
+_SERIAL_LIST_CACHE_PREFIX = "scratch_card_serials:list:v3"
+_SERIAL_LIST_CACHE_TTL = 60
 
 # Static parts of the minimal xlsx package written by `_build_excel`.
 _XLSX_CONTENT_TYPES = (
@@ -82,11 +87,88 @@ def _apply_house_filter(query, model, current_user, house_context):
 
 
 def _apply_serial_range(query, serial_from, serial_to):
+    same_width_numeric_range = (
+        serial_from
+        and serial_to
+        and serial_from.isascii()
+        and serial_from.isdigit()
+        and serial_to.isascii()
+        and serial_to.isdigit()
+        and len(serial_from) == len(serial_to)
+    )
+
     if serial_from:
-        query = query.where(ScratchCardSerial.serial_number >= serial_from)
+        if serial_from.isascii() and serial_from.isdigit() and not same_width_numeric_range:
+            query = query.where(
+                or_(
+                    func.length(ScratchCardSerial.serial_number) > len(serial_from),
+                    and_(
+                        func.length(ScratchCardSerial.serial_number) == len(serial_from),
+                        ScratchCardSerial.serial_number >= serial_from,
+                    ),
+                )
+            )
+        else:
+            query = query.where(ScratchCardSerial.serial_number >= serial_from)
     if serial_to:
-        query = query.where(ScratchCardSerial.serial_number <= serial_to)
+        if serial_to.isascii() and serial_to.isdigit() and not same_width_numeric_range:
+            query = query.where(
+                or_(
+                    func.length(ScratchCardSerial.serial_number) < len(serial_to),
+                    and_(
+                        func.length(ScratchCardSerial.serial_number) == len(serial_to),
+                        ScratchCardSerial.serial_number <= serial_to,
+                    ),
+                )
+            )
+        else:
+            query = query.where(ScratchCardSerial.serial_number <= serial_to)
     return query
+
+
+def _has_search_term(search: Optional[str]) -> bool:
+    return bool((search or "").strip())
+
+
+def _serial_list_cache_key(
+    pagination,
+    product_id,
+    status,
+    date_from,
+    date_to,
+    serial_from,
+    serial_to,
+    house_context,
+    current_user,
+):
+    search = (pagination.search or "").strip()
+    has_serial_range = bool(serial_from or serial_to)
+    has_search = _has_search_term(search)
+    query = {
+        "user_id": current_user.id,
+        "roles": sorted(role.name.lower() for role in current_user.roles),
+        "house_ids": sorted(house.id for house in current_user.houses),
+        "house_context": None if has_search or has_serial_range else house_context,
+        "page": pagination.page,
+        "per_page": pagination.per_page,
+        "search": search or None,
+        "sort_by": pagination.sort_by,
+        "sort_order": pagination.sort_order,
+        "product_id": None if has_search else product_id,
+        "status": None if has_search else status,
+        "date_from": None if has_search else date_from,
+        "date_to": None if has_search else date_to,
+        "serial_from": None if has_search else serial_from,
+        "serial_to": None if has_search else serial_to,
+    }
+    digest = hashlib.sha256(
+        json.dumps(query, sort_keys=True, default=str, separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"{_SERIAL_LIST_CACHE_PREFIX}:{digest}"
+
+
+async def _invalidate_serial_list_cache():
+    await cache_service.invalidate_pattern(f"{_SERIAL_LIST_CACHE_PREFIX}:*")
 
 
 def _check_house_access(record, current_user, house_context=None):
@@ -128,33 +210,73 @@ async def list_serials(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
 ):
+    search = (pagination.search or "").strip()
+    has_serial_range = bool(serial_from or serial_to)
+    has_search = _has_search_term(search)
     query = select(ScratchCardSerial).options(
         joinedload(ScratchCardSerial.house),
         joinedload(ScratchCardSerial.product),
         joinedload(ScratchCardSerial.used_by_user),
     )
-    query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
-    query = _apply_serial_range(query, serial_from, serial_to)
+    query = _apply_house_filter(
+        query,
+        ScratchCardSerial,
+        current_user,
+        None if has_search or has_serial_range else house_context,
+    )
 
-    if pagination.search:
-        q = f"%{pagination.search}%"
-        query = query.where(
-            or_(
-                ScratchCardSerial.serial_number.ilike(q),
-                ScratchCardSerial.batch_id.ilike(q),
-                ScratchCardSerial.exit_order_no.ilike(q),
-                ScratchCardSerial.rf_no.ilike(q),
+    if has_search:
+        query = query.where(ScratchCardSerial.serial_number == search)
+    else:
+        query = _apply_serial_range(query, serial_from, serial_to)
+
+    if not has_search:
+        if product_id:
+            query = query.where(ScratchCardSerial.product_id == product_id)
+        if status:
+            query = query.where(ScratchCardSerial.status == status)
+    if not has_search:
+        if date_from:
+            query = query.where(ScratchCardSerial.created_at >= datetime.combine(date_from, datetime.min.time()))
+        if date_to:
+            query = query.where(ScratchCardSerial.created_at <= datetime.combine(date_to, datetime.max.time()))
+
+    cache_key = _serial_list_cache_key(
+        pagination,
+        product_id,
+        status,
+        date_from if not search else None,
+        date_to if not search else None,
+        serial_from,
+        serial_to,
+        None if has_search else house_context,
+        current_user,
+    )
+    cached_response = await cache_service.get(cache_key)
+    if cached_response is not None:
+        return cached_response
+
+    exact_total = None
+    if has_search:
+        exact_total = (await db.execute(
+            select(func.count()).select_from(query.subquery())
+        )).scalar() or 0
+        if exact_total == 0:
+            q = f"%{search}%"
+            query = select(ScratchCardSerial).options(
+                joinedload(ScratchCardSerial.house),
+                joinedload(ScratchCardSerial.product),
+                joinedload(ScratchCardSerial.used_by_user),
             )
-        )
-
-    if product_id:
-        query = query.where(ScratchCardSerial.product_id == product_id)
-    if status:
-        query = query.where(ScratchCardSerial.status == status)
-    if date_from:
-        query = query.where(ScratchCardSerial.created_at >= datetime.combine(date_from, datetime.min.time()))
-    if date_to:
-        query = query.where(ScratchCardSerial.created_at <= datetime.combine(date_to, datetime.max.time()))
+            query = _apply_house_filter(query, ScratchCardSerial, current_user, None)
+            query = query.where(
+                or_(
+                    ScratchCardSerial.serial_number.ilike(q),
+                    ScratchCardSerial.batch_id.ilike(q),
+                    ScratchCardSerial.exit_order_no.ilike(q),
+                    ScratchCardSerial.rf_no.ilike(q),
+                )
+            )
 
     sort_col = getattr(ScratchCardSerial, pagination.sort_by, ScratchCardSerial.id)
     if pagination.sort_order == "desc":
@@ -162,8 +284,11 @@ async def list_serials(
     else:
         query = query.order_by(sort_col)
 
-    total_q = select(func.count()).select_from(query.subquery())
-    total = (await db.execute(total_q)).scalar() or 0
+    if exact_total:
+        total = exact_total
+    else:
+        total_q = select(func.count()).select_from(query.subquery())
+        total = (await db.execute(total_q)).scalar() or 0
 
     offset = (pagination.page - 1) * pagination.per_page
     query = query.offset(offset).limit(pagination.per_page)
@@ -172,7 +297,7 @@ async def list_serials(
 
     total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
 
-    return PaginatedResponse(
+    response = PaginatedResponse(
         data=[_serial_to_schema(r) for r in records],
         pagination=PaginationMeta(
             page=pagination.page,
@@ -183,6 +308,8 @@ async def list_serials(
             has_prev=pagination.page > 1,
         ),
     )
+    await cache_service.set(cache_key, response.model_dump(mode="json"), ttl=_SERIAL_LIST_CACHE_TTL)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -201,11 +328,20 @@ async def select_all_serials(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("scratch_card_serials.view")),
 ):
-    query = select(ScratchCardSerial.id)
-    query = _apply_house_filter(query, ScratchCardSerial, current_user, house_context)
-    query = _apply_serial_range(query, serial_from, serial_to)
+    search = (search or "").strip()
+    has_search = _has_search_term(search)
+    has_serial_range = bool(serial_from or serial_to)
+    if has_search:
+        query = select(ScratchCardSerial.id)
+        query = _apply_house_filter(query, ScratchCardSerial, current_user, None)
+        query = query.where(ScratchCardSerial.serial_number == search)
+        result = await db.execute(query)
+        ids = [row[0] for row in result.all()]
+        if ids:
+            return {"success": True, "data": {"ids": ids, "total": len(ids)}}
 
-    if search:
+        query = select(ScratchCardSerial.id)
+        query = _apply_house_filter(query, ScratchCardSerial, current_user, None)
         q = f"%{search}%"
         query = query.where(
             or_(
@@ -215,14 +351,23 @@ async def select_all_serials(
                 ScratchCardSerial.rf_no.ilike(q),
             )
         )
-    if product_id:
-        query = query.where(ScratchCardSerial.product_id == product_id)
-    if status:
-        query = query.where(ScratchCardSerial.status == status)
-    if date_from:
-        query = query.where(ScratchCardSerial.created_at >= datetime.combine(date_from, datetime.min.time()))
-    if date_to:
-        query = query.where(ScratchCardSerial.created_at <= datetime.combine(date_to, datetime.max.time()))
+    else:
+        query = select(ScratchCardSerial.id)
+        query = _apply_house_filter(
+            query,
+            ScratchCardSerial,
+            current_user,
+            None if has_serial_range else house_context,
+        )
+        query = _apply_serial_range(query, serial_from, serial_to)
+        if product_id:
+            query = query.where(ScratchCardSerial.product_id == product_id)
+        if status:
+            query = query.where(ScratchCardSerial.status == status)
+        if date_from:
+            query = query.where(ScratchCardSerial.created_at >= datetime.combine(date_from, datetime.min.time()))
+        if date_to:
+            query = query.where(ScratchCardSerial.created_at <= datetime.combine(date_to, datetime.max.time()))
 
     result = await db.execute(query)
     ids = [row[0] for row in result.all()]
@@ -288,6 +433,7 @@ async def create_serial(
     )
     db.add(record)
     await db.commit()
+    await _invalidate_serial_list_cache()
     await db.refresh(record)
 
     await log_activity(
@@ -357,6 +503,7 @@ async def batch_create_serials(
         inserted += 1
 
     await db.commit()
+    await _invalidate_serial_list_cache()
 
     await log_activity(
         db=db,
@@ -402,6 +549,7 @@ async def update_serial(
             setattr(record, key, val)
 
     await db.commit()
+    await _invalidate_serial_list_cache()
     await db.refresh(record)
 
     await log_activity(
@@ -449,6 +597,7 @@ async def bulk_update_status(
         )
     )
     await db.commit()
+    await _invalidate_serial_list_cache()
 
     await log_activity(
         db=db,
@@ -498,6 +647,7 @@ async def batch_update_serials(
             ).values(**update_values)
         )
         await db.commit()
+        await _invalidate_serial_list_cache()
 
     await log_activity(
         db=db,
@@ -535,6 +685,7 @@ async def delete_serial(
     sn = record.serial_number
     await db.delete(record)
     await db.commit()
+    await _invalidate_serial_list_cache()
 
     await log_activity(
         db=db,
@@ -576,6 +727,7 @@ async def permanent_delete_serial(
     sn = record.serial_number
     await db.delete(record)
     await db.commit()
+    await _invalidate_serial_list_cache()
 
     await log_activity(
         db=db,
@@ -618,6 +770,7 @@ async def bulk_permanent_delete(
     for rec in records_list:
         await db.delete(rec)
     await db.commit()
+    await _invalidate_serial_list_cache()
 
     await log_activity(
         db=db,
@@ -658,6 +811,7 @@ async def bulk_delete_serials(
     for rec in records_list:
         await db.delete(rec)
     await db.commit()
+    await _invalidate_serial_list_cache()
 
     await log_activity(
         db=db,
@@ -877,6 +1031,7 @@ async def confirm_allocation(
         updated += 1
 
     await db.commit()
+    await _invalidate_serial_list_cache()
 
     await log_activity(
         db=db,
@@ -907,9 +1062,8 @@ async def export_serials(
     from app.models.product import Product
 
     query = select(
-        ScratchCardSerial.product_id,
         ScratchCardSerial.serial_number,
-        Product.product_code,
+        Product.mrp,
     ).join(Product, ScratchCardSerial.product_id == Product.id).where(
         ScratchCardSerial.status == "available"
     )
@@ -920,7 +1074,7 @@ async def export_serials(
     if batch_id:
         query = query.where(ScratchCardSerial.batch_id == batch_id)
 
-    query = query.order_by(ScratchCardSerial.product_id, ScratchCardSerial.serial_number)
+    query = query.order_by(Product.mrp, ScratchCardSerial.serial_number)
 
     result = await db.execute(query)
     rows = result.all()
@@ -928,21 +1082,22 @@ async def export_serials(
         return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         headers={"Content-Disposition": "attachment; filename=scratch_card_serials.xlsx"})
 
-    # Group by product_id
-    groups: dict[int, list[tuple]] = defaultdict(list)
+    # Group by amount, not product: offers sharing an MRP share one column.
+    groups: dict[float, list[tuple]] = defaultdict(list)
     for r in rows:
-        groups[r[0]].append(r)
+        groups[r[1] or 0].append(r)
 
-    # Build product info (code + ranges) – CPU-light, fine on event loop
+    # Build amount headers + ranges – CPU-light, fine on event loop
     product_info: list[tuple[str, list[tuple[str, str]]]] = []
-    for pid, serials in groups.items():
+    for mrp, serials in groups.items():
+        label = f"{mrp:g} Taka"
         # Ranges are collapsed by treating serials as integers. A non-numeric
         # serial would raise here and 500 the whole export, so it is kept as an
         # isolated single-serial range instead (it still shows up in the file).
         numeric = []
         non_numeric: list[str] = []
         for s in serials:
-            raw_sn = s[1]
+            raw_sn = s[0]
             try:
                 numeric.append((int(raw_sn), raw_sn))
             except (TypeError, ValueError):
@@ -950,17 +1105,16 @@ async def export_serials(
         numeric.sort(key=lambda s: s[0])
 
         if not numeric:
-            product_info.append((serials[0][2] or f"Product #{pid}", [(sn, sn) for sn in sorted(set(non_numeric))]))
+            product_info.append((label, [(sn, sn) for sn in sorted(set(non_numeric))]))
             continue
 
         if non_numeric:
             logger.warning(
                 "scratch card serial export: skipped range collapsing for %d "
-                "non-numeric serials in product %s",
-                len(non_numeric), pid,
+                "non-numeric serials at amount %s",
+                len(non_numeric), label,
             )
 
-        code = serials[0][2] or f"Product #{pid}"
         ranges: list[tuple[str, str]] = []
         start = end = numeric[0][1]
         prev = numeric[0][0]
@@ -976,7 +1130,7 @@ async def export_serials(
         ranges.append((start, end))
         for sn in sorted(set(non_numeric)):
             ranges.append((sn, sn))
-        product_info.append((code, ranges))
+        product_info.append((label, ranges))
 
     # ── Heavy Excel work → run in thread (frees the event loop) ──────
     loop = asyncio.get_event_loop()
